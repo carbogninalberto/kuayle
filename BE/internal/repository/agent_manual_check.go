@@ -13,8 +13,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
-// A manual check runs a task's check command on demand, in the same
-// credential-free check container as independent validation, without an agent
+// A manual check runs the requested command in a credential-free container, without an agent
 // attempt and without changing the task's state. Its result is a manual_check
 // step on the task's latest attempt.
 const manualCheckStepType = "manual_check"
@@ -30,14 +29,14 @@ var manualCheckStates = []string{"awaiting_review", "blocked", "failed", "comple
 var activeTaskStates = []string{"preparing", "running", "waiting_input", "validating", "publishing", "cancelling"}
 
 var (
-	// ErrMachineBusy means an agent attempt, an independent check or another
+	// ErrMachineBusy means an agent attempt, publication or another
 	// manual check is using the machine.
 	ErrMachineBusy = errors.New("the agent is working on this machine; try again when it pauses")
 	// ErrCheckUnavailable means the task has no attempt with a ready checkout
 	// on a running machine to check.
 	ErrCheckUnavailable = errors.New("the check needs the task's latest iteration and its checkout on a running machine")
-	// ErrNoCheckCommand means no command was given and none is configured.
-	ErrNoCheckCommand = errors.New("no check command is configured for this task")
+	// ErrNoCheckCommand means no command was given.
+	ErrNoCheckCommand = errors.New("provide a check command")
 	// ErrCheckForbidden means the caller may not run a command of their own.
 	ErrCheckForbidden = errors.New("only members who can edit development settings can run a custom check command")
 )
@@ -48,9 +47,7 @@ var (
 const activeManualCheckSQL = `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE machine_id=$1 AND action IN ('run_check','run_tool','run_command') AND status IN ('pending','leased'))`
 
 // RunCheck queues a manual check on the task's latest attempt for its
-// creator. A nil command runs the task's check: the command requested for the
-// task, otherwise the one configured for its issue now. A custom command needs
-// the permission to edit development settings.
+// creator. The supplied command requires development-management permission.
 func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, command []string) (*domain.DevMachineAgentRunStep, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
@@ -95,26 +92,14 @@ func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, co
 	if err != nil {
 		return nil, err
 	}
-	argv := task.ValidationCommand
-	compose := task.ComposeFile
-	if command != nil {
-		argv, _ = json.Marshal(command)
-	} else if task.TestCommand == nil {
-		// The configured command may have changed, or been added, since the attempt.
-		if _, argv, err = resolveAgentTaskCommand(ctx, tx, ws, task.IssueID, nil); err != nil {
-			return nil, err
-		}
-		if compose, err = resolveScopeDefault(ctx, tx, ws, task.IssueID, "compose_file"); err != nil {
-			return nil, err
-		}
-	}
-	var resolved []string
-	if json.Unmarshal(argv, &resolved) != nil || domain.ValidateTestCommand(resolved) != nil {
-		return nil, ErrConversationInvalid
-	}
-	if len(resolved) == 0 {
+	if command == nil {
 		return nil, ErrNoCheckCommand
 	}
+	argv, err := json.Marshal(command)
+	if err != nil {
+		return nil, err
+	}
+	compose := task.ComposeFile
 	// Steps whose operation ended without a result (for example a machine
 	// teardown) are failed, so none stays queued forever.
 	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_run_steps s SET status='failed',completed_at=now(),summary='The check could not finish'
@@ -252,7 +237,7 @@ func (r *DevMachineRepository) FailManualCheck(ctx context.Context, op domain.De
 // ManualChecks lists the manual checks of one of the task's attempts, oldest
 // first, under current task permissions.
 func (r *AgentTaskRepository) ManualChecks(ctx context.Context, ws, id, run uuid.UUID) ([]domain.DevMachineAgentRunStep, error) {
-	if _, err := r.Validation(ctx, ws, id, run); err != nil {
+	if err := r.authorizeRunRead(ctx, ws, id, run); err != nil {
 		return nil, err
 	}
 	steps := []domain.DevMachineAgentRunStep{}

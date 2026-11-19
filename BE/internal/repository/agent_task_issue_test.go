@@ -31,7 +31,9 @@ func TestAgentTaskNativeStartMovesUnchangedIssueToConfiguredStartedStatus(t *tes
 	var count int
 	require.NoError(t, db.Get(&count, `SELECT count(*) FROM issue_history WHERE issue_id=$1 AND user_id=$2 AND field='status' AND old_value='Todo' AND new_value='Building' AND agent=$3`, task.IssueID, task.CreatorID, task.Provider))
 	require.Equal(t, 1, count)
-	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Independent validation pending"))
+	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE id=$1`, task.RunID)
+	require.NoError(t, err)
+	require.NoError(t, repo.Transition(ctx, *claimed, "publishing", "Native attempt finished"))
 	require.NoError(t, db.Get(&current, `SELECT status_id FROM issues WHERE id=$1`, task.IssueID))
 	require.Equal(t, started, current, "native success is not issue completion")
 }

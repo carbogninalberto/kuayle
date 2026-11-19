@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// publishingTask drives a task through a real independent check into publishing.
+// publishingTask drives a task from a successful native attempt into publishing.
 func publishingTask(t *testing.T) (*sqlx.DB, *AgentTaskRepository, context.Context, domain.AgentTask, *domain.AgentTask) {
 	t.Helper()
 	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
@@ -27,21 +27,7 @@ func publishingTask(t *testing.T) (*sqlx.DB, *AgentTaskRepository, context.Conte
 	require.NoError(t, err)
 	_, err = db.Exec(`UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now(),exit_code=0,checkout_id=$2 WHERE id=$1`, task.RunID, task.CheckoutID)
 	require.NoError(t, err)
-	require.NoError(t, repo.Transition(ctx, *claimed, "validating", "Native attempt finished"))
-	_, err = db.Exec(`UPDATE agent_tasks SET validation_command='["true"]' WHERE id=$1`, task.ID)
-	require.NoError(t, err)
-	step, err := repo.EnsureValidation(ctx, *claimed)
-	require.NoError(t, err)
-	store := NewDevMachineRepository(db)
-	ops, err := store.LeaseOperations(ctx, "validation-fixture", 1, time.Minute)
-	require.NoError(t, err)
-	require.Len(t, ops, 1)
-	op := ops[0]
-	require.NoError(t, store.CreateRuntimeService(ctx, &domain.DevMachineService{ID: step.ID, WorkspaceID: task.WorkspaceID, MachineID: op.MachineID, AgentRunID: &task.RunID, ServiceType: "agent", ServiceKey: "validation", ContainerName: "validation", ImageRef: "fixture", InternalHost: "validation", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}))
-	require.NoError(t, store.StartValidation(ctx, op, "container"))
-	require.NoError(t, store.CompleteValidation(ctx, op, 0, nil))
-	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
-	require.NoError(t, repo.Transition(ctx, *claimed, "publishing", "Checks passed"))
+	require.NoError(t, repo.Transition(ctx, *claimed, "publishing", "Native attempt finished"))
 	return db, repo, ctx, task, claimed
 }
 
@@ -78,8 +64,6 @@ func TestPublicationRecordsPullRequestOnceAndGatesReview(t *testing.T) {
 	publication, err := store.GetPublication(ctx, op)
 	require.NoError(t, err)
 	require.NotEmpty(t, publication.IssueIdentifier)
-	require.Equal(t, []string{"true"}, publication.CheckArgv, "the PR body cites the check that actually passed")
-	require.Equal(t, 0, *publication.CheckExitCode)
 	require.Empty(t, publication.AuthorName, "no workspace author keeps the deployment default")
 	var slug string
 	require.NoError(t, db.Get(&slug, `SELECT slug FROM workspaces WHERE id=$1`, task.WorkspaceID))

@@ -432,7 +432,6 @@ func main() {
 	)
 	githubSvc.SetTaskReviews(repository.NewAgentTaskRepository(db))
 	githubSvc.SetWebhooks(webhookSvc)
-	devMachineSvc.SetRepositoryManifests(githubSvc)
 	assistantApprovals.SetMerging(repository.NewAgentTaskRepository(db), workspaceRepo, githubSvc)
 	assistantApprovals.SetWiki(wikiSvc, workspaceRepo)
 	assistantApprovals.SetWikiPublishing(wikiPublishSvc, workspaceRepo)

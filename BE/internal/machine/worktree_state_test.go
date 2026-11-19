@@ -134,7 +134,7 @@ func TestWorktreeStateSeesEveryChangeAnAgentCanMake(t *testing.T) {
 	git("commit", "-q", "-m", "base")
 	clean := state()
 	write(".kuayle/outbox/m.json", "{}")
-	write(".kuayle/validation.json", "{}")
+	write(".kuayle/pull_request.json", "{}")
 	require.Equal(t, clean, state())
 	write("b.go", "package a\n")
 	require.Equal(t, []string{"b.go"}, files(clean, state()))

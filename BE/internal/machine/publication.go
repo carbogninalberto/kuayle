@@ -72,7 +72,7 @@ func (m *Manager) syncBeforeTaskVisit(ctx context.Context, machine *domain.DevMa
 	return nil
 }
 
-// publishAgent commits, pushes and opens the pull request for a validated
+// publishAgent commits, pushes and opens the pull request for a completed
 // attempt or an approved stopped task. The harness never receives the credential.
 func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
 	publication, err := m.store.GetPublication(ctx, *op)
@@ -215,16 +215,11 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 			pullRequest, prErr = githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		}
 		if prErr == nil && pullRequest == nil {
-			// Without an independent check the change opens as a draft, so it
-			// cannot be merged before someone has looked at it.
-			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, body, !publicationValidated(publication))
+			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, body, publication.FromStoppedTask)
 		} else if prErr == nil {
 			// A reused pull request describes this attempt.
 			prErr = githubAPI.UpdatePullRequestBody(token, owner, repository, pullRequest.Number, body)
-			// A draft opened by an unchecked attempt becomes mergeable once a
-			// later attempt passes. The reverse is not done: a ready pull
-			// request stays ready.
-			if prErr == nil && pullRequest.Draft && publicationValidated(publication) {
+			if prErr == nil && pullRequest.Draft && !publication.FromStoppedTask {
 				prErr = githubAPI.MarkPullRequestReadyForReview(token, pullRequest.NodeID)
 			}
 		}
@@ -255,12 +250,6 @@ func stoppedPullRequest(github githubAPI, token, owner, repository string, check
 		err = github.ConvertPullRequestToDraft(token, pullRequest.NodeID)
 	}
 	return pullRequest, err
-}
-
-// publicationValidated reports whether a configured check passed on this
-// attempt. Only a succeeded validation step records the check's argv.
-func publicationValidated(publication *domain.AgentPublication) bool {
-	return !publication.FromStoppedTask && len(publication.CheckArgv) > 0 && publication.CheckExitCode != nil
 }
 
 func truncateText(value string, limit int) string {

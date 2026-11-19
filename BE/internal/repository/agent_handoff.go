@@ -11,7 +11,7 @@ import (
 )
 
 // PreviousAttempt returns what Kuayle recorded about the task's attempt before
-// the current one: native outcome, independent check, publication and changed
+// the current one: native outcome, publication and changed
 // files. The agent summary is the previous harness's own, untrusted text.
 func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.AgentTask) (*domain.AgentHandoff, error) {
 	var row struct {
@@ -21,27 +21,19 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		Status       string          `db:"status"`
 		Summary      *string         `db:"summary"`
 		ChangedFiles json.RawMessage `db:"changed_files"`
-		Validation   *string         `db:"validation"`
-		ExitCode     *int            `db:"exit_code"`
 		PullRequest  *string         `db:"pull_request"`
 		Publication  *string         `db:"publication_failure"`
-		Source       *string         `db:"command_source"`
-		Commands     domain.NullJSON `db:"commands"`
-		Results      domain.NullJSON `db:"command_results"`
-		Argv         domain.NullJSON `db:"command_argv"`
 		Continued    bool            `db:"continued"`
 		NoFinal      bool            `db:"no_final_message"`
 		Notebook     *string         `db:"notebook_problem"`
 		FailureRule  *string         `db:"failure_rule"`
 	}
 	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
- v.status::text AS validation,v.exit_code,v.command_source,v.commands,v.command_results,v.command_argv,
  CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request,
  CASE WHEN p.status='failed' THEN p.summary END AS publication_failure,
  r.session_continued_at IS NOT NULL AS continued,
  COALESCE(r.result->>'no_final_message','')='true' AS no_final_message,r.notebook_problem,r.failure_rule
  FROM dev_machine_agent_runs r
- LEFT JOIN dev_machine_agent_run_steps v ON v.agent_run_id=r.id AND v.sequence=0 AND v.step_type='validation'
  LEFT JOIN dev_machine_agent_run_steps p ON p.agent_run_id=r.id AND p.sequence=1 AND p.step_type='publication'
  WHERE r.task_id=$1 AND r.workspace_id=$2 AND r.id<>$3 ORDER BY r.created_at DESC,r.id LIMIT 1`, task.ID, task.WorkspaceID, task.RunID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -50,7 +42,7 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	if err != nil {
 		return nil, err
 	}
-	handoff := &domain.AgentHandoff{AttemptID: row.ID, MachineID: row.MachineID, Status: row.Status, ValidationExitCode: row.ExitCode, ContinuedInteractively: row.Continued, NoFinalMessage: row.NoFinal}
+	handoff := &domain.AgentHandoff{AttemptID: row.ID, MachineID: row.MachineID, Status: row.Status, ContinuedInteractively: row.Continued, NoFinalMessage: row.NoFinal}
 	handoff.PublicationBlock = domain.PublicationCheckoutBlockReason(row.Publication)
 	if row.Notebook != nil && domain.IsNotebookNotUpdated(*row.Notebook) {
 		handoff.NotebookProblem = *row.Notebook
@@ -63,16 +55,6 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	}
 	if row.Summary != nil {
 		handoff.Summary = *row.Summary
-	}
-	if row.Validation != nil {
-		handoff.Validation = *row.Validation
-	}
-	if row.Source != nil {
-		handoff.ValidationSource = *row.Source
-	}
-	check := domain.DevMachineAgentRunStep{CommandArgv: json.RawMessage(row.Argv), Commands: row.Commands, CommandResults: json.RawMessage(row.Results), ExitCode: row.ExitCode}
-	if command, exit, failed := check.FailedCommand(); failed && handoff.Validation == "failed" {
-		handoff.FailedCommand, handoff.FailedCommandExitCode = command, &exit
 	}
 	if row.PullRequest != nil {
 		handoff.PullRequestURL = *row.PullRequest

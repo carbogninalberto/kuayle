@@ -107,8 +107,8 @@ type RuntimeServiceInspection struct {
 }
 
 type Runtime interface {
-	// RunValidation runs command index of a check step in its own container.
-	RunValidation(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, int, *domain.DevMachineCheckout, string, *AgentObserver) (*AgentExecution, error)
+	// RunManualCheck runs a manual check in its own container.
+	RunManualCheck(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout, string, *AgentObserver) (*AgentExecution, error)
 	HostResources(context.Context) (HostResources, error)
 	CollectValidationArtifacts(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep, *domain.DevMachineCheckout) ([]domain.ValidationArtifact, error)
 	RemoveCheckServices(context.Context, *domain.DevMachine, *domain.DevMachineAgentRun, *domain.DevMachineAgentRunStep) error

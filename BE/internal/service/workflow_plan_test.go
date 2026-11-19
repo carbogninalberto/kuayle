@@ -123,7 +123,7 @@ func TestPlanReachesTheNextStepWholeAndTrusted(t *testing.T) {
 	require.Contains(t, attempt, domain.WorkflowPlanHeading+"\n"+plan)
 	require.Equal(t, 1, strings.Count(attempt, plan), "the handoff does not repeat the plan as unverified text")
 	require.NotContains(t, attempt, "Previous agent summary")
-	require.Contains(t, attempt, validationFileLine, "the next step is an implementing step again")
+	require.Contains(t, attempt, "run the tests relevant to your change", "the next step is an implementing step again")
 	require.LessOrEqual(t, len(attempt), 32768)
 }
 
@@ -204,7 +204,7 @@ func TestPlanningAttemptHasNoImplementerContract(t *testing.T) {
 	plan := withContract("Add dark mode", task, related, true)
 	require.True(t, strings.HasPrefix(plan, "Planning step: plan this for the next agent; do not implement it."))
 	require.True(t, strings.HasSuffix(strings.SplitN(plan, "\n\n---\n", 2)[1][:13], "Add dark mode"))
-	for _, line := range []string{"Manual QA", domain.AgentValidationFile, "Tests Kuayle re-runs", "pull request"} {
+	for _, line := range []string{"Manual QA", "run the tests relevant to your change", "pull request"} {
 		require.NotContains(t, plan, line)
 	}
 	require.Contains(t, plan, "Messaging other agents", "a planner can still ask the agents of related issues")
@@ -212,7 +212,7 @@ func TestPlanningAttemptHasNoImplementerContract(t *testing.T) {
 	build := withContract("Add dark mode", task, related, false)
 	require.NotContains(t, build, "Planning step")
 	require.Contains(t, build, "Manual QA")
-	require.Contains(t, build, validationFileLine)
+	require.Contains(t, build, "run the tests relevant to your change")
 }
 
 // The workspace policy is checked for a planning step like for any other.

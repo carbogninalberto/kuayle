@@ -97,7 +97,7 @@ export function newNode(
 		label,
 		position: position ?? { x: right, y: 0 }
 	};
-	if (type === 'check') node.check = 'tests';
+	if (type === 'check') node.check = 'ci';
 	if (type === 'end') node.outcome = 'done';
 	return node;
 }
@@ -172,7 +172,7 @@ export function graphForSave(graph: WorkflowGraph): WorkflowGraph {
 			const out: WorkflowNode = { id: node.id, type: node.type, label: node.label.trim(), position: node.position };
 			if (node.profile_id) out.profile_id = node.profile_id;
 			if ((node.type === 'agent' || node.type === 'approval') && node.prompt?.trim()) out.prompt = node.prompt;
-			if (node.type === 'check') out.check = node.check ?? 'tests';
+			if (node.type === 'check') out.check = node.check ?? 'ci';
 			if (node.type === 'end') out.outcome = node.outcome ?? 'done';
 			if ((node.max_visits ?? 0) > 0) out.max_visits = Math.floor(node.max_visits ?? 0);
 			if ((node.timeout_minutes ?? 0) > 0) out.timeout_minutes = Math.floor(node.timeout_minutes ?? 0);

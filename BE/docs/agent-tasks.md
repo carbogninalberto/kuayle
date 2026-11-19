@@ -6,8 +6,7 @@ The task domain, repository, worker and HTTP controls are wired into the API
 process. Issue conversations expose task delegation, retry, cancellation and live
 activity through AI Elements Task/Trace and Model Selector compositions. The
 assistant delegates through approval-gated [orchestrator tools](conversations.md#orchestrator-tools).
-Native success is followed by an independent check (migration 58) and deterministic
-publication of a pull request (migration 59), after which the task waits in
+Native success is followed by publication of a pull request (migration 59), after which the task waits in
 `awaiting_review` until GitHub reports that pull request merged, an approved
 merge from chat completes it, or its creator or a workspace admin accepts it in
 Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI failures, GitHub change requests and the
@@ -19,8 +18,7 @@ for what is not implemented.
 
 Terminology: texts users read (transition reasons such as "Native coding
 iteration failed; stopping execution before retry", "New execution iteration
-requested" and "Implementation iteration finished; independent validation is
-pending", check and tool-run errors, and assistant tool descriptions) call one
+requested" and "Implementation iteration finished; preparing the pull request", check and tool-run errors, and assistant tool descriptions) call one
 native execution run an **iteration**. Code identifiers, API fields
 (`attempt`, `attempt_id`), database columns, enum values and operation keys
 keep "attempt", and rows stored before the rename keep their old text.
@@ -35,124 +33,12 @@ worktrees use the task UUID, so two tasks for the same issue do not share a bran
 Rollback refuses active tasks, retained task worktrees and native attempts still
 using recovery credentials; it does not silently orphan execution.
 
-## Test command configuration
+## Testing
 
-Migration 57 adds a nullable `test_command` override to development defaults and
-tasks, plus the effective `validation_command` snapshot on each task attempt.
-The Settings, team, project and issue development forms accept a JSON argv array;
-task delegation and retry forms can override it. Omitted/null inherits; `[]`
-explicitly means no configured check. Commands are bounded to 64 arguments,
-8 KiB per argument and 32 KiB total; empty executables and NUL are rejected.
-
-New accepted intents resolve issue → project → team → workspace within the
-existing authorized task transaction. The immutable queued receipt retains both
-the requested override and effective command. A replay compares the original
-override, including the distinction between inherit and `[]`, and returns the
-original snapshot even after defaults change. A new retry resolves current
-defaults unless it explicitly supplies an override. Existing attempts migrate
-with no configured command; later defaults are never retroactively applied.
-Rollback refuses configured overrides or nonempty effective snapshots.
-
-A retry may also switch the task's `model` (internally with the model server an
-approver picked). The retry receipt (`agent_task_retries.model` and
-`model_server_id`, migration `000110_agent_task_retry_model`) records what was
-asked, `''`/NULL meaning keep the task's, so replaying a request ID with another
-model or server conflicts like a changed prompt. Existing receipts asked for no
-model; rollback drops only the two columns.
-
-The native attempt receives this command in its instructions and existing
-`test_command` field. That is advisory only: the outcome used by the task is the
-independent check below. Missing commands are not evidence of success.
-
-## Independent validation
-
-Migration 58 adds the `validate_agent` machine operation. In `validating`, the
-worker queues one `validation` step (sequence 0) on the succeeded native attempt,
-with the attempt's effective command snapshot, inside the fenced task transaction.
-It uses the same workspace/machine advisory locks as native run creation and
-requires a running machine, enabled policy and no active native run. An empty
-snapshot records a `skipped` step; it is never a pass. The task still moves to
-`publishing`, and the change is opened as a **draft** pull request; the task
-then awaits review with a reason that says no check is configured.
-
-The manager runs the argv as positional arguments of a fixed `sh` runner that
-only prepares the run's temporary directory (no interpolation, harness bootstrap or provider
-parsing) in a deterministic `-validation-<run>` container from the machine's
-developer image, on the task checkout, under the hardened agent host config,
-egress proxy and `CI=true`. No model, GitHub or runtime credentials are copied
-into it; the attempt's encrypted snapshot is decoded only to redact output.
-Output is stored as log chunks whose `service_id` is the step ID. Every step and
-output write re-verifies the task (still `validating`, same run, creator, machine
-generation, enabled policy, succeeded attempt) and the operation's live lease.
-The deadline starts at the step's first start, so restarts cannot extend it.
-Recovery replays an already exited container's result instead of rerunning it,
-after checking image, argv, workdir and ownership labels.
-
-The process exit code alone decides the step: 0 succeeds, anything else fails.
-Moving to `publishing` re-checks, in the same transaction, a succeeded step with
-exit code 0 and a completed operation, or a step skipped because the snapshot
-had no command (an unchecked draft); a skipped step with a command never
-qualifies. A failed or cancelled check goes to cleanup
-and `failed`; an exhausted infrastructure operation marks the step failed rather
-than leaving it queued. Cancellation marks open steps cancelled. Every step change
-emits a `task.tests_updated` conversation event with `{task_id, run_id, step}`.
-Machines with a task in `validating` or `publishing` count as active for
-pause/stop and new runs. Rollback refuses retained validation operations or steps.
-
-Migration 67 keeps QA evidence. After the check exits, and before it completes
-under the same lease, the manager copies regular files from the check
-container's `playwright-report/` and `test-results/` into
-`agent_validation_artifacts`. Only png, jpeg, zip, html, json, xml, txt and webm
-files are kept, with at most 5 MB each, 20 MB in total and 100 files. Symlinks,
-traversal paths and anything outside those directories are dropped. Collection
-is best-effort and never changes the check's result. Downloads are session-only
-and task-authorized. They are served as attachments (png/jpeg inline) with
-`nosniff`, a sandbox CSP and `no-store`, and the UI always saves them as files,
-so a report's HTML never runs on the app origin.
-
-### Agent-chosen tests
-
-Migration 102 lets an implement attempt choose the tests Kuayle reruns. The
-prompt (`withValidationFile`) and the `kuayle-agents` skill ask the agent to run
-fast, preferably database-free tests relevant to its change and then write
-`.kuayle/validation.json` at the worktree root:
-
-```json
-{"commands": [["sh","-c","cd BE && go test ./internal/service/..."], ["npm","run","check"]],
- "summary": "what was tested and why, and what was not"}
-```
-
-The file is untrusted. When the attempt ends, the manager reads it through the
-developer container as a regular file only (never through a symlink), at most
-64 KiB, and removes it; an attempt's start removes a leftover file, so every
-attempt declares its own. `domain.ParseAgentValidationFile` accepts exactly
-those two keys: 1 to 8 non-empty argv arrays that pass `ValidateTestCommand`,
-and a summary of at most 2,000 characters; anything else rejects the whole file
-with a fixed reason. The parsed result, or the reason, is stored on the attempt
-(`dev_machine_agent_runs.declared_validation`).
-
-Precedence: a check command configured in the development settings (issue,
-project, team or workspace, or requested for the task) is an admin override.
-When one exists it alone runs and the declaration is ignored. Otherwise the
-declared commands run. Without either, the step is skipped and the change opens
-as the unchecked draft described above; a rejected file's reason is in the
-skipped step's summary. The step records `command_source` (`configured` or
-`agent`), `commands` (agent source only; `command_argv` keeps the first
-command), `command_results` (one exit code per command) and `agent_summary`.
-
-The manager runs every command in order, each in its own deterministic check
-container (`-validation-<run>` for the first, `-validation-<run>-<n>` after it),
-so retries replay what already ran and Docker reports each exit code. All
-commands run even after a failure; the first non-zero exit code is the step's.
-`CompleteValidation` refuses results that do not match the commands. A
-passing check opens the pull request ready for review. Its Verification section
-says Kuayle re-ran the agent's commands and they passed, after the agent's own
-verification (or its summary when the pull request file has none), sanitized as
-described in [Pull request description](#pull-request-description-kua-210). A
-failure fails the task with "Kuayle re-ran the agent's tests and they failed:
-<cmd> exit N". The check output stays on the task, and the next attempt's
-handoff names the failed command and its exit code. Rollback is refused while an
-agent-chosen check is queued or running.
+Before finishing, the agent runs tests relevant to its change and reports what
+it ran, the results, and what it skipped. Kuayle publishes the finished work
+ready for review. The workflow Check node waits for GitHub CI on the published
+pull request. Saved versions with an old local check follow its success edge (or its fallback) and record the step as skipped. New versions accept only CI checks. Existing database values for retired test commands are retained.
 
 ### Compose services for checks
 
@@ -195,7 +81,7 @@ attempt and the developer terminal can run the full `docker compose` against
 that daemon (builds, volumes, `env_file`, profiles, any number of services),
 and a preview command may be `docker compose up`: the task's preview container
 gets the same client access to the daemon as an attempt, and its published port
-becomes the task's app port on the daemon. The independent check still uses the subset
+becomes the task's app port on the daemon. A manual check uses the subset
 above, because the check container cannot join the daemon's Compose networks.
 
 
@@ -203,29 +89,22 @@ above, because the check container cannot join the daemon's Compose networks.
 
 Migration 97 adds the `run_check` machine operation. The task's creator can run
 the check on demand, without an agent iteration and without changing the task's
-state, generation or attempt: `POST /agent-tasks/:taskId/checks` with an empty
-body or `{}` runs the task's check (the command requested for the task, else the
-command configured for its issue now, with the configured Compose file), and
-`{"command": [argv...]}` runs a one-off argv (the assistant sends
-`["sh","-c","<command>"]`). Commands follow `ValidateTestCommand`; a custom
-command also needs `dev_machine:manage`, the permission that edits the check
-command in the development settings. The answer is 202 with the step.
+state, generation or attempt. Send an explicit argv in
+`POST /agent-tasks/:taskId/checks` as `{"command":["npm","test"]}`.
+The requester needs `dev_machine:manage`. The response is 202 with the step.
 
 The task must be `awaiting_review`, `blocked`, `failed` or `completed`, with its
 latest attempt's redaction snapshot and ready checkout on a running machine with
 an enabled policy (otherwise 409 `CHECK_UNAVAILABLE`; no command at all is 409
 `NO_CHECK_COMMAND`). The request takes native-run creation's workspace and
 machine locks and refuses with 409 `MACHINE_BUSY` ("the agent is working; try
-again when it pauses") while an attempt, an independent validation or
-publication, or another manual check uses the machine. In return a queued or
+again when it pauses") while an attempt or publication, or another manual check uses the machine. In return a queued or
 running manual check makes new attempts wait (the worker retries quietly),
-makes validation and publication of other tasks on the machine wait, refuses
+makes publication of other tasks on the machine wait, refuses
 pause, stop and teardown like an active run, and blocks the task's retry.
 
 The result is a `manual_check` step on the task's latest attempt (sequence 100
-and up, so it never takes validation's or publication's place, and it never
-counts as validation). The operation's idempotency key `task-check:<step id>`
-names the step. The manager reuses the independent check path: the same
+and up). The operation's idempotency key `task-check:<step id>` names the step. The manager uses a
 credential-free container (developer image, hardened host config, egress proxy,
 `CI=true`, the attempt's snapshot used only for redaction), Compose services,
 artifacts and log chunks under `service_id` = step ID, but a container of its own,
@@ -237,10 +116,10 @@ retry, cancellation or revoked access stops it. The exit code alone decides
 `succeeded` or `failed`; an operation that fails for good (stale machine,
 timeout, rejected Compose file) marks the step `failed` with a safe summary, and
 cancellation marks it `cancelled`. Every change emits `task.tests_updated`, so the
-task card shows it live, labelled "Manual check", beside the independent check.
+task card shows it live, labelled "Manual check", in execution details.
 `GET /agent-tasks/:taskId/runs/:runId/checks` lists an attempt's manual checks.
 
-The assistant's `run_check(identifier, command?)` tool asks for approval (the
+The assistant's `run_check(identifier, command)` tool asks for approval (the
 card shows the exact argv) and runs the check of the issue's newest task as its
 creator. `get_agent_work` then reports the latest manual check: status, exit
 code, command and summary, plus the last 1,500 characters of its untrusted
@@ -254,7 +133,7 @@ a workspace [custom tool](conversations.md#custom-tools) and records it in
 conversation, tool call and approval, machine, issue, task and attempt,
 working directory, timeout, status, exit code, output tail, error and times).
 Queuing takes the manual check's lock (`lockMachineForCheck`): the machine must
-be running with an enabled policy, and an attempt, validation, publication,
+be running with an enabled policy, and an attempt, publication,
 manual check or other tool run on it is refused as `MACHINE_BUSY`; in return a
 queued or running tool run holds the machine exactly like a manual check. A run
 on a task's machine uses its latest attempt's ready checkout as the working
@@ -295,7 +174,7 @@ glob, a line range of one file, or git status — or lists the worktrees under
 `/workspace/tasks`; it never changes the checkout and needs no credentials. A
 task scan is allowed while the agent works: it does not take
 `lockMachineForCheck`, and `LeaseOperations` lets it lease beside an agent
-attempt, validation, publication, check or tool run while a running scan never
+attempt, publication, check or tool run while a running scan never
 blocks other work. A task target must be the requester's own task with a ready
 checkout on its running machine; a machine-only target is only for the list
 scan and must be a running machine the requester created.
@@ -333,7 +212,7 @@ Kuayle commits and pushes for you…", `publicationLine`): leave the changes
 uncommitted, do not report the missing identity or token as a problem, and end
 with a final message. A planning step and a review do not get the line. In `publishing`, the worker
 queues one `publication` step (sequence 1) and a `publish_agent` operation in the
-fenced task transaction, using the same machine locks as validation. The manager
+fenced task transaction under the workspace and machine locks. The manager
 re-verifies the same phase authority (task still `publishing`, current run,
 creator, machine generation, enabled policy, live operation lease) on every read
 and write, and checks that the checkout is the task's own ready checkout. It
@@ -404,11 +283,8 @@ force-pushed. Then:
    has the same terminal outcome. The task names the files and explains how to
    [update the app and accept the grant](github-integration.md#github-app-setup-check).
 3. Reuses an open pull request from the task branch into the base branch, or opens
-   one with the GitHub App, as a draft when the attempt's check was skipped. A
-   reused pull request gets this attempt's description, and a draft is marked
-   ready for review once a later check passes (GraphQL
-   `markPullRequestReadyForReview`). A ready pull request is never turned back
-   into a draft by a later unchecked attempt. The title carries the issue identifier so the existing
+   one ready for review with the GitHub App. A reused draft receives this attempt's
+   description and is marked ready for review. The title carries the issue identifier so the existing
    `pr_opened` GitHub automation moves the issue to In Review; publication does not
    change the issue status itself. The description is rendered from the agent's
    `.kuayle/pull_request.json` and the configured template, sanitized (see
@@ -450,7 +326,7 @@ operation in the same transaction, so an agent-reported URL never reaches review
 Retries after a lost result recommit nothing, push the same commit and reuse the
 open pull request. Push or GitHub errors are retried up to the operation limit with
 the token redacted; exhausted or terminal failures mark the step failed and block
-the task with its validated work intact. Cancellation marks open steps cancelled.
+the task with its work intact. Cancellation marks open steps cancelled.
 
 ### Pull request description (KUA-210)
 
@@ -501,15 +377,11 @@ attempt's start removes an earlier attempt's file and screenshots.
 `{{issue}}` is the issue identifier and title, the identifier linked to the
 issue in Kuayle when the frontend address is known. Without `{{issue}}` in the
 template, the description starts with "Addresses <issue>." Verification lists
-the agent's items, or else its `validation.json` summary, plus one line when
-Kuayle's own check passed ("Kuayle (also) ran `<command>` independently in a
-clean container: passed.", or the count of agent-chosen commands it re-ran). A section
+the agent's own verification items. A section
 whose placeholders all render empty is left out with its heading; a section
 with other text stays. Each placeholder is replaced once, so agent text that
 contains a placeholder is never expanded. Without the agent's file the
-description is the issue line and Kuayle's check line. There is no warning
-banner, provider or model line, file or commit list, or task id; a skipped check
-shows as a draft pull request. The bot signature still starts the description:
+description is the issue line. The bot signature still starts the description:
 it is the bot's identity, and GitHub shows the description as its first comment.
 The body is cut at 60,000 bytes.
 
@@ -641,10 +513,8 @@ It also resumes a failed attempt whose session the user continued through
 103), so the user's turns are kept. Otherwise it starts a new session, so a
 failed resume is never repeated. Either
 way the prompt keeps the task instructions and appends a bounded handoff naming
-the previous attempt, its native outcome, its independent check result and exit
-code, a recorded pull request, up to 50 changed files and the previous agent's
-summary fenced as unverified text, because the harness never saw Kuayle's
-independent check or publication. An older handoff is replaced, not accumulated,
+the previous attempt, its native outcome, a recorded pull request, up to 50 changed files and the previous agent's
+summary fenced as unverified text, because the harness never saw Kuayle's publication. An older handoff is replaced, not accumulated,
 and the prompt stays within the attempt limit. Other harnesses always start new
 sessions with the handoff.
 
@@ -760,8 +630,8 @@ second follow-up) but corrects the stored class and evidence when this time the
 GitHub read succeeded. The other classes follow up exactly as before.
 `GET /agent-tasks/:taskId/signals` adds `failure_class` and `failure_evidence`
 to each signal without changing its existing fields. The agent has no GitHub
-credential and must reproduce failures with the configured test command. The
-new attempt then revalidates and republishes to the same pull request.
+credential and should reproduce the CI failure. The
+new attempt then publishes to the same pull request.
 
 What GitHub reported about the failed checks reaches the agent, the notebook
 and the person (KUA-206, migration 170), not only "suite failed". The checks
@@ -1114,7 +984,7 @@ transition inside the transition's transaction:
 | `preparing` | `starting` |
 | `running` | `active` |
 | `waiting_input` | `waiting_input` |
-| `validating`, `publishing`, `awaiting_review`, `blocked` | `suspended` (the harness exited; a follow-up can resume it) |
+| `publishing`, `awaiting_review`, `blocked` | `suspended` (the harness exited; a follow-up can resume it) |
 | `completed`, `failed`, `cancelled` | the same, with `ended_at` |
 | `cancelling` | unchanged until cleanup settles |
 
@@ -1171,9 +1041,9 @@ choice). It reuses the whole task pipeline (machine reservation and reuse
 within the user's caps, its own task-scoped worktree and branch, native
 execution, cancellation and transcript purge) with these differences:
 
-- Its transitions never include `validating`, `publishing` or
+- Its transitions never include `publishing` or
   `awaiting_review`; a succeeded harness goes from `running` to `completed`.
-  `EnsureValidation` and `EnsurePublication` refuse review tasks, so no
+  `EnsurePublication` refuses review tasks, so no
   publication operation can be queued for one.
 - Its attempt is created without push (like every task attempt) and the run
   repository refuses a review run with `push_branch` or `open_pull_request`.
@@ -1328,9 +1198,6 @@ fails and says how to fix it.
 A native failure caused by a resource limit (an out-of-memory kill of the agent
 container, see [resource limits](../../TECHNICAL.md#resource-limits-and-quotas))
 fails with that explanation as its reason, kept as the final `failed` reason.
-An independent validation that fails says the command and its exit code, and
-names who chose it (Kuayle re-ran the agent's tests, or the independent check);
-it is the change's failure (`agent`), not the platform's.
 Configuration failures after reserving an environment also enter cleanup: a
 preparing task may already have started native execution between worker polls.
 An authorized repeat cancellation request can retry failed cleanup operations
@@ -1410,7 +1277,7 @@ chosen, since their user paused or stopped them. The full rule is in
 [task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas). Each task
 has its own checkout, branch and session directory; attempt creation re-checks
 the limit under the machine lock, so tasks on a shared machine run their
-attempts, validations and publications side by side while checks and tool runs
+attempts and publications side by side while checks and tool runs
 still wait for a machine without agent work. Agent attempt and check containers
 of tasks sharing a machine split the agent memory share between them (at least
 1 GB each; CPU and PID limits are not split), see
@@ -1483,8 +1350,7 @@ and durable cancellation retain responsibility for physical cleanup.
 ### Machine manager restarts
 
 On SIGTERM the manager stops leasing operations and stops following running
-agent attempts and checks (an attempt's independent validation and manual
-checks) without stopping their containers: they keep working on the host, each
+agent attempts and manual checks without stopping their containers: they keep working on the host, each
 follower hands its operation back with `DeferOperation` and error code
 `manager_restart`, and this counts no attempt. A check keeps its compose
 services, and its time limit still counts from when it started. A stopping
@@ -1592,7 +1458,7 @@ Only work clears the final flag: a Codex `command_execution`, `file_change`,
 `tool_use`; a `todo_list`, `step_finish` or reasoning after the message does
 not. "command not found" in a shell tool's output, a shell exit code 126 or 127
 and a tool error are risk notes: they fail the run only when the agent did not
-conclude, because validation re-runs the declared tests of a run that did;
+conclude;
 output of other tools is not scanned. The
 next attempt of the task keeps the worktree (attempts share the task's
 checkout) and its handoff says that the previous attempt ended without a final
@@ -1716,7 +1582,7 @@ Each added agent then starts a task as the assigner. The task stores
 `agent_profile_id` and takes its harness, model and effort from the profile.
 The profile's instructions join the inherited project instructions, and its
 skills and profile files are given as for a workflow step. It follows the
-built-in flow (implement, validate, publish, await review), not the issue's
+built-in flow (implement, publish, await review), not the issue's
 default workflow, whose first step would otherwise replace the agent. The
 assignment's `request_id` makes the start idempotent. A refusal that cannot
 succeed as things are (agents disabled, provider not allowed, the assigner lost
@@ -1778,7 +1644,7 @@ agent's own page listing its work.
 ## App ports and QA
 
 Migration 71 adds an inherited preview setting: an argv command and a port,
-snapshotted onto each task like the test command. Since migration 85 the port
+snapshotted onto each task. Since migration 85 the port
 is only preferred and optional (1024–65535 when set); a port without a command
 is refused. Each task has its own preview process and app port (see
 [App ports](../../TECHNICAL.md#app-ports)), so tasks on one machine never
@@ -2488,7 +2354,7 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   JSONB; `expected_version` refuses a stale save. Archiving hides a workflow
   from choices; running tasks keep their pinned version.
 - **Graph**: nodes `start`, `agent` (profile and iteration prompt template),
-  `check` (`tests`: the independent check; `ci`: the pull request's CI),
+  `check` (`ci`: the pull request's CI),
   `approval` (an approval leading to `done` or a merge step, or after CI passed
   through agent steps to `done`, is the ship approval, which merges the pull
   request when approved: see
@@ -2594,12 +2460,12 @@ and a `workflow_sequence` that fences every move, and
 `agent_task_workflow_steps` records each node entered with the edge, condition
 and reason that led there. The worker's existing lease is the single runner
 per task: the task engine reports each outcome (agent iteration finished or
-failed, independent check, publication) to `WorkflowRunner.Outcome`, which
+failed, CI, publication) to `WorkflowRunner.Outcome`, which
 plans the next moves and applies them, with the step rows, in the same
 transaction as the task's state change. Agent steps reuse the iteration
 machinery (each runs as a new attempt whose reason names the node and
 transition; which of them start a budget iteration is described above),
-check and publish nodes reuse validation and publication, reviewer steps reuse
+check nodes wait for GitHub CI, publish nodes open or update the pull request, reviewer steps reuse
 review tasks, and waiting nodes (review, CI, approval, merge, timeout) park the
 task in `awaiting_review` with `workflow_wake_at`. A waiting node is
 evaluated as soon as it is entered (CI may have finished during the review),
@@ -2624,15 +2490,13 @@ What an agent step does comes from its profile's behaviour
 step the same way whatever it is.
 
 - **`changes_code`**: an iteration in the task's worktree with the
-  implementer's contract in its prompt (manual QA, the tests Kuayle re-runs
-  from `.kuayle/validation.json`). It leaves on `agent_finished` or
+  implementer's contract in its prompt (manual QA, running and reporting relevant tests). It leaves on `agent_finished` or
   `agent_failed`.
 - **`reviews`**: a review task on the published pull request; without one the
   step fails at once. It leaves on `review_approved`,
   `review_changes_requested` or `agent_failed`, and can time out.
 - **`plans`**: an iteration in the same worktree, framed as "plan this for the
-  next agent" (`planningLine` ahead of the task) and without the QA and
-  `validation.json` lines (`withContract`). It may start a workflow. When its
+  next agent" (`planningLine` ahead of the task) and without the implementation instructions (`withContract`). It may start a workflow. When its
   run succeeds, `WorkflowRunner.AgentFinished` accepts it only if
   - the worktree is as the step found it. The machine manager fingerprints
     the worktree (`HEAD`, a tree written from a throwaway index holding
@@ -3045,7 +2909,7 @@ notebook:
    "Recorded by Kuayle from the agent's final message; the agent did not
    update the notebook" (author `kuayle` in the change log), and notes it on
    the run (`notebook_problem`, `domain.NotebookNotUpdated`). The note is in
-   the run's risk notes, in the task's reason when it moves to validation,
+   the run's risk notes, in the task's reason when it moves to publication,
    in the workflow step's detail, and in the next attempt's handoff.
 
 A collection that failed for a reason of Kuayle's is not the agent's
@@ -3129,7 +2993,7 @@ a stable ID and `run_id` when it belongs to an attempt. Entries come from:
 | `run` | each attempt (including its review tasks' attempts): status, failure class/rule/cause, environment, output cuts, branch, pull request and notebook result |
 | `prompt` | the prompt each attempt received, one entry per attempt, by source and channel |
 | `closing_continuation` | when Kuayle asked an attempt for what was missing and for how long |
-| `run_step` | the independent check, publication and manual checks with their commands and summaries |
+| `run_step` | publication and manual checks with their commands and summaries |
 | `operation` | machine operations requested for the task or its attempts |
 | `retry` | retries a person requested, with the instruction they gave |
 | `live_message` | both directions of the task's live channel, with deliveries and replies |
@@ -3163,7 +3027,7 @@ the input for an LLM.
 ## Remaining workflow work
 
 The worker progresses through preparation, native execution (with native
-session resume), independent validation and publication to `awaiting_review`,
+session resume), publication to `awaiting_review`,
 and completes when the recorded pull request merges. CI failures and trusted
 change requests queue bounded follow-up attempts. Work can also be accepted in
 Kuayle without merging. Agents coordinate through issues, dependencies, the
@@ -3205,12 +3069,10 @@ and cancellation remain available to authorized users.
 - `GET /agent-tasks/:taskId/history` pages transition records with `after`.
 - `GET /agent-tasks/:taskId/runs` pages native attempts with `before`.
 - `GET /agent-tasks/:taskId/runs/:runId/logs` pages that attempt's logs with `after`.
-- `GET /agent-tasks/:taskId/runs/:runId/validation` returns that attempt's
-  independent check step, or `null` when none was recorded.
-- `GET /agent-tasks/:taskId/runs/:runId/artifacts` lists that check's kept
+- `GET /agent-tasks/:taskId/runs/:runId/artifacts` lists the attempt's kept
   artifacts (`id, path, content_type, size`); `.../artifacts/:artifactId`
   downloads one.
-- `POST /agent-tasks/:taskId/checks` runs the task's check, or `{"command": [...]}`,
+- `POST /agent-tasks/:taskId/checks` runs the supplied `{"command": [...]}`,
   without an agent attempt; `GET /agent-tasks/:taskId/runs/:runId/checks` lists an
   attempt's manual checks ([manual checks](#manual-checks)).
 - `GET /agent-tasks/:taskId/runs/:runId/publication` returns `{step, branch,
@@ -3259,8 +3121,7 @@ browser refresh or reconnect only reads task state; it never delegates again.
 Task and retry forms retain their request UUID after a transport failure. Native
 output is rendered as text through Code Block; structured event labels and
 transition history use Trace. Long histories, attempts and logs page explicitly.
-No provider text or successful exit is displayed as independent validation proof.
-The independent check renders through the AI Elements
+Manual checks render through the AI Elements
 [Test Results](https://www.shadcn-svelte.com/docs/ai-elements/test-results)
 composition (Trace + Code Block) as one check with its real status, exit code and
 timestamps; `task.tests_updated` events refresh it. Its output is split from the

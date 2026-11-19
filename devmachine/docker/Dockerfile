@@ -9,8 +9,8 @@
 # approach as the Caddy builds). Build flags follow the upstream release builds.
 FROM golang:1.26.11-alpine AS runtime-builder
 RUN apk add --no-cache git gcc musl-dev libseccomp-dev libseccomp-static linux-headers pkgconf
-ARG RUNC_VERSION=1.5.2
-ARG RUNC_COMMIT=29dd3dc2b13b4123162e5fe132504bb4b15569f1
+ARG RUNC_VERSION=1.5.3
+ARG RUNC_COMMIT=46365c62967c76a765a5e347f48f0c7b3b571fe9
 ARG CONTAINERD_VERSION=2.4.2
 ARG CONTAINERD_COMMIT=b7a25261e029d68978bbf290df0a62fc819b3c51
 ARG ROOTLESSKIT_VERSION=3.3.0

@@ -91,7 +91,7 @@ func stageRoute(graph domain.WorkflowGraph, node domain.WorkflowNode, last strin
 }
 
 // Only a stage that kept HEAD and the non-ignored tree may reuse the input
-// attempt's validation and PR. A build can add ignored output on any run.
+// attempt's PR. A build can add ignored output on any run.
 func stageWorktreeProblem(first, last *repository.WorkflowRun) string {
 	beforeHead, beforeTree, beforeOK := domain.WorktreeContent(first.WorktreeBefore)
 	afterHead, afterTree, afterOK := domain.WorktreeContent(last.WorktreeAfter)

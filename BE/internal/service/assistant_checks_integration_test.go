@@ -98,7 +98,7 @@ func TestRunCheckNeedsApprovalAndReportsTheResult(t *testing.T) {
 	require.Equal(t, int64(1), current.Generation)
 
 	// While that check runs, another one is refused with a clear reason.
-	a, approval = ask(`{"identifier":"ENG-1"}`)
+	a, approval = ask(`{"identifier":"ENG-1","command":"true"}`)
 	failed, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approval.ID, true)
 	require.NoError(t, err)
 	require.Equal(t, "failed", failed.Status)
@@ -113,9 +113,9 @@ func TestRunCheckNeedsApprovalAndReportsTheResult(t *testing.T) {
 
 	_, err = f.db.Exec(`UPDATE agent_tasks SET state='running' WHERE id=$1`, taskID)
 	require.NoError(t, err)
-	_, _, err = f.service.tools.prepareRunCheck(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
+	_, _, err = f.service.tools.prepareRunCheck(f.ctx, f.ws, f.user, `{"identifier":"ENG-1","command":"true"}`)
 	require.ErrorContains(t, err, "the agent is working")
-	_, _, err = f.service.tools.prepareRunCheck(f.ctx, f.ws, f.user, `{"identifier":"ENG-404"}`)
+	_, _, err = f.service.tools.prepareRunCheck(f.ctx, f.ws, f.user, `{"identifier":"ENG-404","command":"true"}`)
 	require.ErrorContains(t, err, "issue not found")
 	_, _, err = f.service.tools.prepareRunCheck(f.ctx, f.ws, f.user, `{"identifier":"ENG-1","command":"`+strings.Repeat("x", 2001)+`"}`)
 	require.ErrorContains(t, err, "at most 2000 characters")
@@ -125,10 +125,10 @@ func TestRunCheckNeedsApprovalAndReportsTheResult(t *testing.T) {
 	t.Cleanup(func() { _, _ = f.db.Exec(`DELETE FROM users WHERE id=$1`, other) })
 	_, err = f.db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member')`, f.ws, other)
 	require.NoError(t, err)
-	_, _, err = f.service.tools.prepareRunCheck(domain.WithAccess(context.Background(), domain.Access{WorkspaceID: f.ws, UserID: other}), f.ws, other, `{"identifier":"ENG-1"}`)
+	_, _, err = f.service.tools.prepareRunCheck(domain.WithAccess(context.Background(), domain.Access{WorkspaceID: f.ws, UserID: other}), f.ws, other, `{"identifier":"ENG-1","command":"true"}`)
 	require.ErrorContains(t, err, "only the task's creator")
 	_, err = f.db.Exec(`UPDATE workspace_members SET role='guest' WHERE workspace_id=$1 AND user_id=$2`, f.ws, f.user)
 	require.NoError(t, err)
-	_, _, err = f.service.tools.prepareRunCheck(f.ctx, f.ws, f.user, `{"identifier":"ENG-1"}`)
+	_, _, err = f.service.tools.prepareRunCheck(f.ctx, f.ws, f.user, `{"identifier":"ENG-1","command":"true"}`)
 	require.ErrorContains(t, err, "no longer have access")
 }

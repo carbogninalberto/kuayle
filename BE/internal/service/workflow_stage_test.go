@@ -13,7 +13,7 @@ import (
 )
 
 // Use the real task, pinned version, leases, run results and step journal.
-// Only the machine's execution and the independent test result are simulated.
+// Only the machine execution is simulated.
 func TestStageAssistantRunsAndRoutesInTheTaskWorktree(t *testing.T) {
 	f := newProfileFixture(t)
 	profile := f.storedProfile(t, "Stage owner", "codex", "", "")
@@ -37,11 +37,18 @@ func TestStageAssistantRunsAndRoutesInTheTaskWorktree(t *testing.T) {
 	}
 	raw, err := json.Marshal(graph)
 	require.NoError(t, err)
-	workflow, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Supervised delivery", Graph: raw})
+	issues, err := f.workflows.Validate(f.ctx, f.ws, raw)
+	require.NoError(t, err)
+	require.Len(t, issues, 1)
+	require.Equal(t, "invalid_check", issues[0].Code)
+	// A version saved before the local check was retired still runs its stage assistants.
+	var workflowID string
+	require.NoError(t, f.db.Get(&workflowID, `INSERT INTO workflows(workspace_id,name,latest_version,created_by) VALUES($1,'Supervised delivery',1,$2) RETURNING id`, f.ws, f.user))
+	_, err = f.db.Exec(`INSERT INTO workflow_versions(workflow_id,workspace_id,version,graph,created_by) VALUES($1,$2,1,$3,$4)`, workflowID, f.ws, raw, f.user)
 	require.NoError(t, err)
 	chat, err := repository.NewConversationRepository(f.db).OpenIssue(f.ctx, f.ws, f.issue)
 	require.NoError(t, err)
-	task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Deliver the change", WorkflowID: &workflow.ID, Provider: "claude-code"})
+	task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Deliver the change", WorkflowID: &workflowID, Provider: "claude-code"})
 	require.NoError(t, err)
 	require.Equal(t, "codex", task.Provider)
 	require.Equal(t, 1, task.WorkflowSequence)
@@ -76,10 +83,7 @@ func TestStageAssistantRunsAndRoutesInTheTaskWorktree(t *testing.T) {
 	run("start", "Ready for testing.\nKUAYLE_STAGE_ROUTE verify", false)
 	testsRun := task.RunID
 	run("test", "Fixed the failing fixture.\nKUAYLE_STAGE_CONTINUE", true)
-	require.Equal(t, "validating", task.State)
-	require.Equal(t, testsRun, task.RunID)
-	require.NoError(t, f.tasks.Workflow().Outcome(f.ctx, *task, domain.WorkflowChecksPassed, "Independent tests passed"))
-	refresh()
+	// An older workflow can continue through its retired local check.
 	run("publish", "Prepared the publication.", false)
 	require.Equal(t, "publishing", task.State)
 	require.Equal(t, testsRun, task.RunID)
@@ -89,7 +93,7 @@ func TestStageAssistantRunsAndRoutesInTheTaskWorktree(t *testing.T) {
 	refresh()
 	run("gate", "Prepared a handoff.\nKUAYLE_STAGE_CONTINUE", false)
 	require.Equal(t, "awaiting_review", task.State)
-	require.Equal(t, testsRun, task.RunID, "the unchanged stage keeps the attempt whose tests passed")
+	require.Equal(t, testsRun, task.RunID, "the unchanged stage keeps its input attempt")
 	_, err = f.tasks.Workflow().Decide(f.ctx, f.ws, task.ID, task.WorkflowSequence, WorkflowDecisionApprove)
 	require.NoError(t, err)
 	refresh()

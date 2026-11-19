@@ -60,9 +60,8 @@ const (
 	// comes. Without either the workflow ends as done with nothing new to
 	// publish (WorkflowDecision.Finish).
 	WorkflowNoChanges = "no_changes"
-	// WorkflowChecksSkipped is an outcome without a condition of its own: no
-	// check command is configured, which is never a pass, so only an "else"
-	// edge follows it.
+
+	// Older workflow versions can continue past a retired local check.
 	WorkflowChecksSkipped = "checks_skipped"
 	// WorkflowBranchConflict is a ship approval's outcome without a condition
 	// of its own: entering it, Kuayle found the pull request conflicting with
@@ -264,7 +263,7 @@ type WorkflowNode struct {
 	// Prompt is the agent step's iteration prompt template, or the question
 	// an approval asks.
 	Prompt string `json:"prompt,omitempty"`
-	// Check is "tests" (the configured check) or "ci" (the pull request's CI).
+	// Check is "ci". Older immutable versions may still contain "tests".
 	Check string `json:"check,omitempty"`
 	// MaxVisits guards loops: the node runs at most this many times per task.
 	MaxVisits int `json:"max_visits,omitempty"`
@@ -406,7 +405,7 @@ func workflowOutcomes(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) []
 
 // WorkflowNodeWaits reports whether the task waits at the node for something
 // outside it (a reviewer's verdict, CI, a person, a merge), which is what a
-// timeout bounds. Coding iterations and the configured check have their own
+// timeout bounds. Coding iterations have their own
 // time limits.
 func WorkflowNodeWaits(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) bool {
 	switch node.Type {
@@ -441,6 +440,15 @@ func WorkflowConditions(node WorkflowNode, profiles map[uuid.UUID]AgentProfile) 
 // every loop guarded by a node visit limit, every agent step referencing an
 // existing profile, and every edge naming a condition its source can produce.
 func ValidateWorkflowGraph(g WorkflowGraph, profiles map[uuid.UUID]AgentProfile) []WorkflowIssue {
+	return validateWorkflowGraph(g, profiles, false)
+}
+
+// ValidateStoredWorkflowGraph also accepts local checks in immutable versions saved before KUA-240.
+func ValidateStoredWorkflowGraph(g WorkflowGraph, profiles map[uuid.UUID]AgentProfile) []WorkflowIssue {
+	return validateWorkflowGraph(g, profiles, true)
+}
+
+func validateWorkflowGraph(g WorkflowGraph, profiles map[uuid.UUID]AgentProfile, stored bool) []WorkflowIssue {
 	issues := []WorkflowIssue{}
 	add := func(code, nodeID, edgeID, format string, args ...any) {
 		issues = append(issues, WorkflowIssue{Code: code, NodeID: nodeID, EdgeID: edgeID, Message: fmt.Sprintf(format, args...)})
@@ -489,8 +497,8 @@ func ValidateWorkflowGraph(g WorkflowGraph, profiles map[uuid.UUID]AgentProfile)
 				add("missing_profile", node.ID, "", "%s: its agent profile does not exist or was archived", label)
 			}
 		case WorkflowNodeCheck:
-			if node.Check != WorkflowCheckTests && node.Check != WorkflowCheckCI {
-				add("invalid_check", node.ID, "", "%s: a check runs the configured tests or waits for CI", label)
+			if node.Check != WorkflowCheckCI && !(stored && node.Check == WorkflowCheckTests) {
+				add("invalid_check", node.ID, "", "%s: a check waits for pull request CI", label)
 			}
 		case WorkflowNodeApproval, WorkflowNodePublish, WorkflowNodeMerge:
 		default:
@@ -824,7 +832,9 @@ func (g WorkflowGraph) Decide(cursor WorkflowCursor, outcome string, now time.Ti
 		if edge.Condition == WorkflowAssistant {
 			continue
 		}
-		if edge.Condition == outcome && outcome != WorkflowElse {
+		// Retired local checks follow the old success path without recording a passing test.
+		if from.Check == WorkflowCheckTests && outcome == WorkflowChecksSkipped && edge.Condition == WorkflowChecksPassed ||
+			edge.Condition == outcome && outcome != WorkflowElse {
 			chosen = &edge
 			break
 		}
@@ -1051,7 +1061,7 @@ func WorkflowOutcomeText(outcome string) string {
 	case WorkflowChecksFailed:
 		return "checks failed"
 	case WorkflowChecksSkipped:
-		return "no check is configured"
+		return "local check skipped"
 	case WorkflowCheckoutBlocked:
 		return "the checkout needs repair before publishing"
 	case WorkflowBranchConflict:
@@ -1232,20 +1242,15 @@ func StandardWorkflowGraph() WorkflowGraph {
 		Nodes: []WorkflowNode{
 			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: WorkflowPositionAt(0, 0, false)},
 			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", Prompt: "The task's instructions", MaxVisits: 0, Position: WorkflowPositionAt(1, 0, false)},
-			{ID: "validate", Type: WorkflowNodeCheck, Label: "Validate", Check: WorkflowCheckTests, Position: WorkflowPositionAt(2, 0, false)},
-			{ID: "publish", Type: WorkflowNodePublish, Label: "Publish pull request", Position: WorkflowPositionAt(3, 0, false)},
-			{ID: "review", Type: WorkflowNodeApproval, Label: "Human review", Prompt: "Review the pull request; CI failures, change requests and comments queue follow-up iterations", MaxVisits: 0, Position: WorkflowPositionAt(4, 0, false)},
-			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPositionAt(5, 0, false)},
-			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPositionAt(3, 1, true)},
+			{ID: "publish", Type: WorkflowNodePublish, Label: "Publish pull request", Position: WorkflowPositionAt(2, 0, false)},
+			{ID: "review", Type: WorkflowNodeApproval, Label: "Human review", Prompt: "Review the pull request; CI failures, change requests and comments queue follow-up iterations", MaxVisits: 0, Position: WorkflowPositionAt(3, 0, false)},
+			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPositionAt(4, 0, false)},
+			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPositionAt(2, 1, true)},
 		},
 		Edges: []WorkflowEdge{
 			{ID: "e-start", Source: "start", Target: "implement", Condition: WorkflowElse},
-			{ID: "e-implemented", Source: "implement", Target: "validate", Condition: WorkflowAgentFinished},
+			{ID: "e-implemented", Source: "implement", Target: "publish", Condition: WorkflowAgentFinished},
 			{ID: "e-implement-failed", Source: "implement", Target: "failed", Condition: WorkflowAgentFailed},
-			{ID: "e-validated", Source: "validate", Target: "publish", Condition: WorkflowChecksPassed},
-			// Without a configured check the change is still published, as a draft.
-			{ID: "e-unchecked", Source: "validate", Target: "publish", Condition: WorkflowElse},
-			{ID: "e-validation-failed", Source: "validate", Target: "failed", Condition: WorkflowChecksFailed},
 			{ID: "e-published", Source: "publish", Target: "review", Condition: WorkflowPublished},
 			{ID: "e-accepted", Source: "review", Target: "done", Condition: WorkflowApprovalApproved},
 			{ID: "e-follow-up", Source: "review", Target: "implement", Condition: WorkflowApprovalDenied},
@@ -1257,9 +1262,7 @@ func StandardWorkflowGraph() WorkflowGraph {
 // Standard graph from its state.
 func StandardWorkflowNode(state string) string {
 	switch state {
-	case "validating":
-		return "validate"
-	case "publishing":
+	case "validating", "publishing":
 		return "publish"
 	case "awaiting_review":
 		return "review"
@@ -1307,7 +1310,7 @@ func ReviewLoopWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 	}
 }
 
-// FullCycleWorkflowGraph uses every kind of step: implement, run the tests,
+// FullCycleWorkflowGraph uses every kind of step: implement,
 // open the pull request, an agent review, CI, a person's go-ahead and the
 // merge. Every failure and every request for changes goes back to the
 // implementer, which retries at most five times, and a review agent that
@@ -1319,21 +1322,18 @@ func FullCycleWorkflowGraph(implementer, reviewer uuid.UUID) WorkflowGraph {
 			{ID: "start", Type: WorkflowNodeStart, Label: "Start", Position: WorkflowPositionAt(0, 0, false)},
 			{ID: "implement", Type: WorkflowNodeAgent, Label: "Implement", ProfileID: &implementer, MaxVisits: 5,
 				Prompt: "Address what sent the work back, then make sure the change is complete.\n\n{{review_comments}}\n\n{{failing_checks}}", Position: WorkflowPositionAt(1, 0, false)},
-			{ID: "tests", Type: WorkflowNodeCheck, Label: "Tests", Check: WorkflowCheckTests, Position: WorkflowPositionAt(2, 0, false)},
-			{ID: "publish", Type: WorkflowNodePublish, Label: "Open pull request", Position: WorkflowPositionAt(3, 0, false)},
-			{ID: "review", Type: WorkflowNodeAgent, Label: "Review", ProfileID: &reviewer, MaxVisits: 6, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: WorkflowPositionAt(4, 0, false)},
-			{ID: "ci", Type: WorkflowNodeCheck, Label: "CI", Check: WorkflowCheckCI, TimeoutMinutes: 120, Position: WorkflowPositionAt(5, 0, false)},
-			{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship", Prompt: "Ready to merge?", Position: WorkflowPositionAt(6, 0, false)},
-			{ID: "merge", Type: WorkflowNodeMerge, Label: "Merge", Position: WorkflowPositionAt(7, 0, false)},
-			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPositionAt(8, 0, false)},
-			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPositionAt(6, 1, true)},
+			{ID: "publish", Type: WorkflowNodePublish, Label: "Open pull request", Position: WorkflowPositionAt(2, 0, false)},
+			{ID: "review", Type: WorkflowNodeAgent, Label: "Review", ProfileID: &reviewer, MaxVisits: 6, Prompt: "Review the pull request against the issue.\n\n{{previous_summary}}", Position: WorkflowPositionAt(3, 0, false)},
+			{ID: "ci", Type: WorkflowNodeCheck, Label: "CI", Check: WorkflowCheckCI, TimeoutMinutes: 120, Position: WorkflowPositionAt(4, 0, false)},
+			{ID: "ship", Type: WorkflowNodeApproval, Label: "Ready to ship", Prompt: "Ready to merge?", Position: WorkflowPositionAt(5, 0, false)},
+			{ID: "merge", Type: WorkflowNodeMerge, Label: "Merge", Position: WorkflowPositionAt(6, 0, false)},
+			{ID: "done", Type: WorkflowNodeEnd, Label: "Done", Outcome: WorkflowEndDone, Position: WorkflowPositionAt(7, 0, false)},
+			{ID: "failed", Type: WorkflowNodeEnd, Label: "Failed", Outcome: WorkflowEndFailed, Position: WorkflowPositionAt(5, 1, true)},
 		},
 		Edges: []WorkflowEdge{
 			{ID: "start-implement", Source: "start", Target: "implement", Condition: WorkflowElse},
-			{ID: "implement-tests", Source: "implement", Target: "tests", Condition: WorkflowAgentFinished},
+			{ID: "implement-publish", Source: "implement", Target: "publish", Condition: WorkflowAgentFinished},
 			{ID: "implement-retry", Source: "implement", Target: "implement", Condition: WorkflowAgentFailed},
-			{ID: "tests-publish", Source: "tests", Target: "publish", Condition: WorkflowChecksPassed},
-			{ID: "tests-failed", Source: "tests", Target: "implement", Condition: WorkflowChecksFailed},
 			{ID: "publish-review", Source: "publish", Target: "review", Condition: WorkflowPublished},
 			{ID: "publish-failed", Source: "publish", Target: "implement", Condition: WorkflowPublishFailed},
 			{ID: "review-approved", Source: "review", Target: "ci", Condition: WorkflowReviewApproved},
