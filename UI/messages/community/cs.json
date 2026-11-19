@@ -2367,6 +2367,8 @@
 	"automations.status": "Stav",
 	"automations.any_status": "Libovolný otevřený stav",
 	"automations.instructions": "Pokyny pro agenta",
+	"automations.pin_version": "Připnout aktuální verzi",
+	"automations.follow_latest": "Použít nejnovější verzi",
 	"automations.schedule": "Kdy",
 	"automations.any_time": "Kdykoli",
 	"automations.at_hour": "v {hour}:00 UTC",

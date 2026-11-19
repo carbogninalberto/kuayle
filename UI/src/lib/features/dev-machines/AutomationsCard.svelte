@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Plus, Trash2, Check, X } from '@lucide/svelte';
+	import AutomationRunHistory from './AutomationRunHistory.svelte';
+	import { Plus, Trash2, Check, X, History } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -7,6 +8,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { automations as api, type AgentAutomation, type AgentAutomationRun } from '$lib/api/automations';
+	import { workflows, type WorkflowSummary } from '$lib/api/workflows';
 	import { listTeams } from '$lib/api/teams';
 	import { listLabels } from '$lib/api/labels';
 	import { listTeamStatuses } from '$lib/api/team-statuses';
@@ -24,6 +26,7 @@
 	let teams = $state<Team[]>([]);
 	let labels = $state<IssueLabel[]>([]);
 	let statuses = $state<TeamStatus[]>([]);
+	let historyRule = $state('');
 	let creating = $state(false);
 	let busy = $state(false);
 	let name = $state('');
@@ -32,6 +35,11 @@
 	let statusId = $state('any');
 	let instructions = $state('');
 	let hour = $state('any');
+	let cron = $state('0 9 * * 1-5');
+	let zone = $state(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+	let workflowId = $state('default');
+	let pinned = $state(false);
+	let available = $state<WorkflowSummary[]>([]);
 	let maxActive = $state('1');
 	let unattended = $state(false);
 
@@ -61,7 +69,33 @@
 				.catch(() => (statuses = []));
 	});
 
+	$effect(() => {
+		const workspace = slug;
+		let active = true;
+		workflows.list(workspace).then(result => {
+			if (active) available = result.workflows;
+		}).catch(error => {
+			if (active) appToast.apiError(error, m['workflows.choose_label']());
+		});
+		return () => { active = false; };
+	});
+
+	// Refresh the persisted next match and run statuses while settings are open.
+	$effect(() => {
+		const workspace = slug;
+		let active = true;
+		const timer = setInterval(async () => {
+			if (document.hidden) return;
+			try {
+				const [latestRules, latestRuns] = await Promise.all([api.list(workspace), api.runs(workspace)]);
+				if (active && !busy) { rules = latestRules; runs = latestRuns; }
+			} catch { /* Keep the last successful read until the next refresh. */ }
+		}, 60_000);
+		return () => { active = false; clearInterval(timer); };
+	});
+
 	const valid = $derived(
+		(hour !== 'cron' || (cron.trim().split(/\s+/).length === 5 && zone.trim() !== '')) &&
 		name.trim() !== '' && teamId !== '' && instructions.trim() !== '' && (labelId !== 'any' || statusId !== 'any')
 	);
 	const pending = $derived(runs.filter((run) => run.status === 'pending_approval'));
@@ -86,12 +120,35 @@
 		if (label) parts.push(m['automations.with_label']({ label }));
 		if (rule.status_id) parts.push(m['automations.with_status']());
 		parts.push(
-			rule.run_hour != null
+			rule.cron ? `${rule.cron} · ${rule.timezone}` : rule.run_hour != null
 				? m['automations.at_hour']({ hour: String(rule.run_hour).padStart(2, '0') })
 				: m['automations.any_time']()
 		);
 		if (rule.unattended) parts.push(m['automations.unattended_short']());
 		return parts.filter(Boolean).join(' · ');
+	}
+
+	function nextMatch(rule: AgentAutomation) {
+		if (!rule.enabled) return '';
+		let next: Date;
+		if (rule.next_run_at) next = new Date(rule.next_run_at);
+		else if (rule.run_hour != null) {
+			const now = new Date();
+			next = new Date(now);
+			if (now.getUTCHours() !== rule.run_hour) {
+				next.setUTCHours(rule.run_hour, 0, 0, 0);
+				if (next < now) next.setUTCDate(next.getUTCDate() + 1);
+			}
+		} else return '';
+		try {
+			return next.toLocaleString(undefined, {
+				timeZone: rule.timezone ?? 'UTC', month: 'short', day: 'numeric',
+				hour: '2-digit', minute: '2-digit', timeZoneName: 'short'
+			});
+		} catch {
+			// Older browsers can lack a timezone accepted by the server.
+			return next.toUTCString();
+		}
 	}
 
 	async function create() {
@@ -105,13 +162,19 @@
 				status_id: statusId === 'any' ? undefined : statusId,
 				instructions: instructions.trim(),
 				unattended,
-				run_hour: hour === 'any' ? undefined : Number(hour),
+				run_hour: hour === 'any' || hour === 'cron' ? undefined : Number(hour),
+				cron: hour === 'cron' ? cron.trim() : undefined,
+				timezone: hour === 'cron' ? zone.trim() : undefined,
+				workflow_id: workflowId === 'default' ? undefined : workflowId,
+				version_policy: workflowId === 'default' ? undefined : pinned ? 'pin' : 'latest',
 				max_active: Number(maxActive)
 			});
 			rules = [...rules, rule];
 			creating = false;
 			name = instructions = '';
 			labelId = hour = 'any';
+			workflowId = 'default';
+			pinned = false;
 			unattended = false;
 			appToast.success(m['automations.created']());
 		} catch (error) {
@@ -215,9 +278,31 @@
 				<Label>{m['automations.schedule']()}</Label><SelectField
 					bind:value={hour}
 					aria-label={m['automations.schedule']()}
-					options={[{ value: 'any', label: m['automations.any_time']() }, ...hours]}
+					options={[{ value: 'any', label: m['automations.any_time']() }, { value: 'cron', label: m['settings.backups.cron']() }, ...hours]}
 				/>
 			</div>
+			{#if hour === 'cron'}
+				<div class="space-y-1">
+					<Label for="automation-cron">{m['settings.backups.cron_expression']()}</Label>
+					<Input id="automation-cron" bind:value={cron} maxlength={128} placeholder="0 9 * * 1-5" />
+				</div>
+				<div class="space-y-1">
+					<Label for="automation-zone">{m['prefs.timezone']()}</Label>
+					<Input id="automation-zone" bind:value={zone} maxlength={128} placeholder="Europe/Rome" />
+				</div>
+			{/if}
+			<div class="space-y-1">
+				<Label>{m['workflows.choose_label']()}</Label>
+				<SelectField bind:value={workflowId} aria-label={m['workflows.choose_label']()}
+					options={[{ value: 'default', label: m['workflows.choose_default']() },
+						...available.filter(w => !w.archived && w.id !== 'standard' && w.latest_version > 0)
+							.map(w => ({ value: w.id, label: w.name }))]} />
+			</div>
+			{#if workflowId !== 'default'}
+				<label class="flex items-center gap-2 text-sm">
+					<Switch bind:checked={pinned} />{m['automations.pin_version']()}
+				</label>
+			{/if}
 			<div class="space-y-1">
 				<Label>{m['automations.max_active']()}</Label><SelectField
 					bind:value={maxActive}
@@ -250,25 +335,40 @@
 	{:else}
 		<ul class="space-y-2">
 			{#each rules as rule (rule.id)}
-				<li class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3">
-					<div class="min-w-0">
-						<p class="truncate text-sm font-medium">{rule.name}</p>
-						<p class="truncate text-xs text-[var(--color-text-tertiary)]">{trigger(rule)}</p>
+				<li class="space-y-3 rounded-lg border border-[var(--app-border)] p-3">
+					<div class="flex items-center justify-between gap-3">
+						<div class="min-w-0">
+							<p class="truncate text-sm font-medium">{rule.name}</p>
+							<p class="truncate text-xs text-[var(--color-text-tertiary)]">{trigger(rule)}</p>
+							{#if rule.schedule_error}<p class="text-xs">{rule.schedule_error}</p>{/if}
+							{#if rule.workflow_id}
+								<p class="text-xs">{available.find(w => w.id === rule.workflow_id)?.name ?? rule.workflow_id} · {rule.pinned_version ? m['workflows.version']({ version: rule.pinned_version }) : m['automations.follow_latest']()}</p>
+							{/if}
+							{#if rule.enabled && (rule.next_run_at || rule.run_hour != null)}
+								<p class="text-xs">{m['settings.backups.next_run']({ time: nextMatch(rule) })}</p>
+							{/if}
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							<Button type="button" size="icon" variant="ghost" aria-label={m['assistant_custom_tools.runs']()}
+								aria-expanded={historyRule === rule.id}
+								onclick={() => (historyRule = historyRule === rule.id ? '' : rule.id)}><History /></Button>
+							<Switch
+								aria-label={m['automations.enabled']({ name: rule.name })}
+								checked={rule.enabled}
+								onCheckedChange={(value) => void toggle(rule, value)}
+							/>
+							<Button
+								type="button"
+								size="icon"
+								variant="ghost"
+								aria-label={m['automations.delete_named']({ name: rule.name })}
+								onclick={() => void remove(rule)}><Trash2 /></Button
+							>
+						</div>
 					</div>
-					<div class="flex shrink-0 items-center gap-2">
-						<Switch
-							aria-label={m['automations.enabled']({ name: rule.name })}
-							checked={rule.enabled}
-							onCheckedChange={(value) => void toggle(rule, value)}
-						/>
-						<Button
-							type="button"
-							size="icon"
-							variant="ghost"
-							aria-label={m['automations.delete_named']({ name: rule.name })}
-							onclick={() => void remove(rule)}><Trash2 /></Button
-						>
-					</div>
+					{#if historyRule === rule.id}
+						<AutomationRunHistory {slug} ruleId={rule.id} {statusLabel} />
+					{/if}
 				</li>
 			{/each}
 		</ul>

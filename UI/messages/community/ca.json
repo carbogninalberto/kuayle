@@ -2367,6 +2367,8 @@
 	"automations.status": "Estat",
 	"automations.any_status": "Qualsevol estat obert",
 	"automations.instructions": "Instruccions per a l'agent",
+	"automations.pin_version": "Fixa la versió actual",
+	"automations.follow_latest": "Segueix la versió més recent",
 	"automations.schedule": "Quan",
 	"automations.any_time": "En qualsevol moment",
 	"automations.at_hour": "a les {hour}:00 UTC",

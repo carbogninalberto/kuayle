@@ -73,6 +73,8 @@ Keep native task ownership, pre-dispatch encrypted credential snapshots, atomic
 log/activity persistence and physical cancellation checks intact. Its status
 section distinguishes implemented backend contracts from workflows not yet enabled.
 
+For periodic delegation, follow the [automation worker and replay contract](../../../BE/docs/agent-tasks.md#automations).
+
 For workflow changes, preserve the [stage assistant routing contract](../../../BE/docs/agent-tasks.md#configurable-workflows) across delegation, retries and native stage execution.
 
 For instance settings and notification delivery, follow the [Web Push contract](../../../BE/docs/web-push.md).

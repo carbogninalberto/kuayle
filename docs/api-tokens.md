@@ -197,6 +197,7 @@ authentication.
 | GET | `/api/workspaces/:slug/agent-automation-runs` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-automation-runs/:runId/approve` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-automation-runs/:runId/dismiss` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| POST | `/api/workspaces/:slug/agent-automation-runs/:runId/replay` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-automations` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-automations` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | DELETE | `/api/workspaces/:slug/agent-automations/:automationId` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |

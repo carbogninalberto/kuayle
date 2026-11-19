@@ -2367,6 +2367,8 @@
 	"automations.status": "Durum",
 	"automations.any_status": "Herhangi bir açık durum",
 	"automations.instructions": "Ajan için talimatlar",
+	"automations.pin_version": "Geçerli sürümü sabitle",
+	"automations.follow_latest": "En son sürümü kullan",
 	"automations.schedule": "Ne zaman",
 	"automations.any_time": "Her zaman",
 	"automations.at_hour": "{hour}:00 UTC'de",

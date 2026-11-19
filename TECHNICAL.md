@@ -806,7 +806,7 @@ records its final message itself, and the attempt never fails over it. A
 planning step's worktree is mounted read-only, and the prompt every attempt
 received is recorded by source.
 
-[Automations](BE/docs/agent-tasks.md#automations) (migration 69) delegate matching issues on a label or status trigger, optionally on a UTC schedule. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
+[Automations](BE/docs/agent-tasks.md#automations) (migrations 69 and 193) delegate matching issues to their default, selected latest or pinned workflow. Rules match continuously, during a legacy UTC hour or on a timezone-aware cron schedule. The dedicated automation worker supports leased starts, bounded retries and replay. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 
 ## Resource Limits and Quotas
 

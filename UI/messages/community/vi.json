@@ -2367,6 +2367,8 @@
 	"automations.status": "Trạng thái",
 	"automations.any_status": "Bất kỳ trạng thái mở nào",
 	"automations.instructions": "Hướng dẫn cho agent",
+	"automations.pin_version": "Ghim phiên bản hiện tại",
+	"automations.follow_latest": "Dùng phiên bản mới nhất",
 	"automations.schedule": "Khi nào",
 	"automations.any_time": "Bất cứ lúc nào",
 	"automations.at_hour": "lúc {hour}:00 UTC",

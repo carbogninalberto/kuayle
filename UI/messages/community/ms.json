@@ -2367,6 +2367,8 @@
 	"automations.status": "Status",
 	"automations.any_status": "Mana-mana status terbuka",
 	"automations.instructions": "Arahan untuk ejen",
+	"automations.pin_version": "Sematkan versi semasa",
+	"automations.follow_latest": "Ikut versi terkini",
 	"automations.schedule": "Bila",
 	"automations.any_time": "Bila-bila masa",
 	"automations.at_hour": "pada {hour}:00 UTC",

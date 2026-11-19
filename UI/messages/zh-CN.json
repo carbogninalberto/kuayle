@@ -2367,6 +2367,8 @@
 	"automations.status": "状态",
 	"automations.any_status": "任意未完成状态",
 	"automations.instructions": "给智能体的说明",
+	"automations.pin_version": "固定当前版本",
+	"automations.follow_latest": "使用最新版本",
 	"automations.schedule": "时间",
 	"automations.any_time": "任意时间",
 	"automations.at_hour": "UTC {hour}:00",

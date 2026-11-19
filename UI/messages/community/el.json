@@ -2367,6 +2367,8 @@
 	"automations.status": "Κατάσταση",
 	"automations.any_status": "Οποιαδήποτε ανοιχτή κατάσταση",
 	"automations.instructions": "Οδηγίες για τον πράκτορα",
+	"automations.pin_version": "Καρφίτσωμα τρέχουσας έκδοσης",
+	"automations.follow_latest": "Χρήση τελευταίας έκδοσης",
 	"automations.schedule": "Πότε",
 	"automations.any_time": "Οποιαδήποτε στιγμή",
 	"automations.at_hour": "στις {hour}:00 UTC",

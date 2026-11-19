@@ -637,6 +637,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		sessionOnly(dm, http.MethodPatch, "/agent-automations/:automationId", h.agentAutomation.Update)
 		sessionOnly(dm, http.MethodDelete, "/agent-automations/:automationId", h.agentAutomation.Delete)
 		sessionOnly(dm, http.MethodGet, "/agent-automation-runs", h.agentAutomation.Runs)
+		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/replay", h.agentAutomation.Replay)
 		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/approve", h.agentAutomation.Approve)
 		sessionOnly(dm, http.MethodPost, "/agent-automation-runs/:runId/dismiss", h.agentAutomation.Dismiss)
 	}

@@ -2367,6 +2367,8 @@
 	"automations.status": "Status",
 	"automations.any_status": "Hvilken som helst åpen status",
 	"automations.instructions": "Instruksjoner til agenten",
+	"automations.pin_version": "Lås gjeldende versjon",
+	"automations.follow_latest": "Følg nyeste versjon",
 	"automations.schedule": "Når",
 	"automations.any_time": "Når som helst",
 	"automations.at_hour": "kl. {hour}:00 UTC",

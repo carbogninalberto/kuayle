@@ -2367,6 +2367,8 @@
 	"automations.status": "Tila",
 	"automations.any_status": "Mikä tahansa avoin tila",
 	"automations.instructions": "Ohjeet agentille",
+	"automations.pin_version": "Kiinnitä nykyinen versio",
+	"automations.follow_latest": "Käytä uusinta versiota",
 	"automations.schedule": "Milloin",
 	"automations.any_time": "Milloin tahansa",
 	"automations.at_hour": "klo {hour}:00 UTC",

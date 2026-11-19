@@ -2367,6 +2367,8 @@
 	"automations.status": "상태",
 	"automations.any_status": "열려 있는 모든 상태",
 	"automations.instructions": "에이전트 지침",
+	"automations.pin_version": "현재 버전 고정",
+	"automations.follow_latest": "최신 버전 사용",
 	"automations.schedule": "시점",
 	"automations.any_time": "언제든지",
 	"automations.at_hour": "UTC {hour}:00",

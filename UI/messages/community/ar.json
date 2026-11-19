@@ -2367,6 +2367,8 @@
 	"automations.status": "الحالة",
 	"automations.any_status": "أي حالة مفتوحة",
 	"automations.instructions": "تعليمات للوكيل",
+	"automations.pin_version": "تثبيت الإصدار الحالي",
+	"automations.follow_latest": "استخدام أحدث إصدار",
 	"automations.schedule": "متى",
 	"automations.any_time": "في أي وقت",
 	"automations.at_hour": "عند {hour}:00 UTC",
