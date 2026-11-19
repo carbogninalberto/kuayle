@@ -73,16 +73,19 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	if publication.FromStoppedTask && publication.Step.Status == domain.DevMachineAgentRunStepStatusQueued {
 		status, scanErr := m.runtime.ScanWorktree(ctx, machine, services, WorktreeScanJob{
 			Path: checkout.WorkspacePath, Branch: checkout.WorkingBranch, BaseBranch: checkout.BaseBranch,
-			Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanStatus},
+			Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanStatus}, PublicationStatus: true,
 		})
 		if scanErr != nil || status == nil || status.Commit == "" || status.Truncated {
 			return &terminalOperationError{code: "publication_unavailable", message: domain.StoppedPublicationUnavailable}
 		}
-		if !status.Dirty {
+		// Before the first push, compare with the base. An unknown base falls
+		// through to the publisher, which fetches it from GitHub.
+		firstPushAtBase := publication.PublishedCommit == "" && status.Ahead != nil && *status.Ahead == 0
+		if !status.Dirty && (status.Commit == publication.PublishedCommit || firstPushAtBase) {
 			return m.store.CompletePublication(ctx, *op, domain.AgentPublicationResult{})
 		}
 	}
-	// Record that the stopped checkout was dirty before the commit cleans it.
+	// Record that publication started before changing the checkout.
 	// A retried operation can then finish pushing or opening the same draft.
 	if err = m.store.StartPublication(ctx, *op); err != nil {
 		return err

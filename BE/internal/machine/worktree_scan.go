@@ -21,6 +21,8 @@ type WorktreeScanJob struct {
 	Path       string
 	Branch     string
 	BaseBranch string
+	// PublicationStatus requires a successful git status and omits the file list.
+	PublicationStatus bool
 }
 
 // runWorktreeScan executes a read-only scan and stores its result or a short

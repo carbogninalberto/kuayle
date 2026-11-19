@@ -936,12 +936,13 @@ does too (migration 134); see [agent messages in chat](#agent-messages-in-chat).
 
 ### Publishing a stopped task
 
-`publish_task_changes(identifier)` asks for approval to publish uncommitted
+`publish_task_changes(identifier)` asks for approval to publish local commits and uncommitted
 changes from the issue's latest failed, cancelled or blocked coding task. The
 task creator or a workspace admin can approve from their own chat. The approval
 is bound to the task attempt and requires its original checkout on a running
 Dev Machine. After approval, the card shows the draft pull request, an empty
-checkout result or the reason publication could not finish. The task keeps its
+checkout result or the reason publication could not finish. A completed approval
+records `outcome` as `published` or `empty`. The task keeps its
 state. See [publication](agent-tasks.md#publication) for GitHub and lease rules.
 
 ### Model choice for agents started from chat
@@ -1066,7 +1067,7 @@ decided not to cover it from chat, so it is not an open gap.
 | Install a system package (`apt-get install`) | The machine's image: packages added in an Environment Builder and saved as a Development Environment, then `run_command`/`run_command_write` with that machine's `machine_id`; static binaries can be downloaded into the conversation folder. No install from chat ([system packages](#system-packages)) | by design (KUA-180) |
 | Run a database migration against a real database | `run_migration` (see [database migrations from chat](#database-migrations-from-chat)) | covered (KUA-181) |
 | Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
-| Publish work on a task checkout | `follow_up_task` for a new iteration, or `publish_task_changes` for a stopped task with uncommitted changes. Both use [task publication](agent-tasks.md#publication). | approval required |
+| Publish work on a task checkout | `follow_up_task` for a new iteration, or `publish_task_changes` for a stopped task with unpublished changes. Both use [task publication](agent-tasks.md#publication). | approval required |
 | Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, KUA-184 |
 
 ### Commands and temporary machines
@@ -1276,7 +1277,7 @@ The command tools never commit, branch or push a task checkout, and there
 is no approval-gated `git commit` or `git push` for a task's branch (KUA-183).
 Changes go through [publication](agent-tasks.md#publication). Use
 `follow_up_task` for a new agent iteration or `publish_task_changes` to recover
-uncommitted work from a stopped task as a draft.
+unpublished work from a stopped task as a draft.
 
 Why this stays closed:
 

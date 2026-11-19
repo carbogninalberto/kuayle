@@ -37,6 +37,8 @@ func (f *publicationStoreFake) CompletePublication(_ context.Context, _ domain.D
 type publicationRuntimeFake struct {
 	*runtimeFake
 	dirty   bool
+	ahead   *int
+	scanErr error
 	request PublishRequest
 	commit  string
 	err     error
@@ -47,7 +49,10 @@ type publicationRuntimeFake struct {
 }
 
 func (f *publicationRuntimeFake) ScanWorktree(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, job WorktreeScanJob) (*domain.WorktreeScanResult, error) {
-	return &domain.WorktreeScanResult{Branch: job.Branch, Commit: strings.Repeat("a", 40), Dirty: f.dirty}, nil
+	if job.PublicationStatus && f.scanErr != nil {
+		return nil, f.scanErr
+	}
+	return &domain.WorktreeScanResult{Branch: job.Branch, Commit: strings.Repeat("a", 40), Dirty: f.dirty, Ahead: f.ahead}, nil
 }
 
 func (f *publicationRuntimeFake) ReadAgentFile(_ context.Context, _ []domain.DevMachineService, _ *domain.DevMachineCheckout, name string, limit int) ([]byte, error) {
@@ -180,26 +185,34 @@ func TestPublishAgentFromStoppedTask(t *testing.T) {
 	for _, tc := range []struct {
 		name                     string
 		dirty, resumed, existing bool
+		published                string
+		ahead                    *int
+		empty                    bool
 	}{
 		{name: "uncommitted changes", dirty: true},
-		{name: "nothing to publish"},
+		{name: "clean at base", ahead: ptr(0), empty: true},
+		{name: "local commit before first publication", ahead: ptr(1)},
+		{name: "local commit after publication", published: strings.Repeat("b", 40), ahead: ptr(2)},
+		{name: "head already published", published: strings.Repeat("a", 40), ahead: ptr(1), empty: true},
+		{name: "base comparison unavailable"},
 		{name: "restart after making the commit", resumed: true},
 		{name: "existing ready pull request", dirty: true, existing: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			machine, store := publicationFixture()
 			store.publication.FromStoppedTask = true
+			store.publication.PublishedCommit = tc.published
 			if tc.resumed {
 				store.publication.Step.Status = domain.DevMachineAgentRunStepStatusRunning
 			}
-			runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, dirty: tc.dirty, commit: strings.Repeat("a", 40)}
+			runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, dirty: tc.dirty, ahead: tc.ahead, commit: strings.Repeat("a", 40)}
 			github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
 			if tc.existing {
 				github.existing = &githubclient.PullRequest{Number: 12, HTMLURL: github.created.HTMLURL, NodeID: "PR_node"}
 			}
 			manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
 			require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
-			if !tc.dirty && !tc.resumed {
+			if tc.empty {
 				require.Equal(t, &domain.AgentPublicationResult{}, store.result)
 				require.Zero(t, runtime.calls)
 				require.Zero(t, runtime.syncs)
@@ -221,6 +234,17 @@ func TestPublishAgentFromStoppedTask(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStoppedPublicationRefusesUnreadableStatus(t *testing.T) {
+	machine, store := publicationFixture()
+	store.publication.FromStoppedTask = true
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, scanErr: errors.New("unreadable index")}
+	manager := &Manager{store: store, runtime: runtime}
+	err := manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{})
+	require.ErrorContains(t, err, domain.StoppedPublicationUnavailable)
+	require.Nil(t, store.result)
+	require.Zero(t, runtime.syncs)
 }
 
 func TestPublishAgentRefreshesReusedPullRequestDescription(t *testing.T) {

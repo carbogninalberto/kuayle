@@ -2760,7 +2760,7 @@
 	"assistant.follow_up_failed": "無法啟動 {identifier} 的後續：{error}",
 	"assistant.follow_up_denied": "已拒絕 {identifier} 的後續",
 	"assistant.publish_task_title": "發佈 {identifier} 已停止任務的變更？",
-	"assistant.publish_task_description": "Kuayle 會將未提交的變更發佈為標示「未驗證」的提取請求草稿。",
+	"assistant.publish_task_description": "Kuayle 會將本機變更發佈為標示「未驗證」的提取請求草稿。",
 	"assistant.publish_task_approving": "正在檢查並發佈 {identifier} 的變更",
 	"assistant.publish_task_approved": "已發佈 {identifier} 的提取請求草稿",
 	"assistant.publish_task_empty": "{identifier} 無內容可發佈。工作副本沒有未發佈的變更。",

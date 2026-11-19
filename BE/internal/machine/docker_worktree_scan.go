@@ -81,15 +81,15 @@ awk -v start="$start" -v end="$end" 'NR>=start && NR<=end {print}' "$resolved"
 `
 
 const worktreeStatusScript = `set -eu
-path=$1 branch=$2 step=scan base=$3
-` + publishCheckoutScript + `changed=$(GIT_OPTIONAL_LOCKS=0 g status --porcelain=v1 --untracked-files=normal --ignore-submodules=all)
+path=$1 branch=$2 step=scan base=$3 publication=${4:-0}
+` + publishCheckoutScript + `changed=$(GIT_OPTIONAL_LOCKS=0 g status --porcelain=v1 --untracked-files=normal --ignore-submodules=all 2>/dev/null) || [ "$publication" = 0 ]
 printf '%s\n' "$branch"
 printf '%s\n' "$(g rev-parse --verify HEAD 2>/dev/null || true)"
 case $changed in
   "") printf '0\n' ;;
   *) printf '1\n' ;;
 esac
-printf '%s\n' "$changed"
+if [ "$publication" = 0 ]; then printf '%s\n' "$changed"; fi
 if g rev-parse -q --verify "refs/remotes/origin/$base^{commit}" >/dev/null 2>&1; then
   printf '@kuayle ahead-behind %s\n' "$(g rev-list --left-right --count "refs/remotes/origin/$base...HEAD" 2>/dev/null || true)"
 fi
@@ -223,7 +223,7 @@ func worktreeScanCommand(job WorktreeScanJob) ([]string, error) {
 		return []string{"sh", "-c", worktreeReadScript, "kuayle-worktree-scan", job.Path, job.Branch,
 			job.Request.Path, strconv.Itoa(job.Request.StartLine), strconv.Itoa(job.Request.EndLine)}, nil
 	case domain.WorktreeScanStatus:
-		return []string{"sh", "-c", worktreeStatusScript, "kuayle-worktree-scan", job.Path, job.Branch, job.BaseBranch}, nil
+		return []string{"sh", "-c", worktreeStatusScript, "kuayle-worktree-scan", job.Path, job.Branch, job.BaseBranch, scanBool(job.PublicationStatus)}, nil
 	case domain.WorktreeScanList:
 		return []string{"sh", "-c", worktreeListScript, "kuayle-worktree-scan", job.Path}, nil
 	default:

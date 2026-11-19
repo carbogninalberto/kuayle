@@ -2760,7 +2760,7 @@
 	"assistant.follow_up_failed": "Kunne ikke starte en oppfølging på {identifier}: {error}",
 	"assistant.follow_up_denied": "Avslo oppfølgingen på {identifier}",
 	"assistant.publish_task_title": "Publish stopped task changes for {identifier}?",
-	"assistant.publish_task_description": "Kuayle will publish the uncommitted changes as a draft pull request marked “not validated”.",
+	"assistant.publish_task_description": "Kuayle will publish the checkout’s changes as a draft pull request marked “not validated”.",
 	"assistant.publish_task_approving": "Checking and publishing changes for {identifier}",
 	"assistant.publish_task_approved": "Published a draft pull request for {identifier}",
 	"assistant.publish_task_empty": "Nothing to publish for {identifier}. The checkout has no unpublished changes.",

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -93,12 +94,18 @@ func TestPublishTaskChangesApprovesOneLeasedPublication(t *testing.T) {
 			finished, err := f.repo.FinishStoppedPublication(f.ctx, decisions[0])
 			require.NoError(t, err)
 			require.Equal(t, "approved", finished.Status)
+			var payload struct {
+				Outcome string `json:"outcome"`
+			}
+			require.NoError(t, json.Unmarshal(finished.Payload, &payload))
 			if tc.empty {
+				require.Equal(t, "empty", payload.Outcome)
 				require.NotContains(t, string(finished.Payload), "pull_request_url")
 				var summary string
 				require.NoError(t, f.db.Get(&summary, `SELECT summary FROM dev_machine_agent_run_steps WHERE id=$1`, op.ID))
 				require.Contains(t, summary, "Nothing to publish")
 			} else {
+				require.Equal(t, "published", payload.Outcome)
 				require.Contains(t, string(finished.Payload), url)
 				view, err := repository.NewAgentTaskRepository(f.db).Publication(f.ctx, f.ws, taskID, originalRun)
 				require.NoError(t, err)

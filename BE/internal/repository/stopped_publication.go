@@ -239,23 +239,29 @@ func (r *ConversationRepository) FinishStoppedPublication(ctx context.Context, d
 		return nil, nil
 	}
 	status, failure := "failed", ErrStoppedPublicationUnavailable.Error()
+	var outcome string
+	var pullRequestURL *string
 	switch {
 	case !result.Visible || result.Code.String == "publication_forbidden":
 		failure = ErrStoppedPublicationForbidden.Error()
 	case result.Status.String == "completed" && result.Step.String == "succeeded":
-		status = "approved"
-		if err = tx.GetContext(ctx, approval, `UPDATE conversation_approvals SET payload=payload||jsonb_build_object('pull_request_url',$2::text) WHERE id=$1 RETURNING *`, approval.ID, result.Link.String); err != nil {
-			return nil, err
-		}
+		outcome, pullRequestURL = "published", &result.Link.String
 	case result.Status.String == "completed" && result.Step.String == "skipped":
-		status = "approved"
+		outcome = "empty"
 	case result.Status.String == "failed" && result.Code.String == "publication_github_unavailable":
 		failure = "The repository's GitHub App credentials are unavailable. Ask a workspace admin to check the GitHub integration, then try again."
 	case result.Status.String == "failed" && result.Code.String != "publication_unavailable" && result.Code.String != "publication_stale":
 		failure = "Kuayle could not publish the draft. Ask the task creator to check its checkout and GitHub branch."
 	}
 	var errorText *string
-	if status == "failed" {
+	if outcome != "" {
+		status = "approved"
+		if _, err = tx.ExecContext(ctx, `UPDATE conversation_approvals
+ SET payload=payload||jsonb_strip_nulls(jsonb_build_object('outcome',$2::text,'pull_request_url',$3::text))
+ WHERE id=$1`, approval.ID, outcome, pullRequestURL); err != nil {
+			return nil, err
+		}
+	} else {
 		errorText = &failure
 		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_run_steps SET status='failed',completed_at=now(),summary=$2
  WHERE id=$1 AND status IN ('queued','running')`, approval.RequestID, failure); err != nil {

@@ -2760,7 +2760,7 @@
 	"assistant.follow_up_failed": "Impossibile avviare il seguito su {identifier}: {error}",
 	"assistant.follow_up_denied": "Seguito su {identifier} rifiutato",
 	"assistant.publish_task_title": "Pubblicare le modifiche dell’attività interrotta per {identifier}?",
-	"assistant.publish_task_description": "Kuayle pubblicherà le modifiche senza commit in una pull request in bozza contrassegnata come «non convalidata».",
+	"assistant.publish_task_description": "Kuayle pubblicherà le modifiche locali in una pull request in bozza contrassegnata come «non convalidata».",
 	"assistant.publish_task_approving": "Verifica e pubblicazione delle modifiche per {identifier}",
 	"assistant.publish_task_approved": "Pull request in bozza pubblicata per {identifier}",
 	"assistant.publish_task_empty": "Niente da pubblicare per {identifier}. La copia di lavoro non contiene modifiche inedite.",

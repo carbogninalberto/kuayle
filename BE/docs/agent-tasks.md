@@ -321,7 +321,7 @@ workspace's scans for an hour.
 
 The [stopped-task publication approval](conversations.md#publishing-a-stopped-task)
 queues the same `publish_agent` operation on the original checkout of a failed,
-cancelled or blocked task. The operation checks for uncommitted changes before
+cancelled or blocked task. The operation checks for uncommitted changes and unpublished local commits before
 syncing and publishing. It opens or updates a draft pull request marked
 “not validated: published from a failed task”. The task's stopped state remains
 in the task record, and the approval reports the publication result.

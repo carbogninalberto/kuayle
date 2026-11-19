@@ -125,6 +125,25 @@ func TestWorktreeStatusReportsChangesAndDivergence(t *testing.T) {
 	require.Equal(t, 1, *result.Behind)
 }
 
+func TestWorktreeStatusFailureIsStrictOnlyForPublication(t *testing.T) {
+	f := newScriptFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(f.checkout, ".git", "index"), []byte("invalid index"), 0o644))
+	job := WorktreeScanJob{Path: f.checkout, Branch: "kuayle/rec-1", BaseBranch: "main", Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanStatus}}
+	run := func() (string, error) {
+		cmd, err := worktreeScanCommand(job)
+		require.NoError(t, err)
+		return f.scan(cmd[2], cmd[4:]...)
+	}
+	output, err := run()
+	require.NoError(t, err, output)
+	status, err := parseWorktreeScan(job, output, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, status.Commit)
+	job.PublicationStatus = true
+	_, err = run()
+	require.Error(t, err)
+}
+
 func TestWorktreeScanNeverRunsACheckoutsConfiguredPrograms(t *testing.T) {
 	f := newScriptFixture(t)
 	marker := filepath.Join(f.root, "configured-program-ran")

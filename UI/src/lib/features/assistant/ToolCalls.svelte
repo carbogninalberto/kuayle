@@ -398,9 +398,9 @@
 				case 'approving':
 					return m['assistant.publish_task_approving']({ identifier });
 				case 'approved':
-					return approval.payload.pull_request_url
-						? m['assistant.publish_task_approved']({ identifier })
-						: m['assistant.publish_task_empty']({ identifier });
+					if (approval.payload.outcome === 'published') return m['assistant.publish_task_approved']({ identifier });
+					if (approval.payload.outcome === 'empty') return m['assistant.publish_task_empty']({ identifier });
+					return m['tasks.approved']();
 				case 'failed':
 					return approval.error ?? m['assistant.tool_failed']({ tool: m['assistant.tool_publish_task_changes']() });
 				case 'expired':

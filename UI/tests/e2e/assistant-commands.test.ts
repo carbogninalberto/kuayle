@@ -168,8 +168,8 @@ test('a write command on the user own machine says it is reused and writable', a
 	).toBeVisible();
 });
 
-for (const draft of [true, false]) {
-	test(`stopped task publication reports ${draft ? 'a draft link' : 'an empty checkout'} after approval`, async ({ page }) => {
+for (const [result, hasLink] of [['published', true], ['published', false], ['empty', false]] as const) {
+	test(`stopped task publication reports ${result} with link=${hasLink} after approval`, async ({ page }) => {
 		const action = 'publish_task_changes';
 		const payload = { identifier: 'ENG-1', title: 'Dark mode', task_id: 'task-1', generation: 1 };
 		const state = await chat(page, [call(action, { identifier: 'ENG-1' })], [
@@ -189,14 +189,19 @@ for (const draft of [true, false]) {
 			id: 'event-1', cursor: 1, conversation_id: 'chat-1', type: 'approval.resolved',
 			payload: {
 				...state.approvals[0], status: 'approved', updated_at: '2026-11-15T09:32:00Z',
-				payload: draft ? { ...payload, pull_request_url: url } : payload
+				payload: { ...payload, outcome: result, ...(hasLink ? { pull_request_url: url } : {}) }
 			}
 		}));
-		if (draft) {
-			await expect(page.getByRole('link', { name: 'Open draft pull request' })).toHaveAttribute('href', url);
+		if (result === 'published') {
+			await expect(page.getByText('Published a draft pull request for ENG-1')).toBeVisible();
 		} else {
 			await expect(page.getByText('Nothing to publish for ENG-1. The checkout has no unpublished changes.')).toBeVisible();
-			await expect(page.getByRole('link', { name: 'Open draft pull request' })).toHaveCount(0);
+		}
+		const link = page.getByRole('link', { name: 'Open draft pull request' });
+		if (hasLink) {
+			await expect(link).toHaveAttribute('href', url);
+		} else {
+			await expect(link).toHaveCount(0);
 		}
 	});
 }

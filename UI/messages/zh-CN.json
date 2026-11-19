@@ -2760,7 +2760,7 @@
 	"assistant.follow_up_failed": "无法启动 {identifier} 的后续：{error}",
 	"assistant.follow_up_denied": "已拒绝 {identifier} 的后续",
 	"assistant.publish_task_title": "发布 {identifier} 已停止任务的更改？",
-	"assistant.publish_task_description": "Kuayle 会将未提交的更改发布为标有“未验证”的拉取请求草稿。",
+	"assistant.publish_task_description": "Kuayle 会将本地更改发布为标有“未验证”的拉取请求草稿。",
 	"assistant.publish_task_approving": "正在检查并发布 {identifier} 的更改",
 	"assistant.publish_task_approved": "已发布 {identifier} 的拉取请求草稿",
 	"assistant.publish_task_empty": "{identifier} 无内容可发布。工作副本没有未发布的更改。",
