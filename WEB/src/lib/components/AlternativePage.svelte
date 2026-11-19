@@ -22,7 +22,7 @@
 		type AlternativePageContent,
 		type Competitor
 	} from '$lib/data/competitor-types';
-	import { KUAYLE, KUAYLE_FACTS_VERSION } from '$lib/data/kuayle-facts';
+	import { KUAYLE, KUAYLE_FACTS_SOURCE } from '$lib/data/kuayle-facts';
 	import { faqLd, webPageLd, type Crumb } from '$lib/data/routes';
 
 	let {
@@ -164,8 +164,7 @@
 			<div class="mt-6 rounded-xl border border-border bg-card/40">
 				<Table.Root class="min-w-[40rem] table-fixed">
 					<Table.Caption class="px-4 pb-4 text-left text-xs">
-						{name} details checked against {competitor.name}'s own pages on {checkedOn}. Kuayle details verified
-						against the {KUAYLE_FACTS_VERSION} source code.
+						{name} details checked against {competitor.name}'s own pages on {checkedOn}. {KUAYLE_FACTS_SOURCE}
 					</Table.Caption>
 					<Table.Header>
 						<Table.Row>
@@ -314,8 +313,8 @@
 				</li>
 			</ul>
 			<p class="mt-6 rounded-lg border border-white/5 bg-white/[0.02] p-4 text-xs leading-relaxed text-muted-foreground">
-				{competitor.name} details were checked against {competitor.name}'s own pages on {checkedOn}; Kuayle details against
-				the {KUAYLE_FACTS_VERSION} source code. Prices are list prices before tax and change over time; the vendor's pricing
+				{competitor.name} details were checked against {competitor.name}'s own pages on {checkedOn}.
+				{KUAYLE_FACTS_SOURCE} Prices are list prices before tax and change over time; the vendor's pricing
 				page is authoritative. This is a snapshot, not an endorsement. Kuayle is developed by Bakney and is not affiliated
 				with {competitor.name}. {competitor.name} is a trademark of its owner.
 			</p>

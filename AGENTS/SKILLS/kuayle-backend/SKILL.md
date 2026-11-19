@@ -74,3 +74,5 @@ log/activity persistence and physical cancellation checks intact. Its status
 section distinguishes implemented backend contracts from workflows not yet enabled.
 
 For workflow changes, preserve the [stage assistant routing contract](../../../BE/docs/agent-tasks.md#configurable-workflows) across delegation, retries and native stage execution.
+
+For instance settings and notification delivery, follow the [Web Push contract](../../../BE/docs/web-push.md).

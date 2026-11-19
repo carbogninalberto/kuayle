@@ -83,6 +83,10 @@ func (job pushJob) enabled(prefs *domain.UserPreferences) bool {
 }
 
 func (s *PushService) sendJob(ctx context.Context, job pushJob) (bool, error) {
+	state, err := s.effective(ctx)
+	if err != nil || !state.Enabled {
+		return false, err
+	}
 	ctx = domain.WithAccess(ctx, domain.Access{UserID: job.userID, WorkspaceID: job.workspaceID})
 	prefs, err := s.prefs.Get(ctx, job.userID)
 	if err != nil || !job.enabled(prefs) {
@@ -126,7 +130,7 @@ func (s *PushService) sendJob(ctx context.Context, job pushJob) (bool, error) {
 			continue
 		}
 		attempted = true
-		s.deliver(ctx, sub, payload)
+		s.deliver(ctx, state.vapid(), sub, payload)
 	}
 	return attempted, nil
 }
