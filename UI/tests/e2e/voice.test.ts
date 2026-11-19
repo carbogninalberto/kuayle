@@ -111,7 +111,12 @@ test('dictates into the composer after review, keeping the draft', async ({ page
 	await page.goto('/test/assistant?conversation=chat-1');
 	const composer = page.getByRole('textbox', { name: 'Message' });
 	await composer.fill('Please');
-	await page.getByRole('button', { name: 'Dictate a message' }).click();
+	const dictate = page.getByRole('button', { name: 'Dictate a message' });
+	await expect(dictate).toBeEnabled();
+	await page.getByRole('button', { name: 'Context usage' }).focus();
+	await page.keyboard.press('Tab');
+	await expect(dictate).toBeFocused();
+	await dictate.click();
 	await expect(page.getByRole('timer')).toContainText('0:00 / 5:00');
 	await page.locator('form').last().screenshot({ path: test.info().outputPath('voice-recording.png') });
 	await page.getByRole('button', { name: 'Stop and transcribe' }).click();

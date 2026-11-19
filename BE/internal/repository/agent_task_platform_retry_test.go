@@ -115,23 +115,28 @@ func TestPlatformRetryStopsAtTheCap(t *testing.T) {
 	require.Equal(t, claimed.RunID, current.RunID)
 }
 
-// A workflow task keeps its position: the retry enters no step, so the
-// iteration budget and the node's visit limit are unchanged.
-func TestPlatformRetryKeepsTheWorkflowPosition(t *testing.T) {
+// Retrying a PID-limit crash preserves the workflow position and counters.
+func TestPIDLimitRetryKeepsTheWorkflowPosition(t *testing.T) {
 	f := newPauseFixture(t)
+	f.exec(`UPDATE agent_tasks SET workflow_iterations=8 WHERE id=$1`, f.task.ID)
 	before := f.current()
 	require.NotNil(t, before.WorkflowNode)
-	f.exec(`UPDATE dev_machine_agent_runs SET status='failed',failure_class='platform',failure_rule='manager_restart' WHERE id=$1`, before.RunID)
+	f.exec(`UPDATE dev_machine_agent_runs SET status='failed',failure_class='platform',failure_rule='pid_limit' WHERE id=$1`, before.RunID)
 	claimed := f.claim()
 	require.NotNil(t, claimed)
 
-	retried, err := f.repo.BeginPlatformRetry(f.ctx, *claimed, "Retrying automatically: Kuayle's machine manager restarted while the agent worked (retry 1 of 3); the workflow budget is unchanged")
+	reason := "Retrying automatically: the agent container reached its PID limit (retry 1 of 3). The workflow iteration budget is unchanged"
+	retried, err := f.repo.BeginPlatformRetry(f.ctx, *claimed, reason)
 	require.NoError(t, err)
 	require.True(t, retried)
 	retrying := f.current()
 	require.Equal(t, "cancelling", retrying.State)
 	require.Equal(t, 1, retrying.PlatformRetries)
 	require.True(t, retrying.PlatformRetryPending)
+	notebook, err := f.repo.Notebook(f.ctx, f.ws, f.task.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, notebook.Notebook.Events)
+	require.Equal(t, reason, notebook.Notebook.Events[len(notebook.Notebook.Events)-1].Text)
 
 	// The runtime is cleaned up, then the cleanup restarts the step.
 	require.NoError(t, f.repo.CancelAttempt(f.ctx, retrying))
@@ -159,5 +164,5 @@ func TestPlatformRetryKeepsTheWorkflowPosition(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, handoff)
 	require.Equal(t, before.RunID, handoff.AttemptID)
-	require.Equal(t, domain.FailureRuleManagerRestart, handoff.FailureRule, "the successor knows the restart was Kuayle's")
+	require.Equal(t, domain.FailureRulePIDLimit, handoff.FailureRule, "the successor knows the cause of the crash")
 }
