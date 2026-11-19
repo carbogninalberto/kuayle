@@ -3,6 +3,8 @@ package machine
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -123,9 +125,17 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	if err = m.store.StartPublication(ctx, *op); err != nil {
 		return err
 	}
-	githubAPI, token, err := m.repositoryToken(ctx, machine, checkout.RepositoryFullName)
-	if err != nil || token == "" {
+	githubAPI, installationID, repoName, err := m.repositoryInstallation(ctx, machine, checkout.RepositoryFullName)
+	if err != nil {
 		return &terminalOperationError{code: "publication_github_unavailable", message: "Repository-scoped GitHub App token is unavailable"}
+	}
+	grant, err := githubAPI.GetPublicationToken(ctx, installationID, repoName)
+	if err != nil {
+		return &terminalOperationError{code: "publication_github_unavailable", message: "Repository-scoped GitHub App token is unavailable"}
+	}
+	token := grant.Token
+	if err := m.registerRuntimeCredential(ctx, machine.ID, token, grant.ExpiresAt); err != nil {
+		return fmt.Errorf("runtime_credential_registration_failed: %w", err)
 	}
 	title := truncateText(publication.IssueIdentifier+": "+publication.IssueTitle, 240)
 	identity := m.gitIdentity()
@@ -140,7 +150,7 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	// published itself, the sync returns Kuayle's published commit as the lease
 	// for a guarded force push instead of changing the checkout.
 	request := PublishRequest{
-		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit,
+		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, WorkflowsWrite: grant.WorkflowsWrite, PublishedCommit: publication.PublishedCommit,
 		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
 	}
 	request.Lease, err = m.runtime.SyncCheckout(ctx, machine, services, checkout, request)
@@ -162,7 +172,15 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, request)
 	remains := errors.Is(err, ErrPublishedWorkRemains)
 	if err != nil && !remains {
-		return errors.New("publication_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
+		var terminal *terminalOperationError
+		if errors.As(err, &terminal) {
+			return &terminalOperationError{code: terminal.code, message: strings.ReplaceAll(terminal.message, token, "[redacted]")}
+		}
+		detail := strings.ReplaceAll(err.Error(), token, "[redacted]")
+		if match := workflowPushRejection.FindStringSubmatch(detail); match != nil {
+			return workflowPermissionError(match[1])
+		}
+		return errors.New("publication_failed: " + truncateText(detail, 1900))
 	}
 	result := domain.AgentPublicationResult{}
 	if remains && !publication.FromStoppedTask {
@@ -215,6 +233,15 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Commit: commit, PullRequestNumber: pullRequest.Number, PullRequestURL: safeURL}
 	}
 	return m.store.CompletePublication(ctx, *op, result)
+}
+
+// GitHub may reject the push even after preflight, for example when the
+// installation changes during publication. Only surface the rejected path.
+var workflowPushRejection = regexp.MustCompile("refusing to allow a GitHub App to (?:create or update|delete) workflow [`']?(\\.github/workflows/[^\r\n]+?)[`']? without [`']?workflows[`']? permission")
+
+func workflowPermissionError(paths string) error {
+	return &terminalOperationError{code: domain.PublicationWorkflowsPermissionCode, message: "Publishing requires Workflows: Read and write for " +
+		truncateText(strings.ToValidUTF8(paths, "�"), 1400) + ". In Settings → GitHub, use Fix on GitHub to update the app (ask the operator for a shared app), then Accept on GitHub for the installation. Retry publication after acceptance."}
 }
 
 func stoppedPullRequest(github githubAPI, token, owner, repository string, checkout *domain.DevMachineCheckout) (*githubclient.PullRequest, error) {

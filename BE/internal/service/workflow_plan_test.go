@@ -162,6 +162,12 @@ func TestPlanningStepFailsWhenTheWorktreeChanged(t *testing.T) {
 	h.planRun(repository.WorkflowRun{Summary: "Plan", FinalMessage: true, WorktreeChanged: &changed})
 	require.Contains(t, h.w.steps[2].Detail, "changed the worktree (a commit)")
 
+	// Planning still rejects new ignored paths, including build output.
+	h = newPlanHarness(t, "{{plan}}")
+	h.planRun(repository.WorkflowRun{Summary: "Plan", FinalMessage: true, WorktreeChanged: &changed, WorktreeFiles: []string{"files that git ignores"}})
+	require.Equal(t, "failed", h.current().NodeID)
+	require.Contains(t, h.w.task.Reason, "files that git ignores")
+
 	// Without Kuayle's own comparison the step cannot pass.
 	h = newPlanHarness(t, "{{plan}}")
 	h.planRun(repository.WorkflowRun{Summary: "Plan", FinalMessage: true})

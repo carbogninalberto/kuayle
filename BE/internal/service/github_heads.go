@@ -66,23 +66,37 @@ func (s *GitHubService) InspectPullRequestHead(ctx context.Context, ws uuid.UUID
 }
 
 func (s *GitHubService) repositoryClient(ctx context.Context, ws uuid.UUID, repository string) (*gh.Client, string, string, string, error) {
+	client, id, owner, name, err := s.repositoryInstallation(ctx, ws, repository)
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	token, _, err := client.GetRepositoryInstallationToken(id, name)
+	return client, token, owner, name, err
+}
+
+func (s *GitHubService) branchWriteClient(ctx context.Context, ws uuid.UUID, repository string) (*gh.Client, string, string, string, error) {
+	client, id, owner, name, err := s.repositoryInstallation(ctx, ws, repository)
+	if err != nil {
+		return nil, "", "", "", err
+	}
+	grant, err := client.GetPublicationToken(ctx, id, name)
+	return client, grant.Token, owner, name, err
+}
+
+func (s *GitHubService) repositoryInstallation(ctx context.Context, ws uuid.UUID, repository string) (*gh.Client, int64, string, string, error) {
 	owner, name, ok := strings.Cut(repository, "/")
 	if !ok {
-		return nil, "", "", "", fmt.Errorf("invalid repository %q", repository)
+		return nil, 0, "", "", fmt.Errorf("invalid repository %q", repository)
 	}
 	inst, err := s.ghRepo.GetInstallationByWorkspace(ctx, ws)
 	if err != nil || inst == nil {
-		return nil, "", "", "", fmt.Errorf("GitHub not connected")
+		return nil, 0, "", "", fmt.Errorf("GitHub not connected")
 	}
 	client, _, err := s.getClient(ctx, ws)
 	if err != nil {
-		return nil, "", "", "", err
+		return nil, 0, "", "", err
 	}
-	token, _, err := client.GetRepositoryInstallationToken(inst.InstallationID, name)
-	if err != nil {
-		return nil, "", "", "", err
-	}
-	return client, token, owner, name, nil
+	return client, inst.InstallationID, owner, name, nil
 }
 
 func (s *GitHubService) githubPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int) (string, error) {

@@ -276,7 +276,12 @@ force-pushed. Then:
    configured identity. The author check still covers every commit the push
    adds, including a rewrite's. The agent-writable checkout's configuration
    (hooks, URL rewrites, credential helpers) is never loaded, and the token is
-   never written to the workspace volume.
+   never written to the workspace volume. Before pushing, the publisher checks the
+   installation grant used for that token. If outgoing commits change
+   `.github/workflows/` without **Workflows: Read and write**, publication stops
+   with `publication_workflows_permission`. A GitHub workflow-permission rejection
+   has the same terminal outcome. The task names the files and explains how to
+   [update the app and accept the grant](github-integration.md#github-app-setup-check).
 3. Reuses an open pull request from the task branch into the base branch, or opens
    one ready for review with the GitHub App. A reused draft receives this attempt's
    description and is marked ready for review. The title carries the issue identifier so the existing
@@ -2309,10 +2314,17 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   assistant chose. An unknown edge or one reserved for a built-in outcome
   fails the stage. A plain handoff or `KUAYLE_STAGE_CONTINUE` runs the built-in
   action. At a terminal stage this finishes the configured outcome.
-  CI, approval, merge and end require an unchanged worktree to continue their
-  built-in action. A stage assistant that edits code there can hand off through
-  a configured rework branch. Checks, publications, human approvals and
-  merges still have their own evidence and authorization.
+  When HEAD and all non-ignored files (including untracked files) match
+  the start of the stage visit, the built-in action reuses the input attempt's
+  validation and published pull request. This comparison spans retries. A
+  build or test can create ignored output without invalidating that evidence.
+  CI, approval, merge and end require this match to continue. An assistant
+  that edits code there can explicitly select a configured rework branch.
+  If it tries to continue instead, the stage fails and the task shows the
+  reason and recorded changed filenames when available. A failed assistant
+  cannot select a fallback or authorize the built-in action. Checks,
+  publications, human approvals and merges retain their own evidence and
+  authorization.
 - **Workflows** (`workflows`, `workflow_versions`): a save inserts the next
   immutable version (an update trigger refuses changes) with the graph as
   JSONB; `expected_version` refuses a stale save. Archiving hides a workflow

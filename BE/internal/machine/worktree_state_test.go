@@ -51,7 +51,7 @@ func TestWorktreeStateSeesEveryChangeAnAgentCanMake(t *testing.T) {
 	}
 	git("init", "-q")
 	write("a.go", "package a\n")
-	write(".gitignore", "node_modules/\n")
+	write(".gitignore", "node_modules/\ncoverage/\n")
 	git("add", "-A")
 	git("commit", "-q", "-m", "base")
 	out, err := exec.Command("/bin/sh", "-c", excludeKuayleScript, "kuayle-exclude", root).CombinedOutput()
@@ -68,6 +68,17 @@ func TestWorktreeStateSeesEveryChangeAnAgentCanMake(t *testing.T) {
 	changed, _, _ := worktreeChange(before, state())
 	require.False(t, changed)
 	require.Empty(t, strings.TrimSpace(git("diff", "--cached", "--name-only")), "the checkout's index is untouched")
+
+	write("coverage/results.json", "{}")
+	withCoverage := state()
+	require.NotEqual(t, before, withCoverage, "planning sees a new ignored directory")
+	head, tree, ok := domain.WorktreeContent(before)
+	require.True(t, ok)
+	buildHead, buildTree, ok := domain.WorktreeContent(withCoverage)
+	require.True(t, ok)
+	require.Equal(t, head, buildHead)
+	require.Equal(t, tree, buildTree, "the built-in check can still use the same attempt")
+	before = withCoverage
 
 	write("a.go", "package a // edited\n")
 	edited := state()

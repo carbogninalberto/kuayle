@@ -76,19 +76,20 @@ func (f *publicationRuntimeFake) PublishCheckout(_ context.Context, _ *domain.De
 }
 
 type publicationGitHubFake struct {
-	existing *githubclient.PullRequest
-	created  *githubclient.PullRequest
-	err      error
-	creates  int
-	draft    bool
-	updates  int
-	title    string
-	body     string
-	head     string
-	base     string
-	readied  []string
-	readyErr error
-	drafted  []string
+	workflowsWrite bool
+	existing       *githubclient.PullRequest
+	created        *githubclient.PullRequest
+	err            error
+	creates        int
+	draft          bool
+	updates        int
+	title          string
+	body           string
+	head           string
+	base           string
+	readied        []string
+	readyErr       error
+	drafted        []string
 
 	screenshotBranch string
 	screenshotFiles  []githubclient.RepositoryFile
@@ -101,6 +102,11 @@ func (f *publicationGitHubFake) PublishFilesToBranch(_, _, _, branch, _ string, 
 		return "", f.screenshotErr
 	}
 	return strings.Repeat("c", 40), nil
+}
+
+func (f *publicationGitHubFake) GetPublicationToken(_ context.Context, id int64, repo string) (githubclient.PublicationToken, error) {
+	token, expires, err := f.GetRepositoryInstallationToken(id, repo)
+	return githubclient.PublicationToken{Token: token, ExpiresAt: expires, WorkflowsWrite: f.workflowsWrite}, err
 }
 
 func (f *publicationGitHubFake) GetRepositoryInstallationToken(int64, string) (string, time.Time, error) {
@@ -148,10 +154,11 @@ func publicationFixture() (*domain.DevMachine, *publicationStoreFake) {
 func TestPublishAgentOpensOnePullRequestWithManagerHeldCredential(t *testing.T) {
 	machine, store := publicationFixture()
 	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: "0123456789abcdef0123456789abcdef01234567"}
-	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	github := &publicationGitHubFake{workflowsWrite: true, created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
 	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
 	manager.SetAgentGitIdentity(GitIdentity{Name: "carbninai", Email: "agent@example.invalid"})
 	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.True(t, runtime.request.WorkflowsWrite)
 	require.Equal(t, 1, store.started)
 	require.Equal(t, "fixture-installation-token", runtime.request.Token)
 	require.Equal(t, "carbninai", runtime.request.AuthorName)
@@ -619,4 +626,21 @@ func TestPublishAgentStillPublishesWhenItsFilesFail(t *testing.T) {
 		require.Empty(t, runtime.reads)
 		require.Empty(t, github.screenshotFiles)
 	})
+}
+
+func TestPublicationWorkflowRejectionIsTerminal(t *testing.T) {
+	_, store := publicationFixture()
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, err: errors.New("push with fixture-installation-token\n ! [remote rejected] HEAD -> task (refusing to allow a GitHub App to create or update workflow `.github/workflows/test.yml` without `workflows` permission)")}
+	manager := NewManager(store, runtime, nil, &publicationGitHubFake{}, make([]byte, 32), nil, "fixture")
+	manager.operationSlots <- struct{}{}
+	manager.operations.Add(1)
+	manager.processLeasedOperation(context.Background(), domain.DevMachineOperation{Action: domain.DevMachineOpPublishAgent})
+	require.NotNil(t, store.failedOperationRetryable)
+	require.False(t, *store.failedOperationRetryable)
+	require.Equal(t, "publication_workflows_permission", store.failedOperationCode)
+	require.Contains(t, store.failedOperationMessage, ".github/workflows/test.yml")
+	require.Contains(t, store.failedOperationMessage, "Fix on GitHub")
+	require.Contains(t, store.failedOperationMessage, "Accept on GitHub")
+	require.NotContains(t, store.failedOperationMessage, "fixture-installation-token")
+	require.Nil(t, store.result)
 }

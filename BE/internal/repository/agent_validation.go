@@ -42,11 +42,11 @@ func lockTaskMachine(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (i
 func failExhaustedStep(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask, step *domain.DevMachineAgentRunStep, phase taskStepPhase, summary string) error {
 	var failed bool
 	var reason sql.NullString
-	// Compose rejections and local checkout blocks carry user-facing details.
+	// Only known, user-facing failures may supply a step summary.
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations WHERE agent_run_id=$1 AND action=$2 AND status='failed'),
  (SELECT CASE WHEN error_code='compose_rejected' THEN left(error_message,500) ELSE error_message END
   FROM dev_machine_operations WHERE agent_run_id=$1 AND action=$2 AND status='failed'
-  AND (error_code='compose_rejected' OR (action='publish_agent' AND error_code=$3)) LIMIT 1)`, task.RunID, phase.action, domain.PublicationCheckoutBlockedCode).Scan(&failed, &reason); err != nil {
+  AND (error_code='compose_rejected' OR (action='publish_agent' AND error_code IN ($3,$4))) LIMIT 1)`, task.RunID, phase.action, domain.PublicationCheckoutBlockedCode, domain.PublicationWorkflowsPermissionCode).Scan(&failed, &reason); err != nil {
 		return err
 	}
 	if reason.Valid {

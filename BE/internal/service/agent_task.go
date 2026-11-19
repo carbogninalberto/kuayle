@@ -287,7 +287,7 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			// or that GitHub's branch still holds work the agent removed.
 			return s.store.Transition(ctx, task, "blocked", publicationSkippedReason(result))
 		case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
-			return s.store.Transition(ctx, task, "blocked", "Publishing failed; check the repository connection and retry")
+			return s.store.Transition(ctx, task, "blocked", publicationFailureReason(result, "Publishing failed; check the repository connection and retry"))
 		}
 		return nil
 	}
@@ -1232,7 +1232,7 @@ func withContract(prompt string, task domain.AgentTask, related []domain.Related
 // (Kuayle commits as the workspace's configured author and pushes with its
 // own token), and agents that tried reported the refusal as a failure. It
 // also asks for the final message a run must end with.
-const publicationLine = "Publishing: Kuayle commits and pushes for you. Before editing, check git status. If the checkout conflicts with the fetched task branch, resolve and stage the affected files. When you finish, Kuayle commits every change in this worktree as the workspace's configured author, pushes the task branch and opens or updates the pull request. This container has no git identity and no GitHub token on purpose, so do not run git commit, git push or gh, do not configure a git identity, and do not report their absence as a problem: leave your changes uncommitted in the worktree. In your final message, say what you changed; the next step and the reviewer read it, and a run that ends without one fails."
+const publicationLine = "Publishing: Kuayle commits and pushes for you. If the repository's GitHub App cannot change workflows, leave .github/workflows untouched and describe the needed CI change in your summary. Before editing, check git status. If the checkout conflicts with the fetched task branch, resolve and stage the affected files. When you finish, Kuayle commits every change in this worktree as the workspace's configured author, pushes the task branch and opens or updates the pull request. This container has no git identity and no GitHub token on purpose, so do not run git commit, git push or gh, do not configure a git identity, and do not report their absence as a problem: leave your changes uncommitted in the worktree. In your final message, say what you changed; the next step and the reviewer read it, and a run that ends without one fails."
 
 func withPublication(prompt string) string {
 	if strings.Contains(prompt, publicationLine) || len(prompt)+len(publicationLine) > 32000 {
@@ -1325,9 +1325,16 @@ func (s *AgentTaskService) workflowPublished(ctx context.Context, task domain.Ag
 		}
 		return s.workflow.Outcome(ctx, task, domain.WorkflowNoChanges, reason)
 	case domain.DevMachineAgentRunStepStatusFailed, domain.DevMachineAgentRunStepStatusCancelled:
-		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, "Publishing failed; check the repository connection")
+		return s.workflow.Outcome(ctx, task, domain.WorkflowPublishFailed, publicationFailureReason(result, "Publishing failed; check the repository connection"))
 	}
 	return nil
+}
+
+func publicationFailureReason(result *domain.DevMachineAgentRunStep, fallback string) string {
+	if reason := domain.PublicationWorkflowsPermissionReason(result.Summary); reason != "" {
+		return reason
+	}
+	return fallback
 }
 
 // publicationSkippedReason is why a publication published nothing, as the
