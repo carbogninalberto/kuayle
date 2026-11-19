@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { setContext, tick, untrack } from 'svelte';
-	import { FileDown, RefreshCw } from '@lucide/svelte';
+	import { ArrowLeft, ChevronDown, FileDown, RefreshCw } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import {
 		agentTasks,
 		type AgentLiveMessage as LiveMessage,
@@ -13,16 +14,16 @@
 	} from '$lib/api/agent-tasks';
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentStep from './AgentStep.svelte';
-	import ClampedText from './ClampedText.svelte';
 	import AgentLiveMessage from './AgentLiveMessage.svelte';
 	import AgentReviewRequest from './AgentReviewRequest.svelte';
-	import AgentReviews from './AgentReviews.svelte';
+	import AgentReview from './AgentReview.svelte';
 	import TaskNotebook from './TaskNotebook.svelte';
 	import { missedNotebook } from './task-notebook';
 	import TaskStopButton from './TaskStopButton.svelte';
 	import { openStep } from './agent-timeline';
 	import { answerContext, placeConversation, sendOptions, type AnswerContext } from './agent-conversation';
 	import { reviewSessions } from './agent-review';
+	import { placeByTime } from './shell-rules';
 	import { useTaskRun } from './task-run.svelte';
 	import { useMessageScroller } from '$lib/components/ui/message-scroller/index.js';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
@@ -40,10 +41,7 @@
 	// reply as the next item; one that waits while no step runs follows the
 	// last step, where the next iteration picks it up. It is written in the
 	// composer under the view (AgentComposer). A review of the task's pull
-	// request is asked for from its header, and the requested reviews are
-	// read under the timeline. The task's notebook is one line above the
-	// timeline that opens to the working document, and each agent step's line
-	// opens the prompt its agent received; both are its creator's to read.
+	// request is asked for from its header and appears in the timeline.
 	let {
 		chat,
 		task,
@@ -63,6 +61,7 @@
 	let stopError = $state('');
 	let traceError = $state('');
 	let traceBusy = $state(false);
+	let detailsOpen = $state(false);
 	// A refused stop is about the state the task was in.
 	$effect(() => {
 		void task.state;
@@ -144,7 +143,7 @@
 	// The running step is open and the finished ones are closed, until the
 	// reader opens or closes one; a link to a step (#step-4) opens it.
 	let chosen = $state<Record<string, boolean>>({});
-	const current = $derived(openStep(steps));
+	const current = $derived(openStep(steps.filter((step) => !step.reviewTaskId)));
 	let followed = '';
 	$effect(() => {
 		const linked = page.url.hash.slice(1);
@@ -160,18 +159,29 @@
 	$effect(() => {
 		void [task.id, task.state, chat.taskReviewCursor[task.id]];
 		if (task.kind === 'review') return;
+		let stale = false;
 		untrack(() => {
 			agentTasks
 				.sessions(chat.slug, task.id)
 				.then((view) => {
-					if (!disposed) sessions = view.sessions ?? [];
+					if (!stale && !disposed) sessions = view.sessions ?? [];
 				})
 				.catch(() => {
 					/* The timeline still shows the task's own work. */
 				});
 		});
+		return () => (stale = true);
 	});
 	const reviews = $derived(reviewSessions(sessions));
+	const reviewsByTask = $derived(new Map(reviews.map((session) => [session.task_id, session])));
+	const timeline = $derived.by(() => {
+		const linked = new Set(steps.map((step) => step.reviewTaskId));
+		// Workflow sequence is authoritative. Place independently requested reviews by time.
+		return placeByTime(
+			steps.map((step) => ({ id: step.anchor, created_at: step.startedAt })),
+			reviews.filter((session) => !linked.has(session.task_id))
+		);
+	});
 	// The request is written for the assistant, which asks for approval.
 	function requestReview(text: string) {
 		chat.composerDraft = text;
@@ -196,53 +206,88 @@
 	};
 </script>
 
-<div class="flex min-w-0 flex-col gap-5" data-testid="agent-thread">
-	<Breadcrumb.Root aria-label={m['assistant.agent_view_breadcrumb']()}>
-		<Breadcrumb.List>
-			<Breadcrumb.Item>
-				<Breadcrumb.Link
-					href={backHref}
-					onclick={(event) => {
-						if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-						event.preventDefault();
-						onback();
-					}}>{m['assistant.title']()}</Breadcrumb.Link
-				>
-			</Breadcrumb.Item>
-			<Breadcrumb.Separator />
-			<Breadcrumb.Item>
-				<Breadcrumb.Page>{identifier} · {m['tasks.attempt']({ number: task.generation })}</Breadcrumb.Page>
-			</Breadcrumb.Item>
-		</Breadcrumb.List>
-	</Breadcrumb.Root>
+{#snippet reviewRow(session: (typeof reviews)[number])}
+	<li class="min-w-0"><AgentReview {session} /></li>
+{/snippet}
 
-	<div class="min-w-0 space-y-1">
-		<div class="flex min-w-0 items-start justify-between gap-3">
-			<ClampedText text={task.prompt} class="text-sm font-medium" />
-			<div class="flex shrink-0 items-center gap-2">
+<Collapsible.Root
+	bind:open={detailsOpen}
+	onOpenChange={(open) => {
+		if (open) scroller.scrollToStart({ behavior: 'auto' });
+	}}
+	class="flex min-w-0 flex-col gap-3"
+	data-testid="agent-thread"
+>
+	<header class="@container sticky top-0 z-10 border-b bg-background py-1.5" data-testid="agent-thread-header">
+		<div class="flex min-w-0 items-center gap-1.5 @min-[36rem]:gap-2">
+			<Breadcrumb.Root class="shrink-0" aria-label={m['assistant.agent_view_breadcrumb']()}>
+				<Breadcrumb.List class="flex-nowrap gap-1 text-xs">
+					<Breadcrumb.Item>
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							href={backHref}
+							aria-label={m['assistant.title']()}
+							title={m['assistant.target_back']()}
+							onclick={(event) => {
+								if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+								event.preventDefault();
+								onback();
+							}}><ArrowLeft /></Button
+						>
+					</Breadcrumb.Item>
+					<Breadcrumb.Item class="hidden @min-[40rem]:inline-flex">
+						<Breadcrumb.Page class="whitespace-nowrap text-muted-foreground"
+							>{identifier} · {m['tasks.attempt']({ number: task.generation })}</Breadcrumb.Page
+						>
+					</Breadcrumb.Item>
+				</Breadcrumb.List>
+			</Breadcrumb.Root>
+			<div class="flex min-w-0 flex-1 items-center gap-1">
+				<p class="min-w-0 flex-1 truncate text-sm font-medium">{task.prompt.split('\n', 1)[0]}</p>
+				<Collapsible.Trigger
+					class="group inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+					aria-label={detailsOpen ? m['tasks.transcript_show_less']() : m['sharedComponents.create_issue.expand']()}
+					title={m['tasks.details']()}
+				><ChevronDown size={14} aria-hidden="true" class="transition-transform group-aria-expanded:rotate-180 motion-reduce:transition-none" /></Collapsible.Trigger>
+			</div>
+			<div class="flex shrink-0 items-center gap-1 @min-[36rem]:gap-1.5">
 				<AgentReviewRequest {chat} {task} {allowedAgents} onrequest={requestReview} />
-				<Button variant="outline" size="sm" disabled={traceBusy} onclick={() => void downloadTrace()}
-					><FileDown />{m['tasks.download_trace']()}</Button
+				<Button variant="outline" size="sm" class="@max-[36rem]:w-7 @max-[36rem]:px-0" disabled={traceBusy}
+					aria-label={m['tasks.download_trace']()} title={m['tasks.download_trace']()} onclick={() => void downloadTrace()}
+					><FileDown /><span class="hidden @min-[36rem]:inline">{m['tasks.download_trace']()}</span></Button
 				>
 				<TaskStopButton {chat} {task} {identifier} onerror={(message) => (stopError = message)} />
-				<Badge variant="outline" class={toneBadge[tone]} role="status">{taskLabel(task.state)}</Badge>
 			</div>
+			<Badge variant="outline" class="max-w-24 shrink-0 @min-[36rem]:max-w-40 {toneBadge[tone]}"
+				title={taskLabel(task.state)} role="status"><span class="truncate">{taskLabel(task.state)}</span></Badge>
 		</div>
-		{#if task.reason}<p class="text-xs break-words text-muted-foreground">{task.reason}</p>{/if}
-		{#if stopError}<p role="alert" class="text-sm break-words text-destructive">{stopError}</p>{/if}
-		{#if traceError}<p role="alert" class="text-sm break-words text-destructive">{traceError}</p>{/if}
-	</div>
+	</header>
 
-	{#if run.notebook}<TaskNotebook view={run.notebook} request={task.prompt} name={personName} bind:open={notebookOpen} onopened={() => scroller.scrollToStart({ behavior: 'auto' })} />{/if}
+	{#if stopError}<p role="alert" class="text-sm break-words text-destructive">{stopError}</p>{/if}
+	{#if traceError}<p role="alert" class="text-sm break-words text-destructive">{traceError}</p>{/if}
+
+	<section aria-label={m['tasks.details']()} class="min-w-0">
+		<Collapsible.Content class="space-y-2 pb-2">
+			{#if detailsOpen}
+				<p class="text-xs text-muted-foreground">{identifier} · {m['tasks.attempt']({ number: task.generation })}</p>
+				<p class="break-words whitespace-pre-wrap text-sm">{task.prompt}</p>
+				{#if task.reason}<p class="break-words text-xs text-muted-foreground">{task.reason}</p>{/if}
+			{/if}
+		</Collapsible.Content>
+		{#if run.notebook}<TaskNotebook view={run.notebook} request={task.prompt} name={personName} bind:open={notebookOpen} onopened={() => scroller.scrollToStart({ behavior: 'auto' })} />{/if}
+	</section>
 
 	<ol aria-label={m['workflows.task.path']()} class="flex min-w-0 flex-col gap-1">
 		{#each steps as step (step.anchor)}
+			{#each timeline.before[step.anchor] ?? [] as session (session.id)}{@render reviewRow(session)}{/each}
 			<li class="min-w-0">
 				<AgentStep
 					{chat}
 					{step}
 					{now}
 					reviewHref={step.reviewTaskId ? reviewHref(step.reviewTaskId) : undefined}
+					reviewSession={step.reviewTaskId ? reviewsByTask.get(step.reviewTaskId) : undefined}
 					{conversation}
 					promptable={mine}
 					{missed}
@@ -250,6 +295,7 @@
 				/>
 			</li>
 		{/each}
+		{#each timeline.after as session (session.id)}{@render reviewRow(session)}{/each}
 		<!-- Waiting with no step running: the next iteration picks these up here. -->
 		{#if conversation.pending.length && steps.length}<li class="flex min-w-0 flex-col gap-3 py-2" data-step="pending">
 				{#each conversation.pending as placed (placed.message.id)}<AgentLiveMessage {placed} />{/each}
@@ -261,5 +307,4 @@
 			</p>
 			<Button variant="ghost" size="sm" onclick={() => void run.load()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>{/if}
-	<AgentReviews {reviews} />
-</div>
+</Collapsible.Root>

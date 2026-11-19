@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Bot, CircleHelp } from '@lucide/svelte';
+	import { Bot, CircleHelp, CornerDownRight } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
@@ -8,25 +8,28 @@
 	import { cn } from '$lib/utils.js';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 
-	// A message a coding agent sent this conversation through its live channel.
-	// It is the agent's own untrusted text: shown escaped, never as Markdown, so
-	// it cannot bring links, images or formatting, and the assistant never acts
-	// on it by itself.
+	// An echo of a live message in the owning assistant conversation.
 	let { message, slug }: { message: AgentLiveChatMessage; slug: string } = $props();
-	const question = $derived(message.kind === 'question');
+	const outgoing = $derived(message.direction === 'to_agent');
+	const question = $derived(!outgoing && message.kind === 'question');
 </script>
 
 <Message.Root
-	align="start"
+	align={outgoing ? 'end' : 'start'}
 	role="article"
-	aria-label={question
+	aria-label={outgoing ? m['tasks.live_from_you']() : question
 		? m['assistant.agent_question_from']({ identifier: message.identifier })
 		: m['assistant.agent_message_label']({ identifier: message.identifier })}
 >
-	<Message.Content>
+	<Message.Content class={outgoing ? 'items-end' : undefined}>
 		<Message.Header class="gap-1.5">
-			<Bot size={13} aria-hidden="true" />
-			<span>{m['assistant.agent_message_from']()}</span>
+			{#if outgoing}
+				<span>{m['tasks.live_from_you']()}</span>
+				<CornerDownRight size={13} aria-hidden="true" />
+			{:else}
+				<Bot size={13} aria-hidden="true" />
+				<span>{m['assistant.agent_message_from']()}</span>
+			{/if}
 			<a class="underline-offset-2 hover:underline" href="/{slug}/issue/{encodeURIComponent(message.identifier)}"
 				>{message.identifier}</a
 			>
@@ -36,8 +39,8 @@
 					><CircleHelp size={11} aria-hidden="true" />{m['assistant.agent_question']()}</Badge
 				>{/if}
 		</Message.Header>
-		<Bubble.Root variant="outline">
-			<Bubble.Content data-selectable="text" class={cn('pe-9', question ? 'border-[var(--status-warning)]/40' : '')}>
+		<Bubble.Root variant={outgoing ? 'muted' : 'outline'}>
+			<Bubble.Content data-selectable={outgoing ? undefined : 'text'} class={cn('pe-9', question ? 'border-[var(--status-warning)]/40' : '')}>
 				<p class="break-words whitespace-pre-wrap">{message.body}</p>
 			</Bubble.Content>
 			<CopyMessageButton text={message.body} />
@@ -46,7 +49,7 @@
 			<time datetime={message.created_at}
 				>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time
 			>
-			<span>{m['assistant.agent_message_untrusted']()}</span>
+			{#if !outgoing}<span>{m['assistant.agent_message_untrusted']()}</span>{/if}
 		</Message.Footer>
 	</Message.Content>
 </Message.Root>

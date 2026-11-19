@@ -18,7 +18,9 @@
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import type { WorkflowNodeType } from '$lib/api/workflows';
+	import { conditionLabel } from '$lib/features/workflows/labels';
 	import type { ConversationState } from './conversation-state.svelte';
+	import AgentReview from './AgentReview.svelte';
 	import AgentStepRun from './AgentStepRun.svelte';
 	import Markdown from './Markdown.svelte';
 	import RunPrompt from './RunPrompt.svelte';
@@ -26,12 +28,13 @@
 	import { stepDuration, type TimelineStep } from './agent-timeline';
 	import { stepAgent, stepTitle } from './step-labels';
 	import type { Conversation } from './agent-conversation';
+	import type { ReviewSession } from './agent-review';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
 	// One step of a task's timeline. An agent's step is a single quiet line
 	// (what, who, how long, how it went) that opens to its work: the result
-	// first, the trace below. Every other step is a compact row. The section
+	// first, the trace below. Other steps disclose their recorded details. The section
 	// id is the step's anchor, so other views can link to it.
 	let {
 		chat,
@@ -39,6 +42,7 @@
 		open = $bindable(false),
 		now,
 		reviewHref,
+		reviewSession,
 		conversation,
 		promptable = false,
 		missed
@@ -50,6 +54,7 @@
 		now: number;
 		// Where the step's review task opens as an agent view of its own.
 		reviewHref?: string;
+		reviewSession?: ReviewSession;
 		// What was said to the agent and what it answered, by run.
 		conversation?: Conversation;
 		// The reader may open the prompt the step's agent received.
@@ -92,7 +97,10 @@
 	const prompted = $derived(step.runs.filter((run) => run.status !== 'queued'));
 	let prompt = $state(false);
 	// What a compact row says when opened: what the runner recorded for it.
-	const note = $derived(step.detail || (step.status === 'done' ? '' : step.reason));
+	const note = $derived(step.detail || step.reason);
+	const findings = $derived(
+		reviewHref ? reviewSession?.review.findings || (step.status === 'done' || step.status === 'changes' ? step.detail : '') : ''
+	);
 </script>
 
 {#snippet status()}<StepStatus status={step.status} />{/snippet}
@@ -115,7 +123,7 @@
 <section
 	id={step.anchor}
 	aria-label={step.kind !== 'agent' ? undefined : who ? `${title} · ${who}` : title}
-	class="min-w-0 scroll-mt-4"
+	class="min-w-0 scroll-mt-14"
 	data-step={step.kind}
 	data-status={step.status}
 >
@@ -174,17 +182,19 @@
 						{#if step.plan}<article aria-label={m['tasks.plan']()} class="min-w-0 text-sm">
 								<Markdown source={step.plan} />
 							</article>{/if}
+						{#if reviewSession}<AgentReview session={reviewSession} embedded />{/if}
+						{#if findings && !reviewSession?.review.findings}<Markdown source={findings} class="text-sm" />{/if}
 						{#each step.runs as run, index (run.id)}<AgentStepRun
 								{chat}
 								{run}
 								active={running && index === step.runs.length - 1}
 								pending={pending && index === step.runs.length - 1}
-								concluded={!!step.plan && index === step.runs.length - 1}
+								concluded={!!(step.plan || findings) && index === step.runs.length - 1}
 								messages={conversation?.byRun.get(run.id)}
 							/>{/each}
-						{#if step.detail && !step.plan}<p class="text-sm break-words whitespace-pre-wrap text-muted-foreground">
-								{step.detail}
-							</p>{/if}
+						{#if step.detail && !step.plan && !findings}
+							<p class="text-sm break-words whitespace-pre-wrap text-muted-foreground">{step.detail}</p>
+						{/if}
 						{#if reviewHref}<a
 								href={reviewHref}
 								class="inline-flex w-fit items-center gap-1.5 rounded-sm text-sm text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -204,20 +214,22 @@
 			{@render tail()}
 			{#if step.status !== 'done'}{@render status()}{/if}
 		{/snippet}
-		{#if note}
-			<Collapsible.Root bind:open>
-				<Collapsible.Trigger
-					class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-					>{@render row()}{@render chevron()}</Collapsible.Trigger
-				>
-				<Collapsible.Content>
-					<p class="ml-2.5 border-l py-2 pl-4 text-xs break-words whitespace-pre-wrap text-muted-foreground sm:pl-5">
-						{note}
-					</p>
-				</Collapsible.Content>
-			</Collapsible.Root>
-		{:else}
-			<div class="flex min-w-0 items-center gap-2.5 py-1 text-xs text-muted-foreground">{@render row()}</div>
-		{/if}
+		<Collapsible.Root bind:open>
+			<Collapsible.Trigger
+				class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+				>{@render row()}{@render chevron()}</Collapsible.Trigger
+			>
+			<Collapsible.Content>
+				<div class="ml-2.5 space-y-1 border-l py-2 pl-4 text-xs text-muted-foreground sm:pl-5">
+					<div class="flex flex-wrap items-center gap-2">
+						{#if step.status === 'done'}{@render status()}{/if}
+						<time datetime={step.startedAt}>{started}</time>
+						{#if step.condition}<span>· {conditionLabel(step.condition)}</span>{/if}
+					</div>
+					{#if step.question && step.question !== note}<p class="break-words whitespace-pre-wrap">{step.question}</p>{/if}
+					{#if note}<p class="break-words whitespace-pre-wrap">{note}</p>{/if}
+				</div>
+			</Collapsible.Content>
+		</Collapsible.Root>
 	{/if}
 </section>
