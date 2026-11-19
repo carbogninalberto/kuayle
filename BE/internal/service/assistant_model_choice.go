@@ -9,6 +9,14 @@ import (
 	"unicode/utf8"
 )
 
+// assistantModelID translates the Claude display name used in chat to the CLI ID.
+func assistantModelID(harness, model string) string {
+	if harness == "claude-code" && (strings.EqualFold(model, "Opus 5.5") || strings.EqualFold(model, "Claude Opus 5.5")) {
+		return "claude-opus-5-5"
+	}
+	return model
+}
+
 // ModelChoice is the harness, model and model server the approver picked on
 // the approval card. Empty fields keep what the assistant proposed; the server
 // counts only together with a model, since two servers may list the same name.
