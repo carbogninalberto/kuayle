@@ -36,7 +36,7 @@
 		placeIssues,
 		routes,
 		type Block,
-		type FiredTransition
+		type runOverlay
 	} from './workflow-graph';
 
 	// The workflow graph on a Svelte Flow canvas, editable or read-only. The
@@ -74,13 +74,7 @@
 		warnings?: WorkflowIssue[];
 		editable?: boolean;
 		selection?: Selection;
-		/** A task's run: its current node, the nodes it entered, visit counts and fired transitions. */
-		run?: {
-			current: string;
-			visited: Set<string>;
-			visits: Record<string, number>;
-			fired: Map<string, FiredTransition>;
-		};
+		run?: ReturnType<typeof runOverlay>;
 		label: string;
 		class?: string;
 		/** Svelte Flow's own zoom controls; the editor has its own toolbar. */
@@ -238,7 +232,7 @@
 		zoom && box
 			? { x: PADDING - box.x * zoom, y: PADDING - box.y * zoom, zoom }
 			: width > 0 && height > 0
-				? ((navigable && run && centreOn(graph, run.current, { width, height }, navigable)) ??
+				? ((navigable && run && centreOn(graph, run.focus, { width, height }, navigable)) ??
 					opening(graph, { width, height }))
 				: undefined
 	);
