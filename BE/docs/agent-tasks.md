@@ -2466,9 +2466,12 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   `KUAYLE_STAGE_ROUTE <edge ID>` to choose an **Assistant choice** transition.
   Existing check-failure, publication-failure and denial branches back to an
   agent can also be selected for rework. The step records which edge the
-  assistant chose. An unknown edge or one reserved for a built-in outcome
-  fails the stage. A plain handoff or `KUAYLE_STAGE_CONTINUE` runs the built-in
-  action. At a terminal stage this finishes the configured outcome.
+  assistant chose. Only name edges marked `[selectable]`. Use
+  `KUAYLE_STAGE_CONTINUE` or a plain handoff to let Kuayle evaluate the
+  built-in conditions. If the assistant names a `[built-in]` or unknown edge,
+  or ends with an invalid `KUAYLE_STAGE_*` directive, Kuayle treats it as
+  `KUAYLE_STAGE_CONTINUE`. The task timeline records the directive and the
+  selectable edge IDs. At a terminal stage this finishes the configured outcome.
   When HEAD and all non-ignored files (including untracked files) match
   the start of the stage visit, the built-in action reuses the input attempt's
   validation and published pull request. This comparison spans retries. A
