@@ -361,6 +361,26 @@ func TestAssistantIssueFields(t *testing.T) {
 	require.Len(t, labels, 1)
 	require.Equal(t, scopedLabel, labels[0].ID)
 
+	for _, field := range []string{"due_date", "cycle", "project"} {
+		_, _, err = tools.run(f.ctx, f.ws, f.user, "create_issue", fmt.Sprintf(`{"team_key":"ENG","title":"Should not be created",%q:""}`, field))
+		require.ErrorContains(t, err, field)
+	}
+	_, _, err = tools.run(f.ctx, f.ws, f.user, "update_issue", `{"identifier":"ENG-1","project":"","labels":["Milestone"]}`)
+	require.ErrorContains(t, err, `labels value "Milestone" did not match`)
+	require.ErrorContains(t, err, "Needs QA")
+
+	_, _, err = tools.run(f.ctx, f.ws, f.user, "update_issue", `{"identifier":"ENG-1","due_date":"","cycle":"","project":"","labels":["Needs QA"]}`)
+	require.NoError(t, err)
+	issue, err = tools.issues.GetByID(f.ctx, *id)
+	require.NoError(t, err)
+	require.Nil(t, issue.DueDate)
+	require.Nil(t, issue.CycleID)
+	require.Nil(t, issue.ProjectID)
+	labels, err = tools.issues.GetLabels(f.ctx, *id)
+	require.NoError(t, err)
+	require.Len(t, labels, 1)
+	require.Equal(t, label, labels[0].ID)
+
 	_, _, err = tools.run(f.ctx, f.ws, f.user, "update_issue", `{"identifier":"ENG-1","labels":[],"assignees":[]}`)
 	require.NoError(t, err)
 	assignees, err = tools.issues.GetAssignees(f.ctx, *id)

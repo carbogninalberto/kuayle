@@ -741,7 +741,7 @@ test('renders recorded tool calls from history and live events as escaped data',
 	await expect(page.getByRole('button', { name: 'Updated ENG-7' })).toBeVisible();
 });
 
-test('shows issue metadata and available options for a failed update', async ({ page }) => {
+test('shows issue metadata, valid options and a saved issue warning', async ({ page }) => {
 	const state = await fixture(page);
 	const answered = { ...reply, status: 'completed', content: 'ENG-7 was created. Check the cycle name for the update.' };
 	state.messages = [
@@ -760,7 +760,8 @@ test('shows issue metadata and available options for a failed update', async ({ 
 		output: { identifier: 'ENG-7', title: 'Ship the fix' },
 		created_at: conversation.created_at
 	};
-	const error = 'cycle value "Sprint Z" did not match. Valid options include "Sprint X"';
+	const error = 'cycle value "Sprint Z" did not match. Valid options include "Sprint X" (more options available)';
+	const warning = 'Issue ENG-8 was created. The requested labels could not be confirmed. Check the existing issue and use update_issue if a correction is needed.';
 	state.tools = [
 		created,
 		{
@@ -773,6 +774,16 @@ test('shows issue metadata and available options for a failed update', async ({ 
 			status: 'failed',
 			output: undefined,
 			error
+		},
+		{
+			...created,
+			id: 'tool-3',
+			sequence: 2,
+			call_id: 'call_3',
+			input: { team_key: 'ENG', title: 'Check the fix', labels: ['Needs QA'] },
+			status: 'failed',
+			output: undefined,
+			error: warning
 		}
 	];
 	await page.goto('/test/assistant?conversation=chat-1');
@@ -784,6 +795,8 @@ test('shows issue metadata and available options for a failed update', async ({ 
 	}
 	await page.getByRole('button', { name: 'Failed to run Update issue' }).click();
 	await expect(toolCode.filter({ hasText: error })).toBeVisible();
+	await page.getByRole('button', { name: 'Failed to run Create issue' }).click();
+	await expect(toolCode.filter({ hasText: warning })).toBeVisible();
 });
 
 test('asks for approval before delegating and records the decision from the backend', async ({ page }) => {

@@ -612,7 +612,7 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		if err != nil {
 			return nil, nil, toolFailure("the issue could not be created")
 		}
-		return t.issueWriteResult(ctx, issue, fields)
+		return t.issueWriteResult(ctx, issue, fields, "created")
 	}
 	return nil, nil, toolFailure("unknown tool")
 }
@@ -635,7 +635,7 @@ func (t *AssistantTools) updateIssue(ctx context.Context, ws, user uuid.UUID, id
 		return nil, nil, toolFailure("issue not found")
 	}
 	if hasFields {
-		if err := t.resolveIssueFields(ctx, ws, user, existing.TeamID, existing.ProjectID, fields, &request); err != nil {
+		if err := t.resolveIssueFields(ctx, ws, user, existing.TeamID, existing, fields, &request); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -644,7 +644,7 @@ func (t *AssistantTools) updateIssue(ctx context.Context, ws, user uuid.UUID, id
 		return nil, nil, toolFailure("the issue could not be updated")
 	}
 	if hasFields {
-		return t.issueWriteResult(ctx, issue, request)
+		return t.issueWriteResult(ctx, issue, request, "updated")
 	}
 	return issueSummary(*issue), &issue.ID, nil
 }

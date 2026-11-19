@@ -14,9 +14,9 @@ import (
 )
 
 const assistantIssueFieldParams = `"assignees":{"type":"array","items":{"type":"string"},"description":"Workspace member names or email addresses. Use [\"me\"] for the requesting user. Replaces the assignees on update. Use [] to clear them."},
-"due_date":{"type":"string","format":"date","description":"Calendar date in YYYY-MM-DD. Convert relative dates using the current date in the user's time zone."},
-"cycle":{"type":"string","description":"Name or ID of a cycle in the issue's team."},
-"project":{"type":"string","description":"Name or ID of a project in the issue's team."},
+"due_date":{"type":"string","description":"Calendar date in YYYY-MM-DD. Convert relative dates using the current date in the user's time zone. On update, use an empty string to clear it."},
+"cycle":{"type":"string","description":"Name or ID of a cycle in the issue's team. On update, use an empty string to clear it."},
+"project":{"type":"string","description":"Name or ID of a project in the issue's team. On update, use an empty string to clear it."},
 "labels":{"type":"array","items":{"type":"string"},"description":"Workspace label names or label names from the issue's project. Replaces the labels on update. Use [] to clear them."}`
 
 type assistantIssueMembers interface {
@@ -72,9 +72,14 @@ func decodeIssueWriteInput(raw string, target any) error {
 	return nil
 }
 
-func (t *AssistantTools) resolveIssueFields(ctx context.Context, ws, user, team uuid.UUID, project *uuid.UUID, fields assistantIssueFields, req *dto.UpdateIssueRequest) error {
+func (t *AssistantTools) resolveIssueFields(ctx context.Context, ws, user, team uuid.UUID, existing *domain.Issue, fields assistantIssueFields, req *dto.UpdateIssueRequest) error {
+	updating := existing != nil
+	var project *uuid.UUID
+	if updating {
+		project = existing.ProjectID
+	}
 	req.DueDate = fields.DueDate
-	if fields.DueDate != nil {
+	if fields.DueDate != nil && (!updating || *fields.DueDate != "") {
 		date, err := time.Parse(time.DateOnly, *fields.DueDate)
 		if err != nil || date.Year() == 0 || date.Format(time.DateOnly) != *fields.DueDate {
 			return toolFailure("due_date %q must be a valid date in YYYY-MM-DD format", truncateRunes(*fields.DueDate, 100))
@@ -85,7 +90,9 @@ func (t *AssistantTools) resolveIssueFields(ctx context.Context, ws, user, team 
 	if req.AssigneeIDs, err = t.resolveIssueAssignees(ctx, ws, user, fields.Assignees); err != nil {
 		return err
 	}
-	if fields.Cycle != nil {
+	if updating && fields.Cycle != nil && *fields.Cycle == "" {
+		req.CycleID = fields.Cycle
+	} else if fields.Cycle != nil {
 		if t.issueCycles == nil {
 			return toolFailure("cycle lookup is unavailable")
 		}
@@ -104,7 +111,10 @@ func (t *AssistantTools) resolveIssueFields(ctx context.Context, ws, user, team 
 		value := id.String()
 		req.CycleID = &value
 	}
-	if fields.Project != nil {
+	if updating && fields.Project != nil && *fields.Project == "" {
+		req.ProjectID = fields.Project
+		project = nil
+	} else if fields.Project != nil {
 		if t.issueProjects == nil {
 			return toolFailure("project lookup is unavailable")
 		}
@@ -212,7 +222,9 @@ func resolveIssueFieldOption(field, value string, options []issueFieldOption) (u
 	if len(matches) > 1 {
 		reason = "is ambiguous"
 	}
+	const choiceLimit = 25
 	var choices []string
+	suffix := ""
 	for _, option := range options {
 		var names []string
 		for _, candidate := range option.names {
@@ -225,25 +237,29 @@ func resolveIssueFieldOption(field, value string, options []issueFieldOption) (u
 			}
 		}
 		if len(names) > 0 {
+			if len(choices) == choiceLimit {
+				suffix = " (more options available)"
+				break
+			}
 			choices = append(choices, strings.Join(names, " / "))
-		}
-		if len(choices) == 5 {
-			break
 		}
 	}
 	if len(choices) == 0 {
 		choices = []string{"none available"}
 	}
-	return uuid.Nil, toolFailure("%s value %q %s. Valid options include %s", field, truncateRunes(value, 100), reason, strings.Join(choices, ", "))
+	return uuid.Nil, toolFailure("%s value %q %s. Valid options include %s%s", field, truncateRunes(value, 100), reason, strings.Join(choices, ", "), suffix)
 }
 
 // IssueService treats junction writes as best effort. Confirm the requested
 // sets before reporting success, leaving the issue link available on failure.
-func (t *AssistantTools) issueWriteResult(ctx context.Context, issue *domain.Issue, req dto.UpdateIssueRequest) (any, *uuid.UUID, error) {
+func (t *AssistantTools) issueWriteResult(ctx context.Context, issue *domain.Issue, req dto.UpdateIssueRequest, action string) (any, *uuid.UUID, error) {
+	unconfirmed := func(field string) error {
+		return toolFailure("Issue %s was %s. The requested %s could not be confirmed. Check the existing issue and use update_issue if a correction is needed.", issue.Identifier, action, field)
+	}
 	if req.AssigneeIDs != nil {
 		assignees, err := t.issues.GetAssignees(ctx, issue.ID)
 		if err != nil || !issueFieldIDsMatch(assignees, req.AssigneeIDs) {
-			return nil, &issue.ID, toolFailure("could not confirm the requested assignees on %s. Check the issue before retrying", issue.Identifier)
+			return nil, &issue.ID, unconfirmed("assignees")
 		}
 	}
 	if req.LabelIDs != nil {
@@ -253,7 +269,7 @@ func (t *AssistantTools) issueWriteResult(ctx context.Context, issue *domain.Iss
 			ids = append(ids, label.ID)
 		}
 		if err != nil || !issueFieldIDsMatch(ids, req.LabelIDs) {
-			return nil, &issue.ID, toolFailure("could not confirm the requested labels on %s. Check the issue before retrying", issue.Identifier)
+			return nil, &issue.ID, unconfirmed("labels")
 		}
 	}
 	return issueSummary(*issue), &issue.ID, nil

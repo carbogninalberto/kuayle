@@ -519,10 +519,14 @@ status. Both accept title, description, priority and the optional fields below.
   labels and labels of the issue's current or newly selected project.
 
 Names match case-insensitively. A missing or ambiguous match fails the call
-before the issue is written and includes the offending value and up to five
-available options. On update, omit fields to keep their values. Assignee and
-label arrays replace the corresponding sets, and empty arrays clear them.
-Changing projects removes labels scoped to the previous project.
+before the issue is written and includes the offending value and up to 25
+available options. The error says when more options are available. On update,
+omit fields to keep their values. Use `""` to clear `due_date`, `cycle` or
+`project`. Assignee and label arrays replace the corresponding sets, and empty
+arrays clear them. Changing or clearing the project removes labels scoped to
+the previous project. If the tool cannot confirm the requested assignees or
+labels after saving, it reports which issue was saved so any correction can
+target that issue.
 
 The write tools (`create_issue`, `update_issue`, `link_issues` and
 `link_repository`) count toward the per-reply change limit. The model only proposes calls.
