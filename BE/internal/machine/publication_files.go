@@ -40,10 +40,10 @@ type agentFileRuntime interface {
 	ReadAgentFile(ctx context.Context, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, name string, limit int) ([]byte, error)
 }
 
-// screenshotPublisher is implemented by GitHub clients that can commit files
-// to a branch of their own.
+// screenshotPublisher reads and commits evidence on a separate branch.
 type screenshotPublisher interface {
 	PublishFilesToBranch(token, owner, repo, branch, message string, files []githubclient.RepositoryFile) (string, error)
+	ListBranchSnapshot(token, owner, repo, branch string) (string, []githubclient.TreeEntry, error)
 }
 
 func parseAgentFileRead(output string) ([]byte, error) {

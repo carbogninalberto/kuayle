@@ -502,11 +502,9 @@ clean container: passed.", or the count of agent-chosen commands it re-ran). A s
 whose placeholders all render empty is left out with its heading; a section
 with other text stays. Each placeholder is replaced once, so agent text that
 contains a placeholder is never expanded. Without the agent's file the
-description is the issue line and Kuayle's check line. There is no warning
-banner, provider or model line, file or commit list, or task id; a skipped check
-shows as a draft pull request. The bot signature still starts the description:
-it is the bot's identity, and GitHub shows the description as its first comment.
-The body is cut at 60,000 bytes.
+description uses the issue line, Kuayle's check line and any earlier screenshot
+evidence. A skipped check shows as a draft pull request. The bot signature
+starts the description. The body is limited to 60,000 bytes.
 
 Sanitizing (`sanitizeAgentMarkdown`) applies to everything the agent wrote and
 to the issue title: control characters are dropped; lines that would start a
@@ -530,19 +528,29 @@ Screenshots are never committed to the pull request branch. The manager checks
 each listed file's size and magic bytes against its extension (PNG, JPEG or
 WebP), then commits the accepted ones with the repository-scoped installation
 token through the Git data API (`PublishFilesToBranch`) as the whole tree of a
-parentless commit on the branch `kuayle/screenshots/<task id>`, created or
-force-moved for each publication. The description links
+commit on `kuayle/screenshots/<task id>`. The first commit starts a separate
+history. Later commits extend that history, and an identical tree reuses the
+branch tip. The description links
 `https://github.com/<owner>/<repo>/blob/<commit>/<file>?raw=true`: GitHub serves
 it with the viewer's own access, so screenshots of a private repository are
 visible only to people who can read it, and the images live and are deleted with
 the repository. Their commit has no workflow files, so pushing the branch runs no
 Actions. The agent could already commit any file to the pull request branch, so
 this adds no new way to publish content; a branch protection rule that refuses
-the branch only drops the Screenshots section (logged), never the publication.
-The branches are kept after the pull request merges or closes so its
-description keeps rendering; there is no cleanup hook, and an administrator may
-delete `kuayle/screenshots/*` branches when the images are no longer needed
-(earlier publications' commits are unreferenced once the branch moves).
+the branch prevents new uploads and is logged. The branches are kept after
+the pull request merges or closes so its description keeps rendering. An
+administrator may delete `kuayle/screenshots/*` branches when the images are no
+longer needed.
+
+When an attempt updates an open pull request, Kuayle carries forward Markdown
+images and standalone image tags that link to commit-pinned files in the same
+repository or to GitHub user attachments. Before uploading new files, it checks
+the screenshot branch and restores links from its latest snapshot when they
+are missing from the description.
+The description notes recovered links, unsupported links, failed branch reads
+and images that exceed the description limit.
+A template without `{{screenshots}}` gets a Screenshots section whenever there
+is evidence to show.
 
 ### What publication runs
 

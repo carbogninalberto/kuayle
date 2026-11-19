@@ -9,7 +9,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPublishFilesToBranchCommitsOnlyTheFilesWithoutParents(t *testing.T) {
+func TestListBranchSnapshotReadsTheTreeOfTheResolvedCommit(t *testing.T) {
+	head, tree := strings.Repeat("b", 40), strings.Repeat("a", 40)
+	c := pullsClient(func(r *http.Request, _ map[string]any) (int, string) {
+		require.Equal(t, http.MethodGet, r.Method)
+		switch r.URL.Path {
+		case "/repos/acme/app/git/ref/heads/kuayle/screenshots/task-1":
+			return 200, `{"object":{"sha":"` + head + `","type":"commit"}}`
+		case "/repos/acme/app/git/commits/" + head:
+			return 200, `{"tree":{"sha":"` + tree + `"}}`
+		case "/repos/acme/app/git/trees/" + tree:
+			return 200, `{"tree":[{"path":"demo.png","type":"blob"}]}`
+		default:
+			return 404, `{}`
+		}
+	})
+	commit, entries, err := c.ListBranchSnapshot("secret", "acme", "app", "kuayle/screenshots/task-1")
+	require.NoError(t, err)
+	require.Equal(t, head, commit)
+	require.Equal(t, []TreeEntry{{Path: "demo.png", Type: "blob"}}, entries)
+
+	commit, entries, err = c.ListBranchSnapshot("secret", "acme", "app", "kuayle/screenshots/missing")
+	require.NoError(t, err)
+	require.Empty(t, commit)
+	require.Empty(t, entries)
+}
+
+func TestPublishFilesToBranchKeepsPreviousScreenshotCommits(t *testing.T) {
+	previous := strings.Repeat("f", 40)
 	for _, exists := range []bool{false, true} {
 		t.Run(map[bool]string{false: "new branch", true: "existing branch"}[exists], func(t *testing.T) {
 			var calls []string
@@ -19,6 +46,13 @@ func TestPublishFilesToBranchCommitsOnlyTheFilesWithoutParents(t *testing.T) {
 				require.Equal(t, "Bearer secret", r.Header.Get("Authorization"))
 				calls = append(calls, r.Method+" "+r.URL.EscapedPath())
 				switch {
+				case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/git/ref/heads/kuayle/screenshots/task-1":
+					if exists {
+						return 200, `{"object":{"sha":"` + previous + `","type":"commit"}}`
+					}
+					return 404, `{"message":"Not Found"}`
+				case r.Method == http.MethodGet && r.URL.Path == "/repos/acme/app/git/commits/"+previous:
+					return 200, `{"tree":{"sha":"` + strings.Repeat("e", 40) + `"}}`
 				case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/app/git/blobs":
 					blobs++
 					require.Equal(t, "base64", body["encoding"])
@@ -34,12 +68,9 @@ func TestPublishFilesToBranchCommitsOnlyTheFilesWithoutParents(t *testing.T) {
 					return 201, `{"sha":"` + strings.Repeat("b", 40) + `"}`
 				case r.Method == http.MethodPost && r.URL.Path == "/repos/acme/app/git/refs":
 					ref = body
-					if exists {
-						return 422, `{"message":"Reference already exists"}`
-					}
 					return 201, `{}`
 				case r.Method == http.MethodPatch && r.URL.EscapedPath() == "/repos/acme/app/git/refs/heads/kuayle/screenshots/task-1":
-					require.Equal(t, map[string]any{"sha": strings.Repeat("b", 40), "force": true}, body)
+					require.Equal(t, map[string]any{"sha": strings.Repeat("b", 40), "force": false}, body)
 					return 200, `{}`
 				}
 				return 404, `{"message":"Not Found"}`
@@ -52,19 +83,48 @@ func TestPublishFilesToBranchCommitsOnlyTheFilesWithoutParents(t *testing.T) {
 				map[string]any{"path": "b.png", "mode": "100644", "type": "blob", "sha": strings.Repeat("2", 40)},
 			}, tree["tree"])
 			require.NotContains(t, tree, "base_tree", "the tree holds only these files")
-			require.Equal(t, map[string]any{"message": "REC-1 screenshots", "tree": strings.Repeat("a", 40), "parents": []any{}}, commit)
-			require.Equal(t, map[string]any{"ref": "refs/heads/kuayle/screenshots/task-1", "sha": strings.Repeat("b", 40)}, ref)
+			require.Equal(t, "REC-1 screenshots", commit["message"])
+			require.Equal(t, strings.Repeat("a", 40), commit["tree"])
 			if exists {
-				require.Equal(t, "PATCH /repos/acme/app/git/refs/heads/kuayle/screenshots/task-1", calls[len(calls)-1], "an existing branch is moved to the new commit")
+				require.Equal(t, []any{previous}, commit["parents"], "prior links stay reachable")
+				require.Nil(t, ref)
+				require.Equal(t, "PATCH /repos/acme/app/git/refs/heads/kuayle/screenshots/task-1", calls[len(calls)-1])
 			} else {
-				require.Len(t, calls, 5)
+				require.Equal(t, []any{}, commit["parents"])
+				require.Equal(t, map[string]any{"ref": "refs/heads/kuayle/screenshots/task-1", "sha": strings.Repeat("b", 40)}, ref)
+				require.Len(t, calls, 6)
 			}
 		})
 	}
 }
 
+func TestPublishFilesToBranchReusesAnIdenticalSnapshot(t *testing.T) {
+	head, tree := strings.Repeat("b", 40), strings.Repeat("a", 40)
+	c := pullsClient(func(r *http.Request, _ map[string]any) (int, string) {
+		switch r.URL.Path {
+		case "/repos/acme/app/git/ref/heads/kuayle/screenshots/task-1":
+			return 200, `{"object":{"sha":"` + head + `","type":"commit"}}`
+		case "/repos/acme/app/git/blobs":
+			return 201, `{"sha":"` + strings.Repeat("c", 40) + `"}`
+		case "/repos/acme/app/git/trees":
+			return 201, `{"sha":"` + tree + `"}`
+		case "/repos/acme/app/git/commits/" + head:
+			return 200, `{"tree":{"sha":"` + tree + `"}}`
+		default:
+			t.Fatalf("unexpected write during publication retry: %s %s", r.Method, r.URL.Path)
+			return 500, `{}`
+		}
+	})
+	sha, err := c.PublishFilesToBranch("secret", "acme", "app", "kuayle/screenshots/task-1", "m", []RepositoryFile{{Path: "a.png", Content: []byte("x")}})
+	require.NoError(t, err)
+	require.Equal(t, head, sha)
+}
+
 func TestPublishFilesToBranchRefusesUnexpectedAnswers(t *testing.T) {
 	c := pullsClient(func(r *http.Request, body map[string]any) (int, string) {
+		if r.Method == http.MethodGet {
+			return 404, `{"message":"Not Found"}`
+		}
 		return 201, `{"sha":"../../evil"}`
 	})
 	_, err := c.PublishFilesToBranch("secret", "acme", "app", "kuayle/screenshots/task-1", "m", []RepositoryFile{{Path: "a.png", Content: []byte("x")}})

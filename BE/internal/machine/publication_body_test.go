@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -107,4 +108,33 @@ func TestPublicationBodyIsBounded(t *testing.T) {
 
 	publication.PullRequestTemplate = "{{summary}}"
 	require.True(t, strings.HasPrefix(publicationBody(publication, content, ""), "## Description\n"), "an invalid stored template falls back to the default")
+}
+
+func TestPublicationBodyKeepsCompleteEvidenceWhenTemplateOverflows(t *testing.T) {
+	publication := bodyPublication()
+	publication.PullRequestTemplate = "## Description\n" + strings.Repeat("{{description}}", 50) + "\n\n## Evidence\n{{screenshots}}"
+	content := pullRequestContent{
+		file:        &domain.AgentPullRequest{Description: strings.Repeat("é", 1500)},
+		screenshots: []publishedScreenshot{{URL: screenshotURL("acme", "app", strings.Repeat("a", 40), "login.png"), Caption: "Login"}},
+		notices:     []string{screenshotsRecoveredNote},
+	}
+	body := publicationBody(publication, content, "")
+	require.LessOrEqual(t, len(body), pullRequestBodyMaxBytes)
+	require.Equal(t, 1, strings.Count(body, "![Login]("+content.screenshots[0].URL+")"))
+	require.Contains(t, body, screenshotsRecoveredNote)
+	require.Contains(t, body, "## Description\nAddresses REC-1")
+}
+
+func TestPublicationBodyReportsScreenshotsThatExceedTheBodyLimit(t *testing.T) {
+	content := pullRequestContent{notices: []string{screenshotsOverflowNote}}
+	for i := 0; i < 100; i++ {
+		link := screenshotURL("acme", "app", strings.Repeat("a", 40), fmt.Sprintf("%098d.png", i))
+		content.screenshots = append(content.screenshots, publishedScreenshot{URL: link, Caption: strings.Repeat("é", 120)})
+	}
+	body := publicationBody(bodyPublication(), content, "")
+	images := previousScreenshotImages(body)
+	require.NotEmpty(t, images)
+	require.Less(t, len(images), len(content.screenshots))
+	require.Equal(t, 1, strings.Count(body, screenshotsOverflowNote))
+	require.LessOrEqual(t, len(body), pullRequestBodyMaxBytes)
 }

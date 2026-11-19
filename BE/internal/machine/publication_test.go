@@ -90,9 +90,12 @@ type publicationGitHubFake struct {
 	readyErr error
 	drafted  []string
 
-	screenshotBranch string
-	screenshotFiles  []githubclient.RepositoryFile
-	screenshotErr    error
+	screenshotBranch  string
+	screenshotFiles   []githubclient.RepositoryFile
+	screenshotErr     error
+	screenshotReadErr error
+	screenshotHead    string
+	screenshotTree    []githubclient.TreeEntry
 }
 
 func (f *publicationGitHubFake) PublishFilesToBranch(_, _, _, branch, _ string, files []githubclient.RepositoryFile) (string, error) {
@@ -100,7 +103,16 @@ func (f *publicationGitHubFake) PublishFilesToBranch(_, _, _, branch, _ string, 
 	if f.screenshotErr != nil {
 		return "", f.screenshotErr
 	}
-	return strings.Repeat("c", 40), nil
+	f.screenshotHead = strings.Repeat("c", 40)
+	f.screenshotTree = nil
+	for _, file := range files {
+		f.screenshotTree = append(f.screenshotTree, githubclient.TreeEntry{Path: file.Path, Type: "blob"})
+	}
+	return f.screenshotHead, nil
+}
+
+func (f *publicationGitHubFake) ListBranchSnapshot(_, _, _, _ string) (string, []githubclient.TreeEntry, error) {
+	return f.screenshotHead, f.screenshotTree, f.screenshotReadErr
 }
 
 func (f *publicationGitHubFake) GetRepositoryInstallationToken(int64, string) (string, time.Time, error) {
@@ -614,6 +626,96 @@ func TestPublishAgentDescribesTheChangeFromTheAgentsFileWithScreenshots(t *testi
 		"## Verification\n- npm run test:unit: passed\n\nKuayle also ran `npm test` independently in a clean container: passed.\n\n"+
 		"## Screenshots\nSettings, dark\n![Settings, dark](https://github.com/acme/app/blob/"+strings.Repeat("c", 40)+"/dark.png?raw=true)\n", github.body)
 	require.Equal(t, 12, store.result.PullRequestNumber)
+}
+
+func TestPublishAgentKeepsScreenshotsOnSameHeadFollowUp(t *testing.T) {
+	machine, store := publicationFixture()
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: strings.Repeat("a", 40), files: map[string][]byte{
+		"pull_request.json":     []byte(`{"description":"First attempt.","screenshots":[{"file":"login.png","caption":"Demo login"}]}`),
+		"screenshots/login.png": []byte("\x89PNG\r\n\x1a\nfixture"),
+	}}
+	github := &publicationGitHubFake{created: &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12"}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	image := "![Demo login](https://github.com/acme/app/blob/" + strings.Repeat("c", 40) + "/login.png?raw=true)"
+	require.Contains(t, github.body, image)
+
+	// GitHub still has the earlier body. The next attempt has no local evidence
+	// and uses a template without a screenshots placeholder.
+	github.existing = github.created
+	attachment := "https://github.com/user-attachments/assets/589795bb-e028-430c-901a-bb2a18bcf4cb"
+	github.existing.Body = github.body + `<img width="320" alt="Mobile" src="` + attachment + `">` + "\n![Local](/workspace/tasks/rec-1/demo.png)"
+	store.publication.Step = domain.DevMachineAgentRunStep{ID: uuid.New(), AgentRunID: store.agentRun.ID, Status: "queued"}
+	store.publication.PublishedCommit = runtime.commit
+	store.publication.PullRequestTemplate = "## Summary\n{{description}}\n\n## Verification\n{{verification}}"
+	runtime.files = map[string][]byte{"pull_request.json": []byte(`{"description":"Follow-up summary."}`)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Equal(t, 1, github.creates)
+	require.Equal(t, 1, github.updates)
+	require.Equal(t, runtime.commit, store.result.Commit)
+	require.Contains(t, github.body, "## Summary\nAddresses REC-1: Dark mode.\n\nFollow-up summary.")
+	require.Contains(t, github.body, "Kuayle ran `npm test` independently in a clean container: passed.")
+	require.NotContains(t, github.body, "First attempt.")
+	require.Equal(t, 1, strings.Count(github.body, image))
+	require.Contains(t, github.body, "![Mobile]("+attachment+")")
+	require.NotContains(t, github.body, "/workspace/tasks/")
+	require.Contains(t, github.body, "Earlier screenshots with unsupported links were omitted.")
+}
+
+func TestPublishAgentRestoresScreenshotsMissingFromReusedPullRequest(t *testing.T) {
+	machine, store := publicationFixture()
+	previous := strings.Repeat("b", 40)
+	github := &publicationGitHubFake{
+		existing:       &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12", Body: "Earlier description without screenshots."},
+		screenshotHead: previous,
+		screenshotTree: []githubclient.TreeEntry{{Path: "login-demo.png", Type: "blob"}, {Path: "folder.png", Type: "tree"}},
+	}
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: strings.Repeat("a", 40), files: map[string][]byte{
+		"pull_request.json":          []byte(`{"screenshots":["login-demo.png"]}`),
+		"screenshots/login-demo.png": []byte("\x89PNG\r\n\x1a\nnew image"),
+	}}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Contains(t, github.body, screenshotURL("acme", "app", previous, "login-demo.png"))
+	require.Contains(t, github.body, screenshotURL("acme", "app", strings.Repeat("c", 40), "login-demo.png"))
+	require.Contains(t, github.body, "Kuayle restored screenshots missing from the previous description.")
+	require.NotContains(t, github.body, "folder.png")
+
+	// Retrying the publication with the same evidence should neither lose nor
+	// duplicate images, even after the screenshot branch has advanced.
+	github.existing.Body = github.body
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Equal(t, 1, strings.Count(github.body, screenshotURL("acme", "app", previous, "login-demo.png")))
+	require.Equal(t, 1, strings.Count(github.body, screenshotURL("acme", "app", strings.Repeat("c", 40), "login-demo.png")))
+}
+
+func TestPublishAgentKeepsExistingImagesWhenTheScreenshotBranchCannotBeRead(t *testing.T) {
+	machine, store := publicationFixture()
+	link := screenshotURL("acme", "app", strings.Repeat("b", 40), "login.png")
+	github := &publicationGitHubFake{
+		existing:          &githubclient.PullRequest{Number: 12, HTMLURL: "https://github.com/acme/app/pull/12", Body: "![Login](" + link + ")"},
+		screenshotReadErr: errors.New("screenshot branch unavailable"),
+	}
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: strings.Repeat("a", 40)}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Contains(t, github.body, "![Login]("+link+")")
+	require.Contains(t, github.body, "Kuayle could not check the screenshot branch for earlier evidence.")
+}
+
+func TestPublishAgentKeepsInlineImagesButSkipsMarkdownExamples(t *testing.T) {
+	machine, store := publicationFixture()
+	link := screenshotURL("acme", "app", strings.Repeat("b", 40), "login.png")
+	example := screenshotURL("acme", "app", strings.Repeat("b", 40), "example.png")
+	github := &publicationGitHubFake{existing: &githubclient.PullRequest{
+		Number: 12, HTMLURL: "https://github.com/acme/app/pull/12",
+		Body: "Evidence ![Login](" + link + ")\n\n- Example `![Example](" + example + ")`",
+	}}
+	runtime := &publicationRuntimeFake{runtimeFake: &runtimeFake{}, commit: strings.Repeat("a", 40)}
+	manager := &Manager{store: store, runtime: runtime, github: github, encryptionKey: make([]byte, 32)}
+	require.NoError(t, manager.publishAgent(context.Background(), machine, &domain.DevMachineOperation{}))
+	require.Contains(t, github.body, "![Login]("+link+")")
+	require.NotContains(t, github.body, example)
 }
 
 func TestPublishAgentStillPublishesWhenItsFilesFail(t *testing.T) {

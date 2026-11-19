@@ -15,11 +15,12 @@ import (
 const pullRequestBodyMaxBytes = 60000
 
 // pullRequestContent is what an attempt left for its pull request: its
-// parsed .kuayle/pull_request.json (nil without a usable one) and the
-// screenshots Kuayle published for it, in the file's order.
+// parsed .kuayle/pull_request.json (nil without a usable one), its published
+// screenshots and any evidence carried forward from a previous publication.
 type pullRequestContent struct {
 	file        *domain.AgentPullRequest
 	screenshots []publishedScreenshot
+	notices     []string
 }
 
 type publishedScreenshot struct {
@@ -68,7 +69,7 @@ func publicationBody(publication *domain.AgentPublication, content pullRequestCo
 
 	shots := make([]string, 0, len(content.screenshots))
 	for _, shot := range content.screenshots {
-		caption := clean(strings.Join(strings.Fields(shot.Caption), " "))
+		caption := clean(strings.Join(strings.Fields(strings.ReplaceAll(shot.Caption, zeroWidthSpace, "")), " "))
 		alt := strings.NewReplacer("[", "", "]", "", "\\", "").Replace(caption)
 		image := "![" + alt + "](" + shot.URL + ")"
 		if caption != "" {
@@ -79,8 +80,41 @@ func publicationBody(publication *domain.AgentPublication, content pullRequestCo
 	values["screenshots"] = strings.Join(shots, "\n\n")
 	values["notes"] = clean(file.Notes)
 
-	body := renderPullRequestTemplate(sanitizeTemplate(template), values)
-	return truncateText(body, pullRequestBodyMaxBytes)
+	template = sanitizeTemplate(template)
+	body := renderPullRequestTemplate(template, values)
+	notices := strings.Join(content.notices, "\n\n")
+	if len(shots) == 0 || strings.Contains(template, "{{screenshots}}") && len(body)+len(notices)+2 <= pullRequestBodyMaxBytes {
+		return bodyWithScreenshotEvidence(body, notices)
+	}
+
+	// Keep screenshots visible when the template omits them or expands past
+	// the body limit. Reserve space for notices and include only complete images.
+	values["screenshots"] = ""
+	body = renderPullRequestTemplate(template, values)
+	evidence := "## Screenshots"
+	// Separate the description, images and notes with blank lines and end
+	// the body with a newline.
+	evidenceLimit := pullRequestBodyMaxBytes - len(notices) - len(screenshotsOverflowNote) - 7
+	for _, shot := range shots {
+		if len(evidence)+len(shot)+2 > evidenceLimit {
+			content.addScreenshotNotice(screenshotsOverflowNote)
+			break
+		}
+		evidence += "\n\n" + shot
+	}
+	return bodyWithScreenshotEvidence(body, joinBlocks(evidence, strings.Join(content.notices, "\n\n")))
+}
+
+func bodyWithScreenshotEvidence(body, evidence string) string {
+	if evidence == "" {
+		return truncateText(body, pullRequestBodyMaxBytes)
+	}
+	if len(body)+len(evidence)+2 <= pullRequestBodyMaxBytes {
+		return joinBlocks(body, evidence) + "\n"
+	}
+	// A truncated description can leave an open Markdown block. Put the
+	// evidence first so it still renders in that case.
+	return joinBlocks(evidence, truncateText(body, pullRequestBodyMaxBytes-len(evidence)-3)) + "\n"
 }
 
 // issueReference is "KUA-12: title", the identifier linked to the issue in

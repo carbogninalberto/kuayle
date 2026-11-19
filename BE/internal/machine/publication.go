@@ -184,24 +184,33 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 			result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Remains: true, PullRequestURL: safeURL}
 		}
 	} else if commit != "" {
-		// The bot's signature stays: it is the bot's name and picture, and
-		// GitHub shows the description as the bot's first comment.
-		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
-		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
 		var pullRequest *githubclient.PullRequest
 		var prErr error
 		if publication.FromStoppedTask {
-			body = "**not validated: published from a failed task**\n\n" + body
 			pullRequest, prErr = stoppedPullRequest(githubAPI, token, owner, repository, checkout)
 		} else {
 			pullRequest, prErr = githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		}
-		if prErr == nil && pullRequest == nil {
+		if prErr != nil {
+			return errors.New("pull_request_failed: " + strings.ReplaceAll(safeError(prErr), token, "[redacted]"))
+		}
+		// Read the previous screenshot snapshot before an upload can advance it.
+		var previous pullRequestContent
+		if pullRequest != nil {
+			previous = priorPullRequestScreenshots(githubAPI, token, owner, repository, *run.TaskID, pullRequest.Body)
+		}
+		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
+		content.screenshots = mergeScreenshots(content.screenshots, previous.screenshots)
+		content.notices = previous.notices
+		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
+		if publication.FromStoppedTask {
+			body = "**not validated: published from a failed task**\n\n" + body
+		}
+		if pullRequest == nil {
 			// Without an independent check the change opens as a draft, so it
 			// cannot be merged before someone has looked at it.
 			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, body, !publicationValidated(publication))
-		} else if prErr == nil {
-			// A reused pull request describes this attempt.
+		} else {
 			prErr = githubAPI.UpdatePullRequestBody(token, owner, repository, pullRequest.Number, body)
 			// A draft opened by an unchecked attempt becomes mergeable once a
 			// later attempt passes. The reverse is not done: a ready pull
