@@ -68,6 +68,7 @@ type DevMachineStore interface {
 	ListLogs(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error)
 	CreateAccessTicket(context.Context, *domain.DevMachineAccessTicket) error
 	ListResourceSamples(context.Context, uuid.UUID, uuid.UUID, int) ([]domain.DevMachineResourceSample, error)
+	GetResourceUsage(ctx context.Context, workspaceID, machineID uuid.UUID) (*domain.DevMachineUsage, error)
 	ListResourceHistory(ctx context.Context, workspaceID, machineID uuid.UUID, since, until time.Time, bucket time.Duration) ([]domain.DevMachineResourceBucket, error)
 	CreateGitRef(context.Context, *domain.DevMachineGitRef) error
 	MachineNameExistsForUser(context.Context, uuid.UUID, uuid.UUID, string) (bool, error)
@@ -1766,6 +1767,30 @@ func (r *DevMachineRepository) ListResourceSamples(ctx context.Context, workspac
 	err := r.db.SelectContext(ctx, &samples, `SELECT s.* FROM dev_machine_resource_samples s
 		WHERE s.workspace_id=$1 AND s.machine_id=$2 ORDER BY s.created_at DESC LIMIT $3`, workspaceID, machineID, limit)
 	return samples, err
+}
+
+// GetResourceUsage reads the latest and peak values from the same snapshot.
+// A machine without retained samples has no usage summary.
+func (r *DevMachineRepository) GetResourceUsage(ctx context.Context, workspaceID, machineID uuid.UUID) (*domain.DevMachineUsage, error) {
+	var usage domain.DevMachineUsage
+	err := r.db.QueryRowContext(ctx, `SELECT latest.created_at, latest.cpu_percent, latest.memory_bytes, latest.disk_bytes,
+			peak.cpu_percent, peak.memory_bytes, peak.disk_bytes
+		FROM (
+			SELECT created_at, cpu_percent, memory_bytes, disk_bytes FROM dev_machine_resource_samples
+			WHERE workspace_id=$1 AND machine_id=$2 ORDER BY created_at DESC,id DESC LIMIT 1
+		) latest CROSS JOIN (
+			SELECT MAX(cpu_percent) AS cpu_percent, MAX(memory_bytes) AS memory_bytes, MAX(disk_bytes) AS disk_bytes
+			FROM dev_machine_resource_samples WHERE workspace_id=$1 AND machine_id=$2
+		) peak`, workspaceID, machineID).Scan(&usage.SampledAt,
+		&usage.Latest.CPUPercent, &usage.Latest.MemoryBytes, &usage.Latest.DiskBytes,
+		&usage.Peak.CPUPercent, &usage.Peak.MemoryBytes, &usage.Peak.DiskBytes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &usage, nil
 }
 
 // ListResourceHistory returns every bucket of bucket length from the one

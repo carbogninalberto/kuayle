@@ -1070,6 +1070,7 @@ decided not to cover it from chat, so it is not an open gap.
 | Releases, release notes, the release build, merge-and-release | [release tools](#release-tools), `ship_pull_request` | covered |
 | Check the instance version and upgrade | `get_instance_version`, `upgrade_instance` | covered |
 | Start a task's preview, expose a port | `start_preview`, `expose_port`, `list_ports` ([previews and ports](#previews-and-ports-from-chat)) | covered |
+| Check CPU, memory or disk usage | `get_machine_usage` ([machine usage](#machine-usage-from-chat)) | covered |
 | Talk to a running coding agent | `message_task`, `get_task_messages` | covered |
 | Compute something, check a snippet (`python3 -c`, `node -e`, `jq`) | `run_command` | covered (KUA-153) |
 | Inspect files on one's own machine (`ls`, `cat`, `du`, `find`) | `run_command` with `machine_id` and `working_directory` | covered (KUA-153) |
@@ -1082,6 +1083,20 @@ decided not to cover it from chat, so it is not an open gap.
 | Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
 | Publish work on a task checkout | `follow_up_task` for a new iteration, or `publish_task_changes` for a stopped task with unpublished changes. Both use [task publication](agent-tasks.md#publication). | approval required |
 | Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, KUA-184 |
+
+### Machine usage from chat
+
+`get_machine_usage` is read-only. With `identifier`, it reads the dev machine of
+the visible issue's newest coding task for that task's creator or a workspace
+owner or admin. The issue must still belong to the task's original team.
+With `machine_id`, it reads one of the user's own machines. Supply exactly one
+of these arguments.
+
+The result reports the time of the latest sample, its CPU usage as a percentage
+of one vCPU, and its memory and disk usage in bytes. Peaks for each metric are
+calculated across the machine's retained samples. The current configured
+limits are reported in millicores, MiB and GiB. When no samples are available,
+the result includes the limits and leaves the sample time and usage values empty.
 
 ### Commands and temporary machines
 

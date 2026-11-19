@@ -651,6 +651,19 @@ type DevMachineResourceSample struct {
 	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }
 
+type DevMachineUsageValues struct {
+	CPUPercent  float64 `json:"cpu_percent"`
+	MemoryBytes int64   `json:"memory_bytes"`
+	DiskBytes   int64   `json:"disk_bytes"`
+}
+
+// DevMachineUsage summarizes the latest sample and independent peaks across retained samples.
+type DevMachineUsage struct {
+	SampledAt time.Time
+	Latest    DevMachineUsageValues
+	Peak      DevMachineUsageValues
+}
+
 // DevMachineResourceBucket is one bucket of a usage history window. Values are
 // averages of the samples in the bucket (network counters keep the highest);
 // they are nil, with SampleCount 0, when no sample was recorded in the bucket,
