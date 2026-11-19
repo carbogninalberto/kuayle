@@ -2422,6 +2422,24 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   and no server's default model or thinking level; with no model it runs the
   one OpenCode is configured with. Profiles stored before that check
   still load and are checked when they are saved again.
+- **Stage assistants** (KUA-233, migration 184). In the node inspector, an
+  owner or admin can assign a profile with the “changes code” behaviour to a
+  start, check, publish, approval, merge or end. Each visit runs the assistant
+  in the task worktree before the built-in action, using the profile's harness,
+  model, instructions and skills. The run counts against the workflow budget.
+  The assistant receives the stage settings, task context and the pinned
+  version's outgoing transitions, with each edge ID and destination.
+  It can work on the stage, update the notebook, and end its final message with
+  `KUAYLE_STAGE_ROUTE <edge ID>` to choose an **Assistant choice** transition.
+  Existing check-failure, publication-failure and denial branches back to an
+  agent can also be selected for rework. The step records which edge the
+  assistant chose. An unknown edge or one reserved for a built-in outcome
+  fails the stage. A plain handoff or `KUAYLE_STAGE_CONTINUE` runs the built-in
+  action. At a terminal stage this finishes the configured outcome.
+  CI, approval, merge and end require an unchanged worktree to continue their
+  built-in action. A stage assistant that edits code there can hand off through
+  a configured rework branch. Checks, publications, human approvals and
+  merges still have their own evidence and authorization.
 - **Workflows** (`workflows`, `workflow_versions`): a save inserts the next
   immutable version (an update trigger refuses changes) with the graph as
   JSONB; `expected_version` refuses a stale save. Archiving hides a workflow
@@ -2450,7 +2468,7 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   Edges carry a condition the source node can produce (`agent_finished`,
   `agent_failed`, `checks_passed`, `checks_failed`, `review_approved`,
   `review_changes_requested`, `approval_approved`, `approval_denied`,
-  `published`, `publish_failed`, `no_changes`, `merged`, `timeout`, `else`);
+  `published`, `publish_failed`, `no_changes`, `merged`, `timeout`, `else`, `assistant`);
   an agent step whose profile reviews runs on the published pull request as a
   [review task](#requested-agent-reviews) and leaves on its verdict.
   A publish step whose branch has [nothing to publish](#publication) ends
@@ -2466,13 +2484,12 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   starting no iteration and using no budget, so stored graphs need no
   migration. When the task's open pull request still holds work the agent
   removed, the task blocks instead (see [publication](#publication)).
-  `ValidateWorkflowGraph` requires exactly one start leading to an agent step
-  that plans or changes code, a finished planning step leading to an agent
-  step that plans or changes code or to an approval (`plan_target`), at least
-  one end, every node
-  reachable and able to leave, every cycle containing a node with
-  `max_visits`, and every agent step naming an active profile in the
-  workspace. The repository validates again inside the save transaction, so
+  `ValidateWorkflowGraph` requires one start and at least one end. An
+  unassisted start leads to an agent that plans or changes code. A finished
+  planning step leads to another such agent or to an approval (`plan_target`).
+  Every node must be reachable, every nonterminal node must have an exit,
+  every cycle needs a visit limit, and all assigned profiles must be active
+  in the workspace. The repository validates again inside the save transaction, so
   an invalid graph is never stored. Validating, creating or saving a
   workflow, and choosing one as a default, also reports each agent step whose
   profile cannot start a task as an `unusable_profile` issue on that step,

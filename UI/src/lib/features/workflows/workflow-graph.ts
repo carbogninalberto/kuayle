@@ -31,7 +31,7 @@ export function conditionsFor(node: WorkflowNode, profiles: AgentProfile[]): Wor
 	let outcomes: WorkflowCondition[] = [];
 	switch (node.type) {
 		case 'start':
-			return ['else'];
+			return node.profile_id ? ['else', 'assistant'] : ['else'];
 		case 'end':
 			return [];
 		case 'agent': {
@@ -55,6 +55,7 @@ export function conditionsFor(node: WorkflowNode, profiles: AgentProfile[]): Wor
 			break;
 	}
 	if ((node.timeout_minutes ?? 0) > 0 && waits(node, profiles)) outcomes.push('timeout');
+	if (node.type !== 'agent' && node.profile_id) return [...outcomes, 'else', 'assistant'];
 	return [...outcomes, 'else'];
 }
 
@@ -117,8 +118,8 @@ export function connect(
 	const to = graph.nodes.find((n) => n.id === target);
 	if (!from || !to || to.type === 'start') return graph;
 	const used = new Set(graph.edges.filter((e) => e.source === source).map((e) => e.condition));
-	const choice = condition ?? conditionsFor(from, profiles).find((c) => !used.has(c));
-	if (!choice || used.has(choice) || !conditionsFor(from, profiles).includes(choice)) return graph;
+	const choice = condition ?? conditionsFor(from, profiles).find((c) => c === 'assistant' || !used.has(c));
+	if (!choice || (choice !== 'assistant' && used.has(choice)) || !conditionsFor(from, profiles).includes(choice)) return graph;
 	const edge: WorkflowEdge = {
 		id: uniqueId(`${source}-${target}`, new Set(graph.edges.map((e) => e.id))),
 		source,
@@ -169,7 +170,7 @@ export function graphForSave(graph: WorkflowGraph): WorkflowGraph {
 	return {
 		nodes: graph.nodes.map((node) => {
 			const out: WorkflowNode = { id: node.id, type: node.type, label: node.label.trim(), position: node.position };
-			if (node.type === 'agent' && node.profile_id) out.profile_id = node.profile_id;
+			if (node.profile_id) out.profile_id = node.profile_id;
 			if ((node.type === 'agent' || node.type === 'approval') && node.prompt?.trim()) out.prompt = node.prompt;
 			if (node.type === 'check') out.check = node.check ?? 'tests';
 			if (node.type === 'end') out.outcome = node.outcome ?? 'done';

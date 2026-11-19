@@ -3726,6 +3726,8 @@
 	"workflows.editor.show_panel": "Zobrazit postranní panel",
 	"workflows.editor.nothing_selected": "Vyberte krok nebo přechod na plátně nebo v seznamech níže.",
 	"workflows.editor.node_label": "Název",
+	"workflows.editor.stage_assistant": "Asistent fáze",
+	"workflows.condition.assistant": "Volba asistenta",
 	"workflows.editor.node_profile": "Profil agenta",
 	"workflows.editor.node_profile_placeholder": "Vyberte profil",
 	"workflows.editor.node_prompt": "Prompt iterace",

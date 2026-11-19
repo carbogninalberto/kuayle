@@ -33,7 +33,7 @@ func (w *WorkflowRunner) agentFailedBecause(ctx context.Context, task domain.Age
 	if err != nil {
 		return err
 	}
-	if last := len(apply.Moves) - 1; apply.Entry.Kind == repository.WorkflowEnterFail && last >= 0 && !apply.Moves[last].Stop {
+	if last := len(apply.Moves) - 1; apply.Entry.Kind == repository.WorkflowEnterFail && last >= 0 && (!apply.Moves[last].Stop || apply.Moves[last].Decision.From.Supervised()) {
 		// The reason names the problem once: the class's one-line cause is
 		// the problem, and the step's detail keeps all of it.
 		if class != "" {
