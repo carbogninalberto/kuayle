@@ -444,6 +444,20 @@ func (r *ConversationRepository) Claim(ctx context.Context) (*domain.Conversatio
 	}
 	return &a, tx.Commit()
 }
+
+// MessageChannel reports where the claimed reply is delivered: telegram when a
+// linked private chat is waiting for this message, else web. The delivery row
+// is written when the message is queued, so it names the channel of this reply.
+func (r *ConversationRepository) MessageChannel(ctx context.Context, a domain.ConversationAttempt) (string, error) {
+	var telegram bool
+	if err := r.db.GetContext(ctx, &telegram, `SELECT EXISTS(SELECT 1 FROM telegram_deliveries WHERE message_id=$1 AND status='queued')`, a.Message.ID); err != nil {
+		return "", err
+	}
+	if telegram {
+		return domain.ConversationChannelTelegram, nil
+	}
+	return domain.ConversationChannelWeb, nil
+}
 func fenceConversationAttempt(ctx context.Context, tx *sqlx.Tx, a domain.ConversationAttempt) error {
 	var valid bool
 	err := tx.GetContext(ctx, &valid, `SELECT EXISTS(SELECT 1 FROM conversation_messages WHERE id=$1 AND conversation_id=$2 AND lease_token=$3 AND lease_expires_at>now() AND status='streaming')`, a.Message.ID, a.Conversation.ID, a.Message.LeaseToken)

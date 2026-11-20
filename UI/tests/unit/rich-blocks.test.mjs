@@ -78,6 +78,17 @@ test('a pie chart keeps one series', () => {
 	assert.equal(segments[0].spec.type, 'pie');
 });
 
+test('a pie chart caps its categories so slice colours do not repeat', () => {
+	const pie = (count) => ({
+		type: 'pie',
+		categories: Array.from({ length: count }, (_, index) => `C${index}`),
+		series: [{ name: 'Issues', data: Array(count).fill(1) }]
+	});
+	assert.deepEqual(richSegments(chart(pie(12))).map((segment) => segment.kind), ['chart']);
+	assert.deepEqual(richSegments(chart(pie(13))).map((segment) => segment.kind), ['markdown']);
+	assert.equal(parseChartSpec(JSON.stringify(pie(13))), null);
+});
+
 test('a pie chart rejects negative values', () => {
 	const pie = { type: 'pie', categories: ['Done', 'Open'], series: [{ name: 'Issues', data: [3, -1] }] };
 	assert.equal(parseChartSpec(JSON.stringify(pie)), null);

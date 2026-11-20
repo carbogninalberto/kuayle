@@ -2123,9 +2123,12 @@ volume read-only and pass the storage settings. See
 
 Completed assistant replies in the web chat may contain two extra fences. A
 `chart` fence holds only a JSON series spec (bar, line, area or pie; one to five
-series, at most 100 categories), which `ChatChart` draws on an echarts canvas
+series, at most 100 categories and, for a pie, at most 12 so slice colours do
+not repeat), which `ChatChart` draws on an echarts canvas
 with theme colours from `--chart-1..5` and a rich-text tooltip, so no model
-string becomes HTML. An `html` fence renders as `ChatHtmlWidget`: an iframe with
+string becomes HTML. Only web replies are told about the fences: the guidance
+message is added per channel, and Telegram, which would show them as raw code,
+never receives it. An `html` fence renders as `ChatHtmlWidget`: an iframe with
 `sandbox="allow-scripts"` only (never `allow-same-origin`) and a fixed 360px
 height. Its `srcdoc` document starts with a CSP of `default-src 'none'` that
 allows only inline scripts and styles and data images and fonts, and adds
