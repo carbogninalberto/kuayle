@@ -13,7 +13,7 @@ import (
 )
 
 // ErrWorktreeUnavailable means the scan's task or machine cannot be read: the
-// task has no ready checkout on a running machine, or a machine-only list scan
+// task has no ready checkout on a running machine, or a machine-only scan
 // names a machine the requester does not own.
 var ErrWorktreeUnavailable = errors.New("the task's worktree is not available on a running machine")
 
@@ -47,7 +47,7 @@ func (r *DevMachineRepository) CreateWorktreeScan(ctx context.Context, ws, user 
 	if err := ValidateWorktreeScanRequest(req); err != nil {
 		return nil, err
 	}
-	if (target.TaskID == nil) == (target.MachineID == nil) {
+	if (target.TaskID == nil) == (target.MachineID == nil) || (req.Kind.ReadsDocker() && target.MachineID == nil) {
 		return nil, ErrConversationInvalid
 	}
 	tx, err := r.db.BeginTxx(ctx, nil)
@@ -109,7 +109,7 @@ func (r *DevMachineRepository) CreateWorktreeScan(ctx context.Context, ws, user 
 		scan.WorkspacePath = checkout.WorkspacePath
 		generation = checkout.Generation
 	} else {
-		if req.Kind != domain.WorktreeScanList {
+		if req.Kind != domain.WorktreeScanList && !req.Kind.ReadsDocker() {
 			return nil, ErrConversationInvalid
 		}
 		var machine struct {
@@ -238,6 +238,10 @@ func ValidateWorktreeScanRequest(req domain.WorktreeScanRequest) error {
 		return ErrConversationInvalid
 	}
 	switch req.Kind {
+	case domain.MachineScanContainers, domain.MachineScanContainerLogs:
+		if !req.ValidDockerRead() {
+			return ErrConversationInvalid
+		}
 	case domain.WorktreeScanGrep:
 		if !validWorktreeScanText(req.Pattern, 1, domain.WorktreeScanLineRunes) ||
 			!validWorktreeScanText(req.Glob, 0, domain.WorktreeScanLineRunes) ||

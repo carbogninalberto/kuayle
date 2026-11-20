@@ -1166,9 +1166,29 @@ decided not to cover it from chat, so it is not an open gap.
 | Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | covered (KUA-153) |
 | Install a system package (`apt-get install`) | The machine's image: packages added in an Environment Builder and saved as a Development Environment, then `run_command`/`run_command_write` with that machine's `machine_id`; static binaries can be downloaded into the conversation folder. No install from chat ([system packages](#system-packages)) | by design (KUA-180) |
 | Run a database migration against a real database | `run_migration` (see [database migrations from chat](#database-migrations-from-chat)) | covered (KUA-181) |
-| Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
+| Read a machine's container or agent logs, `docker ps` | `get_machine_logs` ([machine logs](#machine-logs-from-chat)) | covered (KUA-182) |
 | Publish work on a task checkout | `follow_up_task` for a new iteration, or `publish_task_changes` for a stopped task with unpublished changes. Both use [task publication](agent-tasks.md#publication). | approval required |
 | Keep a process running (a dev server outside a task) | `start_process`, `get_process`, `stop_process` ([ad-hoc processes](#ad-hoc-processes-from-chat)) | covered (KUA-184) |
+
+### Machine logs from chat
+
+`get_machine_logs` takes either `machine_id` for a machine you own or
+`identifier` for a visible issue whose newest coding task and machine you own.
+Workspace admins follow the same ownership checks. The `source` argument
+selects one of three reads.
+
+- `containers` lists running containers in the machine's private Docker daemon,
+  with their ID, name, image and status.
+- `container` takes a container name or ID and tails its stdout and stderr.
+  Both Docker operations require the machine's Docker service to be running.
+- `agent` reads retained agent output, including after the machine stops.
+  Selecting an issue restricts the read to its task. Selecting a machine
+  includes manual runs and coding tasks whose conversations you can still read.
+
+The tool defaults to 50 lines or containers. Set `lines` between 1 and 100.
+The result contains at most 3 KiB of text and sets `truncated: true` when
+output was omitted. Machine and run secrets, recognized credentials and DSN
+passwords are masked before output is returned or saved in a scan result.
 
 ### Machine usage from chat
 

@@ -222,6 +222,8 @@ type assistantTool struct {
 	repositories bool
 	// machines tools need SetMachines.
 	machines bool
+	// Machine log reads also need the manager's scan queue.
+	machineLogs bool
 	// live tools need SetLiveChannel.
 	live bool
 	// skills tools need SetSkills.
@@ -323,6 +325,7 @@ func (tool assistantTool) spec() chatToolSpec {
 func (t *AssistantTools) available(tool assistantTool) bool {
 	return (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.publish || (t.wikiPublish != nil && t.wikiWorkspaces != nil)) && (!tool.agentWork || t.work != nil) && (!tool.watch || t.watchers != nil) && (!tool.repositories || t.repositories != nil) &&
 		(!tool.machines || (t.machineTasks != nil && t.machines != nil)) &&
+		(!tool.machineLogs || t.worktreeScans != nil) &&
 		(!tool.live || t.live != nil) &&
 		(!tool.skills || t.skills != nil) &&
 		(!tool.customTools || t.customTools != nil) &&
@@ -537,6 +540,8 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return t.runMachineTool(ctx, ws, user, name, arguments)
 	case getMachineUsageTool:
 		return t.getMachineUsage(ctx, ws, user, arguments)
+	case getMachineLogsTool:
+		return t.getMachineLogs(ctx, ws, user, arguments)
 	case "get_task_messages":
 		return t.runLiveTool(ctx, ws, user, name, arguments)
 	case "plan_issues":
