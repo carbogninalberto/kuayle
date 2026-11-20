@@ -89,6 +89,13 @@ type ConversationAttempt struct {
 	Message      ConversationMessage
 }
 
+// Channels a conversation reply is delivered to. Only the web chat renders
+// the rich chart and widget fences; Telegram shows them as raw code.
+const (
+	ConversationChannelWeb      = "web"
+	ConversationChannelTelegram = "telegram"
+)
+
 // ConversationIssue is a bounded, freshly authorized snapshot for the assistant.
 type ConversationIssue struct {
 	ID          uuid.UUID `json:"id" db:"id"`
