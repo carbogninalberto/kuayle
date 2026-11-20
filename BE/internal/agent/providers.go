@@ -132,9 +132,9 @@ func (p *openCodeProvider) Metadata() Metadata { return p.metadata }
 // go before it. Unattended runs cannot answer OpenCode's permission prompts,
 // which it auto-rejects and then ends the session, so autonomous runs pass
 // --auto; the container is the boundary, as for Claude Code's bypassPermissions.
-// OpenCode keeps its log in the container's temporary home, which is lost when
-// the run ends, so autonomous runs print warnings and errors to standard error,
-// where the run's failure cause quotes them.
+// In autonomous runs OpenCode keeps its log at $XDG_DATA_HOME/opencode/log
+// in the per-run directory. It also prints warnings and errors to standard
+// error so the run's failure cause can quote them after cleanup.
 //
 // Autonomous runs also start with OpenCode's git snapshots off, through
 // OPENCODE_CONFIG_CONTENT, which OpenCode merges over the project's
