@@ -5,13 +5,13 @@ target_arch=${1:-${TARGETARCH:-}}
 case "$target_arch" in
   amd64)
     goose_arch=x86_64
-    goose_sha256=c63cf82953e968d84b7542eb38a621dfdb5050b967728ed363517be5cdc666ea
+    goose_sha256=0327b1857f8030343f59b77503e0455629bbf472c2901cb94b88389d6278635a
     kimi_arch=x86_64
     kimi_sha256=a676204f7804ed5dae87652a9d66f578e0718d5026c9cb1bfa32b9a5eace4208
     ;;
   arm64)
     goose_arch=aarch64
-    goose_sha256=ec2e0aded1e2aba8d310727a5138f2e3cce0769f2611fbe196ed014c31ce370a
+    goose_sha256=6a962a0ba55829e00f6f297dff736d53b9bdc8da84f0f49c4768e2557ac39cbe
     kimi_arch=aarch64
     kimi_sha256=9e06eea96273600aed485b1f0bedda95b7084db4f22cf28614fe20138933507a
     ;;
@@ -21,11 +21,11 @@ case "$target_arch" in
     ;;
 esac
 
-CLAUDE_CODE_VERSION=2.1.326
+CLAUDE_CODE_VERSION=2.1.327
 OPENCODE_VERSION=1.19.6
-CODEX_VERSION=0.169.0
+CODEX_VERSION=0.170.0
 QWEN_VERSION=0.28.0
-GOOSE_VERSION=1.59.2
+GOOSE_VERSION=1.60.1
 KIMI_VERSION=1.52.0
 
 # Crush is built from source in the image (see the crush-build stage) and only verified here.
