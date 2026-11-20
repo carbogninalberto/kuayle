@@ -458,10 +458,9 @@ export interface DevMachineTerminalSession {
 	closed_at?: string;
 }
 
-export type AppPortSource = 'user' | 'agent' | 'task';
+export type AppPortSource = 'user' | 'agent' | 'task' | 'process';
 
-// One TCP port of the developer container published on its own authenticated
-// host. Ports outlive tasks: they are the human's QA entrypoints.
+// One application port published on its own authenticated machine host.
 export interface AppPort {
 	id: string;
 	port: number;
@@ -472,8 +471,8 @@ export interface AppPort {
 	host: string;
 	listening: boolean;
 	// The container serving it; "docker" for a port published by the machine's Docker daemon,
-	// "preview" for a task preview, which runs in its own container.
-	target?: 'developer' | 'docker' | 'preview';
+	// "preview" for a task preview, and "process" for a chat process container.
+	target?: 'developer' | 'docker' | 'preview' | 'process';
 	created_at: string;
 }
 

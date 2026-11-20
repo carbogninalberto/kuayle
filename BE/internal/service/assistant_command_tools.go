@@ -77,6 +77,9 @@ func (s *AssistantApprovals) SetCommands(commands assistantCommandStore, machine
 // assistantCommandToolCatalog joins the registry in assistantTools(), so
 // Settings → Assistant lists these tools and their switches apply.
 var assistantCommandToolCatalog = []assistantTool{
+	{name: "start_process", commands: true, machines: true, approval: true, description: "Ask the user to approve running a foreground server on their own running Dev Machine outside a coding task. It has a private app preview on the requested port (bind to 0.0.0.0 using PORT), up to 30 minutes from approval, and stops when the conversation is deleted. /workspace is read-only, and the container has no credentials. working_directory is relative to /workspace (default /workspace). Only use when asked to keep a process running; use the returned approval_id as process_id for get_process and stop_process after approval.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"port":{"type":"integer","minimum":1024,"maximum":65535},"machine_id":{"type":"string","maxLength":36},"working_directory":{"type":"string","maxLength":500}},"required":["command","port"],"additionalProperties":false}`},
+	{name: "get_process", commands: true, description: "Read the status, expiry and owner-only preview URL of a process in this conversation. Give the approval_id returned by start_process as process_id. The user can launch the preview from the approval card.", parameters: processIDInput},
+	{name: "stop_process", commands: true, description: "Stop a process started from this conversation and revoke its preview. Give the approval_id returned by start_process as process_id. Only call when the user asks to stop it.", parameters: processIDInput},
 	{name: "start_temporary_machine", commands: true, approval: true, description: "Get a machine to run commands on, only when no other tool can answer. If the user has a running machine of their own it is reused at once, in a folder of this conversation, without approval. Otherwise ask the user to approve starting a small temporary machine for this conversation (1 vCPU, 2 GB memory, 20 GB disk, no repository and no credentials, internet only through the workspace's proxy), which is permanently deleted 30 minutes after it starts. Say which machine is used, its size and whether it was reused.", parameters: `{"type":"object","properties":{},"additionalProperties":false}`},
 	{name: "run_command", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) read-only on a machine: /workspace is mounted read-only and only /tmp and $HOME are writable, so it can compute, check a snippet (python3 -c, node -e), inspect files or call a public URL, but changes nothing. Without machine_id it uses this conversation's temporary machine or the user's own running machine. working_directory is relative to /workspace (default /workspace). It runs in a container without credentials. Use it only when no other tool can answer; the command runs only after approval, so never claim a result before get_command_run returns it.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36},"working_directory":{"type":"string","maxLength":500}},"required":["command"],"additionalProperties":false}`},
 	{name: "run_command_write", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) that may write files: it starts in this conversation's folder /workspace/kuayle-assistant/<conversation>, and only that folder is writable (the rest of /workspace stays read-only; for packages use pip install --target ./pkgs with PYTHONPATH=./pkgs, a venv, or npm install there). Use run_command instead unless the command must create or change files, and only when the user asked for it. It runs in a container without credentials, only after approval.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36}},"required":["command"],"additionalProperties":false}`},
@@ -171,6 +174,10 @@ func (t *AssistantTools) commandMachine(ctx context.Context, ws, user, conversat
 	return machine, true, nil
 }
 
+func validAssistantCommand(command string) bool {
+	return command != "" && len(command) <= domain.CommandMaxBytes && utf8.ValidString(command) && !strings.ContainsRune(command, 0)
+}
+
 // prepareCommand binds run_command or run_command_write to the exact command,
 // the machine and the working directory shown on the approval card.
 func (t *AssistantTools) prepareCommand(ctx context.Context, a domain.ConversationAttempt, action, arguments string) (domain.CommandRunPayload, error) {
@@ -187,7 +194,7 @@ func (t *AssistantTools) prepareCommand(ctx context.Context, a domain.Conversati
 		return domain.CommandRunPayload{}, err
 	}
 	command := strings.TrimSpace(input.Command)
-	if command == "" || len(command) > domain.CommandMaxBytes || !utf8.ValidString(command) || strings.ContainsRune(command, 0) {
+	if !validAssistantCommand(command) {
 		return domain.CommandRunPayload{}, toolFailure("command must be 1 to %d bytes of text", domain.CommandMaxBytes)
 	}
 	write := action == "run_command_write"

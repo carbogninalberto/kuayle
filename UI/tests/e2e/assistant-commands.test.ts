@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 
 // Approval cards of the command tools (KUA-153): starting a temporary machine
@@ -38,7 +40,7 @@ const approval = (action: string, payload: Record<string, unknown>) => ({
 });
 
 async function chat(page: Page, tools: unknown[], approvals: any[], approveStatus = 'approved') {
-	const state = { approvals, decisions: [] as string[], run: null as Record<string, unknown> | null, runReads: 0, stream: null as WebSocketRoute | null };
+	const state = { conversation, userMessage, approvals, decisions: [] as string[], run: null as Record<string, unknown> | null, runReads: 0, process: 'queued', stops: 0, launches: 0, stream: null as WebSocketRoute | null };
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', (ws) => { state.stream = ws; });
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
@@ -50,10 +52,25 @@ async function chat(page: Page, tools: unknown[], approvals: any[], approveStatu
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path.endsWith('/assistant/status')) return route.fulfill({ json: { configured: true, provider: 'openai_compatible', model: 'm' } });
-		if (path.endsWith('/conversations')) return route.fulfill({ json: [conversation] });
+		if (path.endsWith('/conversations')) return route.fulfill({ json: [state.conversation] });
 		if (path.endsWith('/approvals/approval-1/command-run')) {
 			state.runReads++;
 			return state.run ? route.fulfill({ json: state.run }) : route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
+		}
+		if (path.endsWith('/conversations/chat-1/processes/approval-1')) {
+			if (request.method() === 'DELETE') {
+				state.stops++;
+				state.process = 'stopping';
+			}
+			return route.fulfill({ json: {
+				id: 'approval-1', machine_id: 'machine-1', status: state.process, port: 4321,
+				expires_at: '2026-11-15T10:00:00Z',
+				...(state.process === 'running' ? { preview_url: 'https://machine-4321.apps.example.test' } : {})
+			} });
+		}
+		if (path.endsWith('/dev-machines/machine-1/ports/approval-1/launch')) {
+			state.launches++;
+			return route.fulfill({ json: { status: 'ready', launch_url: 'https://machine-4321.apps.example.test/?ticket=test' } });
 		}
 		if (path.endsWith('/approvals/approval-1')) {
 			const decision = request.postDataJSON().decision;
@@ -65,7 +82,7 @@ async function chat(page: Page, tools: unknown[], approvals: any[], approveStatu
 		if (path.endsWith('/events')) return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/conversations/chat-1')
 			return route.fulfill({
-				json: { conversation, messages: [userMessage, answer], tools, approvals: state.approvals, cursor: 0, has_more: false }
+				json: { conversation: state.conversation, messages: [state.userMessage, answer], tools, approvals: state.approvals, cursor: 0, has_more: false }
 			});
 		return route.fulfill({ json: [] });
 	});
@@ -220,3 +237,59 @@ for (const [result, hasLink] of [['published', true], ['published', false], ['em
 		}
 	});
 }
+
+test('an approved ad-hoc process opens through the app-port gateway and can be stopped in chat', async ({ page }, testInfo) => {
+	const action = 'start_process';
+	const command = 'python3 -m http.server "$PORT" --bind "$HOST"';
+	const state = await chat(page, [call(action, { command, port: 4321 })], [
+		approval(action, { machine_id: 'machine-1', machine: 'laptop-box', command, working_directory: '/workspace', port: 4321, ttl_minutes: 30 })
+	]);
+	state.conversation = { ...conversation, title: 'Preview server' };
+	state.userMessage = { ...userMessage, content: 'Keep a preview server running on port 4321.' };
+	await page.context().route('https://machine-4321.apps.example.test/**', (route) =>
+		route.fulfill({ body: 'Dev server preview' })
+	);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const card = page.getByTestId('approval-card');
+	const approve = card.getByRole('button', { name: 'Approve', exact: true });
+	await expect(approve).toBeDisabled();
+	await card.getByRole('button', { expanded: false }).press('Enter');
+	await expect(card.getByText('Start a process on laptop-box?', { exact: true })).toBeVisible();
+	await expect(card.getByText(command, { exact: true })).toBeVisible();
+	await expect(card.getByText(/port 4321.*30 minutes/)).toBeVisible();
+
+	const shot = async (name: string) => {
+		const dir = process.env.KUA184_SHOTS;
+		if (dir) mkdirSync(dir, { recursive: true });
+		await page.screenshot({ animations: 'disabled', path: dir ? join(dir, name) : testInfo.outputPath(name) });
+	};
+	await shot('process-approval.png');
+	await approve.click();
+	expect(state.decisions).toEqual(['approve']);
+	const result = page.getByTestId('assistant-process-result');
+	await expect(result.getByText('Process queued')).toBeVisible();
+	const open = result.getByRole('button', { name: 'Open preview' });
+	await expect(open).toHaveCount(0);
+	state.process = 'running';
+	await expect(open).toBeVisible();
+	await expect(result.getByText('https://machine-4321.apps.example.test')).toBeVisible();
+	await shot('process-running.png');
+	const popupPromise = page.waitForEvent('popup');
+	await open.click();
+	const popup = await popupPromise;
+	await expect(popup).toHaveURL('https://machine-4321.apps.example.test/?ticket=test');
+	await expect(popup.getByText('Dev server preview')).toBeVisible();
+	expect(state.launches).toBe(1);
+	await popup.close();
+
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.reload();
+	await expect(open).toBeVisible();
+	expect(await noHorizontalScroll(page)).toBe(true);
+	await result.getByRole('button', { name: 'Stop process' }).click();
+	await expect(result.getByText('Stopping process')).toBeVisible();
+	await expect(open).toHaveCount(0);
+	expect(state.stops).toBe(1);
+	state.process = 'stopped';
+	await expect(result.getByText('Process stopped')).toBeVisible();
+});
