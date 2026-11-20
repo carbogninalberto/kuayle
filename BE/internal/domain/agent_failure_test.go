@@ -104,12 +104,28 @@ func TestClassifyRunFailure(t *testing.T) {
 			FailurePlatform, "pid_limit", []string{"PID limit", "spawn /usr/bin/node EAGAIN"},
 		},
 		"OpenCode's SQLite database found the disk full": {
-			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "Unexpected server error", Stderr: "ERROR service=default name=SQLiteError message=database or disk is full\nFailed to execute statement"},
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "Unexpected server error", Stderr: "Starting OpenCode\nERROR service=default name=SQLiteError message=database or disk is full\nFailed to execute statement"},
 			FailurePlatform, "disk_full", []string{"ran out of disk space", "database or disk is full"},
+		},
+		"OpenCode logged a disk quota error": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: `timestamp=2026-11-17T13:30:15.525Z level=ERROR run=ses_01 message=failed error="EDQUOT: disk quota exceeded, write"`},
+			FailurePlatform, "disk_full", []string{"ran out of disk space", "disk quota exceeded"},
 		},
 		"a write found no space left on the device": {
 			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), HarnessError: "ENOSPC: no space left on device, write"},
-			FailurePlatform, "disk_full", []string{"ran out of disk space"},
+			FailurePlatform, "disk_full", []string{"ran out of disk space", "ENOSPC: no space left on device, write"},
+		},
+		"test output mentioning ENOSPC does not make a disk failure": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), Stderr: "Error: tests failed\n--- FAIL: TestENOSPC\n    got \"Error: ENOSPC: no space left on device\""},
+			FailureUnknown, "harness_exit_with_output", []string{"TestENOSPC"},
+		},
+		"a usage limit beats a disk error": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), UsageLimit: "You've hit your usage limit", Stderr: "Error: ENOSPC: no space left on device, write"},
+			FailureProvider, "usage_limit", []string{"usage limit was reached"},
+		},
+		"a disk error beats generic platform and provider errors": {
+			RunFailureEvidence{Status: "failed", ExitCode: exitCode(1), ExecutionError: "agent_output_persistence_failed: context deadline exceeded", HarnessError: "API Error: 529 overloaded", Stderr: "Error: ENOSPC: no space left on device, write"},
+			FailurePlatform, "disk_full", []string{"ran out of disk space", "no space left on device"},
 		},
 		"a person's cancel": {
 			RunFailureEvidence{Status: "cancelled", ExitCode: exitCode(-1), CancelledBy: CancelledByPerson},

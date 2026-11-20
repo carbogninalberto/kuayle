@@ -152,9 +152,14 @@ type runFailureRule struct {
 // refuses a new thread or process: the container's PID limit.
 var pidLimitText = regexp.MustCompile(`(?i)(failed to create new os thread|pthread_create failed|cannot fork|fork: retry|unable to create (?:new )?(?:native )?thread|uv_thread_create|spawn[^\n]{0,80}EAGAIN|(?:fork|thread|clone|spawn|process)[^\n]{0,80}resource temporarily unavailable|resource temporarily unavailable[^\n]{0,80}(?:fork|thread|clone|spawn)|resource temporarily unavailable)`)
 
-// diskFullText is what a harness, SQLite or the kernel prints when a write
+// diskFullSignature is what a harness, SQLite or the kernel prints when a write
 // finds no space: the home or /tmp tmpfs, or the workspace volume's quota.
-var diskFullText = regexp.MustCompile(`(?i)(database or disk is full|SQLITE_FULL|no space left on device|\bENOSPC\b|disk quota exceeded|\bEDQUOT\b)`)
+const diskFullSignature = `(?:database or disk is full|SQLITE_FULL|no space left on device|\bENOSPC\b|disk quota exceeded|\bEDQUOT\b)`
+
+var diskFullText = regexp.MustCompile(`(?i)` + diskFullSignature)
+
+// Stderr can include test output. Require an error prefix on the same line.
+var diskFullStderr = regexp.MustCompile(`(?im)^(?:(?:error:|error service=|fatal:|timestamp=\S+[ \t]+level=error[ \t])[^\r\n]*` + diskFullSignature + `|(?:SQLITE_FULL|ENOSPC|EDQUOT):)`)
 
 // providerErrorText is wording model providers and their SDKs use for a
 // failure on their side or of the account: overload, rate limits, server
@@ -214,16 +219,11 @@ func exitSignal(code *int) string {
 }
 
 // runFailureRules is the classification table, most decisive evidence first.
-// What the platform did to the run (memory, PID or time limit) comes before
-// what the provider or the harness said, because such a run often also prints
-// an error. A usage limit and a provider error are the exception: they decide
-// before a persistence failure or a missing final message, since the task
-// pauses as the provider's or the cause would quote the wrong thing; so do an
-// account without credit and a model the provider does not offer (KUA-218),
-// which pause or fail the task instead of going back to the agent. A manager
-// restart comes after disk_full and those provider rules, which say what
-// really happened, and before platform_error and the other provider rules,
-// whose errors a run that was stopped may print or cause on its way out.
+// Container limits (memory, PID and time) come before errors the run prints.
+// A usage limit comes before a full disk, followed by an account without
+// credit or a missing model (KUA-218). These provider rules pause or fail the
+// task. A manager restart comes after these specific failures and before
+// generic platform and provider errors that a stopped run may print or cause.
 var runFailureRules = []runFailureRule{
 	{"cancelled_by_person", FailurePerson,
 		func(e RunFailureEvidence) bool { return e.Status == "cancelled" && e.CancelledBy == CancelledByPerson },
@@ -266,16 +266,20 @@ var runFailureRules = []runFailureRule{
 			}
 			return "Kuayle stopped the run at its time limit"
 		}},
-	{"disk_full", FailurePlatform,
-		func(e RunFailureEvidence) bool {
-			return diskFullText.MatchString(e.Stderr) || diskFullText.MatchString(e.HarnessError)
-		},
-		func(RunFailureEvidence) string {
-			return "The agent container ran out of disk space (its home or temporary directory, or the workspace volume's quota), so the harness could not write its files"
-		}},
 	{"usage_limit", FailureProvider,
 		func(e RunFailureEvidence) bool { return e.UsageLimit != "" },
 		func(e RunFailureEvidence) string { return "The provider's usage limit was reached: " + e.UsageLimit }},
+	{"disk_full", FailurePlatform,
+		func(e RunFailureEvidence) bool {
+			return diskFullStderr.MatchString(e.Stderr) || diskFullText.MatchString(e.HarnessError)
+		},
+		func(e RunFailureEvidence) string {
+			cause := "The agent container ran out of disk space (its home or temporary directory, or the workspace volume's quota), so the harness could not write its files"
+			if diskFullText.MatchString(e.HarnessError) {
+				cause += ": " + e.HarnessError
+			}
+			return cause
+		}},
 	{FailureRuleProviderCredit, FailureProvider,
 		func(e RunFailureEvidence) bool { return e.ProviderCredit != "" },
 		func(e RunFailureEvidence) string {
