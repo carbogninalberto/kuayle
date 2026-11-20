@@ -150,6 +150,45 @@ test('a member may edit only their own comment and delete none', async ({ page }
 	expect(state.writes).toEqual([]);
 });
 
+test('a column resized in the description editor keeps its width', async ({ page }, testInfo) => {
+	// Stored markup exactly as the editor emits it for a resized table: the
+	// width lives in the cell colwidth attributes and the colgroup.
+	const description = '<table style="width: 340px"><colgroup><col style="width: 180px"><col style="min-width: 50px"></colgroup><tbody><tr><th colwidth="180">Step</th><th>Result</th></tr><tr><td>Build</td><td>Passed</td></tr></tbody></table>';
+	const comment = '<table style="width: 340px"><colgroup><col style="width: 180px"><col style="min-width: 50px"></colgroup><tbody><tr><th colwidth="180">Check</th><th>Outcome</th></tr></tbody></table>';
+	const { pageErrors, issue } = await mockIssue(page, 'owner', description, comment);
+	await page.goto('/test/issue/ENG-1');
+
+	// A stored table with fixed column widths renders in the reader unchanged.
+	await expect(commentCard(page, 'Check').getByRole('table').locator('col').first())
+		.toHaveAttribute('style', 'width: 180px');
+
+	// The description is the editor: drag the first column's edge wider.
+	const header = page.getByRole('columnheader', { name: 'Step' });
+	const box = await header.boundingBox();
+	expect(box).not.toBeNull();
+	await page.mouse.move(box!.x + box!.width - 2, box!.y + box!.height / 2);
+	await expect(page.locator('.column-resize-handle').first()).toBeVisible();
+	await page.mouse.down();
+	await page.mouse.move(box!.x + box!.width + 60, box!.y + box!.height / 2, { steps: 8 });
+	await page.mouse.up();
+
+	// The resized width survives the sanitizer into the saved description.
+	await expect.poll(() => {
+		const match = issue.description?.match(/colwidth="(\d+)"/) ?? null;
+		return match ? Number(match[1]) : 0;
+	}, { timeout: 10_000 }).toBeGreaterThan(200);
+	expect(issue.description).toContain('<colgroup>');
+	expect(issue.description).toMatch(/<col style="width: \d{3}px">/);
+	expect(issue.description).not.toMatch(/position|background|url\(/);
+
+	await page.screenshot({ path: testInfo.outputPath('table-column-resized.png') });
+
+	// Reopening the issue parses the stored widths back into the editor.
+	await page.reload();
+	await expect(page.locator('.ProseMirror table col').first()).toHaveAttribute('style', /width: 2\d\dpx/);
+	expect(pageErrors).toEqual([]);
+});
+
 test('issue and comment tables survive editing and reloading', async ({ page }, testInfo) => {
 	// API fixtures represent the stored output of a Markdown table and an HTML table.
 	const description = '<table><thead><tr><th>Step</th><th align="right">Result</th></tr></thead><tbody><tr><td>Build<br>CI</td><td align="right">Passed</td></tr></tbody></table>';

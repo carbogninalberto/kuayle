@@ -797,6 +797,12 @@ html.pointer-cursors [data-slot="switch"] {
 	overflow-wrap: anywhere;
 }
 
+/* Tables the editor sized through a colgroup choose their own column
+   widths; the 6rem cell floor would fight them. */
+:where(.prose, .description-content) table:has(colgroup) :is(th, td) {
+	min-width: 0;
+}
+
 :where(.prose, .description-content) th {
 	background: var(--color-bg-secondary);
 	font-weight: 600;
@@ -804,6 +810,26 @@ html.pointer-cursors [data-slot="switch"] {
 
 :where(.prose, .description-content) th:not([align]) {
 	text-align: left;
+}
+
+/* Column resizing while editing: the handle widget sits at the cell edge,
+   and the whole editor shows the resize cursor during a drag. */
+.tiptap :is(th, td) {
+	position: relative;
+}
+
+.tiptap .column-resize-handle {
+	position: absolute;
+	right: -2px;
+	top: 0;
+	bottom: -2px;
+	width: 4px;
+	background: var(--app-accent);
+	pointer-events: none;
+}
+
+.tiptap.resize-cursor {
+	cursor: col-resize;
 }
 
 /* Task list checkboxes in rendered HTML (comments, descriptions) */

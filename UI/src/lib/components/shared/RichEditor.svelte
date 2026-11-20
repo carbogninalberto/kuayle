@@ -753,7 +753,15 @@
 				link: false,
 				underline: false,
 			}),
-			TableKit,
+			// Resizable tables persist their column widths in markup; the
+			// storage sanitizer keeps exactly that width markup (see
+			// UI/src/lib/security/sanitize.ts and BE/pkg/sanitize/html.go).
+			TableKit.configure({
+				table: {
+					resizable: true,
+					cellMinWidth: 50
+				}
+			}),
 			Extension.create({
 				name: 'tableCellAlignment',
 				addGlobalAttributes() {

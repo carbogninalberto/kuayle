@@ -31,10 +31,17 @@ func init() {
 		"h1", "h2", "h3", "h4", "h5", "h6",
 		"ul", "ol", "li", "blockquote", "hr",
 		"span", "div", "label",
-		"table", "thead", "tbody", "tfoot", "tr", "th", "td",
+		"table", "thead", "tbody", "tfoot", "tr", "th", "td", "colgroup", "col",
 	)
 	policy.AllowAttrs("colspan", "rowspan").Matching(regexp.MustCompile(`^[1-9][0-9]{0,2}$`)).OnElements("th", "td")
 	policy.AllowAttrs("align").Matching(regexp.MustCompile(`^(left|center|right)$`)).OnElements("th", "td")
+
+	// Column widths the editor's resizable tables persist: a cell's widths in
+	// colwidth, and nothing but pixel width/min-width styles on colgroup
+	// columns and the table itself. Any other style declaration is dropped.
+	policy.AllowAttrs("colwidth").Matching(regexp.MustCompile(`^[1-9][0-9]{0,3}(,[1-9][0-9]{0,3})*$`)).OnElements("th", "td")
+	policy.AllowAttrs("width").Matching(regexp.MustCompile(`^[1-9][0-9]{0,3}(px|%)?$`)).OnElements("col")
+	policy.AllowStyles("width", "min-width").Matching(regexp.MustCompile(`^[0-9]{1,4}(\.[0-9]+)?px$`)).OnElements("table", "col")
 
 	// Class values are narrowed to the editor's own names by restrictClasses.
 	policy.AllowAttrs("class").Globally()
