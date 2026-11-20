@@ -1403,7 +1403,9 @@ continuation that has not started is handed over before the attempt is marked
 as asked, so the next manager asks. Other operations in progress (a closing
 continuation already running, a publication, lifecycle work) get a drain
 period, `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` (default 90 seconds; 0 stops at
-once); after it they are cancelled and handed back the same way, never failed.
+once). After the drain, the manager cancels outstanding work and hands it
+back. An interrupted [assistant command](conversations.md#commands-and-temporary-machines)
+ends as failed so that one approval runs the command only once.
 Compose gives the manager a `stop_grace_period` of 150s, which leaves a minute
 after the drain for those cleanups.
 

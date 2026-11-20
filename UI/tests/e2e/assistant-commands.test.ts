@@ -163,6 +163,43 @@ test('a command shows exactly what runs and where, then its result names the mac
 	expect(state.decisions).toEqual(['approve']);
 });
 
+test('a longer approved command keeps updating the transcript through completion', async ({ page }, testInfo) => {
+	const command = './run-tests';
+	const ownMachine = { ...machine, machine: 'dev-box', reused: true, temporary: false, expires_at: undefined };
+	const payload = { ...ownMachine, command, write: false, working_directory: '/workspace/tests', timeout_seconds: 600 };
+	const state = await chat(page, [call('run_command', { command, timeout_seconds: 600 })], [approval('run_command', payload)]);
+	state.userMessage = { ...userMessage, content: 'Run the test suite on my dev machine. Allow up to ten minutes.' };
+	// Exercise more than the original 60 polling intervals without a two-minute test.
+	await page.addInitScript(() => {
+		window.setTimeout = new Proxy(window.setTimeout, {
+			apply(schedule, receiver, args) {
+				if (args[1] === 2000) args[1] = 10;
+				return Reflect.apply(schedule, receiver, args);
+			}
+		});
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const card = page.getByTestId('approval-card');
+	await card.getByRole('button', { expanded: false }).press('Enter');
+	await expect(card.getByText(/stopped after 600 seconds/)).toBeVisible();
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('long-command-approval.png') });
+	state.run = { ...ownMachine, command, run_id: 'run-1', status: 'running', output_tail: 'Tests started', exit_code: null, duration_ms: null };
+	await card.getByRole('button', { name: 'Approve', exact: true }).click();
+	const result = page.getByTestId('command-run-result');
+	await expect(result.getByText('Tests started')).toBeVisible();
+	await expect.poll(() => state.runReads, { timeout: 15_000 }).toBeGreaterThan(60);
+	state.run = { ...state.run, status: 'succeeded', output_tail: 'All tests passed', exit_code: 0, duration_ms: 130000 };
+	await expect(result.getByText('All tests passed')).toBeVisible();
+	await expect(result.getByText('Exit code 0')).toBeVisible();
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.reload();
+	await expect(result.getByText('All tests passed')).toBeVisible();
+	const output = await result.locator('pre').boundingBox();
+	expect(output?.width).toBeGreaterThan(300);
+	expect(await noHorizontalScroll(page)).toBe(true);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('long-command-result.png') });
+});
+
 test('a write command must be shown before it can be approved', async ({ page }, testInfo) => {
 	const state = await chat(page, [call('run_command_write', { command: 'echo hi > note.txt' })], [
 		approval('run_command_write', {

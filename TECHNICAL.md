@@ -1657,7 +1657,7 @@ Required configuration when enabled:
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
 | `DEV_MACHINE_HOST_RESERVED_CPU_MILLIS`, `DEV_MACHINE_HOST_RESERVED_MEMORY_MB`, `DEV_MACHINE_CPU_OVERCOMMIT` | Host admission for spawning/starting machines (defaults 1000, 2048, 2): Docker host CPU/memory minus these reserves bounds the sum of live machines' requests; memory is never overcommitted, CPU up to the factor. Machines that do not fit wait in the queue without consuming retries |
 | `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS`, `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` | Agent CLI updates (defaults 6 and 48, each 0-720): how often the manager installs the latest npm-distributed agent CLIs into the shared read-only volume, and how long a version must have been published; a refresh interval of 0 turns updates off. See [Sudo in machines](#sudo-in-machines), "Agent CLI updates" |
-| `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` | How long a stopping machine manager lets operations other than agent runs and checks finish before it stops them and hands them to the next manager (default 90; 0 hands them over at once). Agent runs and checks are not bounded by it: they keep running and the next manager re-adopts them. Keep it at least 60 seconds below the manager's Compose `stop_grace_period` (150s), so cleanups finish. See [machine manager restarts](BE/docs/agent-tasks.md#machine-manager-restarts) |
+| `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` | How long a stopping machine manager lets operations other than agent runs and checks finish before stopping them (default 90 seconds, 0 stops immediately). Interrupted assistant commands are marked failed. Other operations are handed to the next manager. Agent runs and checks are not bounded by it: they keep running and the next manager re-adopts them. Keep it at least 60 seconds below the manager's Compose `stop_grace_period` (150s), so cleanups finish. See [machine manager restarts](BE/docs/agent-tasks.md#machine-manager-restarts) |
 | `DEV_MACHINE_SLICES`, `DEV_MACHINE_SWAP_PERCENT` | Shared machine resources (defaults `auto`, 50): with `auto`, new machines on hosts with Docker's systemd cgroup driver and cgroup v2 share their CPU and memory in one systemd slice, with a swap ceiling of the given percentage of the machine's memory (0-100); `off` keeps per-container shares. See [shared machine resources](#shared-machine-resources) |
 | `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Default commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`). A workspace can override it with a username and verified email in its coding-agent policy (migration 70), so GitHub attributes agent commits to that account. Pull requests are opened by the GitHub App installation. Control characters and angle brackets are rejected |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
@@ -2045,7 +2045,7 @@ through the Dev Machine egress proxy in `devmachine/egress`. The proxy builds
 from the `devmachine` context and uses a generated copy of the forge address
 check. After editing `BE/pkg/validate/public_ip.go`, run `go generate ./pkg/validate`
 from `BE` to update the copy. Backend tests verify that both files stay in sync.
-Command tools (KUA-153, migration 159) run one short shell command after
+Command tools (KUA-153, migration 159) run one shell command after
 approval: `run_command` read-only, `run_command_write` in the conversation's
 folder `/workspace/kuayle-assistant/<conversation>`, read with
 `get_command_run`. A command runs as a `run_command` machine operation (attempted
@@ -2054,8 +2054,9 @@ machine lock. The command is only in the environment and `/workspace` is
 always read-only: a write run gets only its conversation folder read-write (a
 volume subpath, created by a fixed-argv prep container; Docker API 1.45+, and
 write runs fail on older daemons), so packages go there too (`pip install
---target ./pkgs`, a venv or `npm install`). It is killed after 60 s, and 64 KiB
-of output is kept. It runs on a running machine the user owns: the given
+--target ./pkgs`, a venv or `npm install`). The per-command approval binds the timeout (60 s by default,
+1–600 s with `timeout_seconds`, migration 197). The transcript keeps the last
+64 KiB of output. It runs on a running machine the user owns: the given
 `machine_id`, the conversation's temporary machine, the user's own machine or
 their live temporary machine from another conversation (reused). `run_migration`
 (KUA-181, migration 181) runs a named migration action the same way, with the

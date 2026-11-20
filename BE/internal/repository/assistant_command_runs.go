@@ -57,6 +57,7 @@ type CommandRunRequest struct {
 	// admin-configured action whose command it carries.
 	Migration        bool
 	ActionName       string
+	TimeoutSeconds   int
 	WorkingDirectory string
 	// Reused records that the machine is one of the user's own machines the
 	// assistant chose instead of starting a temporary one.
@@ -75,7 +76,7 @@ func NewAssistantCommandRepository(db *sqlx.DB) *AssistantCommandRepository {
 }
 
 const commandRunColumns = `r.id,r.workspace_id,r.machine_id,r.machine_name,r.cpu_millis,r.memory_mb,r.disk_gb,r.temporary,r.reused,r.requested_by_user_id,r.conversation_id,
-  r.tool_call_id,r.approval_id,r.command,r.write,r.migration,r.action_name,r.working_directory,r.status,r.exit_code,r.output,r.output_truncated,r.error,r.created_at,r.started_at,r.finished_at,
+  r.tool_call_id,r.approval_id,r.command,r.write,r.migration,r.action_name,r.timeout_seconds,r.working_directory,r.status,r.exit_code,r.output,r.output_truncated,r.error,r.created_at,r.started_at,r.finished_at,
  (EXTRACT(EPOCH FROM (r.finished_at-r.started_at))*1000)::bigint AS duration_ms,
  (SELECT m.temporary_expires_at FROM dev_machines m WHERE m.id=r.machine_id) AS expires_at`
 
@@ -110,6 +111,12 @@ const usableMachine = `m.workspace_id=$1 AND m.created_by_user_id=$2 AND m.delet
 // own that nothing else uses. An approval queues at most one run. A migration
 // run names its action and never writes files.
 func (r *AssistantCommandRepository) QueueRun(ctx context.Context, ws, actor uuid.UUID, req CommandRunRequest) (*domain.CommandRun, error) {
+	if req.TimeoutSeconds == 0 {
+		req.TimeoutSeconds = domain.DefaultCommandTimeoutSeconds
+	}
+	if !domain.ValidCommandTimeout(req.TimeoutSeconds) || (req.Migration && req.TimeoutSeconds != domain.DefaultCommandTimeoutSeconds) {
+		return nil, ErrConversationInvalid
+	}
 	if strings.TrimSpace(req.Command) == "" || len(req.Command) > domain.CommandMaxBytes || strings.ContainsRune(req.Command, 0) {
 		return nil, ErrConversationInvalid
 	}
@@ -157,10 +164,10 @@ func (r *AssistantCommandRepository) QueueRun(ctx context.Context, ws, actor uui
 	}
 	run := &domain.CommandRun{}
 	if err = tx.GetContext(ctx, run, `WITH inserted AS (INSERT INTO assistant_command_runs(workspace_id,machine_id,machine_name,cpu_millis,memory_mb,disk_gb,temporary,reused,requested_by_user_id,
-  conversation_id,tool_call_id,approval_id,command,write,migration,action_name,working_directory,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'queued') RETURNING *)
+  conversation_id,tool_call_id,approval_id,command,write,migration,action_name,working_directory,timeout_seconds,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'queued') RETURNING *)
   SELECT `+commandRunColumns+` FROM inserted r`,
 		ws, machine.ID, machine.Name, machine.CPUMillis, machine.MemoryMB, machine.DiskGB, machine.TemporaryExpiresAt != nil, req.Reused, actor,
-		req.ConversationID, req.ToolCallID, req.ApprovalID, req.Command, req.Write, req.Migration, req.ActionName, req.WorkingDirectory); err != nil {
+		req.ConversationID, req.ToolCallID, req.ApprovalID, req.Command, req.Write, req.Migration, req.ActionName, req.WorkingDirectory, req.TimeoutSeconds); err != nil {
 		return nil, err
 	}
 	run.ExpiresAt = machine.TemporaryExpiresAt

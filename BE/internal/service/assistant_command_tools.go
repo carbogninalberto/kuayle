@@ -24,7 +24,7 @@ const (
 	// result, JSON-escaped, must stay within assistantToolOutputBytes.
 	assistantCommandOutputBytes = 12 << 10
 	// get_command_run waits this long for a queued or running command.
-	assistantCommandWait = domain.CommandRunTimeout + 15*time.Second
+	assistantCommandWait = 75 * time.Second
 )
 
 // noCommandMachine is what the assistant can do when no machine is available.
@@ -81,8 +81,8 @@ var assistantCommandToolCatalog = []assistantTool{
 	{name: "get_process", commands: true, description: "Read the status, expiry and owner-only preview URL of a process in this conversation. Give the approval_id returned by start_process as process_id. The user can launch the preview from the approval card.", parameters: processIDInput},
 	{name: "stop_process", commands: true, description: "Stop a process started from this conversation and revoke its preview. Give the approval_id returned by start_process as process_id. Only call when the user asks to stop it.", parameters: processIDInput},
 	{name: "start_temporary_machine", commands: true, approval: true, description: "Get a machine to run commands on, only when no other tool can answer. If the user has a running machine of their own it is reused at once, in a folder of this conversation, without approval. Otherwise ask the user to approve starting a small temporary machine for this conversation (1 vCPU, 2 GB memory, 20 GB disk, no repository and no credentials, internet only through the workspace's proxy), which is permanently deleted 30 minutes after it starts. Say which machine is used, its size and whether it was reused.", parameters: `{"type":"object","properties":{},"additionalProperties":false}`},
-	{name: "run_command", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) read-only on a machine: /workspace is mounted read-only and only /tmp and $HOME are writable, so it can compute, check a snippet (python3 -c, node -e), inspect files or call a public URL, but changes nothing. Without machine_id it uses this conversation's temporary machine or the user's own running machine. working_directory is relative to /workspace (default /workspace). It runs in a container without credentials. Use it only when no other tool can answer; the command runs only after approval, so never claim a result before get_command_run returns it.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36},"working_directory":{"type":"string","maxLength":500}},"required":["command"],"additionalProperties":false}`},
-	{name: "run_command_write", commands: true, approval: true, description: "Ask the user to approve running one short shell command (sh -c, at most 60 seconds, output capped) that may write files: it starts in this conversation's folder /workspace/kuayle-assistant/<conversation>, and only that folder is writable (the rest of /workspace stays read-only; for packages use pip install --target ./pkgs with PYTHONPATH=./pkgs, a venv, or npm install there). Use run_command instead unless the command must create or change files, and only when the user asked for it. It runs in a container without credentials, only after approval.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"machine_id":{"type":"string","maxLength":36}},"required":["command"],"additionalProperties":false}`},
+	{name: "run_command", commands: true, approval: true, description: "Ask the user to approve running one shell command (sh -c, output capped, 60 seconds by default; request timeout_seconds up to 600 for longer tests) read-only on a machine: /workspace is mounted read-only and only /tmp and $HOME are writable, so it can compute, check a snippet (python3 -c, node -e), inspect files or call a public URL, but changes nothing. Without machine_id it uses this conversation's temporary machine or the user's own running machine. working_directory is relative to /workspace (default /workspace). It runs in a container without credentials. Use it only when no other tool can answer; the command runs only after approval, so never claim a result before get_command_run returns it.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"timeout_seconds":{"type":"integer","minimum":1,"maximum":600,"default":60},"machine_id":{"type":"string","maxLength":36},"working_directory":{"type":"string","maxLength":500}},"required":["command"],"additionalProperties":false}`},
+	{name: "run_command_write", commands: true, approval: true, description: "Ask the user to approve running one shell command (sh -c, output capped, 60 seconds by default; request timeout_seconds up to 600 for longer tests) that may write files: it starts in this conversation's folder /workspace/kuayle-assistant/<conversation>, and only that folder is writable (the rest of /workspace stays read-only; for packages use pip install --target ./pkgs with PYTHONPATH=./pkgs, a venv, or npm install there). Use run_command instead unless the command must create or change files, and only when the user asked for it. It runs in a container without credentials, only after approval.", parameters: `{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":4000},"timeout_seconds":{"type":"integer","minimum":1,"maximum":600,"default":60},"machine_id":{"type":"string","maxLength":36}},"required":["command"],"additionalProperties":false}`},
 	{name: "get_command_run", commands: true, description: "Read a command run by run_id, or the run an approval started by approval_id: status, exit code, the end of its output, and the machine it ran on with its size, whether it was reused and when a temporary machine is deleted. It waits up to about a minute for a running command. Use it after the user approved run_command or run_command_write.", parameters: `{"type":"object","properties":{"run_id":{"type":"string","maxLength":36},"approval_id":{"type":"string","maxLength":36}},"additionalProperties":false}`},
 	{name: "run_migration", commands: true, migrations: true, approval: true, description: "Ask the user to approve running a named database migration action that a workspace admin configured on the user's machine. You only choose the action name (and machine_id when several machines have an action of that name); the command and its connection secret are admin-configured and never shown to you. Nothing runs until the user approves, so never claim it ran; read the result with get_command_run.", parameters: `{"type":"object","properties":{"action":{"type":"string","minLength":1,"maxLength":100},"machine_id":{"type":"string","maxLength":36}},"required":["action"],"additionalProperties":false}`},
 }
@@ -97,7 +97,7 @@ func (t *AssistantTools) commandPrompt(ctx context.Context, ws uuid.UUID) string
 	if err != nil || disabled["run_command"] {
 		return ""
 	}
-	prompt := " You can run a short command on a Dev Machine with run_command (read-only) or run_command_write (writes files), each after the user's approval, and read its result with get_command_run. Use them only when no other tool can answer: prefer repository scans, worktree reads, get_agent_work, run_check and custom tools. Prefer the user's own running machine; propose start_temporary_machine only when they have none."
+	prompt := " You can run a command on a Dev Machine with run_command (read-only) or run_command_write (writes files), each after the user's approval, and read its result with get_command_run. Use them only when no other tool can answer: prefer repository scans, worktree reads, get_agent_work, run_check and custom tools. Prefer the user's own running machine; propose start_temporary_machine only when they have none."
 	if disabled["start_temporary_machine"] {
 		prompt = strings.Replace(prompt, " Prefer the user's own running machine; propose start_temporary_machine only when they have none.", " Commands run only on the user's own running machines.", 1)
 	}
@@ -186,7 +186,9 @@ func (t *AssistantTools) prepareCommand(ctx context.Context, a domain.Conversati
 		Command          string `json:"command"`
 		MachineID        string `json:"machine_id"`
 		WorkingDirectory string `json:"working_directory"`
+		TimeoutSeconds   int    `json:"timeout_seconds"`
 	}
+	input.TimeoutSeconds = domain.DefaultCommandTimeoutSeconds
 	if err := decodeToolInput(arguments, &input); err != nil {
 		return domain.CommandRunPayload{}, err
 	}
@@ -196,6 +198,9 @@ func (t *AssistantTools) prepareCommand(ctx context.Context, a domain.Conversati
 	command := strings.TrimSpace(input.Command)
 	if !validAssistantCommand(command) {
 		return domain.CommandRunPayload{}, toolFailure("command must be 1 to %d bytes of text", domain.CommandMaxBytes)
+	}
+	if !domain.ValidCommandTimeout(input.TimeoutSeconds) {
+		return domain.CommandRunPayload{}, toolFailure("timeout_seconds must be between 1 and %d", domain.MaxCommandTimeoutSeconds)
 	}
 	write := action == "run_command_write"
 	directory := domain.CommandFolder(a.Conversation.ID)
@@ -210,7 +215,7 @@ func (t *AssistantTools) prepareCommand(ctx context.Context, a domain.Conversati
 		return domain.CommandRunPayload{}, err
 	}
 	return domain.CommandRunPayload{CommandMachine: domain.CommandMachineOf(machine, reused), Command: command, Write: write, WorkingDirectory: directory,
-		TimeoutSeconds: int(domain.CommandRunTimeout / time.Second)}, nil
+		TimeoutSeconds: input.TimeoutSeconds}, nil
 }
 
 // prepareTemporaryMachine answers start_temporary_machine: an existing machine
@@ -277,7 +282,7 @@ func commandMachineResult(machine domain.CommandMachine) map[string]any {
 }
 
 // commandRunResult is a run as shown to the model and in the chat.
-func commandRunResult(run *domain.CommandRun) map[string]any {
+func commandRunResult(run *domain.CommandRun, outputLimit int) map[string]any {
 	result := commandMachineResult(domain.CommandMachine{Machine: run.MachineName, CPUMillis: run.CPUMillis, MemoryMB: run.MemoryMB, DiskGB: run.DiskGB,
 		Reused: run.Reused, Temporary: run.Temporary, ExpiresAt: run.ExpiresAt})
 	if run.MachineID != nil {
@@ -286,8 +291,8 @@ func commandRunResult(run *domain.CommandRun) map[string]any {
 		result["machine_id"] = nil
 	}
 	output, truncated := run.Output, run.OutputTruncated
-	if len(output) > assistantCommandOutputBytes {
-		output, truncated = output[len(output)-assistantCommandOutputBytes:], true
+	if len(output) > outputLimit {
+		output, truncated = output[len(output)-outputLimit:], true
 		for len(output) > 0 && !utf8.RuneStart(output[0]) {
 			output = output[1:]
 		}
@@ -364,7 +369,21 @@ func (t *AssistantTools) getCommandRun(ctx context.Context, ws, user uuid.UUID, 
 	if err != nil {
 		return nil, nil, err
 	}
-	return commandRunResult(t.awaitCommandRun(ctx, ws, user, run)), nil, nil
+	run = t.awaitCommandRun(ctx, ws, user, run)
+	// Escaping terminal output (e.g. ANSI controls) can exceed the tool's
+	// JSON budget even when its plain text fits. Always keep the newest bytes.
+	command := run.Command
+	if encoded, _ := json.Marshal(command); len(encoded) > assistantToolOutputBytes/2 {
+		// The approval card retains the exact command.
+		command = truncateJSONBytes(command, domain.CommandMaxBytes) + "…"
+	}
+	for limit := assistantCommandOutputBytes; ; limit /= 2 {
+		result := commandRunResult(run, limit)
+		result["command"] = command
+		if data, _ := json.Marshal(result); len(data) <= assistantToolOutputBytes || limit == 0 {
+			return result, nil, nil
+		}
+	}
 }
 
 // commandApprovalFailure is the user-safe reason an approved command or
@@ -400,10 +419,10 @@ func commandApprovalFailure(err error) string {
 // queues at most one run. The card shows the result.
 func (s *AssistantApprovals) runCommand(ctx context.Context, ws, conversation uuid.UUID, approval *domain.ConversationApproval) (*domain.ConversationApproval, error) {
 	var payload domain.CommandRunPayload
-	if s.commands == nil || json.Unmarshal(approval.Payload, &payload) != nil || payload.Write != (approval.Action == "run_command_write") {
+	if s.commands == nil || json.Unmarshal(approval.Payload, &payload) != nil || !domain.ValidCommandTimeout(payload.TimeoutSeconds) || payload.Write != (approval.Action == "run_command_write") {
 		return s.conversations.FinishApproval(ctx, ws, conversation, approval.ID, nil, "This approval cannot be executed")
 	}
-	_, err := s.commands.QueueRun(ctx, ws, approval.ActorID, repository.CommandRunRequest{MachineID: payload.MachineID, Command: payload.Command, Write: payload.Write,
+	_, err := s.commands.QueueRun(ctx, ws, approval.ActorID, repository.CommandRunRequest{MachineID: payload.MachineID, Command: payload.Command, Write: payload.Write, TimeoutSeconds: payload.TimeoutSeconds,
 		WorkingDirectory: payload.WorkingDirectory, Reused: payload.Reused, ConversationID: &conversation, ToolCallID: &approval.ToolCallID, ApprovalID: &approval.ID})
 	if err != nil {
 		if message := commandApprovalFailure(err); message != "" {
@@ -459,5 +478,5 @@ func (s *ConversationService) CommandRun(ctx context.Context, ws, conversation, 
 	if err != nil {
 		return nil, err
 	}
-	return commandRunResult(run), nil
+	return commandRunResult(run, domain.CommandOutputBytes), nil
 }

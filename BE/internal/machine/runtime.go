@@ -38,6 +38,8 @@ type AgentObserver struct {
 	Authorize    func() error
 	Started      func(containerID string) error
 	Output       AgentOutput
+	// PlainOutput requests command bytes without Docker timestamps.
+	PlainOutput bool
 	// Detach, when closed, makes the runtime stop following a running agent
 	// attempt without stopping it: it returns ErrAgentDetached and the
 	// container keeps running, for the next machine manager to re-adopt.
