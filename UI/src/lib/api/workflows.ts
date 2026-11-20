@@ -198,12 +198,18 @@ export interface WorkflowStep {
  * of the workflow, on the step it happened at.
  */
 export interface WorkflowPauseEvent {
-	action: 'pause_requested' | 'paused' | 'resumed' | 'pause_withdrawn' | 'version_switched';
+	action: 'pause_requested' | 'paused' | 'resumed' | 'pause_withdrawn' | 'version_switched' | 'workflow_switched';
 	sequence: number;
 	mode?: 'now' | 'after_step';
 	/** A move: the versions it went from and to. */
 	from_version?: number;
 	to_version?: number;
+	from_workflow_id?: string;
+	to_workflow_id?: string;
+	to_workflow_name?: string;
+	from_node?: string;
+	to_node?: string;
+	to_node_label?: string;
 	/** Absent when a requested pause took effect by itself. */
 	actor_id?: string | null;
 	at: string;
@@ -232,7 +238,7 @@ export interface WorkflowStepRun {
 	completed_at?: string | null;
 }
 
-export type WorkflowStatus = 'running' | 'waiting' | 'paused' | 'done' | 'failed';
+export type WorkflowStatus = 'entering' | 'running' | 'waiting' | 'paused' | 'done' | 'failed';
 
 /** A task's workflow: its graph and the path it took. */
 export interface TaskWorkflow {

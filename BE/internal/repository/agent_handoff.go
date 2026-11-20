@@ -15,27 +15,29 @@ import (
 // files. The agent summary is the previous harness's own, untrusted text.
 func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.AgentTask) (*domain.AgentHandoff, error) {
 	var row struct {
-		ID           uuid.UUID       `db:"id"`
-		MachineID    uuid.UUID       `db:"machine_id"`
-		Session      *string         `db:"native_session_id"`
-		Status       string          `db:"status"`
-		Summary      *string         `db:"summary"`
-		ChangedFiles json.RawMessage `db:"changed_files"`
-		PullRequest  *string         `db:"pull_request"`
-		Publication  *string         `db:"publication_failure"`
-		Continued    bool            `db:"continued"`
-		NoFinal      bool            `db:"no_final_message"`
-		Notebook     *string         `db:"notebook_problem"`
-		FailureRule  *string         `db:"failure_rule"`
+		ID            uuid.UUID       `db:"id"`
+		MachineID     uuid.UUID       `db:"machine_id"`
+		Session       *string         `db:"native_session_id"`
+		Status        string          `db:"status"`
+		Summary       *string         `db:"summary"`
+		ChangedFiles  json.RawMessage `db:"changed_files"`
+		PullRequest   *string         `db:"pull_request"`
+		Publication   *string         `db:"publication_failure"`
+		Continued     bool            `db:"continued"`
+		NoFinal       bool            `db:"no_final_message"`
+		Notebook      *string         `db:"notebook_problem"`
+		FailureRule   *string         `db:"failure_rule"`
+		PriorWorkflow bool            `db:"prior_workflow"`
 	}
 	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
  CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request,
  CASE WHEN p.status='failed' THEN p.summary END AS publication_failure,
  r.session_continued_at IS NOT NULL AS continued,
- COALESCE(r.result->>'no_final_message','')='true' AS no_final_message,r.notebook_problem,r.failure_rule
+ COALESCE(r.result->>'no_final_message','')='true' AS no_final_message,r.notebook_problem,r.failure_rule,
+ EXISTS(SELECT 1 FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.sequence=$4 AND s.entered_at>r.created_at) AS prior_workflow
  FROM dev_machine_agent_runs r
  LEFT JOIN dev_machine_agent_run_steps p ON p.agent_run_id=r.id AND p.sequence=1 AND p.step_type='publication'
- WHERE r.task_id=$1 AND r.workspace_id=$2 AND r.id<>$3 ORDER BY r.created_at DESC,r.id LIMIT 1`, task.ID, task.WorkspaceID, task.RunID)
+ WHERE r.task_id=$1 AND r.workspace_id=$2 AND r.id<>$3 ORDER BY r.created_at DESC,r.id LIMIT 1`, task.ID, task.WorkspaceID, task.RunID, task.WorkflowSwitchSequence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -60,7 +62,11 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		handoff.PullRequestURL = *row.PullRequest
 	}
 	_ = json.Unmarshal(row.ChangedFiles, &handoff.ChangedFiles)
-	if handoff.OtherProfile, err = r.previousStepProfileDiffers(ctx, task); err != nil {
+	// An earlier workflow supplies handoff context, but its session is not
+	// used to enter the chosen step, even when the node IDs happen to match.
+	if row.PriorWorkflow {
+		handoff.OtherProfile = true
+	} else if handoff.OtherProfile, err = r.previousStepProfileDiffers(ctx, task); err != nil {
 		return nil, err
 	}
 	return handoff, nil

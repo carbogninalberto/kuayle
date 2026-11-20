@@ -51,7 +51,7 @@ func TestWorkflowSwitchMovesAPausedTaskToTheNewestVersion(t *testing.T) {
 	pinned := *f.task.WorkflowVersionID
 
 	// Nothing newer yet.
-	plan, _, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, false)
+	plan, _, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, false)
 	require.NoError(t, err)
 	require.Equal(t, domain.WorkflowSwitchNoNewer, plan.Refused)
 
@@ -60,7 +60,7 @@ func TestWorkflowSwitchMovesAPausedTaskToTheNewestVersion(t *testing.T) {
 	require.Equal(t, pinned, *f.current().WorkflowVersionID)
 
 	// The agent is working: the task has to be paused first.
-	plan, _, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, true)
+	plan, _, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, true)
 	require.NoError(t, err)
 	require.Equal(t, domain.WorkflowSwitchNotAtRest, plan.Refused)
 	require.Equal(t, pinned, *f.current().WorkflowVersionID)
@@ -70,12 +70,12 @@ func TestWorkflowSwitchMovesAPausedTaskToTheNewestVersion(t *testing.T) {
 	before := f.current()
 
 	// Asking what would happen changes nothing.
-	plan, _, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, false)
+	plan, _, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, false)
 	require.NoError(t, err)
 	require.Equal(t, domain.WorkflowSwitch{FromVersion: 1, ToVersion: 2, Node: "implement", NodeLabel: "Build it"}, *plan)
 	require.Equal(t, pinned, *f.current().WorkflowVersionID)
 
-	plan, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, true)
+	plan, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, true)
 	require.NoError(t, err)
 	require.Empty(t, plan.Refused)
 	require.Equal(t, next.ID, *moved.WorkflowVersionID)
@@ -106,7 +106,7 @@ func TestWorkflowSwitchMovesAPausedTaskToTheNewestVersion(t *testing.T) {
 	require.Equal(t, f.task.CreatorID, *move.ActorID)
 
 	// It is on the newest version now.
-	plan, _, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, true)
+	plan, _, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, true)
 	require.NoError(t, err)
 	require.Equal(t, domain.WorkflowSwitchNoNewer, plan.Refused)
 }
@@ -132,7 +132,7 @@ func TestWorkflowSwitchRefusesAStepTheNewestVersionLost(t *testing.T) {
 		}
 	})
 	f.rest()
-	plan, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, true)
+	plan, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, true)
 	require.NoError(t, err)
 	require.Equal(t, domain.WorkflowSwitchStepRemoved, plan.Refused)
 	require.Equal(t, 2, plan.ToVersion)
@@ -149,7 +149,7 @@ func TestWorkflowSwitchMovesAWaitingTaskAndFencesTheWorker(t *testing.T) {
 	f := newPauseFixture(t)
 	next := f.saveNext(relabel)
 	f.exec(`UPDATE agent_tasks SET workflow_status='waiting',state='awaiting_review' WHERE id=$1`, f.task.ID)
-	plan, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, true)
+	plan, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, true)
 	require.NoError(t, err)
 	require.Empty(t, plan.Refused)
 	require.Equal(t, next.ID, *moved.WorkflowVersionID)

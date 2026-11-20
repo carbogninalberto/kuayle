@@ -190,6 +190,18 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 	require.Equal(t, domain.WorkflowSwitchNoWorkflow, plan.Refused)
 	request("POST", taskPath+"/workflow/switch", "", token, 409, nil)
 	request("GET", "/agent-tasks/"+uuid.NewString()+"/workflow/switch", "", token, 404, nil)
+	switchPath := taskPath + "/workflow/switch"
+	destination := uuid.NewString()
+	switchBody := fmt.Sprintf(`{"workflow_id":%q,"node":"implement"}`, destination)
+	switchQuery := "?workflow_id=" + destination + "&node=implement"
+	var refusal struct {
+		Error struct{ Code, Message string }
+	}
+	request("GET", switchPath+switchQuery, "", tokenFor(other), 404, &refusal)
+	require.Equal(t, "not_creator", refusal.Error.Message)
+	request("POST", switchPath, switchBody, tokenFor(admin), 404, &refusal)
+	require.Equal(t, "not_creator", refusal.Error.Message)
+	request("POST", switchPath, `{"workflow_id":"`+destination+`"}`, token, 400, nil)
 	for _, caller := range []struct {
 		auth  string
 		guest bool
@@ -231,6 +243,10 @@ func TestAgentTaskHTTPPrivateControlsAndRecovery(t *testing.T) {
 		return raw
 	}
 	reader := scopedToken(user)
+	request("GET", switchPath+switchQuery, "", reader, 403, &refusal)
+	require.Equal(t, "session_required", refusal.Error.Message)
+	request("POST", switchPath, switchBody, reader, 403, &refusal)
+	require.Equal(t, "session_required", refusal.Error.Message)
 	var read domain.AgentTask
 	request("GET", taskPath, "", reader, 200, &read)
 	require.Equal(t, task.ID, read.ID)

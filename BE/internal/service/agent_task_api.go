@@ -320,24 +320,9 @@ func (s *AgentTaskService) resolveIssueWorkflow(ctx context.Context, ws, issue u
 	if err != nil || version == nil {
 		return err
 	}
-	graph, err := domain.ParseWorkflowGraph(version.Graph)
-	if err != nil {
-		return ErrWorkflowUnusable
-	}
-	profiles, err := s.definitions.ActiveProfiles(ctx, ws)
+	graph, profiles, err := s.runnableWorkflow(ctx, ws, version)
 	if err != nil {
 		return err
-	}
-	if len(domain.ValidateStoredWorkflowGraph(*graph, profiles)) > 0 {
-		return ErrWorkflowUnusable
-	}
-	for _, node := range graph.Nodes {
-		if node.ProfileID != nil {
-			profile := profiles[*node.ProfileID]
-			if err = s.profilePolicy(ctx, ws, profile); err != nil {
-				return s.stepError(ctx, ws, version, node, profile, err)
-			}
-		}
 	}
 	first := graph.FirstRun()
 	profile := profiles[*first.ProfileID]
@@ -345,6 +330,29 @@ func (s *AgentTaskService) resolveIssueWorkflow(ctx context.Context, ws, issue u
 	input.Workflow = version
 	input.WorkflowInstructions = workflowInstructions("", profile, first)
 	return nil
+}
+
+func (s *AgentTaskService) runnableWorkflow(ctx context.Context, ws uuid.UUID, version *domain.WorkflowVersion) (*domain.WorkflowGraph, map[uuid.UUID]domain.AgentProfile, error) {
+	graph, err := domain.ParseWorkflowGraph(version.Graph)
+	if err != nil {
+		return nil, nil, ErrWorkflowUnusable
+	}
+	profiles, err := s.definitions.ActiveProfiles(ctx, ws)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(domain.ValidateStoredWorkflowGraph(*graph, profiles)) > 0 {
+		return nil, nil, ErrWorkflowUnusable
+	}
+	for _, node := range graph.Nodes {
+		if node.ProfileID != nil {
+			profile := profiles[*node.ProfileID]
+			if err = s.profilePolicy(ctx, ws, profile); err != nil {
+				return nil, nil, s.stepError(ctx, ws, version, node, profile, err)
+			}
+		}
+	}
+	return graph, profiles, nil
 }
 
 // applyAgentProfile makes a request that runs as an agent identity take its

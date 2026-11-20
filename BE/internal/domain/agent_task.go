@@ -108,6 +108,8 @@ type AgentTask struct {
 	WorkflowStatus     *string         `json:"workflow_status,omitempty" db:"workflow_status"`
 	WorkflowWakeAt     *time.Time      `json:"-" db:"workflow_wake_at"`
 	WorkflowSequence   int             `json:"-" db:"workflow_sequence"`
+	// WorkflowSwitchSequence is the first step in the newest continuation.
+	WorkflowSwitchSequence int `json:"-" db:"workflow_switch_sequence"`
 	// WorkflowExtensions counts the budgets people granted by continuing.
 	WorkflowExtensions int        `json:"workflow_budget_extensions,omitempty" db:"workflow_budget_extensions"`
 	WorkflowBudgetFrom *time.Time `json:"workflow_budget_from,omitempty" db:"workflow_budget_from"`

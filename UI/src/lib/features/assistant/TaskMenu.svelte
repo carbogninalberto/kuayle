@@ -9,7 +9,7 @@
 	// The task card's one overflow menu: every action that is not a next step,
 	// each with an icon and a label. Tools come first, then the rest (retry,
 	// cancel). An action with entries opens a submenu (the task app, reviews).
-	let { actions }: { actions: TaskAction[] } = $props();
+	let { actions, trigger = $bindable(null) }: { actions: TaskAction[]; trigger?: HTMLButtonElement | null } = $props();
 	const tools = $derived(actions.filter((a) => a.group === 'tools'));
 	const more = $derived(actions.filter((a) => a.group === 'more'));
 	// The menu's own state dot mirrors a running or failed tool (the app).
@@ -84,6 +84,7 @@
 						{#snippet child({ props })}
 							<Button
 								{...props}
+								bind:ref={trigger}
 								variant="ghost"
 								size="icon-xs"
 								class="relative text-muted-foreground hover:text-foreground"

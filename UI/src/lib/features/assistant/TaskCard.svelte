@@ -30,12 +30,14 @@
 		CirclePause,
 		Pause,
 		CircleArrowUp,
+		Workflow,
 		FileDown
 	} from '@lucide/svelte';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import TaskActions from './TaskActions.svelte';
 	import TaskMessages from '$lib/features/agent-messages/TaskMessages.svelte';
 	import TaskPath from './TaskPath.svelte';
+	import WorkflowContinueDialog from './WorkflowContinueDialog.svelte';
 	import AgentTranscript from './AgentTranscript.svelte';
 	import TaskMenu from './TaskMenu.svelte';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
@@ -136,13 +138,14 @@
 		pause !== 'paused' && ['preparing', 'running', 'validating', 'publishing', 'cancelling'].includes(task.state)
 	);
 	const failed = $derived(pause !== 'paused' && ['failed', 'blocked'].includes(task.state));
+	const enteringWorkflow = $derived(task.workflow_status === 'entering');
 	const canCancel = $derived(!['completed', 'cancelled'].includes(task.state));
-	const canRetry = $derived(['failed', 'blocked', 'awaiting_review'].includes(task.state));
+	const canRetry = $derived(!enteringWorkflow && ['failed', 'blocked', 'awaiting_review'].includes(task.state));
 	// Work awaiting review can be accepted in Kuayle without merging, except at
 	// its workflow's ship approval: there accepting approves it and Kuayle
 	// merges (KUA-216). Whether the task waits there is the server's to say,
 	// so the card asks before the confirmation names what will happen.
-	const canAccept = $derived(task.state === 'awaiting_review' && task.kind !== 'review');
+	const canAccept = $derived(task.state === 'awaiting_review' && task.kind !== 'review' && !enteringWorkflow);
 	const mayShip = $derived(!!task.workflow_version_id && task.workflow_status === 'waiting');
 	let acceptOpen = $state(false),
 		acceptShip = $state(false);
@@ -150,7 +153,9 @@
 	// to. Asked again whenever the task changes state or version: a task is
 	// moved while it is paused or waiting.
 	let switchPlan = $state<WorkflowSwitch | null>(null),
-		switchOpen = $state(false);
+		switchOpen = $state(false),
+		continueOpen = $state(false);
+	let menuTrigger = $state<HTMLButtonElement | null>(null);
 	const update = $derived(workflowUpdate(switchPlan));
 	$effect(() => {
 		void [task.state, task.workflow_version_id, task.workflow_status, task.workflow_paused_at];
@@ -620,7 +625,7 @@
 	// directly beside (or instead of) the agent.
 	const dock = useTerminalDock();
 	// A recorded approval shows the task is ready to merge; merging completes it.
-	const approver = $derived(task.state === 'awaiting_review' ? approvedBy(signals, task.run_id) : undefined);
+	const approver = $derived(task.state === 'awaiting_review' && !enteringWorkflow ? approvedBy(signals, task.run_id) : undefined);
 	const tone = $derived(approver ? 'success' : pause === 'paused' ? 'warning' : taskTone(task.state));
 	// Paused by the agent's usage limit, or because the provider account has
 	// no credit left: the alert below explains it.
@@ -633,7 +638,7 @@
 				? m['tasks.state.paused']()
 				: pause === 'pausing'
 					? m['tasks.pausing']()
-					: taskLabel(task.state)
+					: taskLabel(enteringWorkflow ? 'queued' : task.state)
 	);
 	// The path says why a task waits or stopped, on the step it happened at.
 	let pathSaysReason = $state(false);
@@ -875,6 +880,16 @@
 				disabled: busy,
 				onclick: () => (switchOpen = true)
 			});
+		if (switchPlan && (pause === 'paused' || (task.state === 'awaiting_review' && task.workflow_status === 'waiting')))
+			list.push({
+				id: 'workflow-continue',
+				icon: Workflow,
+				label: m['tasks.workflow_continue_menu'](),
+				group: 'more',
+				disabled: busy,
+				movesFocus: true,
+				onclick: () => (continueOpen = true)
+			});
 		if (canCancel)
 			list.push({
 				id: 'cancel',
@@ -1006,7 +1021,7 @@
 					>{/if}
 			</div>
 		</div>
-		{#if expanded}<TaskMenu {actions} />{/if}
+		{#if expanded}<TaskMenu {actions} bind:trigger={menuTrigger} />{/if}
 	</div>
 	{#if expanded}<div class="mt-2 space-y-2.5 pl-[26px]">
 			{#if reason}<p class="flex min-w-0 items-start gap-1.5 text-xs leading-5 text-muted-foreground">
@@ -1231,6 +1246,13 @@
 			{#if error}<p role="alert" class="text-sm text-destructive">{error}</p>
 				<Button variant="ghost" size="sm" onclick={() => void refresh()}>{m['tasks.refresh']()}</Button>{/if}
 		</div>{/if}
+	<WorkflowContinueDialog
+		bind:open={continueOpen}
+		slug={chat.slug}
+		taskId={task.id}
+		oncontinued={(moved) => chat.acceptTask(moved)}
+		returnFocus={() => menuTrigger?.focus()}
+	/>
 	<AlertDialog.Root bind:open={switchOpen}>
 		<AlertDialog.Content>
 			<AlertDialog.Header>

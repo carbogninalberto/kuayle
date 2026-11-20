@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/http"
 	"slices"
 
 	"github.com/google/uuid"
@@ -38,10 +39,20 @@ func RequirePermission(permission string) echo.MiddlewareFunc {
 // (JWT) only. Routes without a permission annotation get this instead, so
 // personal access tokens are denied by default.
 func RequireSession() echo.MiddlewareFunc {
+	return requireSession(response.Forbidden)
+}
+
+func RequireSessionWithRefusal(code, reason string) echo.MiddlewareFunc {
+	return requireSession(func(c *echo.Context) error {
+		return response.Error(c, http.StatusForbidden, code, reason)
+	})
+}
+
+func requireSession(refuse echo.HandlerFunc) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			if c.Get(TokenScopesKey) != nil {
-				return response.Forbidden(c)
+				return refuse(c)
 			}
 			return next(c)
 		}

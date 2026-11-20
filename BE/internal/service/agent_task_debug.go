@@ -281,6 +281,8 @@ func buildTaskTrace(raw *repository.TaskTraceRows, secrets []string, limits trac
 		kind := "pause"
 		if audit.Action == domain.WorkflowSwitchAction {
 			kind = "version_switch"
+		} else if audit.Action == domain.WorkflowContinueAction {
+			kind = "workflow_switch"
 		}
 		detail := traceJSON(audit.Detail)
 		entries = append(entries, domain.TraceEntry{Kind: kind, ID: fmt.Sprintf("audit-%d", audit.ID), Start: audit.CreatedAt, Outcome: traceOutcome(audit.Action),

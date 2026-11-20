@@ -105,6 +105,8 @@ type WorkflowApply struct {
 	// the time budget ran out while it waited (Entry fails or pauses), or a
 	// person continued past that and it waits again (Entry waits).
 	Hold bool
+	// EnterCurrent executes the step already recorded by a workflow switch.
+	EnterCurrent bool
 	// ExtendBudget grants another iteration and time budget of the same size
 	// (a person continued past a budget limit).
 	ExtendBudget bool
@@ -158,7 +160,9 @@ func transitionWorkflowTask(ctx context.Context, tx *sqlx.Tx, task *domain.Agent
 		}
 		return nil
 	}
-	if !domain.ValidWorkflowTaskTransition(task.State, to) || strings.TrimSpace(reason) == "" {
+	entering := task.WorkflowStatus != nil && *task.WorkflowStatus == domain.WorkflowStatusEntering &&
+		to == "awaiting_review" && (task.State == "queued" || task.State == "preparing")
+	if (!entering && !domain.ValidWorkflowTaskTransition(task.State, to)) || strings.TrimSpace(reason) == "" {
 		return ErrAgentTaskConflict
 	}
 	from := task.State
@@ -391,11 +395,40 @@ func recordWorkflowMergeTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentT
 	return workflowEvent(ctx, tx, *task)
 }
 
-// WorkflowPullRequest is the pull request the task's current attempt
-// published, with the commit it published and its base branch, or
-// ErrNoReviewTarget.
+// WorkflowPullRequest is the published pull request and commit for this step.
 func (r *AgentTaskRepository) WorkflowPullRequest(ctx context.Context, task domain.AgentTask) (*domain.AgentReviewTarget, error) {
+	task, err := workflowPublicationTask(ctx, r.db, task)
+	if err != nil {
+		return nil, err
+	}
 	return reviewTarget(ctx, r.db, task)
+}
+
+const retainedWorkflowPublicationRun = `(SELECT r.id FROM dev_machine_agent_runs r
+ JOIN dev_machine_agent_run_steps s ON s.agent_run_id=r.id AND s.step_type='publication' AND s.status='succeeded'
+ WHERE r.task_id=t.id AND r.workspace_id=t.workspace_id AND r.checkout_id=t.checkout_id
+ ORDER BY s.completed_at DESC NULLS LAST,s.id DESC LIMIT 1)`
+
+// Used by review and merge lookups, which already restrict tasks to awaiting_review.
+const reviewPublicationRun = `COALESCE(CASE WHEN t.workflow_switch_sequence > 0 AND t.workflow_status='waiting' THEN ` + retainedWorkflowPublicationRun + ` END,t.run_id)`
+
+// A switched workflow can enter a check, review or merge before its new
+// agent publishes again. Use the most recent successful publication of this
+// task's kept checkout, even when a later attempt stopped before publishing.
+func workflowPublicationTask(ctx context.Context, q sqlx.QueryerContext, task domain.AgentTask) (domain.AgentTask, error) {
+	if task.WorkflowSwitchSequence == 0 {
+		return task, nil
+	}
+	var runID uuid.UUID
+	err := sqlx.GetContext(ctx, q, &runID, `SELECT COALESCE(`+retainedWorkflowPublicationRun+`,t.run_id)
+ FROM agent_tasks t WHERE t.id=$1 AND t.workspace_id=$2 AND t.checkout_id=$3`, task.ID, task.WorkspaceID, task.CheckoutID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return task, nil
+	}
+	if err == nil {
+		task.RunID = runID
+	}
+	return task, err
 }
 
 // WorkflowResult is what applying moves does to a task's workflow: its new
@@ -524,7 +557,14 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if task.WorkflowPausedAt != nil {
 		return ErrAgentTaskConflict
 	}
-	if apply.StageFinished {
+	if apply.EnterCurrent {
+		if !apply.Hold || task.State != "awaiting_review" || task.WorkflowStatus == nil || *task.WorkflowStatus != domain.WorkflowStatusEntering {
+			return ErrAgentTaskConflict
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET entered_at=now() WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, task.ID, apply.Sequence); err != nil {
+			return err
+		}
+	} else if apply.StageFinished {
 		if task.State != "running" || task.WorkflowStatus == nil || *task.WorkflowStatus != domain.WorkflowStatusRunning {
 			return ErrAgentTaskConflict
 		}
@@ -640,7 +680,7 @@ func applyWorkflowTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 		return err
 	}
 	reason := apply.Entry.Reason
-	if apply.Entry.Merge != nil && (len(result.Steps) > 0 || apply.StageFinished) {
+	if apply.Entry.Merge != nil && (len(result.Steps) > 0 || apply.StageFinished || apply.EnterCurrent) {
 		var data []byte
 		if data, err = json.Marshal(apply.Entry.Merge); err != nil {
 			return err
@@ -770,14 +810,18 @@ func workflowReview(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, en
 	if entry.Review == nil || task.ConversationID == nil {
 		return nil, ErrConversationInvalid
 	}
-	published, err := reviewTarget(ctx, tx, *task)
+	reviewed, err := workflowPublicationTask(ctx, tx, *task)
+	if err != nil {
+		return nil, err
+	}
+	published, err := reviewTarget(ctx, tx, reviewed)
 	if err != nil {
 		return nil, err
 	}
 	input := *entry.Review
 	// One review per step: replaying the step's transaction finds it again.
 	input.RequestID = uuid.NewSHA1(workflowNamespace, []byte(fmt.Sprintf("%s/review/%d", task.ID, sequence)))
-	review, _, err := insertReviewTask(ctx, tx, *task, *task.ConversationID, task.CreatorID, input, published)
+	review, _, err := insertReviewTask(ctx, tx, reviewed, *task.ConversationID, task.CreatorID, input, published)
 	return review, err
 }
 
@@ -1073,6 +1117,10 @@ var (
 // there is nothing to report.
 func (r *AgentTaskRepository) WorkflowCI(ctx context.Context, task domain.AgentTask) (*WorkflowCI, error) {
 	out := &WorkflowCI{}
+	task, err := workflowPublicationTask(ctx, r.db, task)
+	if err != nil {
+		return nil, err
+	}
 	if target, err := reviewTarget(ctx, r.db, task); err == nil {
 		out.Published, out.Repository, out.CommitSHA = true, target.Repository, target.CommitSHA
 	} else if !errors.Is(err, ErrNoReviewTarget) {
@@ -1096,10 +1144,9 @@ func (r *AgentTaskRepository) WorkflowCI(ctx context.Context, task domain.AgentT
 	return out, nil
 }
 
-// HasPublishedWork reports whether the task's current attempt has a pull
-// request Kuayle published (what reviewers and CI checks need).
+// HasPublishedWork reports whether this step has a published pull request.
 func (r *AgentTaskRepository) HasPublishedWork(ctx context.Context, task domain.AgentTask) (bool, error) {
-	_, err := reviewTarget(ctx, r.db, task)
+	_, err := r.WorkflowPullRequest(ctx, task)
 	if errors.Is(err, ErrNoReviewTarget) {
 		return false, nil
 	}
@@ -1214,7 +1261,7 @@ func (r *AgentTaskRepository) WorkflowCIHistory(ctx context.Context, task domain
 	if head == "" {
 		return steps, nil
 	}
-	err := r.db.SelectContext(ctx, &steps, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND node_type='check' AND ci->>'head'=$2 ORDER BY sequence`, task.ID, head)
+	err := r.db.SelectContext(ctx, &steps, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND node_type='check' AND ci->>'head'=$2 AND sequence >= $3 ORDER BY sequence`, task.ID, head, task.WorkflowSwitchSequence)
 	return steps, err
 }
 
@@ -1226,9 +1273,9 @@ func (r *AgentTaskRepository) WorkflowCIHistory(ctx context.Context, task domain
 // ships, and it returns nil.
 func (r *AgentTaskRepository) DeferredShipMerge(ctx context.Context, task domain.AgentTask) (*domain.MergeWait, error) {
 	var step domain.WorkflowStep
-	err := r.db.GetContext(ctx, &step, `SELECT * FROM agent_task_workflow_steps s WHERE s.task_id=$1 AND s.node_type='approval' AND s.finished_at IS NOT NULL AND s.merge->>'deferred'='true'
+	err := r.db.GetContext(ctx, &step, `SELECT * FROM agent_task_workflow_steps s WHERE s.task_id=$1 AND s.node_type='approval' AND s.finished_at IS NOT NULL AND s.merge->>'deferred'='true' AND s.sequence >= $2
  AND NOT EXISTS(SELECT 1 FROM agent_task_workflow_steps x WHERE x.task_id=s.task_id AND x.sequence>s.sequence AND x.node_type<>'agent')
- ORDER BY s.sequence DESC LIMIT 1`, task.ID)
+ ORDER BY s.sequence DESC LIMIT 1`, task.ID, task.WorkflowSwitchSequence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -1259,7 +1306,7 @@ func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, act
 		return err
 	}
 	var steps []domain.WorkflowStep
-	if err = tx.SelectContext(ctx, &steps, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND generation IS NOT NULL ORDER BY sequence DESC`, task.ID); err != nil {
+	if err = tx.SelectContext(ctx, &steps, `SELECT * FROM agent_task_workflow_steps WHERE task_id=$1 AND generation IS NOT NULL AND sequence >= $2 ORDER BY sequence DESC`, task.ID, task.WorkflowSwitchSequence); err != nil {
 		return err
 	}
 	var step domain.WorkflowStep

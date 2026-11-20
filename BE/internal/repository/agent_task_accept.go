@@ -95,7 +95,7 @@ func (r *AgentTaskRepository) Accept(ctx context.Context, ws, id uuid.UUID, gene
 		}
 		return task, nil, nil
 	}
-	if task.State != "awaiting_review" {
+	if task.State != "awaiting_review" || (task.WorkflowStatus != nil && *task.WorkflowStatus == domain.WorkflowStatusEntering) {
 		return nil, nil, ErrAgentTaskConflict
 	}
 	var name string

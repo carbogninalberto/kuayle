@@ -662,8 +662,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/workflow", h.workflow.TaskWorkflow)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/workflow/decision", h.workflow.Decide)
 	// Moving a task to the newest version of its workflow: what it would do, then doing it.
-	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/workflow/switch", h.agentTask.WorkflowSwitch)
-	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/workflow/switch", h.agentTask.SwitchWorkflow)
+	switchSession := mw.RequireSessionWithRefusal("WORKFLOW_SWITCH_REFUSED", "session_required")
+	addNamedRoute(dm, http.MethodGet, "/agent-tasks/:taskId/workflow/switch", h.agentTask.WorkflowSwitch, "session", switchSession)
+	addNamedRoute(dm, http.MethodPost, "/agent-tasks/:taskId/workflow/switch", h.agentTask.SwitchWorkflow, "session", switchSession)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/sign-in", h.agentTask.ContinueAfterSignIn)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/terminal", h.agentTask.OpenInClaudeCode)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/preview", h.agentTask.StartPreview)
