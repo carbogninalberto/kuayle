@@ -486,6 +486,8 @@ and the read-only research tools `web_search`, `repo_list_files`, `repo_glob`,
 (see [research tools](#research-tools)), and the command tools
 `start_temporary_machine`, `run_command`, `run_command_write` and
 `get_command_run` (see [commands and temporary machines](#commands-and-temporary-machines)),
+and `start_process`, `get_process` and `stop_process`
+(see [ad-hoc processes from chat](#ad-hoc-processes-from-chat)),
 and `run_migration` for named, admin-configured database migrations
 (see [database migrations from chat](#database-migrations-from-chat)).
 `link_repository`, and the live channel tools `message_task` and
@@ -1104,6 +1106,38 @@ machine page does; a starting preview is polled until its task port exists.
 Migration 94 adds `start_preview` and `expose_port` to the allowed approval
 actions; rolling back deletes those approvals, not the previews or ports.
 
+### Ad-hoc processes from chat
+
+- `start_process` asks the user to approve the exact foreground shell command,
+  working directory and app port. It uses the same owned running machine
+  selection as `run_command`, with an optional `machine_id`. The isolated
+  container uses the developer image, a read-only `/workspace`, writable
+  temporary storage, and the machine's egress proxy. It receives no credentials
+  or Docker daemon access. Servers should listen on `HOST=0.0.0.0` and the
+  supplied `PORT`. Service ports and already exposed ports are refused.
+- The lifetime is **30 minutes from approval**, capped by the machine's own
+  expiry. Leaving or reloading the chat keeps it running. Deleting the
+  conversation, stopping or pausing its machine, or losing access closes the
+  route. An in-container deadline ends the command even across manager
+  restarts. The manager removes stopped or expired containers and their app
+  ports on its 30-second reconciliation cycle.
+- Queued, running and stopping processes count toward the quota of **one per
+  user in a workspace, one per machine and four per workspace**. The port and
+  quota are reserved together and released after cleanup.
+- `get_process` reads status, expiry and the preview URL in the same
+  conversation. `stop_process` requests an idempotent stop there when the user
+  asks. Both take `process_id`, which is the `start_process` approval ID.
+  The approved card in Kuayle polls the process and has **Open preview** and
+  **Stop process** controls, also available while viewing a reopened chat.
+  The preview uses the existing authenticated app-port host and one-time
+  launch ticket, and only the machine owner can open it. Removing the app
+  port from the machine page also stops the process.
+
+Migration 196 adds process records and permits the new approval and port
+source. Refresh the restricted gateway database role using the updated
+`selfhosting/gateway-role.sql` during deployment. Stop active processes and wait
+for cleanup before rolling the migration back.
+
 ### Terminal capability matrix
 
 What a user would open a terminal for today, and the assistant tool that does
@@ -1134,7 +1168,7 @@ decided not to cover it from chat, so it is not an open gap.
 | Run a database migration against a real database | `run_migration` (see [database migrations from chat](#database-migrations-from-chat)) | covered (KUA-181) |
 | Read a machine's container or agent logs, `docker ps` | none | gap, KUA-182 |
 | Publish work on a task checkout | `follow_up_task` for a new iteration, or `publish_task_changes` for a stopped task with unpublished changes. Both use [task publication](agent-tasks.md#publication). | approval required |
-| Keep a process running (a dev server outside a task) | `start_preview` for a task's configured preview only | partial: ad-hoc long-running processes are a gap, KUA-184 |
+| Keep a process running (a dev server outside a task) | `start_process`, `get_process`, `stop_process` ([ad-hoc processes](#ad-hoc-processes-from-chat)) | covered (KUA-184) |
 
 ### Machine usage from chat
 

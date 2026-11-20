@@ -58,7 +58,7 @@
 	const invalid = $derived(draft !== undefined && releaseNotesInvalid(releaseNotes ?? draft));
 	const needsReview = $derived(
 		!opened && [
-			'run_command', 'run_command_write', 'run_migration', 'merge_pull_request',
+			'run_command', 'run_command_write', 'run_migration', 'start_process', 'merge_pull_request',
 			'ship_pull_request', 'delete_wiki_page', 'run_custom_tool'
 		].includes(approval.action)
 	);
@@ -148,6 +148,8 @@
 		{m['assistant.publish_task_title']({ identifier })}
 	{:else if approval.action === 'message_task'}
 		{m['assistant.message_task_title']({ identifier })}
+	{:else if approval.action === 'start_process'}
+		{m['assistant.process_title']({ machine: approval.payload.machine })}
 	{:else if approval.action === 'start_preview'}
 		{m['assistant.preview_title']({ identifier })}
 	{:else if approval.action === 'create_release'}
@@ -440,6 +442,17 @@
 					{:else if approval.action === 'message_task'}
 						<!-- The whole message, exactly as the agent receives it. -->
 						<Markdown source={approval.payload.body} />
+					{:else if approval.action === 'start_process'}
+						<CodeBlock.Root size="sm">
+							<CodeBlock.Content code={approval.payload.command} wrap class="max-h-48 text-xs" />
+						</CodeBlock.Root>
+						<Item.Description class="line-clamp-none">
+							{m['assistant.process_note']({
+								directory: approval.payload.working_directory,
+								port: approval.payload.port,
+								minutes: approval.payload.ttl_minutes
+							})}
+						</Item.Description>
 					{:else if approval.action === 'start_preview'}
 						<Item.Description class="line-clamp-none"
 							>{m['assistant.preview_description']({

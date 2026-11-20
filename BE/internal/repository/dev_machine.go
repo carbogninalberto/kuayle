@@ -808,9 +808,12 @@ func (r *DevMachineRepository) GetRoute(ctx context.Context, routingKey, service
 		// tickets and sessions reference the developer service
 		// row and are bound to the port's host, so they are never valid for
 		// the IDE. A port used by any of the machine's services is never routed.
-		var target string
-		err := r.db.GetContext(ctx, &target, `SELECT p.target FROM dev_machine_ports p WHERE p.machine_id=$1 AND p.workspace_id=$2 AND p.port=$3
-		AND NOT EXISTS(SELECT 1 FROM dev_machine_services s WHERE s.machine_id=$1 AND s.internal_port=$3)`, machine.ID, machine.WorkspaceID, port)
+		var appPort struct {
+			ID     uuid.UUID
+			Target string
+		}
+		err := r.db.GetContext(ctx, &appPort, `SELECT port.id,port.target FROM dev_machine_ports port WHERE port.machine_id=$1 AND port.workspace_id=$2 AND port.port=$3
+		AND `+appPortAvailable+` AND NOT EXISTS(SELECT 1 FROM dev_machine_services s WHERE s.machine_id=$1 AND s.internal_port=$3)`, machine.ID, machine.WorkspaceID, port)
 		if errors.Is(err, sql.ErrNoRows) {
 			return &machine, nil, nil
 		}
@@ -818,7 +821,7 @@ func (r *DevMachineRepository) GetRoute(ctx context.Context, routingKey, service
 			return nil, nil, err
 		}
 		upstreamHost := ""
-		if target == domain.DevMachinePortTargetDocker {
+		if appPort.Target == domain.DevMachinePortTargetDocker {
 			err = r.db.GetContext(ctx, &upstreamHost, `SELECT internal_host FROM dev_machine_services WHERE machine_id=$1 AND service_type='docker'
 			AND agent_run_id IS NULL AND status='running' AND container_id IS NOT NULL ORDER BY created_at LIMIT 1`, machine.ID)
 			if errors.Is(err, sql.ErrNoRows) {
@@ -838,8 +841,11 @@ func (r *DevMachineRepository) GetRoute(ctx context.Context, routingKey, service
 			return nil, nil, err
 		}
 		service.ServiceType, service.InternalPort = serviceType, port
-		if target == domain.DevMachinePortTargetPreview {
+		switch appPort.Target {
+		case domain.DevMachinePortTargetPreview:
 			upstreamHost = domain.PreviewPortHost(machine.RoutingKey, port)
+		case domain.DevMachinePortTargetProcess:
+			upstreamHost = domain.AssistantProcessHost(appPort.ID)
 		}
 		if upstreamHost != "" {
 			service.InternalHost = upstreamHost

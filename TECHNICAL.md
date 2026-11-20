@@ -498,7 +498,7 @@ With `PUBLIC_DEMO_MODE` on, only the users listed in `SYSADMINS` may use Dev Mac
 
 - **Routes.** `DevMachineDemoGuard` answers 403 on every Dev Machine, coding task, automation, agent message and agent sign-in route.
 - **Services.** `service.MachineAccess` applies the same rule wherever work reaches a machine without those routes. The task service refuses creating, retrying, reviewing, checking, previewing, messaging, continuing after sign-in and opening a terminal for the caller, so assistant approvals, automations, review follow-ups and GitHub mentions are covered. The Dev Machine service refuses creating or starting a machine, checkouts, agent runs, service and terminal launches, app ports and environment snapshots for the user it acts for. The task worker acts as the task's creator: a task of an excluded user fails with the reason instead of running. A custom tool's test run answers the same 403 as the routes. The services do not refuse stopping a machine or a preview, or cancelling a task: those only release resources.
-- **Assistant.** Tools and approvals marked `machine` in the action policy table (`delegate_issue`, `request_agent_review`, `follow_up_task`, `message_task`, `start_preview`, `expose_port`, `run_check`, `run_custom_tool`) are refused when requested, and again when approved: the approval ends as failed with the reason and nothing is queued. The preview and port tools that need no approval are refused too.
+- **Assistant.** Tools and approvals marked `machine` in the action policy table (`delegate_issue`, `request_agent_review`, `follow_up_task`, `message_task`, `start_preview`, `start_process`, `expose_port`, `run_check`, `run_custom_tool`) are refused when requested, and again when approved: the approval ends as failed with the reason and nothing is queued. The preview and port tools that need no approval are refused too.
 - **Gateway.** Ticket exchanges and existing machine sessions recheck `SYSADMINS` on every request.
 
 A new path that starts work on a machine must call `MachineAccess` (through `DevMachineService.RequireMachineUse` or the task service) rather than rely on the route guard.
@@ -2070,6 +2070,11 @@ minutes after creation. The workspace allows `max_temporary_machines` of them
 (default 2, 0 turns them off) and one per user. The terminal capability matrix
 and the details are in
 [commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines).
+Ad-hoc servers use `start_process` with approval on a running machine the
+user owns. They run for up to 30 minutes in an isolated container and use
+the authenticated app-port gateway. `get_process`, `stop_process` and the
+approved chat card expose their status and controls. See
+[ad-hoc processes from chat](BE/docs/conversations.md#ad-hoc-processes-from-chat).
 Commands never install system packages (KUA-180); those come from the
 machine's Development Environment image, see
 [system packages](BE/docs/conversations.md#system-packages).
