@@ -19,9 +19,8 @@ import (
 const DevMachineOpRunCommand DevMachineOperationAction = "run_command"
 
 const (
-	// CommandRunTimeout is the hard limit of a command: the container is
-	// killed once it passes.
-	CommandRunTimeout = 60 * time.Second
+	DefaultCommandTimeoutSeconds = 60
+	MaxCommandTimeoutSeconds     = 600
 	// CommandMaxBytes bounds a command's text (also a schema CHECK).
 	CommandMaxBytes = 4000
 	// CommandOutputBytes is the stored tail of a run's output (also a schema
@@ -44,6 +43,11 @@ const (
 // machine. It satisfies DevMachineCustomSize: the smallest CPU and memory
 // options (1 GiB per vCPU) and the smallest disk.
 var TemporaryMachineResources = TaskMachineResources{CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20}
+
+// ValidCommandTimeout checks the per-run limit before approval and execution.
+func ValidCommandTimeout(seconds int) bool {
+	return seconds >= 1 && seconds <= MaxCommandTimeoutSeconds
+}
 
 // CommandFolder is the working folder of a conversation's write runs.
 func CommandFolder(conversation uuid.UUID) string {
@@ -103,6 +107,7 @@ type CommandRun struct {
 	Migration        bool       `json:"migration" db:"migration"`
 	ActionName       string     `json:"action,omitempty" db:"action_name"`
 	WorkingDirectory string     `json:"working_directory" db:"working_directory"`
+	TimeoutSeconds   int        `json:"-" db:"timeout_seconds"`
 	Status           string     `json:"status" db:"status"`
 	ExitCode         *int       `json:"exit_code" db:"exit_code"`
 	Output           string     `json:"output" db:"output"`

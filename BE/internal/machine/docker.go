@@ -1066,7 +1066,7 @@ func (r *DockerRuntime) resumeExecution(ctx context.Context, inspection containe
 	logCtx, cancelLogs := context.WithCancel(ctx)
 	defer cancelLogs()
 	reader, err := r.client.ContainerLogs(logCtx, containerID, client.ContainerLogsOptions{
-		ShowStdout: true, ShowStderr: true, Follow: inspection.State.Running, Timestamps: output != nil,
+		ShowStdout: true, ShowStderr: true, Follow: inspection.State.Running, Timestamps: output != nil && !observer.PlainOutput,
 	})
 	if err != nil {
 		return r.agentOutputFailure(containerID, err)

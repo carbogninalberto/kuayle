@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
@@ -183,6 +184,30 @@ func (w *toolOutputWriter) persist(_ string, _ int64, _ string, content string, 
 		return nil
 	}
 	return w.flushLocked()
+}
+
+// Write batches decoded, credential-free command output with the same store limits.
+func (w *toolOutputWriter) Write(data []byte) (int, error) {
+	if err := w.persist("", 0, "", sanitize.PostgresText(string(data)), false); err != nil {
+		return 0, err
+	}
+	return len(data), nil
+}
+
+// flushWhileRunning publishes a small pending batch even if the process goes quiet.
+func (w *toolOutputWriter) flushWhileRunning(ctx context.Context) error {
+	tick := time.NewTicker(toolOutputFlush)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-tick.C:
+			if err := w.flush(); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func (w *toolOutputWriter) flush() error {
