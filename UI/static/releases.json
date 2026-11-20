@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.2.50",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.50",
+    "body": "## What's changed\n\n### New\n\n- **Move a paused task to another workflow.** The task's creator can continue a paused task on a different workflow, from a chosen step. The checkout and the pull request are kept. (#339, KUA-174)\n- **Approvals stack above the chat.** Pending approvals no longer get lost in the transcript. They show a compact summary with details you can expand, and high-risk actions must be expanded before they can be approved. Assistant and agent chats now share one composer, which accepts images. (#335, KUA-245)\n- **Resize table columns** in issue descriptions and comments. Widths are saved, survive reloads and edits, and show in read-only views. (#341, KUA-244)\n- **Assistant terminal:**\n  - Ad-hoc commands can run for up to 10 minutes per approved run, instead of 60 seconds. Their output stays readable while they run and after you reopen the conversation. (#344, KUA-179)\n  - The new `get_machine_logs` tool lists a machine's containers and reads their logs, or an agent run's output. It requires access to the machine and the task. (#343, KUA-182)\n  - Keep an ad-hoc server running on your own dev machine, with a signed-in preview you control from the conversation. (#340, KUA-184)\n\n### Fixes\n\n- **Low host disk is explained.** A task waiting on low disk shows the free space and the configured thresholds, instead of sitting in \"Preparing\" with no reason. Workspace owners and admins get an Inbox notice, and the task resumes by itself once there is room. (#338, KUA-224)\n- **Disk-full detection** only reacts to the harness's own error lines, keeps the harness's message, and lets a usage-limit error take precedence. (#336, KUA-191)\n- **GitHub CI reads** request the Checks, Commit statuses and Actions read access they need. Before, some CI status could fail to load. (#337, KUA-242)\n- **Telegram** no longer gets raw chart or widget code blocks in assistant replies. (#342, KUA-186)\n\n### Upgrade notes\n\n- **Migrations 195–199:** attachments on live messages, assistant processes, command timeouts, the disk wait for tasks, and workflow continuation. There are no new configuration settings.\n",
+    "published_at": "2026-11-20T19:07:08Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.50",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.2.49",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.49",
     "body": "## What's changed\n\n### New\n\n- **Read a public web page or a GitHub file from the assistant.** (#334, KUA-167)\n  - The new `fetch_url` tool fetches a public HTTP or HTTPS URL and returns its status, headers and a size-limited body.\n- **Check a dev machine's resource usage.** (#326, KUA-162)\n  - The new `get_machine_usage` tool reports CPU, memory and disk: latest usage, independent peaks, limits and sample time, useful when a task ran out of space.\n\n### Improvements\n\n- **The assistant sets more fields when creating or updating an issue.** (#324, KUA-163)\n  - Assignee, due date, cycle, project and labels are now set along with the issue.\n- **The agent chat detail page is easier to read and navigate.** (#320, KUA-234)\n  - Sections collapse, the header stays on one line while scrolling, context opens in a popover, and the review and timeline views are improved.\n\n### Fixes\n\n- **Agent containers no longer hit the process limit when running the browser test suite.** (#329, KUA-159)\n  - Containers ran out of processes at 1,024 and the run exited with code 139; the PID budget is now sized for browser tests.\n- **Pull request screenshots no longer disappear between attempts.** (#322, KUA-229)\n  - The screenshots in the PR description are kept when the task runs again.\n- **Parallel tasks no longer pick the same migration number.** (#323, KUA-222)\n  - Publication checks the latest base, renumbers task-owned migration pairs and updates their references. Ambiguous changes go back to the implementer naming the conflicting paths.\n- **Tables in issue descriptions are rendered again.** (#321, KUA-160)\n  - Markdown and HTML tables were stripped from the description and now display.\n\n### Upgrade notes\n\n- **Migration 194** (dev machine PID budget) runs on startup. Back up the database first.",
@@ -1086,17 +1097,6 @@
     "force_upgrade": false,
     "minimum_supported_version": null,
     "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.2",
-    "upgrade_message": null
-  },
-  {
-    "tag_name": "v0.0.1",
-    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.1",
-    "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/commits/v0.0.1",
-    "published_at": "2026-07-02T23:44:46Z",
-    "prerelease": false,
-    "force_upgrade": false,
-    "minimum_supported_version": null,
-    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.1",
     "upgrade_message": null
   }
 ]
