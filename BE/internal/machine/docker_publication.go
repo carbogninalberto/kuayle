@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -14,8 +15,9 @@ import (
 // PublishRequest carries manager-held publication authority. The token is never
 // written into the checkout, environment or git configuration of the machine.
 type PublishRequest struct {
-	AuthorName  string
-	AuthorEmail string
+	WorkflowsWrite bool
+	AuthorName     string
+	AuthorEmail    string
 	// The last commit Kuayle published on this branch; commits up to it are kept.
 	PublishedCommit string
 	// Lease is the GitHub tip SyncCheckout saw when the agent had rewritten the
@@ -277,16 +279,34 @@ if [ -n "$(git --git-dir="$work/repo" ls-tree -d refs/kuayle/remote/base -- BE/m
     printf 'blocked\nPublication needs Node.js in the developer container to check BE/migrations against the latest base. Use a developer image with Node.js, then retry publication.\n'
     exit 0
   fi
-  renumbered=$(GIT_AUTHOR_NAME="${8:-Kuayle Agent}" GIT_COMMITTER_NAME="${8:-Kuayle Agent}" \
+  GIT_AUTHOR_NAME="${9:-Kuayle Agent}" GIT_COMMITTER_NAME="${9:-Kuayle Agent}" \
     GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_EMAIL="$email" env -u NODE_OPTIONS -u NODE_PATH \
-    node - "$work/repo" refs/kuayle/remote/base "$commit" "${9:-}" <<'KUAYLE_MIGRATIONS'
+    node - "$work/repo" refs/kuayle/remote/base "$commit" "${10:-}" > "$work/migration-result" <<'KUAYLE_MIGRATIONS'
 ` + publicationMigrationsScript + `KUAYLE_MIGRATIONS
-)
+  renumbered=$(cat "$work/migration-result")
   case $renumbered in
     blocked*) printf '%s\n' "$renumbered"; exit 0 ;;
     "") ;;
     *) commit=$renumbered ;;
   esac
+fi
+# Check the outgoing history against the destination tip. For a new branch,
+# exclude its base history. For an existing branch include base commits a
+# sync brings in, and tree changes from dropping commits on a leased push.
+if [ "${8:-false}" != true ]; then
+  tip=refs/kuayle/remote/base
+  changes="$work/workflows"
+  : > "$changes"
+  if git --git-dir="$work/repo" rev-parse -q --verify refs/kuayle/remote/branch >/dev/null; then
+    tip=refs/kuayle/remote/branch
+    git --git-dir="$work/repo" diff --no-renames --name-only "$tip" "$commit" -- .github/workflows/ > "$changes"
+  fi
+  git --git-dir="$work/repo" log --full-history --diff-merges=first-parent --no-renames --name-only --format= "$tip..$commit" -- .github/workflows/ >> "$changes"
+  if [ -s "$changes" ]; then
+    echo workflows
+    LC_ALL=C sort -u "$changes"
+    exit 0
+  fi
 fi
 # The bare repository has no remote-tracking ref, so the expected tip is named
 # explicitly. It is the tip the sync saw; if the branch moved since then, GitHub
@@ -348,7 +368,7 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 		return "", fmt.Errorf("publication returned an invalid commit")
 	}
 	pushed, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease, request.AuthorName, request.IssueIdentifier}, request.Token+"\n")
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease, strconv.FormatBool(request.WorkflowsWrite), request.AuthorName, request.IssueIdentifier}, request.Token+"\n")
 	if err != nil {
 		return "", err
 	}
@@ -361,6 +381,9 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 // commit actually pushed or a reason the agent must repair the checkout.
 func pushedCommit(output, commit string) (string, error) {
 	output = strings.TrimSpace(output)
+	if paths, ok := strings.CutPrefix(output, "workflows\n"); ok {
+		return "", workflowPermissionError(strings.ReplaceAll(strings.TrimSpace(paths), "\n", ", "))
+	}
 	switch output {
 	case "none":
 		return "", nil

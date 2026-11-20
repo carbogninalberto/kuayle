@@ -16,17 +16,29 @@ var migrationFilename = regexp.MustCompile(`^BE/migrations/([0-9]+)_([^/\r\n]+)\
 
 // pullRequestMigrationRepair looks up the base's migration directory only
 // when the branch changes a migration or GitHub capped the comparison.
-func pullRequestMigrationRepair(listTree func(string) ([]gh.TreeEntry, error), base, head, branch string, files []gh.CompareFile) (string, error) {
+func pullRequestMigrationRepair(listTree func(string) ([]gh.TreeEntry, error), base, head, common, branch string, files []gh.CompareFile) (string, error) {
 	var taskPaths []string
 	if len(files) >= maxVerifiedFiles {
-		var err error
-		taskPaths, err = migrationPaths(listTree, head)
+		headPaths, err := migrationPaths(listTree, head)
 		if err != nil {
 			return "", err
 		}
+		commonPaths, err := migrationPaths(listTree, common)
+		if err != nil {
+			return "", err
+		}
+		inherited := make(map[string]bool, len(commonPaths))
+		for _, path := range commonPaths {
+			inherited[path] = true
+		}
+		for _, path := range headPaths {
+			if !inherited[path] {
+				taskPaths = append(taskPaths, path)
+			}
+		}
 	} else {
 		for _, file := range files {
-			if file.Status != "removed" && migrationFilename.MatchString(file.Filename) {
+			if (file.Status == "added" || file.Status == "renamed" || file.Status == "copied") && migrationFilename.MatchString(file.Filename) {
 				taskPaths = append(taskPaths, file.Filename)
 			}
 		}
@@ -75,30 +87,21 @@ func migrationPaths(listTree func(string) ([]gh.TreeEntry, error), ref string) (
 }
 
 func migrationRepairInstruction(base string, basePaths, taskPaths []string) string {
-	byVersion := make(map[string]map[string][]string)
+	sort.Strings(basePaths)
+	byVersion := make(map[string]string, len(basePaths))
 	for _, path := range basePaths {
 		match := migrationFilename.FindStringSubmatch(path)
-		version, slug := strings.TrimLeft(match[1], "0"), match[2]
-		if byVersion[version] == nil {
-			byVersion[version] = make(map[string][]string)
-		}
-		byVersion[version][slug] = append(byVersion[version][slug], path)
+		byVersion[strings.TrimLeft(match[1], "0")] = path
 	}
 	sort.Strings(taskPaths)
 	for _, path := range taskPaths {
 		match := migrationFilename.FindStringSubmatch(path)
-		version, slug := strings.TrimLeft(match[1], "0"), match[2]
-		others := byVersion[version]
-		if len(others) == 0 || len(others[slug]) > 0 {
+		other, collides := byVersion[strings.TrimLeft(match[1], "0")]
+		if !collides {
 			continue
 		}
-		var conflicting []string
-		for _, paths := range others {
-			conflicting = append(conflicting, paths...)
-		}
-		sort.Strings(conflicting)
 		return fmt.Sprintf("The task's migration %q collides with %q on %s because both use version %s. GitHub's branch update cannot renumber migration files. Fetch and merge origin/%s, move the task's up/down migration pair to the next free number after the base and task migrations, update its in-repo references, and rerun the checks before publishing.",
-			path, conflicting[0], base, match[1], base)
+			path, other, base, match[1], base)
 	}
 	return ""
 }

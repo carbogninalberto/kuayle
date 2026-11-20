@@ -196,7 +196,6 @@ async function fixture(page: Page) {
 			if (prompt) return state.prompts[prompt[1]] ? route.fulfill({ json: state.prompts[prompt[1]] }) : missing();
 			if (/^\/runs\/[^/]+\/logs$/.test(rest)) return route.fulfill({ json: { logs: [] } });
 			if (rest === '/runs') return route.fulfill({ json: { runs: [] } });
-			if (rest.endsWith('/validation')) return route.fulfill({ json: null });
 			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
 			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
 			if (rest === '/history') return route.fulfill({ json: { transitions: [] } });
@@ -228,11 +227,11 @@ for (const size of sizes) {
 			await page.setViewportSize({ width: size.width, height: size.height });
 		});
 
-		test('the notebook is one line above the timeline that opens to a working document', async ({ page }) => {
+		test('the task details include a collapsed notebook that opens to a working document', async ({ page }) => {
 			await fixture(page);
 			await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 			const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
-			const book = thread.getByRole('region', { name: 'Notebook', exact: true });
+			const book = thread.getByRole('region', { name: 'Execution details' }).getByRole('region', { name: 'Notebook', exact: true });
 			const toggle = book.getByRole('button', { name: /^Notebook/ });
 			// Closed, it is a line with the plan's progress; the timeline stays the view.
 			await expect(toggle).toHaveAttribute('aria-expanded', 'false');

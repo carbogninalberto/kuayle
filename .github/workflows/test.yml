@@ -75,7 +75,16 @@ jobs:
       - uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Check PR migration versions against the latest base
+        if: github.event_name == 'pull_request'
+        working-directory: .
+        env:
+          BASE_REF: refs/remotes/origin/${{ github.base_ref }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci/migration-versions.mjs "$BASE_REF" "$PR_HEAD"
 
       - uses: actions/setup-go@v6.4.0
         with:

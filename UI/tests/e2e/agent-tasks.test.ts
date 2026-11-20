@@ -22,7 +22,6 @@ async function fixture(page: Page) {
 	const state = {
 		task: null as any,
 		terminals: 0,
-		validation: null as any,
 		manualChecks: [] as any[],
 		checkRuns: [] as any[],
 		checkError: null as any,
@@ -380,7 +379,6 @@ async function fixture(page: Page) {
 				});
 			if (path.endsWith('/runs/run-1/diff'))
 				return route.fulfill({ json: { diff: state.diff, truncated: state.diffTruncated } });
-			if (path.endsWith('/validation')) return route.fulfill({ json: state.validation });
 			if (path.endsWith('/signals')) return route.fulfill({ json: state.signals });
 			if (path.endsWith('/sessions')) return route.fulfill({ json: { sessions: state.sessions } });
 			if (path.endsWith('/agent-tasks/task-1/debug')) {
@@ -757,257 +755,18 @@ test('a retry of merged work asks first, links the pull request and retries the 
 	).toBeVisible();
 });
 
-test('validates test command overrides and preserves them across transport retries', async ({ page }) => {
-	const { state } = await fixture(page);
-	await page.goto('/test/assistant?conversation=chat-1');
-	await showAgents(page);
-	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
-	const dialog = page.getByRole('dialog', { name: 'Start coding', exact: true });
-	await dialog.getByRole('textbox', { name: 'Task instructions' }).fill('Implement search');
-	const command = dialog.getByRole('textbox', { name: 'Test command' });
-	await command.fill('npm test');
-	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
-	await expect(dialog.getByRole('alert')).toContainText('JSON array');
-	expect(state.creates).toHaveLength(0);
-	await command.fill('["npm","test"]');
-	state.failAfterCreate = true;
-	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
-	await expect.poll(() => state.creates.length).toBe(1);
-	const request = state.creates[0];
-	await page.reload();
-	await showAgents(page);
-	await page.getByRole('button', { name: 'Start coding', exact: true }).click();
-	await expect(command).toHaveValue('["npm","test"]');
-	await dialog.getByRole('button', { name: 'Delegate task', exact: true }).click();
-	await expect.poll(() => state.creates.length).toBe(2);
-	expect(state.creates[1]).toEqual(request);
-	expect(request.test_command).toEqual(['npm', 'test']);
-	await expect(dialog).not.toBeVisible();
-	state.task = { ...state.task, state: 'blocked', test_command: ['npm', 'test'] };
-	await page.reload();
-	await page.getByRole('button', { name: 'Retry task', exact: true }).click();
-	const retry = page.getByRole('dialog', { name: 'Retry task', exact: true });
-	await expect(retry.getByRole('textbox', { name: 'Test command' })).toHaveValue('["npm","test"]');
-	await retry.getByRole('textbox', { name: 'Test command' }).fill('[]');
-	await retry.getByRole('button', { name: 'Retry task', exact: true }).click();
-	await expect.poll(() => state.retries.length).toBe(1);
-	expect(state.retries[0].test_command).toEqual([]);
-});
-
-test('a skipped check says the change was published as an untested draft', async ({ page }) => {
+test('streams a manual check on the task without an independent check', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');
 	await delegate(page);
-	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
-	state.validation = {
-		id: 'validation-1',
-		agent_run_id: 'run-1',
-		status: 'skipped',
-		command_argv: [],
-		summary: 'No test command is configured; validation is unavailable'
-	};
-	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
-	await checks.getByRole('button', { name: 'Not validated: no check command is configured' }).click();
-	await expect(checks.getByText(/opened as a draft pull request/)).toBeVisible();
-});
-
-test('independent checks update live and retain their actual exit status after reload', async ({ page }) => {
-	const { state, emit } = await fixture(page);
-	await page.goto('/test/assistant?conversation=chat-1');
-	await delegate(page);
-	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
-	await expect(checks.getByText('No independent check recorded')).toBeVisible();
-	state.validation = {
-		id: 'validation-1',
-		agent_run_id: 'run-1',
-		status: 'running',
-		command_argv: ['sh', '-c', 'exit 7'],
-		started_at: '2026-10-27T10:00:00Z'
-	};
-	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
-	await expect(checks.getByText('Running independent check')).toBeVisible();
-	state.validation = { ...state.validation, status: 'failed', exit_code: 7, completed_at: '2026-10-27T10:01:00Z' };
-	state.artifacts = [
-		{
-			id: 'artifact-1',
-			step_id: 'validation-1',
-			path: 'playwright-report/index.html',
-			content_type: 'text/html',
-			size: 2048,
-			created_at: '2026-10-27T10:01:00Z'
-		}
-	];
-	state.logs = [
-		{
-			id: 1,
-			agent_run_id: 'run-1',
-			service_id: 'validation-1',
-			stream: 'stdout',
-			sequence: 1,
-			content: '<script>window.evil=true</script> actual check failed',
-			truncated: false
-		}
-	];
-	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
-	await checks.getByRole('button', { name: 'Independent check failed' }).click();
-	await expect(checks.getByText('Exit code: 7')).toBeVisible();
-	await expect(checks.getByText(/actual check failed/)).toBeVisible();
-	await expect(page.getByText(/actual check failed/)).toHaveCount(1);
-	const report = checks.getByRole('button', { name: /playwright-report\/index\.html/ });
-	await expect(report).toContainText('2 KB');
-	const pages = page.context().pages().length;
-	const [download] = await Promise.all([page.waitForEvent('download'), report.click()]);
-	expect(download.suggestedFilename()).toBe('index.html');
-	expect(page.context().pages()).toHaveLength(pages);
-	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
-	await page.reload();
-	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	await expect(checks.getByText('Independent check failed')).toBeVisible();
-	expect(state.creates).toHaveLength(1);
-});
-
-test('agent-chosen checks show their source, each command and the agent summary as text', async ({ page }) => {
-	const { state, emit } = await fixture(page);
-	await page.goto('/test/assistant?conversation=chat-1');
-	await delegate(page);
-	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
-	state.validation = {
-		id: 'validation-1',
-		agent_run_id: 'run-1',
-		status: 'failed',
-		command_argv: ['go', 'vet', './...'],
-		command_source: 'agent',
-		commands: [
-			['go', 'vet', './...'],
-			['sh', '-c', 'cd BE && go test ./internal/service/...']
-		],
-		command_results: [{ exit_code: 0 }, { exit_code: 2 }],
-		agent_summary: '<img src=x onerror="window.evil=true"> Service tests only; the UI was not run.',
-		exit_code: 2,
-		completed_at: '2026-10-27T10:01:00Z'
-	};
-	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
-	await checks.getByRole('button', { name: 'Independent check failed' }).click();
-	await expect(checks.getByText('Tests chosen by the agent, re-run by Kuayle')).toBeVisible();
-	const commands = checks.getByRole('list', { name: 'Commands' });
-	await expect(commands.getByRole('listitem')).toHaveCount(2);
-	await expect(commands.getByRole('listitem').nth(0)).toContainText('go vet ./...');
-	await expect(commands.getByRole('listitem').nth(0)).toContainText('Passed');
-	await expect(commands.getByRole('listitem').nth(1)).toContainText('sh -c cd BE && go test ./internal/service/...');
-	await expect(commands.getByRole('listitem').nth(1)).toContainText('Failed, exit code 2');
-	await expect(checks.getByText("Agent's summary (unverified)")).toBeVisible();
-	await expect(checks.getByText(/Service tests only; the UI was not run\./)).toBeVisible();
-	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
-});
-
-test('a configured check is labelled as configured', async ({ page }) => {
-	const { state, emit } = await fixture(page);
-	await page.goto('/test/assistant?conversation=chat-1');
-	await delegate(page);
-	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
-	state.validation = {
-		id: 'validation-1',
-		agent_run_id: 'run-1',
-		status: 'succeeded',
-		command_argv: ['npm', 'test'],
-		command_source: 'configured',
-		exit_code: 0,
-		completed_at: '2026-10-27T10:01:00Z'
-	};
-	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
-	await checks.getByRole('button', { name: 'Independent check passed' }).click();
-	await expect(checks.getByText('Check configured in the development settings')).toBeVisible();
-	await expect(checks.getByText("Agent's summary (unverified)")).toHaveCount(0);
-});
-
-test('a rejected Compose stack shows its reason with the failed check', async ({ page }) => {
-	const { state, emit } = await fixture(page);
-	await page.goto('/test/assistant?conversation=chat-1');
-	await delegate(page);
-	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
-	const checks = page.getByRole('region', { name: 'Independent checks', exact: true });
-	state.validation = {
-		id: 'validation-1',
-		agent_run_id: 'run-1',
-		status: 'failed',
-		command_argv: ['npm', 'test'],
-		compose_file: 'deploy/compose.yaml',
-		summary: 'Compose file rejected: service "app": "privileged" is not supported',
-		completed_at: '2026-10-27T10:01:00Z'
-	};
-	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.validation });
-	await checks.getByRole('button', { name: 'Independent check failed' }).click();
-	await expect(checks.getByText('Services from deploy/compose.yaml')).toBeVisible();
-	await expect(checks.getByText('Compose file rejected: service "app": "privileged" is not supported')).toBeVisible();
-	await expect(checks.getByText(/Exit code/)).toHaveCount(0);
-});
-
-test('runs the check from the task card and shows the manual check live, apart from the independent check', async ({
-	page
-}) => {
-	const { state, emit } = await fixture(page);
-	await page.goto('/test/assistant?conversation=chat-1');
-	await delegate(page);
-	const task = page.getByRole('article', { name: 'Coding task' });
-	const run = page.getByRole('menuitem', { name: 'Run check', exact: true });
-	await openTaskMenu(page);
-	await expect(run).toHaveCount(0);
-	await page.keyboard.press('Escape');
 	await awaitReview(state, emit);
-	state.task = { ...state.task, machine_id: 'machine-1' };
-	emit('task.state_changed', state.task);
-	await openTaskMenu(page);
-	await run.click();
-	await expect.poll(() => state.checkRuns).toEqual([{}]);
-	const manual = task.getByRole('region', { name: 'Manual check', exact: true });
-	await expect(manual.getByText('Manual check queued')).toBeVisible();
-	await expect(task.getByRole('region', { name: 'Independent checks', exact: true })).toContainText(
-		'No independent check recorded'
-	);
-	const busy = page.getByRole('menuitem', { name: 'Running manual check' });
-	state.manualChecks = [{ ...state.manualChecks[0], status: 'running', started_at: '2026-10-27T10:00:00Z' }];
+	state.manualChecks = [{ id: 'check-1', agent_run_id: 'run-1', status: 'failed', command_argv: ['npm', 'test'], exit_code: 1 }];
 	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.manualChecks[0] });
-	await expect(manual.getByText('Running manual check')).toBeVisible();
-	await openTaskMenu(page);
-	await expect(busy).toBeDisabled();
-	await page.keyboard.press('Escape');
-	state.logs = [
-		{
-			id: 1,
-			agent_run_id: 'run-1',
-			service_id: 'check-1',
-			stream: 'stdout',
-			sequence: 1,
-			content: '1 failing: search returns hidden issues',
-			truncated: false
-		}
-	];
-	state.manualChecks = [
-		{ ...state.manualChecks[0], status: 'failed', exit_code: 1, completed_at: '2026-10-27T10:01:00Z' }
-	];
-	emit('task.tests_updated', { task_id: 'task-1', run_id: 'run-1', step: state.manualChecks[0] });
-	await manual.getByRole('button', { name: 'Manual check failed' }).click();
-	await expect(manual.getByText('Exit code: 1')).toBeVisible();
-	await expect(manual.getByText(/1 failing: search returns hidden issues/)).toBeVisible();
-	await expect(page.getByText(/1 failing: search returns hidden issues/)).toHaveCount(1);
-	await openTaskMenu(page);
-	await expect(run).toBeEnabled();
-	expect(state.task.state).toBe('awaiting_review');
-	expect(state.retries).toHaveLength(0);
-
-	// A busy machine refuses the check with the server's reason.
-	state.checkError = {
-		status: 409,
-		json: { error: { code: 'MACHINE_BUSY', message: 'The agent is working on this machine; try again when it pauses' } }
-	};
-	await run.click();
-	await expect(
-		task.getByRole('alert').filter({ hasText: 'The agent is working on this machine; try again when it pauses' })
-	).toBeVisible();
+	await page.getByRole('button', { name: 'Execution details', exact: true }).click();
+	const check = page.getByRole('region', { name: 'Manual check', exact: true });
+	await check.getByRole('button', { name: 'Manual check failed' }).click();
+	await expect(check.getByText('Exit code: 1')).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Independent checks' })).toHaveCount(0);
 });
 
 test('a publish conflict names the file and leaves a retry available', async ({ page }, testInfo) => {
@@ -2063,10 +1822,11 @@ test('requests an agent review from the agent view, through the chat, and shows 
 	emit('task.review_updated', { task_id: 'task-1', review_task_id: 'review-1', state: 'completed' });
 	// The findings are read in the agent view, not on the card.
 	await toggle.click();
-	const reviews = thread.getByRole('region', { name: 'Agent reviews' });
-	await expect(tasks.getByRole('region', { name: 'Agent reviews' })).toHaveCount(0);
+	const reviews = thread.getByRole('list', { name: 'Path taken' }).getByRole('region', { name: 'Review by Claude Code' });
+	await expect(tasks.getByRole('region', { name: 'Review by Claude Code' })).toHaveCount(0);
 	await expect(reviews.getByText('Review by Claude Code', { exact: true })).toBeVisible();
 	await expect(reviews.getByText('Changes requested', { exact: true })).toBeVisible();
+	await reviews.getByRole('button', { name: /Review by Claude Code/ }).click();
 	await expect(reviews.getByText('handle the empty query', { exact: false })).toBeVisible();
 	await expect(reviews.getByText('Commit 0123456 of pull request #12', { exact: true })).toBeVisible();
 	await expect(reviews.getByText('Findings posted on the pull request.', { exact: false })).toBeVisible();
@@ -2209,6 +1969,7 @@ test('the chat composer messages the running agent and its answers show live; th
 	await composer.press('Enter');
 	await expect.poll(() => state.liveSends).toEqual(['Keep the old route']);
 	await expect(composer).toHaveValue('');
+	await expect(page.getByRole('article', { name: 'You', exact: true })).toContainText('Keep the old route');
 	// Nothing was sent to the assistant; switching back aims the composer at it again.
 	await page.getByRole('button', { name: 'Back to assistant' }).click();
 	await expect(target).toHaveAccessibleName('Send to: Assistant');

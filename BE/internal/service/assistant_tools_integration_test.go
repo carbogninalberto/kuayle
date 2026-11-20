@@ -52,10 +52,15 @@ func newToolFixture(t *testing.T) toolFixture {
 	_, err = db.Exec(`INSERT INTO team_statuses(team_id,name,slug,category) VALUES($1,'Backlog','backlog','backlog')`, team)
 	require.NoError(t, err)
 	issueRepo, teamRepo := repository.NewIssueRepository(db), repository.NewTeamRepository(db)
-	issues := NewIssueService(issueRepo, teamRepo, repository.NewTeamStatusRepository(db), repository.NewIssueHistoryRepository(db), realtime.NewHub(), nil)
+	notifications := NewNotificationService(repository.NewNotificationRepository(db))
+	issues := NewIssueService(issueRepo, teamRepo, repository.NewTeamStatusRepository(db), repository.NewIssueHistoryRepository(db), realtime.NewHub(), notifications)
 	repo := repository.NewConversationRepository(db)
 	service := NewConversationService(repo, NewAISettingsService(nil, nil, nil, nil, WithAIPrivateNetworkAccess(true)))
-	service.SetTools(NewAssistantTools(issueRepo, teamRepo, repository.NewWorkspaceRepository(db), issues))
+	workspaces := repository.NewWorkspaceRepository(db)
+	tools := NewAssistantTools(issueRepo, teamRepo, workspaces, issues)
+	tools.SetIssueLabels(repository.NewLabelRepository(db))
+	tools.SetIssueFieldLookups(workspaces, repository.NewCycleRepository(db), repository.NewProjectRepository(db))
+	service.SetTools(tools)
 	return toolFixture{db: db, ctx: domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: user}), ws: ws, user: user, repo: repo, service: service}
 }
 
@@ -252,4 +257,136 @@ func TestAssistantUpdatesIssuesWithTheUsersPermissions(t *testing.T) {
 	require.Error(t, err)
 	require.NoError(t, f.db.Get(&issue, `SELECT title,priority FROM issues WHERE workspace_id=$1 AND identifier_text='ENG-1'`, f.ws))
 	require.Equal(t, "Add dark mode", issue.Title)
+}
+
+func TestAssistantIssueFields(t *testing.T) {
+	f := newToolFixture(t)
+	tools := f.service.tools
+	var team uuid.UUID
+	require.NoError(t, f.db.Get(&team, `SELECT id FROM teams WHERE workspace_id=$1`, f.ws))
+	member, outsider := uuid.New(), uuid.New()
+	t.Cleanup(func() { _, _ = f.db.Exec(`DELETE FROM users WHERE id IN ($1,$2)`, member, outsider) })
+	exec := func(query string, args ...any) {
+		t.Helper()
+		_, err := f.db.Exec(query, args...)
+		require.NoError(t, err)
+	}
+	exec(`INSERT INTO users(id,email,name,display_name,password_hash) VALUES($1,$2,'Casey','Casey Smith','hash'),($3,$4,'Outsider','Outsider','hash')`,
+		member, member.String()+"@test.invalid", outsider, outsider.String()+"@test.invalid")
+	exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member')`, f.ws, member)
+	otherTeam, cycle, otherCycle := uuid.New(), uuid.New(), uuid.New()
+	project, nextProject, otherProject := uuid.New(), uuid.New(), uuid.New()
+	label, scopedLabel, otherLabel := uuid.New(), uuid.New(), uuid.New()
+	exec(`INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Other','OTH')`, otherTeam, f.ws)
+	exec(`INSERT INTO cycles(id,team_id,name,number,status) VALUES($1,$2,'Sprint X',1,'active'),($3,$4,'Other cycle',1,'active')`, cycle, team, otherCycle, otherTeam)
+	exec(`INSERT INTO projects(id,workspace_id,team_id,name) VALUES($1,$2,$3,'Roadmap'),($4,$2,$3,'Next project'),($5,$2,$6,'Other project')`,
+		project, f.ws, team, nextProject, otherProject, otherTeam)
+	exec(`INSERT INTO labels(id,workspace_id,project_id,name,color) VALUES($1,$2,NULL,'Needs QA','#123456'),($3,$2,$4,'Milestone','#123456'),($5,$2,$6,'Other label','#123456')`,
+		label, f.ws, scopedLabel, nextProject, otherLabel, otherProject)
+
+	_, id, err := tools.run(f.ctx, f.ws, f.user, "create_issue",
+		`{"team_key":"eng","title":"Ship the fix","assignees":["me"],"due_date":"2026-11-20","cycle":"sprint x","project":"Roadmap","labels":["Needs QA"]}`)
+	require.NoError(t, err)
+	issue, err := tools.issues.GetByID(f.ctx, *id)
+	require.NoError(t, err)
+	require.Equal(t, &cycle, issue.CycleID)
+	require.Equal(t, &project, issue.ProjectID)
+	require.NotNil(t, issue.DueDate)
+	require.Equal(t, "2026-11-20", issue.DueDate.Format("2006-01-02"))
+	assignees, err := tools.issues.GetAssignees(f.ctx, *id)
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{f.user}, assignees)
+	labels, err := tools.issues.GetLabels(f.ctx, *id)
+	require.NoError(t, err)
+	require.Len(t, labels, 1)
+	require.Equal(t, label, labels[0].ID)
+
+	_, _, err = tools.run(f.ctx, f.ws, f.user, "update_issue", fmt.Sprintf(
+		`{"identifier":"eng-1","assignees":[" casey smith ",%q],"cycle":%q,"project":%q,"labels":["milestone"]}`,
+		member.String()+"@test.invalid", cycle, nextProject))
+	require.NoError(t, err)
+	assignees, err = tools.issues.GetAssignees(f.ctx, *id)
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{member}, assignees)
+	labels, err = tools.issues.GetLabels(f.ctx, *id)
+	require.NoError(t, err)
+	require.Len(t, labels, 1)
+	require.Equal(t, scopedLabel, labels[0].ID)
+
+	_, _, err = tools.run(f.ctx, f.ws, f.user, "update_issue", `{"identifier":"ENG-1","due_date":"2026-12-04"}`)
+	require.NoError(t, err)
+	issue, err = tools.issues.GetByID(f.ctx, *id)
+	require.NoError(t, err)
+	require.NotNil(t, issue.DueDate)
+	require.Equal(t, "2026-12-04", issue.DueDate.Format("2006-01-02"))
+	require.Equal(t, &cycle, issue.CycleID)
+	require.Equal(t, &nextProject, issue.ProjectID)
+
+	for _, tc := range []struct {
+		field, value, offending, accepted, hidden string
+	}{
+		{"assignees", fmt.Sprintf(`["me",%q]`, outsider.String()+"@test.invalid"), outsider.String() + "@test.invalid", "Casey Smith", "Outsider"},
+		{"cycle", fmt.Sprintf(`%q`, otherCycle), otherCycle.String(), "Sprint X", "Other cycle"},
+		{"project", `"Other project"`, "Other project", "Roadmap", otherProject.String()},
+		{"labels", `["Needs QA","Other label"]`, "Other label", "Needs QA", otherLabel.String()},
+		{"due_date", `"2026-02-30"`, "2026-02-30", "YYYY-MM-DD", ""},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			for _, call := range []struct{ name, input string }{
+				{"create_issue", `"team_key":"ENG","title":"Should not be created"`},
+				{"update_issue", `"identifier":"ENG-1","title":"Should not be updated"`},
+			} {
+				_, _, err := tools.run(f.ctx, f.ws, f.user, call.name, fmt.Sprintf(`{%s,%q:%s}`, call.input, tc.field, tc.value))
+				require.Error(t, err)
+				require.ErrorContains(t, err, tc.field)
+				require.ErrorContains(t, err, tc.offending)
+				require.ErrorContains(t, err, tc.accepted)
+				if tc.hidden != "" {
+					require.NotContains(t, err.Error(), tc.hidden)
+				}
+			}
+		})
+	}
+	var count int
+	require.NoError(t, f.db.Get(&count, `SELECT count(*) FROM issues WHERE workspace_id=$1`, f.ws))
+	require.Equal(t, 1, count)
+	issue, err = tools.issues.GetByID(f.ctx, *id)
+	require.NoError(t, err)
+	require.Equal(t, "Ship the fix", issue.Title)
+	assignees, err = tools.issues.GetAssignees(f.ctx, *id)
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{member}, assignees)
+	labels, err = tools.issues.GetLabels(f.ctx, *id)
+	require.NoError(t, err)
+	require.Len(t, labels, 1)
+	require.Equal(t, scopedLabel, labels[0].ID)
+
+	for _, field := range []string{"due_date", "cycle", "project"} {
+		_, _, err = tools.run(f.ctx, f.ws, f.user, "create_issue", fmt.Sprintf(`{"team_key":"ENG","title":"Should not be created",%q:""}`, field))
+		require.ErrorContains(t, err, field)
+	}
+	_, _, err = tools.run(f.ctx, f.ws, f.user, "update_issue", `{"identifier":"ENG-1","project":"","labels":["Milestone"]}`)
+	require.ErrorContains(t, err, `labels value "Milestone" did not match`)
+	require.ErrorContains(t, err, "Needs QA")
+
+	_, _, err = tools.run(f.ctx, f.ws, f.user, "update_issue", `{"identifier":"ENG-1","due_date":"","cycle":"","project":"","labels":["Needs QA"]}`)
+	require.NoError(t, err)
+	issue, err = tools.issues.GetByID(f.ctx, *id)
+	require.NoError(t, err)
+	require.Nil(t, issue.DueDate)
+	require.Nil(t, issue.CycleID)
+	require.Nil(t, issue.ProjectID)
+	labels, err = tools.issues.GetLabels(f.ctx, *id)
+	require.NoError(t, err)
+	require.Len(t, labels, 1)
+	require.Equal(t, label, labels[0].ID)
+
+	_, _, err = tools.run(f.ctx, f.ws, f.user, "update_issue", `{"identifier":"ENG-1","labels":[],"assignees":[]}`)
+	require.NoError(t, err)
+	assignees, err = tools.issues.GetAssignees(f.ctx, *id)
+	require.NoError(t, err)
+	require.Empty(t, assignees)
+	labels, err = tools.issues.GetLabels(f.ctx, *id)
+	require.NoError(t, err)
+	require.Empty(t, labels)
 }

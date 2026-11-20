@@ -409,7 +409,6 @@ export interface DevMachineEnvironment {
 }
 
 export interface DevMachineScopeSetting {
-	test_command?: string[] | null;
 	agent_provider?: string | null;
 	agent_instructions?: string | null;
 	compose_file?: string | null;
@@ -446,11 +445,6 @@ export interface DevMachineRepositoryDefaults {
 }
 
 /** A check command proposed from a repository's manifests; never saved by itself. */
-export interface DevMachineCheckSuggestion {
-	command: string[];
-	/** Manifest paths the command was derived from. */
-	basis: string[];
-}
 
 export interface DevMachineTerminalSession {
 	id: string;

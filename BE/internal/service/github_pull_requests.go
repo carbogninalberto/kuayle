@@ -134,7 +134,7 @@ func readPullRequestStatus(client *gh.Client, token, owner, name string, number 
 		if comparison, err := client.CompareCommits(token, owner, name, status.BaseRef, status.HeadSHA); err == nil {
 			status.Ahead, status.Behind, status.MergeBase = comparison.AheadBy, comparison.BehindBy, comparison.MergeBaseCommit.SHA
 			listTree := func(ref string) ([]gh.TreeEntry, error) { return client.ListTree(token, owner, name, ref) }
-			status.migrationRepair, err = pullRequestMigrationRepair(listTree, comparison.BaseCommit.SHA, status.HeadSHA, status.BaseRef, comparison.Files)
+			status.migrationRepair, err = pullRequestMigrationRepair(listTree, comparison.BaseCommit.SHA, status.HeadSHA, status.MergeBase, status.BaseRef, comparison.Files)
 			status.migrationCheckUnavailable = err != nil
 		}
 	}
@@ -303,7 +303,10 @@ func (e *HeadSyncError) Unwrap() error { return e.Err }
 // it waits briefly for the head to move; if it has not, the pull_request
 // webhook records it later and the returned head is still expectedHead.
 func (s *GitHubService) UpdatePullRequestBranch(ctx context.Context, ws uuid.UUID, repository string, number int, expectedHead string) (string, error) {
-	client, token, owner, name, err := s.pullWriteClient(ctx, ws, repository)
+	if err := s.requireAbility(ctx, ws, domain.GitHubBotPullRequestActions); err != nil {
+		return "", err
+	}
+	client, token, owner, name, err := s.branchWriteClient(ctx, ws, repository)
 	if err != nil {
 		return "", err
 	}

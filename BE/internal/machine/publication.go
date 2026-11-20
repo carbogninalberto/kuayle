@@ -3,6 +3,8 @@ package machine
 import (
 	"context"
 	"errors"
+	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -70,7 +72,7 @@ func (m *Manager) syncBeforeTaskVisit(ctx context.Context, machine *domain.DevMa
 	return nil
 }
 
-// publishAgent commits, pushes and opens the pull request for a validated
+// publishAgent commits, pushes and opens the pull request for a completed
 // attempt or an approved stopped task. The harness never receives the credential.
 func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, op *domain.DevMachineOperation) error {
 	publication, err := m.store.GetPublication(ctx, *op)
@@ -123,9 +125,17 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	if err = m.store.StartPublication(ctx, *op); err != nil {
 		return err
 	}
-	githubAPI, token, err := m.repositoryToken(ctx, machine, checkout.RepositoryFullName)
-	if err != nil || token == "" {
+	githubAPI, installationID, repoName, err := m.repositoryInstallation(ctx, machine, checkout.RepositoryFullName)
+	if err != nil {
 		return &terminalOperationError{code: "publication_github_unavailable", message: "Repository-scoped GitHub App token is unavailable"}
+	}
+	grant, err := githubAPI.GetPublicationToken(ctx, installationID, repoName)
+	if err != nil {
+		return &terminalOperationError{code: "publication_github_unavailable", message: "Repository-scoped GitHub App token is unavailable"}
+	}
+	token := grant.Token
+	if err := m.registerRuntimeCredential(ctx, machine.ID, token, grant.ExpiresAt); err != nil {
+		return fmt.Errorf("runtime_credential_registration_failed: %w", err)
 	}
 	title := truncateText(publication.IssueIdentifier+": "+publication.IssueTitle, 240)
 	identity := m.gitIdentity()
@@ -140,12 +150,16 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	// published itself, the sync returns Kuayle's published commit as the lease
 	// for a guarded force push instead of changing the checkout.
 	request := PublishRequest{
-		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, PublishedCommit: publication.PublishedCommit,
+		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, WorkflowsWrite: grant.WorkflowsWrite, PublishedCommit: publication.PublishedCommit,
 		IssueIdentifier: publication.IssueIdentifier, Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
 	}
 	request.Lease, err = m.runtime.SyncCheckout(ctx, machine, services, checkout, request)
 	if err != nil {
-		return publicationCheckoutError("checkout_sync_failed", token, err)
+		var blocked *checkoutSyncBlockedError
+		if errors.As(err, &blocked) {
+			return blocked.publicationError(token)
+		}
+		return errors.New("checkout_sync_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 	}
 	if publication.FromStoppedTask {
 		// An open pull request must be a draft before its branch receives
@@ -157,7 +171,19 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	commit, err := m.runtime.PublishCheckout(ctx, machine, services, checkout, request)
 	remains := errors.Is(err, ErrPublishedWorkRemains)
 	if err != nil && !remains {
-		return publicationCheckoutError("publication_failed", token, err)
+		var terminal *terminalOperationError
+		if errors.As(err, &terminal) {
+			return &terminalOperationError{code: terminal.code, message: strings.ReplaceAll(terminal.message, token, "[redacted]")}
+		}
+		var blocked *checkoutSyncBlockedError
+		if errors.As(err, &blocked) {
+			return blocked.publicationError(token)
+		}
+		detail := strings.ReplaceAll(err.Error(), token, "[redacted]")
+		if match := workflowPushRejection.FindStringSubmatch(detail); match != nil {
+			return workflowPermissionError(match[1])
+		}
+		return errors.New("publication_failed: " + truncateText(detail, 1900))
 	}
 	result := domain.AgentPublicationResult{}
 	if remains && !publication.FromStoppedTask {
@@ -179,29 +205,35 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 			result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Remains: true, PullRequestURL: safeURL}
 		}
 	} else if commit != "" {
-		// The bot's signature stays: it is the bot's name and picture, and
-		// GitHub shows the description as the bot's first comment.
-		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
-		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
 		var pullRequest *githubclient.PullRequest
 		var prErr error
 		if publication.FromStoppedTask {
-			body = "**not validated: published from a failed task**\n\n" + body
 			pullRequest, prErr = stoppedPullRequest(githubAPI, token, owner, repository, checkout)
 		} else {
 			pullRequest, prErr = githubAPI.FindOpenPullRequest(token, owner, repository, checkout.WorkingBranch, checkout.BaseBranch)
 		}
-		if prErr == nil && pullRequest == nil {
-			// Without an independent check the change opens as a draft, so it
-			// cannot be merged before someone has looked at it.
-			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, body, !publicationValidated(publication))
-		} else if prErr == nil {
-			// A reused pull request describes this attempt.
+		if prErr != nil {
+			return errors.New("pull_request_failed: " + strings.ReplaceAll(safeError(prErr), token, "[redacted]"))
+		}
+		// Read the previous screenshot snapshot before an upload can advance it.
+		var previous pullRequestContent
+		if pullRequest != nil {
+			previous = priorPullRequestScreenshots(githubAPI, token, owner, repository, *run.TaskID, pullRequest.Body)
+		}
+		content := m.pullRequestFiles(ctx, githubAPI, token, run, services, checkout, publication)
+		content.earlierScreenshots = previous.earlierScreenshots
+		content.notices = append(content.notices, previous.notices...)
+		// GitHub shows the description, including the bot's signature, as the
+		// bot's first comment.
+		body := publication.Bot.Signature(m.frontendURL) + publicationBody(publication, content, m.frontendURL)
+		if publication.FromStoppedTask {
+			body = "**not validated: published from a failed task**\n\n" + body
+		}
+		if pullRequest == nil {
+			pullRequest, prErr = githubAPI.CreatePullRequest(token, owner, repository, title, checkout.WorkingBranch, checkout.BaseBranch, body, publication.FromStoppedTask)
+		} else {
 			prErr = githubAPI.UpdatePullRequestBody(token, owner, repository, pullRequest.Number, body)
-			// A draft opened by an unchecked attempt becomes mergeable once a
-			// later attempt passes. The reverse is not done: a ready pull
-			// request stays ready.
-			if prErr == nil && pullRequest.Draft && publicationValidated(publication) {
+			if prErr == nil && pullRequest.Draft && !publication.FromStoppedTask {
 				prErr = githubAPI.MarkPullRequestReadyForReview(token, pullRequest.NodeID)
 			}
 		}
@@ -217,13 +249,18 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	return m.store.CompletePublication(ctx, *op, result)
 }
 
-func publicationCheckoutError(code, token string, err error) error {
-	var blocked *checkoutSyncBlockedError
-	if errors.As(err, &blocked) {
-		detail := strings.ToValidUTF8(strings.ReplaceAll(blocked.detail, token, "[redacted]"), "�")
-		return &terminalOperationError{code: domain.PublicationCheckoutBlockedCode, message: truncateText(detail, 1900)}
-	}
-	return errors.New(code + ": " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
+func (blocked *checkoutSyncBlockedError) publicationError(token string) error {
+	detail := strings.ToValidUTF8(strings.ReplaceAll(blocked.detail, token, "[redacted]"), "�")
+	return &terminalOperationError{code: domain.PublicationCheckoutBlockedCode, message: truncateText(detail, 1900)}
+}
+
+// GitHub may reject the push even after preflight, for example when the
+// installation changes during publication. Only surface the rejected path.
+var workflowPushRejection = regexp.MustCompile("refusing to allow a GitHub App to (?:create or update|delete) workflow [`']?(\\.github/workflows/[^\r\n]+?)[`']? without [`']?workflows[`']? permission")
+
+func workflowPermissionError(paths string) error {
+	return &terminalOperationError{code: domain.PublicationWorkflowsPermissionCode, message: "Publishing requires Workflows: Read and write for " +
+		truncateText(strings.ToValidUTF8(paths, "�"), 1400) + ". In Settings → GitHub, use Fix on GitHub to update the app (ask the operator for a shared app), then Accept on GitHub for the installation. Retry publication after acceptance."}
 }
 
 func stoppedPullRequest(github githubAPI, token, owner, repository string, checkout *domain.DevMachineCheckout) (*githubclient.PullRequest, error) {
@@ -232,12 +269,6 @@ func stoppedPullRequest(github githubAPI, token, owner, repository string, check
 		err = github.ConvertPullRequestToDraft(token, pullRequest.NodeID)
 	}
 	return pullRequest, err
-}
-
-// publicationValidated reports whether a configured check passed on this
-// attempt. Only a succeeded validation step records the check's argv.
-func publicationValidated(publication *domain.AgentPublication) bool {
-	return !publication.FromStoppedTask && len(publication.CheckArgv) > 0 && publication.CheckExitCode != nil
 }
 
 func truncateText(value string, limit int) string {

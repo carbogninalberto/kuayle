@@ -37,11 +37,39 @@ type Client struct {
 // GetRepositoryInstallationToken creates a short-lived installation token
 // restricted to one repository and the permissions required by Dev Machines.
 func (c *Client) GetRepositoryInstallationToken(installationID int64, repository string) (string, time.Time, error) {
-	return c.repositoryInstallationToken(context.Background(), installationID, repository, map[string]string{
+	return c.repositoryInstallationToken(context.Background(), installationID, repository, repositoryWritePermissions())
+}
+
+// PublicationToken is restricted to one repository. WorkflowsWrite records
+// the installation grant used to mint this token for the current operation.
+type PublicationToken struct {
+	Token          string
+	ExpiresAt      time.Time
+	WorkflowsWrite bool
+}
+
+// GetPublicationToken includes the optional Workflows grant only for branch
+// writes. Older installations can still publish changes outside workflows.
+func (c *Client) GetPublicationToken(ctx context.Context, installationID int64, repository string) (PublicationToken, error) {
+	inst, err := c.GetInstallationContext(ctx, installationID)
+	if err != nil {
+		return PublicationToken{}, err
+	}
+	perms := repositoryWritePermissions()
+	workflows := inst.Permissions["workflows"] == "write"
+	if workflows {
+		perms["workflows"] = "write"
+	}
+	token, expires, err := c.repositoryInstallationToken(ctx, installationID, repository, perms)
+	return PublicationToken{Token: token, ExpiresAt: expires, WorkflowsWrite: workflows}, err
+}
+
+func repositoryWritePermissions() map[string]string {
+	return map[string]string{
 		"contents":      "write",
 		"pull_requests": "write",
 		"metadata":      "read",
-	})
+	}
 }
 
 // GetReadOnlyRepositoryInstallationToken creates a short-lived installation

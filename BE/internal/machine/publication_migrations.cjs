@@ -42,9 +42,24 @@ function renumber() {
 	const upstream = migrations(tree(base, directory));
 	const headMigrations = tree(head, directory);
 	const branch = migrations(headMigrations);
+	let common;
+	try {
+		common = git(['merge-base', base, head]).toString().trim();
+	} catch (error) {
+		if (error.status !== 1) throw error;
+		process.stdout.write('blocked\nThe base and task branch have no common ancestor to establish migration ownership. Sync the task branch with its base before publishing.');
+		return;
+	}
+	const original = tree(common, directory);
+	for (const pair of branch.values()) {
+		if (upstream.has(pair.stem) && Object.values(pair.paths).some((path) => !original.has(path))) {
+			process.stdout.write(`blocked\nThe task and the latest base both use ${directory}${pair.stem} for a newly added migration file. Fetch and merge the latest base and check the SQL. Keep the base migration and renumber any separate task migration and its references before publishing.`);
+			return;
+		}
+	}
 	const own = [...branch.values()].filter(({ stem }) => !upstream.has(stem));
 	const conflicts = own.flatMap((pair) => [...upstream.values()]
-		.filter(({ version, slug }) => version === pair.version && slug !== pair.slug)
+		.filter(({ version }) => version === pair.version)
 		.map((other) => [pair, other]));
 	if (!conflicts.length) return;
 
@@ -54,14 +69,6 @@ function renumber() {
 	const block = (reason) => {
 		process.stdout.write(`blocked\nMigration files ${paths(conflicts[0])} because they share a version. ${reason} Fetch and merge the latest base, renumber the task's migrations and update their references, then run the checks.`);
 	};
-	let common;
-	try {
-		common = git(['merge-base', base, head]).toString().trim();
-	} catch (error) {
-		if (error.status !== 1) throw error;
-		return block('The base and task branch have no common ancestor to establish ownership.');
-	}
-	const original = tree(common, directory);
 	const first = conflicts.reduce((oldest, [pair]) => pair.version < oldest ? pair.version : oldest, conflicts[0][0].version);
 	// Move the whole branch-owned suffix so the task's migrations still run
 	// in their original order after the base migrations.

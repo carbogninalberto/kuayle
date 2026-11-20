@@ -116,18 +116,19 @@ const (
 // counts: a crash (139, 134) or a host crash (255) is not a restart.
 const FailureRuleManagerRestart = "manager_restart"
 
+// FailureRulePIDLimit identifies a run whose container exhausted its process
+// and thread budget.
+const FailureRulePIDLimit = "pid_limit"
+
 // MaxPlatformRetries is how many times a task step is retried automatically
 // after a retryable platform failure before the task fails.
 const MaxPlatformRetries = 3
 
 // RetryablePlatformFailure reports whether a run that failed with this class
-// and rule is retried automatically, without counting against the workflow's
-// budget. Only a manager restart is: the run did nothing wrong and the same
-// step will very likely succeed. Resource limits (out_of_memory, pid_limit),
-// the time limit and other platform errors are not: the same workload would
-// hit them again, so the task fails and says how to fix it.
+// and rule is retried automatically in the same workflow iteration. The agent
+// can continue after a manager restart or reduce parallelism after a PID crash.
 func RetryablePlatformFailure(class, rule string) bool {
-	return class == string(FailurePlatform) && rule == FailureRuleManagerRestart
+	return class == string(FailurePlatform) && (rule == FailureRuleManagerRestart || rule == FailureRulePIDLimit)
 }
 
 // RunFailure is a run's failure as stored: the class, the rule that decided
@@ -250,7 +251,7 @@ var runFailureRules = []runFailureRule{
 			}
 			return "Out of memory: the agent container reached its memory limit"
 		}},
-	{"pid_limit", FailurePlatform, pidLimitReached,
+	{FailureRulePIDLimit, FailurePlatform, pidLimitReached,
 		func(e RunFailureEvidence) string {
 			if e.PidsLimit > 0 {
 				return fmt.Sprintf("The agent container reached its limit of %d processes and threads (PID limit), so the harness could not start another and crashed", e.PidsLimit)

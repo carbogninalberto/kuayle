@@ -232,16 +232,16 @@ func TestManagerRestartIsAPlatformFailure(t *testing.T) {
 	}
 }
 
-// Only a manager restart is retried automatically: the other platform
-// failures would hit the same workload again.
 func TestRetryablePlatformFailure(t *testing.T) {
 	require.True(t, RetryablePlatformFailure(string(FailurePlatform), FailureRuleManagerRestart))
+	require.True(t, RetryablePlatformFailure(string(FailurePlatform), FailureRulePIDLimit))
 	for _, class := range []FailureClass{FailurePlatform, FailureUnknown} {
-		for _, rule := range []string{"pid_limit", "out_of_memory", "time_limit", "platform_error", "killed"} {
+		for _, rule := range []string{"out_of_memory", "time_limit", "platform_error", "killed"} {
 			require.False(t, RetryablePlatformFailure(string(class), rule), "%s/%s", class, rule)
 		}
 	}
 	require.False(t, RetryablePlatformFailure(string(FailureUnknown), FailureRuleManagerRestart))
+	require.False(t, RetryablePlatformFailure(string(FailureUnknown), FailureRulePIDLimit))
 	require.Equal(t, 3, MaxPlatformRetries)
 }
 

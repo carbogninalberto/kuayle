@@ -262,7 +262,6 @@ async function fixture(page: Page) {
 				return route.fulfill({ json: { transitions: state.transitions.filter((t) => t.sequence > after) } });
 			}
 			if (/^\/runs\/[^/]+\/logs$/.test(rest)) return route.fulfill({ json: { logs: [] } });
-			if (rest.endsWith('/validation')) return route.fulfill({ json: null });
 			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
 			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
 			if (rest === '/sessions') return route.fulfill({ json: { sessions: state.sessions } });
@@ -776,10 +775,11 @@ test('the sidebar has no composer and no review action; both are in the agent vi
 		}
 	];
 	emit('task.review_updated', { task_id: 'task-1', review_task_id: 'review-9', state: 'completed' });
-	const reviews = thread.getByRole('region', { name: 'Agent reviews' });
+	const reviews = thread.getByRole('list', { name: 'Path taken' }).getByRole('region', { name: 'Review by Claude Code' });
 	await expect(reviews.getByText('Review by Claude Code', { exact: true })).toBeVisible();
+	await reviews.getByRole('button', { name: /Review by Claude Code/ }).click();
 	await expect(reviews.getByText('handle the empty query')).toBeVisible();
-	await expect(tasks.getByRole('region', { name: 'Agent reviews' })).toHaveCount(0);
+	await expect(tasks.getByRole('region', { name: 'Review by Claude Code' })).toHaveCount(0);
 
 	// A review is asked for from its header: nothing is started, the request
 	// is written for the assistant, which asks for approval.

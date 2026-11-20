@@ -44,6 +44,8 @@ func TestManifestUsesTheSharedGitHubAppRequirements(t *testing.T) {
 	manifest, _ := (&GitHubService{frontendURL: "https://kuayle.test"}).GetManifest([16]byte{}, "acme")
 	require.Equal(t, GitHubAppEvents(), manifest["default_events"])
 	require.Equal(t, GitHubAppPermissions(), manifest["default_permissions"])
+	require.Equal(t, "write", GitHubAppPermissions()["workflows"])
+	require.Equal(t, "write", manifest["default_permissions"].(map[string]string)["workflows"])
 	require.Equal(t, GitHubAppDescription, manifest["description"], "new apps are described on GitHub")
 	require.Contains(t, GitHubAppEvents(), "pull_request_review")
 	require.Contains(t, GitHubAppEvents(), "check_suite")
@@ -72,6 +74,17 @@ func TestEvaluateGitHubAppSetup(t *testing.T) {
 		return out
 	}
 
+	t.Run("workflow edits need app configuration then installation acceptance", func(t *testing.T) {
+		old := withPermission("workflows", "")
+		inst := setupInstallation(events, old)
+		want := []dto.GitHubAppPermissionRequirement{{Name: "workflows", Level: "write"}}
+		got := evaluateGitHubAppSetup(setupApp("alice", "User", events, old), inst)
+		require.Equal(t, dto.GitHubAppSetupAppMissing, got.State)
+		require.Equal(t, want, got.MissingPermissions)
+		got = evaluateGitHubAppSetup(setupApp("alice", "User", events, permissions), inst)
+		require.Equal(t, dto.GitHubAppSetupInstallationPending, got.State)
+		require.Equal(t, want, got.MissingPermissions)
+	})
 	t.Run("all granted", func(t *testing.T) {
 		got := evaluateGitHubAppSetup(setupApp("alice", "User", events, permissions), setupInstallation(events, permissions))
 		require.Equal(t, dto.GitHubAppSetupOK, got.State)

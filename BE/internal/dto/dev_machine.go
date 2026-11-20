@@ -66,8 +66,6 @@ type DevMachineScopeSettingRequest struct {
 	BaseBranch    *string `json:"base_branch,omitempty" validate:"omitempty,max=255"`
 	EnvironmentID *string `json:"environment_id,omitempty" validate:"omitempty,uuid"`
 
-	TestCommand []string `json:"test_command" validate:"omitempty,max=64,dive,max=8192"`
-
 	AgentProvider     *string `json:"agent_provider,omitempty" validate:"omitempty,max=64"`
 	AgentInstructions *string `json:"agent_instructions,omitempty"`
 	ComposeFile       *string `json:"compose_file,omitempty"`
@@ -208,7 +206,6 @@ type CreateAgentRunRequest struct {
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
 	AllowedCommands    []string `json:"allowed_commands"`
 	ForbiddenPaths     []string `json:"forbidden_paths"`
-	TestCommand        []string `json:"test_command"`
 	// Session is set only by Kuayle's task runtime; HTTP input cannot carry it.
 	Session *agent.SessionInput `json:"-"`
 	// ProfileFiles are set only by Kuayle's task runtime: the workflow step's

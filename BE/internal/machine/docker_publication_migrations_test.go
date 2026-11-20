@@ -34,6 +34,7 @@ func TestPublicationRenumbersRacingMigrationPairs(t *testing.T) {
 
 	output, err := f.script(publishPushScript, "fixture-credential\n", "push", "acme/app", "kuayle/winner", winner, winnerHead, "main", "agent@kuayle.invalid")
 	require.NoError(t, err, output)
+	require.Empty(t, output, "a clean new branch should push directly")
 	require.Equal(t, winnerHead, f.run(f.origin, nil, "rev-parse", "refs/heads/kuayle/winner"))
 	f.run(winner, nil, "push", "-q", "origin", "HEAD:main")
 
@@ -124,5 +125,23 @@ func TestPublicationHandsOffAVersionOnlyMigrationReference(t *testing.T) {
 	require.ErrorContains(t, err, `"runner.go" refers to a migration by version alone`)
 	require.ErrorContains(t, err, "000178_bulk_issue_approvals.up.sql")
 	require.ErrorContains(t, err, "000178_saml_sso.up.sql")
+	require.True(t, f.fails(f.origin, "show-ref", "--verify", "refs/heads/kuayle/rec-1"))
+}
+
+func TestPublicationHandsOffIndependentlyAddedIdenticalMigrationPaths(t *testing.T) {
+	f := newScriptFixture(t)
+	winner := filepath.Join(f.root, "winner")
+	f.run(f.root, nil, "clone", "-q", f.origin, winner)
+	addMigrationPair(f, winner, "000178_feature")
+	f.run(winner, nil, "push", "-q", "origin", "main")
+	addMigrationPair(f, f.checkout, "000178_feature")
+	head := f.commitFile(f.checkout, "task.txt", kuayleIdentity)
+
+	output, err := f.push(head, "")
+	require.NoError(t, err, output)
+	_, err = pushedCommit(output, head)
+	var blocked *checkoutSyncBlockedError
+	require.ErrorAs(t, err, &blocked)
+	require.Contains(t, blocked.detail, "000178_feature")
 	require.True(t, f.fails(f.origin, "show-ref", "--verify", "refs/heads/kuayle/rec-1"))
 }

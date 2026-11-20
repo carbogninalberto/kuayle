@@ -2,23 +2,19 @@
 	import { untrack, type Snippet } from 'svelte';
 	import { FileDiff, FolderGit2, GitBranch, GitPullRequest, GitPullRequestCreate } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
-	import { Progress } from '$lib/components/ui/progress/index.js';
 	import { agentTasks, type AgentTask, type PublicationView } from '$lib/api/agent-tasks';
 	import { listMachineCheckouts } from '$lib/api/dev-machines';
 	import type { AgentRun } from '$lib/types/dev-machine';
 	import BackgroundTasks from '../BackgroundTasks.svelte';
-	import { contextUsage } from '../shell-rules';
 	import type { PanelContext } from './panel-host.svelte';
 	import { m } from '$lib/features/i18n/messages';
 
-	// The conversation at a glance: where its work happens, how much of the
-	// model's context it fills, what its newest coding task changed and the
+	// The conversation at a glance: where its work happens, what its newest coding task changed and the
 	// person's background agent work. Everything shown comes from recorded
 	// task, checkout and approval data; nothing is inferred from agent text.
 	let { context }: { context: PanelContext } = $props();
 	const chat = $derived(context.chat);
 	const newest = $derived<AgentTask | undefined>(context.board?.tasks[0]);
-	const usage = $derived(contextUsage(chat.messages, chat.hasMore));
 
 	let checkout = $state<{ repository: string; branch: string; base: string } | null>(null);
 	let run = $state<AgentRun | null>(null);
@@ -103,16 +99,6 @@
 	{/if}
 {/snippet}
 
-{#snippet contextBody()}
-	<div class="flex items-center gap-3">
-		<Progress value={usage.percent} class="h-1.5 flex-1" aria-label={m['assistant.context_usage']()} />
-		<span class="shrink-0 text-xs tabular-nums">{usage.percent}%</span>
-	</div>
-	<p class="mt-1.5 text-xs text-muted-foreground">
-		{m['assistant.context_detail']({ used: String(usage.used), limit: String(usage.limit) })}
-	</p>
-{/snippet}
-
 {#snippet changesBody()}
 	{#if newest && (changed.length || pullRequest)}
 		<p class="text-sm">{m['assistant.changes_files']({ count: changed.length })}</p>
@@ -155,7 +141,6 @@
 
 <div class="min-w-0">
 	{@render section(m['assistant.environment'](), environmentBody)}
-	{@render section(m['assistant.context'](), contextBody)}
 	{@render section(m['assistant.changes'](), changesBody)}
 	{@render section(m['assistant.background_tasks'](), tasksBody)}
 </div>

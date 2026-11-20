@@ -47,7 +47,7 @@
 		disposed = true;
 		clearTimeout(timer);
 	});
-	// The independent and manual checks write to the same run; they are not
+	// Manual checks write to the same run; they are not
 	// the agent's session.
 	const session = $derived(logs.filter((line) => !line.service_id || !checks.includes(line.service_id)));
 
@@ -61,14 +61,9 @@
 		loading = true;
 		error = '';
 		try {
-			const [validation, manual] = await Promise.all([
-				agentTasks.validation(chat.slug, run.task_id, run.id).catch(() => null as ValidationStep | null),
-				agentTasks.manualChecks(chat.slug, run.task_id, run.id).catch(() => [] as ValidationStep[])
-			]);
+			const manual = await agentTasks.manualChecks(chat.slug, run.task_id, run.id).catch(() => [] as ValidationStep[]);
 			if (disposed) return;
-			checks = [validation?.id, ...(Array.isArray(manual) ? manual : []).map((step) => step.id)].filter(
-				(id): id is string => !!id
-			);
+			checks = manual.map((step) => step.id);
 			for (let page = 0; page < 20; page++) {
 				const result = await agentTasks.logs(chat.slug, run.task_id, run.id, logs.at(-1)?.id ?? 0);
 				if (disposed) return;

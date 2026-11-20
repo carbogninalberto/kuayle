@@ -218,6 +218,7 @@ func TestAttemptRecordsItsPromptBySource(t *testing.T) {
 	require.Contains(t, by["project/prompt"], "Use pnpm.")
 	require.Contains(t, by["contract/prompt"], domain.NotebookUpdateHelp)
 	require.Contains(t, by["contract/prompt"], "Kuayle execution contract")
+	require.Contains(t, by["contract/prompt"], "BE/migrations on the latest base")
 	require.Contains(t, by["profile/instructions_file"], "Write small commits.")
 	require.Equal(t, notebook.RenderWith(domain.NotebookRender{PlanInPrompt: true, RequestInPrompt: true}), by["notebook/instructions_file"])
 	require.Equal(t, 1, strings.Count(run.Prompt+by["notebook/instructions_file"], plan), "the plan is given once")
@@ -293,7 +294,7 @@ func TestAMissingNotebookUpdateNeverFailsTheWork(t *testing.T) {
 	svc := &AgentTaskService{store: store, runtime: runtime}
 	require.NoError(t, svc.step(context.Background(), store.task))
 	require.Empty(t, store.failReason)
-	require.Equal(t, "validating", store.transitions[len(store.transitions)-1])
+	require.Equal(t, "publishing", store.transitions[len(store.transitions)-1])
 	require.Contains(t, store.reasons[len(store.reasons)-1], "did not update the task notebook")
 
 	// A refused update that the agent then fixed leaves no note.
@@ -301,7 +302,7 @@ func TestAMissingNotebookUpdateNeverFailsTheWork(t *testing.T) {
 	store = &taskStoreFake{task: domain.AgentTask{State: "running", Provider: "opencode"}}
 	svc = &AgentTaskService{store: store, runtime: &taskRuntimeFake{run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusSucceeded, NotebookProblem: &transient}}}
 	require.NoError(t, svc.step(context.Background(), store.task))
-	require.Equal(t, "validating", store.transitions[len(store.transitions)-1])
+	require.Equal(t, "publishing", store.transitions[len(store.transitions)-1])
 	require.NotContains(t, store.reasons[len(store.reasons)-1], "notebook")
 
 	// In a workflow the step finishes and moves on; its detail carries the note.
