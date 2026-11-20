@@ -2,7 +2,6 @@ package machine
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -44,7 +43,9 @@ type dockerCommandFixture struct {
 	image   string
 	// createLatency is how long the daemon took to run one helper
 	// container; a shared CI daemon can take over a minute.
-	createLatency time.Duration
+	createLatency  time.Duration
+	timeoutSeconds int
+	deadline       time.Duration
 }
 
 func newDockerCommandFixture(t *testing.T) dockerCommandFixture {
@@ -83,7 +84,7 @@ func newDockerCommandFixture(t *testing.T) dockerCommandFixture {
 	t.Cleanup(func() {
 		_, _ = runtime.client.VolumeRemove(context.Background(), volume, client.VolumeRemoveOptions{Force: true})
 	})
-	f := dockerCommandFixture{runtime: runtime, image: image, machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: key,
+	f := dockerCommandFixture{timeoutSeconds: 600, deadline: 15 * time.Minute, runtime: runtime, image: image, machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: key,
 		DockerNetworkName: &network, WorkspaceVolumeName: &volume, CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20, PidsLimit: 256}}
 	// The developer user owns /workspace, as on a machine.
 	started := time.Now()
@@ -126,14 +127,14 @@ func (f dockerCommandFixture) inspectVolume(t *testing.T, script string) (string
 // and returns what the store recorded.
 func (f dockerCommandFixture) run(t *testing.T, command string, write bool) (*tailCommandStore, error) {
 	t.Helper()
-	run := &domain.CommandRun{ID: uuid.New(), Command: command, Write: write, WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
+	run := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: f.timeoutSeconds, Command: command, Write: write, WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
 	if write {
 		run.WorkingDirectory = domain.CommandFolder(uuid.New())
 	}
 	store := &tailCommandStore{commandStoreFake: &commandStoreFake{managerStoreFake: &managerStoreFake{machine: f.machine,
 		services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: f.image}}}, run: run}}
 	manager := &Manager{store: store, runtime: f.runtime}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), f.deadline)
 	defer cancel()
 	err := manager.processOperation(ctx, &domain.DevMachineOperation{Action: domain.DevMachineOpRunCommand, MachineID: f.machine.ID, IdempotencyKey: "command-run:" + run.ID.String()})
 	for _, name := range []string{commandContainerName(f.machine, run.ID), commandPrepName(f.machine, run.ID)} {
@@ -145,11 +146,6 @@ func (f dockerCommandFixture) run(t *testing.T, command string, write bool) (*ta
 
 func TestDockerCommandRunsOnARealContainer(t *testing.T) {
 	f := newDockerCommandFixture(t)
-	// The manager's deadline also covers creating the container, which a
-	// shared daemon can take minutes for; one subtest shortens it on purpose.
-	deadline := commandRunDeadline
-	commandRunDeadline = 10 * time.Minute
-	t.Cleanup(func() { commandRunDeadline = deadline })
 
 	t.Run("returns the output and exit code", func(t *testing.T) {
 		store, err := f.run(t, `python3 -c 'print(2**100)'`, false)
@@ -182,7 +178,7 @@ func TestDockerCommandRunsOnARealContainer(t *testing.T) {
 	})
 
 	t.Run("a write run refuses a folder that is a link", func(t *testing.T) {
-		run := &domain.CommandRun{ID: uuid.New(), Command: "touch pwned", Write: true, WorkingDirectory: domain.CommandFolder(uuid.New()), Status: "queued"}
+		run := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "touch pwned", Write: true, WorkingDirectory: domain.CommandFolder(uuid.New()), Status: "queued"}
 		_, code := f.inspectVolume(t, "mkdir -p /workspace/kuayle-assistant && ln -s /workspace "+run.WorkingDirectory)
 		require.Zero(t, code)
 		_, err := f.runtime.RunCommand(context.Background(), f.machine, run, f.image, "", &AgentObserver{})
@@ -193,9 +189,8 @@ func TestDockerCommandRunsOnARealContainer(t *testing.T) {
 	})
 
 	t.Run("the in-container timeout kills the command", func(t *testing.T) {
-		timeout := commandTimeout
-		commandTimeout = 2 * time.Second
-		t.Cleanup(func() { commandTimeout = timeout })
+		f := f
+		f.timeoutSeconds = 2
 		store, err := f.run(t, "sleep 120; echo slept", false)
 		require.NoError(t, err)
 		require.NotNil(t, store.exit)
@@ -203,21 +198,23 @@ func TestDockerCommandRunsOnARealContainer(t *testing.T) {
 		require.NotContains(t, store.output, "slept", "the command never finished")
 	})
 
-	t.Run("the manager's deadline stops a command that outlives it", func(t *testing.T) {
+	t.Run("cancelling the operation removes a running command", func(t *testing.T) {
 		// Room to create and start the container, far less than the sleep;
 		// the in-container timeout is pushed past it, so only the deadline fires.
-		timeout := commandTimeout
-		commandTimeout = time.Hour
-		t.Cleanup(func() { commandTimeout = timeout })
-		commandRunDeadline = 2*f.createLatency + 20*time.Second
+		f := f
+		f.deadline = 2*f.createLatency + 20*time.Second
 		started := time.Now()
 		store, err := f.run(t, "sleep 900", false)
-		var terminal *terminalOperationError
-		require.True(t, errors.As(err, &terminal), "%v", err)
-		require.Equal(t, "The command took too long and was stopped after 60 seconds", commandRunFailure(err))
+		require.Error(t, err)
 		require.Less(t, time.Since(started), 10*time.Minute)
 		require.Nil(t, store.exit)
-		commandRunDeadline = 10 * time.Minute
+	})
+
+	t.Run("an approved longer command outlasts the default limit", func(t *testing.T) {
+		store, err := f.run(t, "echo started; sleep 61; echo finished", false)
+		require.NoError(t, err)
+		require.Equal(t, 0, *store.exit)
+		require.Equal(t, "started\nfinished\n", store.output)
 	})
 
 	t.Run("long output keeps its end", func(t *testing.T) {

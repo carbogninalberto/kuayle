@@ -1162,7 +1162,7 @@ decided not to cover it from chat, so it is not an open gap.
 | Inspect files on one's own machine (`ls`, `cat`, `du`, `find`) | `run_command` with `machine_id` and `working_directory` | covered (KUA-153) |
 | Call a public endpoint (`curl`) | `run_command`, through the machine's egress proxy | covered (KUA-153) |
 | Write scratch files or generate an artifact | `run_command_write`: only the conversation's folder is writable, the rest of `/workspace` stays read-only | covered (KUA-153) |
-| Run tests ad hoc outside a task checkout | `run_command` on the user's machine (read-only workspace, 60 s) | partial: longer runs are a gap, KUA-179 |
+| Run tests ad hoc outside a task checkout | `run_command` on the user's machine with an approved `timeout_seconds` of up to 600 (60 by default) | covered (KUA-179) |
 | Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | covered (KUA-153) |
 | Install a system package (`apt-get install`) | The machine's image: packages added in an Environment Builder and saved as a Development Environment, then `run_command`/`run_command_write` with that machine's `machine_id`; static binaries can be downloaded into the conversation folder. No install from chat ([system packages](#system-packages)) | by design (KUA-180) |
 | Run a database migration against a real database | `run_migration` (see [database migrations from chat](#database-migrations-from-chat)) | covered (KUA-181) |
@@ -1186,7 +1186,7 @@ the result includes the limits and leaves the sample time and usage values empty
 
 ### Commands and temporary machines
 
-The command tools run one short shell command on a Dev Machine the user owns.
+The command tools run one shell command on a Dev Machine the user owns.
 Tools that answer without a machine always come first; the system prompt says
 so, and the `start_temporary_machine` description repeats it.
 
@@ -1208,7 +1208,8 @@ so, and the `start_temporary_machine` description repeats it.
   with every policy, quota and demo check of a normal machine. A second
   approval converges on the machine already started.
 - `run_command` and `run_command_write` (approval tools, even on the user's
-  own machine). They take `command` (at most 4000 bytes) and an optional
+  own machine). They take `command` (at most 4000 bytes), an optional
+  `timeout_seconds` (integer 1–600, default 60) and an optional
   `machine_id`, which must be a running machine the user owns. Without it they
   use the conversation's temporary machine, else the user's own running machine
   or their live temporary machine from another conversation (reused), else they
@@ -1221,10 +1222,12 @@ so, and the `start_temporary_machine` description repeats it.
   up to about a minute while it is queued or running. The result has
   `machine`, `machine_id`, `cpu_millis`, `memory_mb`, `disk_gb`, `reused`,
   `temporary`, `expires_at` (temporary only), `working_directory`, `status`,
-  `exit_code`, `output_tail` (the last 12 KiB), `output_truncated` and
+  `exit_code`, `output_tail` (up to the last 12 KiB, shortened to fit the JSON result limit), `output_truncated` and
   `duration_ms`. The approved card polls
   `GET /conversations/:conversationId/approvals/:approvalId/command-run`
-  (session only, requester only) and shows the same fields.
+  (session only, requester only) while the run is queued or running. It shows
+  the same fields with the full stored output tail (up to 64 KiB), including
+  after reopening the conversation.
 
 Refusals are tool failures that name the next step, each with its own message:
 a user who left the workspace is told they no longer have access; a guest, and
@@ -1243,7 +1246,7 @@ Execution reuses the custom tool sandbox. A fresh check container runs on the
 machine: developer image, the machine's workspace volume, egress only through
 the machine's proxy, all capabilities dropped, a read-only root, and no
 credentials or environment variables of the machine. Its argv is fixed:
-`sh -c <bootstrap> kuayle-cmd 60`. The command reaches it only as
+`sh -c <bootstrap> kuayle-cmd <approved-seconds>`. The command reaches it only as
 `KUAYLE_COMMAND`, and the bootstrap runs it under `timeout -s KILL`. `/workspace`
 is always mounted read-only. A `run_command` can write only `/tmp` and `$HOME`
 (tmpfs, gone after the run). A `run_command_write` also mounts the conversation
@@ -1254,13 +1257,16 @@ checkouts and task worktrees cannot change. A short prep container
 folder first and refuses one that is, or sits in, a symbolic link. On an older
 daemon a write run fails with "This machine's Docker is too old to confine
 writes to the conversation folder"; it never falls back to a writable
-`/workspace`. The manager's own deadline is 75 s.
+`/workspace`. The manager allows another 15 seconds for setup and exit reporting.
 
 Each run is one `run_command` operation with `MaxAttempts` 1, so a command
-never runs twice. Its container is removed afterwards, whatever the result. It
+never runs twice. If a manager shutdown interrupts the command, the run fails
+and the transcript retains the output already stored. Its container is removed
+afterwards, whatever the result. It
 holds the machine like a check or a tool run: never beside an agent attempt,
-a check, a tool run or another command (`ErrMachineBusy`). Its output is stored
-up to 64 KiB (a schema CHECK) in `assistant_command_runs` (migration 159), with
+a check, a tool run or another command (`ErrMachineBusy`). Output accumulates during execution.
+The run retains the newest 64 KiB (a schema CHECK) in `assistant_command_runs`
+(migration 159), with
 the machine's name and size, so the transcript still names a deleted temporary
 machine.
 
