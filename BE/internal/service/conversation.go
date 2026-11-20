@@ -97,13 +97,17 @@ func (s *ConversationService) clock() time.Time {
 // code, so guidanceMessages adds this prompt to web replies only.
 const richBlocksPrompt = "In the Kuayle web chat you may add a chart as a ```chart fenced block containing only JSON {\"type\":\"bar|line|area|pie\",\"title\":\"…\",\"unit\":\"…\",\"categories\":[…],\"series\":[{\"name\":\"…\",\"data\":[numbers]}]} (at most 5 series, 100 categories, and for a pie at most 12 categories), or a small self-contained interactive widget as a ```html block (inline scripts and styles only; it runs sandboxed with no network, so embed all data). Use them only when a visual clearly helps, put the numbers you got from tools in them, never invent data, and keep text outside the block."
 
+// The attachment note guidanceMessages adds for every channel when the user
+// may attach images to their messages.
+const attachmentsPrompt = "Users can attach images; each is named in their message as [image attached: name, WxH, id=...]. When you cannot see an image's content, say so instead of guessing what it shows."
+
 // guidanceMessages are the extra system messages for a reply: the attachment
 // note shared by every channel, then the rich-block capability, which only the
 // web chat renders and therefore only web replies receive.
 func guidanceMessages(images bool, channel string) []chatCompletionMessage {
 	messages := make([]chatCompletionMessage, 0, 2)
 	if images {
-		messages = append(messages, chatCompletionMessage{Role: "system", Content: "Users can attach images; each is named in their message as [image attached: name, WxH, id=...]. When you cannot see an image's content, say so instead of guessing what it shows."})
+		messages = append(messages, chatCompletionMessage{Role: "system", Content: attachmentsPrompt})
 	}
 	if channel == domain.ConversationChannelWeb {
 		messages = append(messages, chatCompletionMessage{Role: "system", Content: richBlocksPrompt})

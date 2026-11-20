@@ -11,7 +11,8 @@ import (
 )
 
 // The claimed reply's channel decides whether it may carry rich fences: a
-// message queued for a linked Telegram chat is telegram, everything else web.
+// message queued for a linked Telegram chat is telegram only while the bot is
+// enabled and the recipient is still allowed, everything else web.
 func TestConversationMessageChannelFollowsTheTelegramLink(t *testing.T) {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
@@ -51,7 +52,29 @@ func TestConversationMessageChannelFollowsTheTelegramLink(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, domain.ConversationChannelTelegram, turn(), "a reply queued for a linked chat is telegram")
 
+	_, err = db.Exec(`UPDATE telegram_settings SET enabled=false WHERE workspace_id=$1`, ws)
+	require.NoError(t, err)
+	require.Equal(t, domain.ConversationChannelWeb, turn(), "a reply queued while the bot is disabled is web: send-time authorization denies the delivery")
+
+	_, err = db.Exec(`UPDATE telegram_settings SET enabled=true, allowed_user_ids='{}' WHERE workspace_id=$1`, ws)
+	require.NoError(t, err)
+	require.Equal(t, domain.ConversationChannelWeb, turn(), "a reply queued for a recipient outside the allowlist is web: send-time authorization denies the delivery")
+
+	_, err = db.Exec(`UPDATE telegram_settings SET allowed_user_ids='{12345}' WHERE workspace_id=$1`, ws)
+	require.NoError(t, err)
+	require.Equal(t, domain.ConversationChannelTelegram, turn(), "restoring the bot and the allowlist returns replies to the telegram channel")
+
+	// A delivery queued while linked, claimed after the link was deleted, is
+	// web: send-time authorization would deny it.
+	_, err = repo.Send(ctx, ws, conversation.ID, uuid.New(), "Hello", "compatible", "model")
+	require.NoError(t, err)
 	_, err = db.Exec(`DELETE FROM telegram_links WHERE workspace_id=$1`, ws)
 	require.NoError(t, err)
-	require.Equal(t, domain.ConversationChannelWeb, turn(), "unlinking returns the conversation to the web channel")
+	attempt, err := repo.Claim(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, attempt)
+	channel, err := repo.MessageChannel(context.Background(), *attempt)
+	require.NoError(t, err)
+	require.Equal(t, domain.ConversationChannelWeb, channel, "a link deleted before the claim leaves the reply on the web channel")
+	require.NoError(t, repo.Finish(ctx, *attempt, "completed"))
 }

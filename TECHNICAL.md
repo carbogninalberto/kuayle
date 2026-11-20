@@ -2163,8 +2163,9 @@ parse-and-cap decision, so a fence refused by parsing or caps is copied as code;
 a fence that already rendered and then failed at runtime is still left out
 (known). Each Markdown segment renders on its own, so reference-style links and
 footnote definitions across a rich fence do not resolve (known).
-`BE/internal/service/conversation.go` adds the capability to the shared system
-prompt, so the model knows both fences (Telegram shows them as code).
+`BE/internal/service/conversation.go` resolves each reply's channel from its own
+queued delivery and appends `richBlocksPrompt` to the model request for
+web-channel replies only, so Telegram never learns the fences.
 
 ### Telegram assistant channel
 

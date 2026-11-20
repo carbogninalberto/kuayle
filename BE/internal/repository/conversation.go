@@ -445,12 +445,19 @@ func (r *ConversationRepository) Claim(ctx context.Context) (*domain.Conversatio
 	return &a, tx.Commit()
 }
 
-// MessageChannel reports where the claimed reply is delivered: telegram when a
-// linked private chat is waiting for this message, else web. The delivery row
-// is written when the message is queued, so it names the channel of this reply.
+// MessageChannel reports where the claimed reply is delivered: telegram when
+// this message's queued delivery would reach a linked private chat through an
+// enabled bot whose allowlist still names the recipient, else web. The same
+// checks deny the delivery at send time, so a reply that can no longer reach
+// Telegram counts as web and keeps its rich-block guidance.
 func (r *ConversationRepository) MessageChannel(ctx context.Context, a domain.ConversationAttempt) (string, error) {
 	var telegram bool
-	if err := r.db.GetContext(ctx, &telegram, `SELECT EXISTS(SELECT 1 FROM telegram_deliveries WHERE message_id=$1 AND status='queued')`, a.Message.ID); err != nil {
+	err := r.db.GetContext(ctx, &telegram, `SELECT EXISTS(
+		SELECT 1 FROM telegram_deliveries d
+		JOIN telegram_settings s ON s.workspace_id=d.workspace_id
+		JOIN telegram_links l ON l.workspace_id=d.workspace_id AND l.user_id=d.user_id AND l.telegram_user_id=d.telegram_user_id
+		WHERE d.message_id=$1 AND d.status='queued' AND s.enabled AND d.telegram_user_id=ANY(s.allowed_user_ids))`, a.Message.ID)
+	if err != nil {
 		return "", err
 	}
 	if telegram {
