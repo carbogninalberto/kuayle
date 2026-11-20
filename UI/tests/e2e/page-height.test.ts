@@ -568,7 +568,14 @@ async function mockApi(page: Page, theme: 'light' | 'dark') {
 			});
 		if (path === `${w}/assistant/status`)
 			return json({ configured: true, provider: 'openai_compatible', model: 'configured-model' });
-		if (path === `${w}/conversations`) return json(request.method() === 'POST' ? conversations[0] : conversations);
+		if (path === `${w}/conversation-folders`) return json([]);
+		if (path === `${w}/conversations`) {
+			if (request.method() === 'POST') return json(conversations[0]);
+			const beforeId = url.searchParams.get('before_id');
+			const start = conversations.findIndex((chat) => chat.id === beforeId) + 1;
+			const limit = Number(url.searchParams.get('limit') ?? 100);
+			return json(conversations.slice(start, start + limit));
+		}
 		const conversation = path.match(/^\/api\/workspaces\/test\/conversations\/([^/]+)(\/.*)?$/);
 		if (conversation) {
 			const [, conversationId, rest = ''] = conversation;
@@ -1003,6 +1010,12 @@ for (const { route, theme, viewport } of cases) {
 		await expect(page.getByTestId('shell-scroll')).toBeVisible();
 		await route.afterLoad?.(page);
 		if (route.ready) await expect(page.getByText(route.ready).locator('visible=true').first()).toBeVisible();
+		if (route.long === 'wide' && viewport === tall) {
+			// One page of recents fits in the tall window. Load the rest to exercise the sidebar scroller.
+			const history = page.getByRole('navigation', { name: 'Conversations' });
+			await history.getByRole('button', { name: 'Load more' }).click();
+			await expect(history.getByRole('link')).toHaveCount(conversations.length);
+		}
 		await page.waitForLoadState('networkidle');
 		await waitForLayoutToSettle(page);
 		// The fixtures are taller than the tallest window, so every long route must scroll in a region.
