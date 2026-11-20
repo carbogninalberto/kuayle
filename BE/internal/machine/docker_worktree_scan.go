@@ -154,6 +154,9 @@ var worktreeScanKill = []string{"timeout", "-s", "KILL", "12"}
 // The whole exec has a fixed deadline and its stdout a fixed cap; a scan that
 // reaches either reports Truncated.
 func (r *DockerRuntime) ScanWorktree(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, job WorktreeScanJob) (*domain.WorktreeScanResult, error) {
+	if job.Request.Kind.ReadsDocker() {
+		return r.scanMachineDocker(ctx, services, job.Request)
+	}
 	developerContainer := developerContainerID(services)
 	if developerContainer == "" {
 		return nil, fmt.Errorf("developer container is unavailable")

@@ -221,6 +221,46 @@ func (r *DockerRuntime) dockerVolumeExists(ctx context.Context, machine *domain.
 	return r.inspectWorkspaceVolume(ctx, dockerVolumeName(machine), labels, machine.DiskGB)
 }
 
+// scanMachineDocker reads the dedicated daemon's local socket, as its health check does.
+func (r *DockerRuntime) scanMachineDocker(ctx context.Context, services []domain.DevMachineService, req domain.WorktreeScanRequest) (*domain.WorktreeScanResult, error) {
+	id := dockerContainerID(services)
+	if id == "" {
+		return nil, &terminalOperationError{code: "docker_unavailable", message: "The machine has no running Docker service"}
+	}
+	if !req.ValidDockerRead() {
+		return nil, fmt.Errorf("invalid machine Docker read")
+	}
+	command := []string{"timeout", "-s", "KILL", "12", "sh", "-c", `exec docker --host "unix://${XDG_RUNTIME_DIR:-/run/user/1000}/docker.sock" "$@"`, "docker-read"}
+	count := strconv.Itoa(req.Limit + 1)
+	if req.Kind == domain.MachineScanContainers {
+		command = append(command, "ps", "--filter", "status=running", "--last", count, "--format", "{{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}")
+	} else {
+		command = append(command, "logs", "--tail", count, "--", req.Container)
+	}
+	readCtx, cancel := context.WithTimeout(ctx, domain.WorktreeScanTimeout)
+	defer cancel()
+	code, output, err := r.execCombined(readCtx, id, command, "1000:1000")
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, &terminalOperationError{code: "docker_read_failed", message: "Docker could not read the requested containers or logs"}
+	}
+	// A clipped leading record could contain only the suffix of a credential.
+	truncated := len(output) == refreshOutputCapture
+	if truncated {
+		_, output, _ = strings.Cut(output, "\n")
+	}
+	if req.Kind == domain.MachineScanContainers {
+		// Docker lists newest first. Drop the extra oldest row from ps --last.
+		rows := strings.SplitN(strings.TrimSuffix(output, "\n"), "\n", req.Limit+1)
+		if len(rows) > req.Limit {
+			output, truncated = strings.Join(rows[:req.Limit], "\n"), true
+		}
+	}
+	return &domain.WorktreeScanResult{Content: output, Truncated: truncated}, nil
+}
+
 // dockerDiskUsage measures the daemon's data volume. Its files belong to the
 // daemon's user namespace, which the machine's users control, so the size is
 // read by a short-lived helper container instead: the daemon image's du, the
