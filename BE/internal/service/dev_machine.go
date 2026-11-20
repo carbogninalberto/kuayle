@@ -2072,6 +2072,15 @@ func (s *DevMachineService) ListResourceSamples(ctx context.Context, workspaceID
 	return nonNilSlice(items), err
 }
 
+func (s *DevMachineService) GetResourceUsageForUser(ctx context.Context, workspaceID, machineID, userID uuid.UUID) (*domain.DevMachine, *domain.DevMachineUsage, error) {
+	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+	usage, err := s.store.GetResourceUsage(ctx, workspaceID, machineID)
+	return machine, usage, err
+}
+
 // resourceHistoryWindows are the chart windows and their span.
 var resourceHistoryWindows = map[string]time.Duration{
 	"1h":  time.Hour,

@@ -12,13 +12,11 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/repository"
 )
 
-// The machine tools act on the machine of an issue's newest coding task: its
-// preview and its app ports. They call the same task repository and Dev
-// Machine service as the HTTP routes, as the conversation's user, so the
-// task-creator and machine-owner checks are theirs.
+// The machine tools use the task repository and Dev Machine service to read
+// usage and manage previews and app ports.
 
-// assistantMachineTasks is the task side: the issue's newest task, read and
-// previewed only by its creator.
+// assistantMachineTasks resolves the issue's newest coding task. The
+// repository checks task ownership for preview operations.
 type assistantMachineTasks interface {
 	FollowUpTarget(ctx context.Context, ws, issue uuid.UUID) (*repository.FollowUpTarget, error)
 	Get(ctx context.Context, ws, id uuid.UUID) (*domain.AgentTask, error)
@@ -36,9 +34,14 @@ type assistantMachinePorts interface {
 	AppPortHost(machine *domain.DevMachine, port int) string
 }
 
-// SetMachines enables start_preview, stop_preview, expose_port and list_ports.
-func (t *AssistantTools) SetMachines(tasks assistantMachineTasks, ports assistantMachinePorts) {
-	t.machineTasks, t.machinePorts = tasks, ports
+type assistantMachineService interface {
+	assistantMachinePorts
+	GetResourceUsageForUser(ctx context.Context, ws, machine, user uuid.UUID) (*domain.DevMachine, *domain.DevMachineUsage, error)
+}
+
+// SetMachines enables the preview, port and resource usage tools.
+func (t *AssistantTools) SetMachines(tasks assistantMachineTasks, machines assistantMachineService) {
+	t.machineTasks, t.machines = tasks, machines
 }
 
 // SetMachines enables approving start_preview and expose_port requests.
@@ -46,11 +49,30 @@ func (s *AssistantApprovals) SetMachines(tasks assistantMachineTasks, ports assi
 	s.machineTasks, s.machines = tasks, ports
 }
 
+const getMachineUsageTool = "get_machine_usage"
+
 var assistantMachineToolCatalog = []assistantTool{
 	{name: "start_preview", machines: true, approval: true, description: "Ask the user to approve starting the preview of an issue's newest coding task: its configured preview command runs in the task's worktree on its machine, on its own app port. Only the task's creator can start it. After approval the user opens it from the approval card; call list_ports for the link.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "stop_preview", machines: true, description: "Stop the running preview of an issue's newest coding task. Only call this when the user asked to stop it.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "expose_port", machines: true, approval: true, description: "Ask the user to approve exposing a TCP port (1024-65535) of the machine of an issue's newest coding task on its own authenticated gateway link. A port the machine already exposes is reused. Only the machine's owner can expose ports or open the link. Only call this when the user asked to expose or open a port.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"port":{"type":"integer","minimum":1024,"maximum":65535},"label":{"type":"string","maxLength":40}},"required":["identifier","port"],"additionalProperties":false}`},
 	{name: "list_ports", machines: true, description: "List the exposed app ports of the machine of an issue's newest coding task, with their gateway links, whether each is listening, the ports detected as listening and the task's preview state. Links open only for the machine's owner signed in to Kuayle.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
+	{name: getMachineUsageTool, machines: true, description: "Read a dev machine's latest and peak CPU, memory and disk usage from retained samples, with its configured limits and the latest sample time. Use for questions about resource usage, for example after 'no space left on device'. Give identifier (the machine of an issue's newest coding task, for its creator or a workspace admin) or machine_id (one of your own machines), not both. Include the limits and sample time in your answer. CPU usage is percent of one vCPU (100% is 1000 millicores). Memory and disk usage are in bytes, with memory_mb and disk_gb limits in MiB and GiB.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"machine_id":{"type":"string","maxLength":36}},"additionalProperties":false}`},
+}
+
+// newestMachineTask resolves a visible issue and its newest coding task.
+func (t *AssistantTools) newestMachineTask(ctx context.Context, ws uuid.UUID, identifier string) (*domain.Issue, *repository.FollowUpTarget, error) {
+	issue, err := t.issues.GetByIdentifier(ctx, ws, strings.ToUpper(strings.TrimSpace(identifier)))
+	if err != nil || issue == nil {
+		return nil, nil, toolFailure("issue not found")
+	}
+	target, err := t.machineTasks.FollowUpTarget(ctx, ws, issue.ID)
+	if errors.Is(err, repository.ErrNoMergeTarget) {
+		return nil, nil, toolFailure("this issue has no coding task")
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return issue, target, nil
 }
 
 // machineTask resolves the issue with the user's own visibility, then its
@@ -60,17 +82,10 @@ func (t *AssistantTools) machineTask(ctx context.Context, ws, user uuid.UUID, id
 	if err != nil || member == nil || member.Role == domain.RoleGuest {
 		return nil, nil, toolFailure("you no longer have access to this workspace")
 	}
-	if t.machineTasks == nil || t.machinePorts == nil {
+	if t.machineTasks == nil || t.machines == nil {
 		return nil, nil, toolFailure("unknown tool")
 	}
-	issue, err := t.issues.GetByIdentifier(ctx, ws, strings.ToUpper(strings.TrimSpace(identifier)))
-	if err != nil || issue == nil {
-		return nil, nil, toolFailure("issue not found")
-	}
-	target, err := t.machineTasks.FollowUpTarget(ctx, ws, issue.ID)
-	if errors.Is(err, repository.ErrNoMergeTarget) {
-		return nil, nil, toolFailure("this issue has no coding task")
-	}
+	issue, target, err := t.newestMachineTask(ctx, ws, identifier)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -92,7 +107,7 @@ func (t *AssistantTools) taskMachine(ctx context.Context, ws, user uuid.UUID, ta
 	if task.MachineID == nil {
 		return nil, toolFailure("the issue's newest coding task has no machine yet")
 	}
-	machine, err := t.machinePorts.GetForUser(ctx, ws, *task.MachineID, user)
+	machine, err := t.machines.GetForUser(ctx, ws, *task.MachineID, user)
 	if err != nil {
 		return nil, machineToolFailure(err)
 	}
@@ -172,7 +187,7 @@ func (t *AssistantTools) preparePort(ctx context.Context, ws, user uuid.UUID, ar
 	if err != nil {
 		return uuid.Nil, domain.ExposePortPayload{}, machineToolFailure(err)
 	}
-	list, err := t.machinePorts.ListPorts(ctx, ws, machine.ID, user, false)
+	list, err := t.machines.ListPorts(ctx, ws, machine.ID, user, false)
 	if err != nil {
 		return uuid.Nil, domain.ExposePortPayload{}, machineToolFailure(err)
 	}
@@ -181,13 +196,13 @@ func (t *AssistantTools) preparePort(ctx context.Context, ws, user uuid.UUID, ar
 		existing = existing || port.Port == input.Port
 	}
 	if !existing {
-		if err = t.machinePorts.ReservedPort(ctx, ws, machine.ID, input.Port); err != nil {
+		if err = t.machines.ReservedPort(ctx, ws, machine.ID, input.Port); err != nil {
 			return uuid.Nil, domain.ExposePortPayload{}, machineToolFailure(err)
 		}
 	}
 	return issue.ID, domain.ExposePortPayload{
 		Identifier: issue.Identifier, Title: issue.Title, TaskID: task.ID, MachineID: machine.ID, Machine: machine.Name,
-		Port: input.Port, Label: label, Host: t.machinePorts.AppPortHost(machine, input.Port), Existing: existing, Audience: domain.AppPortAudienceOwner,
+		Port: input.Port, Label: label, Host: t.machines.AppPortHost(machine, input.Port), Existing: existing, Audience: domain.AppPortAudienceOwner,
 	}, nil
 }
 
@@ -227,7 +242,7 @@ func (t *AssistantTools) runMachineTool(ctx context.Context, ws, user uuid.UUID,
 	if err != nil {
 		return nil, nil, err
 	}
-	list, err := t.machinePorts.ListPorts(ctx, ws, machine.ID, user, false)
+	list, err := t.machines.ListPorts(ctx, ws, machine.ID, user, false)
 	if err != nil {
 		return nil, nil, machineToolFailure(err)
 	}
@@ -247,6 +262,74 @@ func (t *AssistantTools) runMachineTool(ctx context.Context, ws, user uuid.UUID,
 		"ports": ports, "listening": list.Listening, "preview": task.Preview(), "audience": domain.AppPortAudienceOwner,
 		"note": "Only the machine's owner can open these links, signed in to Kuayle; the chat shows an Open button for each.",
 	}, &issue.ID, nil
+}
+
+func (t *AssistantTools) getMachineUsage(ctx context.Context, ws, user uuid.UUID, arguments string) (any, *uuid.UUID, error) {
+	if refusal := refuseMachineAction(t.machineAccess, user, getMachineUsageTool); refusal != "" {
+		return nil, nil, toolFailure("%s", refusal)
+	}
+	var input struct {
+		Identifier string `json:"identifier"`
+		MachineID  string `json:"machine_id"`
+	}
+	if err := decodeToolInput(arguments, &input); err != nil {
+		return nil, nil, err
+	}
+	identifier, machineID := strings.TrimSpace(input.Identifier), strings.TrimSpace(input.MachineID)
+	result := map[string]any{}
+	var issueID *uuid.UUID
+	var id uuid.UUID
+	owner := user
+	switch {
+	case identifier != "" && machineID != "":
+		return nil, nil, toolFailure("give machine_id or identifier, not both")
+	case machineID != "":
+		parsed, err := uuid.Parse(machineID)
+		if err != nil {
+			return nil, nil, toolFailure("machine_id is not a machine id")
+		}
+		id = parsed
+	case identifier != "":
+		issue, task, err := t.newestMachineTask(ctx, ws, identifier)
+		if err != nil {
+			return nil, nil, err
+		}
+		refusal, err := authorizeAssistantAction(ctx, t.members, t.system, ws, user, getMachineUsageTool, task.CreatorID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if refusal != "" {
+			return nil, nil, toolFailure("%s", refusal)
+		}
+		if task.TeamID != issue.TeamID {
+			return nil, nil, toolFailure("the issue's newest coding task belongs to its previous team")
+		}
+		if task.MachineID == nil {
+			return nil, nil, toolFailure("the issue's newest coding task has no machine yet")
+		}
+		// Task machines belong to the task creator. The admin grant is scoped
+		// to this issue lookup, and direct lookup still checks the caller.
+		id, owner, issueID = *task.MachineID, task.CreatorID, &issue.ID
+		result["identifier"], result["task_id"] = issue.Identifier, task.TaskID
+	default:
+		return nil, nil, toolFailure("give machine_id or identifier")
+	}
+	machine, usage, err := t.machines.GetResourceUsageForUser(ctx, ws, id, owner)
+	if errors.Is(err, ErrMachineNotFound) {
+		return nil, nil, toolFailure("machine not found")
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	result["machine_id"], result["machine"] = machine.ID, machine.Name
+	result["limits"] = map[string]int{"cpu_millis": machine.CPUMillis, "memory_mb": machine.MemoryMB, "disk_gb": machine.DiskGB}
+	result["sampled_at"], result["latest"], result["peak"] = nil, nil, nil
+	if usage == nil {
+		result["note"] = "No resource samples are available for this machine."
+	} else {
+		result["sampled_at"], result["latest"], result["peak"] = usage.SampledAt.UTC(), usage.Latest, usage.Peak
+	}
+	return result, issueID, nil
 }
 
 // startPreview queues an approved preview as the approver. The task

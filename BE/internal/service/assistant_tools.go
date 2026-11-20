@@ -84,9 +84,9 @@ type AssistantTools struct {
 	heads pullRequestHeadReader
 	// link_repository is unavailable until SetRepositories wires it.
 	repositories assistantRepositoryStore
-	// The preview and port tools are unavailable until SetMachines wires them.
+	// The preview, port and usage tools are unavailable until SetMachines wires them.
 	machineTasks assistantMachineTasks
-	machinePorts assistantMachinePorts
+	machines     assistantMachineService
 	// The live channel tools are unavailable until SetLiveChannel wires them.
 	live assistantLiveTasks
 	// Every tool stays enabled until SetSettings wires the workspace switches.
@@ -322,7 +322,7 @@ func (tool assistantTool) spec() chatToolSpec {
 // available reports whether a tool's dependencies are wired.
 func (t *AssistantTools) available(tool assistantTool) bool {
 	return (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.publish || (t.wikiPublish != nil && t.wikiWorkspaces != nil)) && (!tool.agentWork || t.work != nil) && (!tool.watch || t.watchers != nil) && (!tool.repositories || t.repositories != nil) &&
-		(!tool.machines || (t.machineTasks != nil && t.machinePorts != nil)) &&
+		(!tool.machines || (t.machineTasks != nil && t.machines != nil)) &&
 		(!tool.live || t.live != nil) &&
 		(!tool.skills || t.skills != nil) &&
 		(!tool.customTools || t.customTools != nil) &&
@@ -535,6 +535,8 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return result, nil, err
 	case "stop_preview", "list_ports":
 		return t.runMachineTool(ctx, ws, user, name, arguments)
+	case getMachineUsageTool:
+		return t.getMachineUsage(ctx, ws, user, arguments)
 	case "get_task_messages":
 		return t.runLiveTool(ctx, ws, user, name, arguments)
 	case "plan_issues":

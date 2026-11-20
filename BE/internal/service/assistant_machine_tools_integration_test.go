@@ -33,7 +33,7 @@ func (f *machineTasksFake) FollowUpTarget(_ context.Context, ws, issue uuid.UUID
 	if f.task == nil || f.task.WorkspaceID != ws || f.task.IssueID != issue {
 		return nil, repository.ErrNoMergeTarget
 	}
-	return &repository.FollowUpTarget{TaskID: f.task.ID, CreatorID: f.task.CreatorID, State: f.task.State, Generation: f.task.Generation}, nil
+	return &repository.FollowUpTarget{TaskID: f.task.ID, CreatorID: f.task.CreatorID, TeamID: f.task.TeamID, MachineID: f.task.MachineID, State: f.task.State, Generation: f.task.Generation}, nil
 }
 
 func (f *machineTasksFake) Get(ctx context.Context, ws, id uuid.UUID) (*domain.AgentTask, error) {
@@ -250,14 +250,16 @@ func TestAssistantExposesPortsAfterApprovalAndReusesExistingOnes(t *testing.T) {
 func TestMachineToolsNeedTheirServices(t *testing.T) {
 	tools := &AssistantTools{}
 	for _, spec := range tools.specs() {
-		require.NotContains(t, []string{"start_preview", "stop_preview", "expose_port", "list_ports"}, spec.Function.Name)
+		require.NotContains(t, []string{"start_preview", "stop_preview", "expose_port", "list_ports", "get_machine_usage"}, spec.Function.Name)
 	}
 	tools.SetMachines(&machineTasksFake{}, newTestDevMachineService(&portStoreFake{devMachineStoreFake: &devMachineStoreFake{}}))
 	names := []string{}
 	for _, spec := range tools.specs() {
 		names = append(names, spec.Function.Name)
 	}
-	require.Subset(t, names, []string{"start_preview", "stop_preview", "expose_port", "list_ports"})
+	require.Subset(t, names, []string{"start_preview", "stop_preview", "expose_port", "list_ports", "get_machine_usage"})
+	usage, _ := lookupAssistantTool("get_machine_usage")
+	require.False(t, usage.approval || usage.write, "usage is read-only and needs no approval")
 }
 
 // Telegram answers preview and port approvals for what they did.
