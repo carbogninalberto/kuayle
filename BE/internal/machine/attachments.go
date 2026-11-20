@@ -2,8 +2,10 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"regexp"
 
 	"github.com/google/uuid"
@@ -39,6 +41,7 @@ func (m *Manager) SetAttachmentStorage(files attachmentReader) {
 }
 
 var attachmentPath = regexp.MustCompile(`^\.kuayle/attachments/[A-Za-z0-9._-]{1,120}$`)
+var errStoredAttachmentUnavailable = errors.New("stored attachment is unavailable")
 
 // stageAttachments copies the run's recorded images. Failure never blocks the
 // run: the agent is told by path and can report a missing file.
@@ -89,6 +92,9 @@ func (m *Manager) readAttachment(ctx context.Context, key string, size int64) ([
 		return nil, fmt.Errorf("invalid attachment size")
 	}
 	reader, err := m.attachmentFiles.Get(ctx, key)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%w: %w", errStoredAttachmentUnavailable, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read attachment: %w", err)
 	}
@@ -98,7 +104,7 @@ func (m *Manager) readAttachment(ctx context.Context, key string, size int64) ([
 		return nil, err
 	}
 	if int64(len(data)) != size {
-		return nil, fmt.Errorf("attachment changed in storage")
+		return nil, fmt.Errorf("%w: size changed", errStoredAttachmentUnavailable)
 	}
 	return data, nil
 }

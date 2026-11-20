@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Un agent de codage travaillera sur {title} dans un environnement isolé avec ces instructions :",
 	"assistant.approval_repository": "Dépôt : {repository} sur {branch}, d'après les paramètres de {source}",
 	"assistant.approval_approve": "Approuver",
+	"assistant.approval_review_details": "Dépliez les détails pour approuver.",
 	"assistant.approval_deny": "Refuser",
 	"assistant.approval_approving": "Lancement d'un agent de codage sur {identifier}",
 	"assistant.approval_approved": "Agent de codage lancé sur {identifier}",

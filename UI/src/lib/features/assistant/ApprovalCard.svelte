@@ -30,13 +30,11 @@
 	let {
 		approval,
 		slug,
-		model,
 		workflowList,
 		onresolve
 	}: {
 		approval: ConversationApproval;
 		slug: string;
-		model?: string;
 		workflowList: WorkflowList | null;
 		onresolve: (approval: ConversationApproval, decision: 'approve' | 'deny', edit?: ApprovalEdit) => Promise<void>;
 	} = $props();
@@ -58,6 +56,12 @@
 				: undefined
 	);
 	const invalid = $derived(draft !== undefined && releaseNotesInvalid(releaseNotes ?? draft));
+	const needsReview = $derived(
+		!opened && [
+			'run_command', 'run_command_write', 'run_migration', 'merge_pull_request',
+			'ship_pull_request', 'delete_wiki_page', 'run_custom_tool'
+		].includes(approval.action)
+	);
 	const gap = $derived((approval.payload as { github_access?: GitHubAccessGap }).github_access);
 	const merge = $derived(
 		approval.action === 'merge_pull_request'
@@ -81,7 +85,7 @@
 		if (isCustomChoice(choice)) modelChoice = undefined;
 	}
 	async function decide(decision: 'approve' | 'deny') {
-		if (deciding) return;
+		if (deciding || (decision === 'approve' && (invalid || needsReview))) return;
 		deciding = true;
 		error = '';
 		const edit = {
@@ -195,12 +199,13 @@
 	aria-labelledby="approval-title-{approval.id}"
 	class="min-w-0 rounded-xl border bg-card text-card-foreground shadow-sm"
 >
-	<div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 sm:px-4">
+	<div class="px-3 pt-2.5 pb-2 sm:px-4">
 		<Button
 			variant="plain"
 			aria-expanded={expanded}
+			aria-describedby={needsReview ? 'approval-review-' + approval.id : undefined}
 			aria-controls="approval-details-{approval.id}"
-			class="flex min-w-32 flex-1 items-start gap-2 rounded-md text-left focus-visible:outline-2 focus-visible:outline-ring"
+			class="flex w-full items-start gap-2 rounded-md text-left focus-visible:outline-2 focus-visible:outline-ring"
 			onclick={() => {
 				expanded = !expanded;
 				opened = true;
@@ -213,7 +218,7 @@
 					? ''
 					: '-rotate-90'}"
 			/>
-			<span class="min-w-0 break-words">
+			<span class="min-w-0 [overflow-wrap:anywhere]">
 				{#if title}<span id="approval-title-{approval.id}" class="block text-sm leading-snug font-semibold"
 						>{title}</span
 					>{/if}
@@ -223,14 +228,6 @@
 				>
 			</span>
 		</Button>
-		<div class="ml-auto flex items-center gap-1.5">
-			<Button size="sm" variant="outline" disabled={deciding} onclick={() => void decide('deny')}
-				>{m['assistant.approval_deny']()}</Button
-			>
-			<Button size="sm" disabled={deciding || invalid} onclick={() => void decide('approve')}
-				>{m['assistant.approval_approve']()}</Button
-			>
-		</div>
 	</div>
 	<div
 		id="approval-details-{approval.id}"
@@ -565,7 +562,7 @@
 							>
 						</p>
 						<p class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-							<Lock size={12} class="shrink-0" /><span class="break-all"
+							<Lock size={12} class="shrink-0" /><span class="min-w-0"
 								>{approval.action === 'run_migration'
 									? m['assistant.migration_note']({ seconds: approval.payload.timeout_seconds })
 									: approval.payload.write
@@ -589,17 +586,7 @@
 									})}</span
 								>
 							</p>{/if}
-						{#if offersWorkflow && workflowList}
-							<WorkflowChoice
-								list={workflowList}
-								id="approval-workflow-{approval.id}"
-								bind:value={() => workflow, chooseWorkflow}
-								disabled={deciding}
-								extra={approval.payload.workflow_id
-									? { id: approval.payload.workflow_id, name: approval.payload.workflow ?? '' }
-									: undefined}
-							/>
-						{:else if approval.payload.workflow}<p
+						{#if !offersWorkflow && approval.payload.workflow}<p
 								class="flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
 							>
 								<Workflow size={12} class="shrink-0" /><span class="break-words"
@@ -613,22 +600,39 @@
 					{#if (approval.action === 'delegate_issue' || approval.action === 'follow_up_task') && approval.payload.effort}
 						<p class="text-xs text-muted-foreground">{m['tasks.effort']()}: {approval.payload.effort}</p>
 					{/if}
-					{#if (approval.action === 'delegate_issue' && !isCustomChoice(workflow)) || approval.action === 'request_agent_review' || approval.action === 'follow_up_task'}
-						<ApprovalModelPicker
-							{slug}
-							issueId={approval.issue_id}
-							proposed={approval.action === 'follow_up_task'
-								? {
-										harness: approval.payload.harness,
-										model: approval.payload.model || approval.payload.current_model,
-										server: approval.payload.model_server_id,
-										current: !approval.payload.model
-									}
-								: approval.payload}
-							harnessLocked={approval.action === 'follow_up_task'}
-							disabled={deciding}
-							onchange={(choice) => (modelChoice = choice)}
-						/>
+					{#if approval.action === 'delegate_issue' || approval.action === 'follow_up_task' || approval.action === 'request_agent_review'}
+						<div class="flex flex-wrap items-start gap-2 empty:hidden [&>div]:flex-[1_1_6rem]
+							[&_[role=combobox]]:w-full [&_[role=combobox]]:max-w-full
+							[&_[data-slot=select-trigger]]:h-7 [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate">
+							{#if approval.action === 'delegate_issue' && offersWorkflow && workflowList}
+								<WorkflowChoice
+									list={workflowList}
+									id="approval-workflow-{approval.id}"
+									bind:value={() => workflow, chooseWorkflow}
+									disabled={deciding}
+									extra={approval.payload.workflow_id
+										? { id: approval.payload.workflow_id, name: approval.payload.workflow ?? '' }
+										: undefined}
+								/>
+							{/if}
+							{#if approval.action !== 'delegate_issue' || !isCustomChoice(workflow)}
+								<ApprovalModelPicker
+									{slug}
+									issueId={approval.issue_id}
+									proposed={approval.action === 'follow_up_task'
+										? {
+												harness: approval.payload.harness,
+												model: approval.payload.model || approval.payload.current_model,
+												server: approval.payload.model_server_id,
+												current: !approval.payload.model
+											}
+										: approval.payload}
+									harnessLocked={approval.action === 'follow_up_task'}
+									disabled={deciding}
+									onchange={(choice) => (modelChoice = choice)}
+								/>
+							{/if}
+						</div>
 					{/if}
 					{#if approval.action === 'delegate_issue' || approval.action === 'follow_up_task'}
 						<Markdown source={approval.payload.instructions} />
@@ -638,14 +642,25 @@
 		</div>
 	</div>
 	{#if error}<p role="alert" class="px-3 pb-2 text-xs text-destructive">{error}</p>{/if}
-	<div class="flex flex-wrap items-center gap-x-2 px-3 pb-2 text-[11px] text-muted-foreground sm:px-4">
-		{#if warning && !expanded}<span class="basis-full pb-1 text-xs font-medium">{warning}</span>{/if}
-		<span class="inline-flex items-center gap-1.5"
-			><span class="size-1.5 rounded-full bg-[var(--status-warning)]"></span>{m['automations.pending']()}</span
-		>
-		<time datetime={approval.created_at}
-			>{new Date(approval.created_at).toLocaleTimeString(getLocale(), { hour: '2-digit', minute: '2-digit' })}</time
-		>
-		{#if model}<span>· {model}</span>{/if}
+	{#if warning && !expanded}<p class="px-3 pb-1 text-xs font-medium sm:px-4">{warning}</p>{/if}
+	{#if needsReview}<p id="approval-review-{approval.id}" class="px-3 pb-1 text-xs text-muted-foreground sm:px-4">{m['assistant.approval_review_details']()}</p>{/if}
+	<div class="flex items-center gap-2 px-3 pb-2.5 sm:px-4" class:pt-2={expanded}>
+		<div class="flex min-w-0 flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+			<span class="inline-flex items-center gap-1.5"
+				><span class="size-1.5 rounded-full bg-[var(--status-warning)]"></span>{m['automations.pending']()}</span
+			>
+			<time datetime={approval.created_at}
+				>{new Date(approval.created_at).toLocaleTimeString(getLocale(), { hour: '2-digit', minute: '2-digit' })}</time
+			>
+			{#if approval.message_model}<span class="truncate" title={approval.message_model}>{approval.message_model}</span>{/if}
+		</div>
+		<div class="ml-auto flex shrink-0 items-center gap-1.5">
+			<Button size="sm" variant="outline" disabled={deciding} onclick={() => void decide('deny')}
+				>{m['assistant.approval_deny']()}</Button
+			>
+			<Button size="sm" disabled={deciding || invalid || needsReview} onclick={() => void decide('approve')}
+				>{m['assistant.approval_approve']()}</Button
+			>
+		</div>
 	</div>
 </article>

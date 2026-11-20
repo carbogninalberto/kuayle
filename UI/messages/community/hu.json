@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Egy kódoló agent izolált környezetben fog dolgozni ezen: {title}, a következő utasításokkal:",
 	"assistant.approval_repository": "Repository: {repository}, ág: {branch}, a(z) {source} beállításaiból",
 	"assistant.approval_approve": "Jóváhagyás",
+	"assistant.approval_review_details": "A jóváhagyáshoz nyissa meg a részleteket.",
 	"assistant.approval_deny": "Elutasítás",
 	"assistant.approval_approving": "Kódoló agent indítása ehhez: {identifier}",
 	"assistant.approval_approved": "Kódoló agent elindítva ehhez: {identifier}",

@@ -1018,6 +1018,7 @@ async function pendingDelegation(page: Page, payload: Record<string, unknown> = 
 			action: 'delegate_issue',
 			actor_id: 'user-1',
 			issue_id: 'issue-1',
+			message_model: answered.model,
 			payload: { identifier: 'ENG-1', title: 'Dark mode', instructions: 'Implement dark mode', ...payload },
 			status: 'pending',
 			expires_at: '2026-10-27T10:00:00Z',
@@ -1846,6 +1847,7 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByTestId('approval-card').getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
 	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Merge pull request #12 for ENG-1?', { exact: true })).toBeVisible();
 	await expect(
@@ -1928,7 +1930,10 @@ test('an approved merge waiting for the updated branch shows it waits, then that
 		return route.fulfill({ json: waiting });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
-	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	const card = page.getByTestId('approval-card');
+	await card.getByRole('button', { expanded: false }).click();
+	await expect(card.getByRole('link', { name: 'Open pull request' })).toHaveAttribute('href', pending.payload.pull_request_url);
+	await card.getByRole('button', { name: 'Approve', exact: true }).click();
 	await expect(
 		page.getByText(
 			'Approved: Kuayle brought the branch of ENG-1 up to date and merges it once the checks on the new head pass',
@@ -3528,11 +3533,15 @@ test('one approval lists all 25 proposed issue updates', async ({ page }) => {
 });
 
 test('pending approvals stay above the composer in creation order with keyboard disclosure', async ({ page }, testInfo) => {
+	const title = 'Track delivery for WhatsApp Business messages';
 	const state = await pendingDelegation(page, {
-		title: 'Add delivery tracking', instructions: '## Delivery status\n\nPersist **provider message IDs**.',
+		title, instructions: '## Delivery status\n\nPersist **provider message IDs**.',
 		repository: 'acme/notifications', base_branch: 'main', workflow_id: 'standard', workflow: 'Standard'
 	});
 	const first = state.approvals[0];
+	await page.route('**/api/workspaces/test/workflows', route => route.fulfill({
+		json: { ...workflowList, defaults: [{ workflow_id: 'workflow-loop' }] }
+	}));
 	state.approvals.unshift({
 		...first, id: 'approval-2', tool_call_id: 'tool-10', created_at: '2026-11-01T10:00:00Z',
 		action: 'message_task', payload: { identifier: 'ENG-2', title: 'Update the delivery report', body: 'Include delayed messages.' }
@@ -3542,7 +3551,7 @@ test('pending approvals stay above the composer in creation order with keyboard 
 	const stack = page.getByTestId('approval-stack');
 	const cards = stack.getByRole('article');
 	await expect(cards).toHaveCount(2);
-	await expect(cards.first()).toContainText('Add delivery tracking');
+	await expect(cards.first()).toContainText(title);
 	await expect(cards.last()).toContainText('Update the delivery report');
 	const toggle = cards.first().getByRole('button', { expanded: false });
 	await toggle.focus();
@@ -3571,6 +3580,25 @@ test('pending approvals stay above the composer in creation order with keyboard 
 	});
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('approvals-phone.png') });
+	await toggle.click();
+	const card = cards.first();
+	const heading = (await card.getByRole('button', { name: new RegExp(title), expanded: true }).boundingBox())!;
+	const decision = (await card.getByRole('button', { name: 'Approve' }).boundingBox())!;
+	expect(heading.y + heading.height).toBeLessThan(decision.y);
+	expect(Math.abs(heading.x + heading.width - decision.x - decision.width)).toBeLessThan(2);
+	const fields = [
+		card.getByTestId('task-workflow'),
+		card.getByRole('button', { name: 'Model server' }),
+		card.getByRole('combobox', { name: 'Model', exact: true })
+	];
+	const bounds = await Promise.all(fields.map(field => field.boundingBox()));
+	expect(Math.max(...bounds.map(b => b!.y)) - Math.min(...bounds.map(b => b!.y))).toBeLessThan(2);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('approvals-controls-phone.png') });
+	await fields[0].click();
+	await page.getByRole('option', { name: 'Issue default' }).click();
+	const note = card.getByText("A custom workflow's first agent step decides the coding agent and model.");
+	await expect(note).toBeVisible();
+	expect((await note.boundingBox())!.width).toBeGreaterThan(decision.x + decision.width - heading.x - 2);
 	await cards.first().getByRole('button', { name: 'Deny' }).click();
 	await expect(cards).toHaveCount(1);
 	await expect(cards.first()).toContainText('Update the delivery report');
@@ -3600,6 +3628,7 @@ test('a live approval keeps the reader’s scroll position and typing focus', as
 	}));
 	const card = page.getByTestId('approval-card');
 	await expect(card).toBeInViewport();
+	await expect(card).toContainText(approval.message_model);
 	await expect(composer).toBeFocused();
 	await expect(composer).toHaveValue('Draft in progress');
 	await card.getByRole('button', { expanded: false }).click();

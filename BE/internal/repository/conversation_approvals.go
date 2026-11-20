@@ -35,6 +35,7 @@ func (r *ConversationRepository) CreateApproval(ctx context.Context, a domain.Co
 	} else if err != nil {
 		return nil, err
 	}
+	approval.MessageModel = a.Message.Model
 	if _, err = conversationEvent(ctx, tx, a.Conversation.ID, "approval.requested", approval); err != nil {
 		return nil, err
 	}

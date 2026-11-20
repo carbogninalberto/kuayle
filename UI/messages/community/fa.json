@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "یک عامل کدنویسی در یک محیط ایزوله و با این دستورالعمل‌ها روی {title} کار خواهد کرد:",
 	"assistant.approval_repository": "مخزن: {repository} روی {branch}، از تنظیمات {source}",
 	"assistant.approval_approve": "تأیید",
+	"assistant.approval_review_details": "برای تأیید، جزئیات را باز کنید.",
 	"assistant.approval_deny": "رد",
 	"assistant.approval_approving": "در حال شروع عامل کدنویسی روی {identifier}",
 	"assistant.approval_approved": "عامل کدنویسی روی {identifier} شروع شد",

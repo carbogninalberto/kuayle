@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "编码代理将在隔离环境中按以下说明处理 {title}：",
 	"assistant.approval_repository": "仓库：{repository}（{branch} 分支），来自{source}设置",
 	"assistant.approval_approve": "批准",
+	"assistant.approval_review_details": "展开详情后即可批准。",
 	"assistant.approval_deny": "拒绝",
 	"assistant.approval_approving": "正在 {identifier} 上启动编码代理",
 	"assistant.approval_approved": "已在 {identifier} 上启动编码代理",

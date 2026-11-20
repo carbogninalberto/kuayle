@@ -604,4 +604,8 @@ func TestPendingApprovalRemainsAvailableOutsideTheLatestHistoryPage(t *testing.T
 	require.Empty(t, history.Tools)
 	require.Len(t, history.Approvals, 1)
 	require.Equal(t, pending.ID, history.Approvals[0].ID)
+	require.Equal(t, a.Message.Model, history.Approvals[0].MessageModel)
+	var streamed string
+	require.NoError(t, f.db.Get(&streamed, `SELECT payload->>'message_model' FROM conversation_events WHERE conversation_id=$1 AND type='approval.requested'`, a.Conversation.ID))
+	require.Equal(t, a.Message.Model, streamed)
 }

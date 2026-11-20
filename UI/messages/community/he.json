@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "סוכן קידוד יעבוד על {title} בסביבה מבודדת עם ההנחיות האלה:",
 	"assistant.approval_repository": "מאגר: {repository} בענף {branch}, מהגדרות {source}",
 	"assistant.approval_approve": "אישור",
+	"assistant.approval_review_details": "כדי לאשר, יש להרחיב את הפרטים.",
 	"assistant.approval_deny": "דחייה",
 	"assistant.approval_approving": "מפעיל סוכן קידוד על {identifier}",
 	"assistant.approval_approved": "סוכן קידוד הופעל על {identifier}",

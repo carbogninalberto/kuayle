@@ -224,7 +224,9 @@ Pending approvals appear directly above the composer, oldest first by creation
 time and then by approval ID. Loading the latest history page includes pending
 decisions from earlier pages. Each card opens with its subject, requested
 action and decision buttons. Expand it for instructions, configuration and
-supporting evidence. Resolved outcomes appear with the originating tool call.
+supporting evidence. Commands, migrations, merges (including ship), wiki
+deletions and custom tools require opening the details before approving.
+Deny is available immediately. Resolved outcomes appear with the originating tool call.
 
 **Agent view.** When an issue chat has coding tasks, the top bar offers
 "Agent · ENG-1" (a menu with status dots when there are several). It swaps

@@ -13,13 +13,6 @@
 			.filter((a) => a.status === 'pending')
 			.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id))
 	);
-	const models = $derived.by(() => {
-		const result = new Map<string, string>();
-		for (const message of chat.messages) {
-			if (message.model) for (const call of chat.tools[message.id] ?? []) result.set(call.id, message.model);
-		}
-		return result;
-	});
 	let workflowList = $state<WorkflowList | null>(null);
 	const needsWorkflows = $derived(pending.some((a) => a.action === 'delegate_issue'));
 	$effect(() => {
@@ -44,7 +37,6 @@
 				<ApprovalCard
 					{approval}
 					slug={chat.slug}
-					model={approval.message_model || models.get(approval.tool_call_id)}
 					{workflowList}
 					onresolve={async (item, decision, edit) => {
 						const focused = document.activeElement;

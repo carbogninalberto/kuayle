@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Ejen pengekodan akan mengerjakan {title} dalam persekitaran terpencil dengan arahan ini:",
 	"assistant.approval_repository": "Repositori: {repository} pada {branch}, daripada tetapan {source}",
 	"assistant.approval_approve": "Luluskan",
+	"assistant.approval_review_details": "Buka butiran untuk meluluskan.",
 	"assistant.approval_deny": "Tolak",
 	"assistant.approval_approving": "Memulakan ejen pengekodan pada {identifier}",
 	"assistant.approval_approved": "Ejen pengekodan dimulakan pada {identifier}",

@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "En coding-agent arbejder på {title} i et isoleret miljø med disse instruktioner:",
 	"assistant.approval_repository": "Repository: {repository} på {branch}, fra {source}-indstillingerne",
 	"assistant.approval_approve": "Godkend",
+	"assistant.approval_review_details": "Fold detaljerne ud for at godkende.",
 	"assistant.approval_deny": "Afvis",
 	"assistant.approval_approving": "Starter coding-agent på {identifier}",
 	"assistant.approval_approved": "Coding-agent startet på {identifier}",

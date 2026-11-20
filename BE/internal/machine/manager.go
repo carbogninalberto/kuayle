@@ -1539,7 +1539,14 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 			return err
 		}
 		if len(images) > 0 {
-			observer.PrepareInbox = func(ctx context.Context) error { return m.writeLiveImages(ctx, machine, run, images) }
+			observer.PrepareInbox = func(ctx context.Context) error {
+				for _, image := range images {
+					if err := m.writeLiveImage(ctx, machine, run, image); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
 		}
 	}
 	// While an unattended attempt runs, queued live messages reach its inbox

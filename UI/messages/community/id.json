@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Agen coding akan mengerjakan {title} di lingkungan terisolasi dengan instruksi berikut:",
 	"assistant.approval_repository": "Repositori: {repository} pada {branch}, dari pengaturan {source}",
 	"assistant.approval_approve": "Setujui",
+	"assistant.approval_review_details": "Buka detail untuk menyetujui.",
 	"assistant.approval_deny": "Tolak",
 	"assistant.approval_approving": "Memulai agen coding pada {identifier}",
 	"assistant.approval_approved": "Agen coding dimulai pada {identifier}",

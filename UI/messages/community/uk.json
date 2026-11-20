@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Агент кодування працюватиме над «{title}» в ізольованому середовищі за такими інструкціями:",
 	"assistant.approval_repository": "Репозиторій: {repository}, гілка {branch}, із налаштувань: {source}",
 	"assistant.approval_approve": "Схвалити",
+	"assistant.approval_review_details": "Розгорніть подробиці, щоб схвалити.",
 	"assistant.approval_deny": "Відхилити",
 	"assistant.approval_approving": "Запуск агента кодування для {identifier}",
 	"assistant.approval_approved": "Агента кодування запущено для {identifier}",

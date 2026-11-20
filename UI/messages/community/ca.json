@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Un agent de programació treballarà en {title} en un entorn aïllat amb aquestes instruccions:",
 	"assistant.approval_repository": "Repositori: {repository} a {branch}, de la configuració de {source}",
 	"assistant.approval_approve": "Aprova",
+	"assistant.approval_review_details": "Desplega els detalls per aprovar.",
 	"assistant.approval_deny": "Denega",
 	"assistant.approval_approving": "S'està iniciant l'agent de programació a {identifier}",
 	"assistant.approval_approved": "S'ha iniciat l'agent de programació a {identifier}",

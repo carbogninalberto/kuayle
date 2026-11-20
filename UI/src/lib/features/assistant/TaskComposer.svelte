@@ -204,7 +204,9 @@
 		>
 		<form onsubmit={submit} class="min-w-0 space-y-4">
 			{#if !task && workflowList && customWorkflows.length > 0}
-				<WorkflowChoice list={workflowList} id="task-workflow" bind:value={workflowChoice} disabled={saving} />
+				<div class="space-y-1.5">
+					<WorkflowChoice list={workflowList} id="task-workflow" bind:value={workflowChoice} disabled={saving} />
+				</div>
 			{/if}
 			{#if !task && !customChosen}
 				<div class="space-y-1.5">

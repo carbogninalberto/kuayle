@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Un agent de programare va lucra la {title} într-un mediu izolat, cu aceste instrucțiuni:",
 	"assistant.approval_repository": "Repository: {repository} pe {branch}, din setările pentru {source}",
 	"assistant.approval_approve": "Aprobă",
+	"assistant.approval_review_details": "Extinde detaliile pentru a aproba.",
 	"assistant.approval_deny": "Refuză",
 	"assistant.approval_approving": "Se pornește agentul de programare pentru {identifier}",
 	"assistant.approval_approved": "Agent de programare pornit pentru {identifier}",

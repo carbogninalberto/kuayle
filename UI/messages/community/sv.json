@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "En kodningsagent arbetar med {title} i en isolerad miljö med de här instruktionerna:",
 	"assistant.approval_repository": "Repo: {repository} på {branch}, från inställningarna för {source}",
 	"assistant.approval_approve": "Godkänn",
+	"assistant.approval_review_details": "Visa detaljerna för att godkänna.",
 	"assistant.approval_deny": "Neka",
 	"assistant.approval_approving": "Startar kodningsagent på {identifier}",
 	"assistant.approval_approved": "Kodningsagent startad på {identifier}",

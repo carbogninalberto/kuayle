@@ -79,75 +79,75 @@
 </script>
 
 {#if options && current}
-	<div class="flex flex-wrap items-end gap-3">
-		{#if !harnessLocked && options.providers.length > 1}
-			<div class="grid gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.harness']()}</span>
-			<DropdownMenu.Root
-				><DropdownMenu.Trigger {disabled}
-					>{#snippet child({ props })}<Button
-							{...props}
-							variant="outline"
-							size="sm"
-							aria-label={m['tasks.harness']()}
-							><AgentLogo agent={current!.harness} size="sm" />{agentInfo(current!.harness).name}<ChevronDown
-								size={14}
-							/></Button
-						>{/snippet}</DropdownMenu.Trigger
-				><DropdownMenu.Content
-					><DropdownMenu.RadioGroup
-						value={current.harness}
-						onValueChange={(value) => value && options && update(selectHarness(options, value))}
-						>{#each options.providers as provider (provider.id)}<DropdownMenu.RadioItem value={provider.id} closeOnSelect
-								>{provider.display_name}</DropdownMenu.RadioItem
-							>{/each}</DropdownMenu.RadioGroup
-					></DropdownMenu.Content
-				></DropdownMenu.Root
-			>
-			</div>
-		{/if}
-		{#if servers.length > 1 || (servers.length && !server)}
-			<div class="grid gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.model_server']()}</span>
-			<DropdownMenu.Root
-				><DropdownMenu.Trigger {disabled}
-					>{#snippet child({ props })}<Button
-							{...props}
-							variant="outline"
-							size="sm"
-							aria-label={m['tasks.model_server']()}
-							>{server?.name ?? m['tasks.own_sign_in']()}<ChevronDown size={14} /></Button
-						>{/snippet}</DropdownMenu.Trigger
-				><DropdownMenu.Content
-					><DropdownMenu.RadioGroup
-						value={current.server}
-						onValueChange={(value) => options && current && update(selectServer(options, current, value))}
-						>{#if ownSignIn}<DropdownMenu.RadioItem value="" closeOnSelect>{m['tasks.own_sign_in']()}</DropdownMenu.RadioItem
-							>{/if}{#each servers as item (item.id)}<DropdownMenu.RadioItem value={item.id} closeOnSelect
-								>{item.name}</DropdownMenu.RadioItem
-							>{/each}</DropdownMenu.RadioGroup
-					></DropdownMenu.Content
-				></DropdownMenu.Root
-			>
-			</div>
-		{/if}
-		{#if showModel}
-			<div class="grid gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.model']()}</span>
-			<ModelCombobox
-				compact
-				value={current.model}
-				models={suggestions.models}
-				status={suggestions.status}
-				placeholder={m['profiles.model_placeholder']()}
-				aria-label={m['tasks.model']()}
-				{disabled}
-				allowCustom={!server}
-				canClear={!server && canClearModel}
-				onselect={(model) => current && update({ ...current, model })}
-				onrefresh={() => current && void suggestions.load(slug, current.harness, true, server)}
-			/>
-			</div>
-		{:else if current.model}
-			<!-- No server offers the proposed model: it runs on the agent's own sign-in. -->
-			<span class="text-xs text-muted-foreground">{current.model}</span>
-		{/if}
-	</div>
+	{#if !harnessLocked && options.providers.length > 1}
+		<div class="grid min-w-0 gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.harness']()}</span>
+		<DropdownMenu.Root
+			><DropdownMenu.Trigger {disabled}
+				>{#snippet child({ props })}<Button
+						{...props}
+						variant="outline"
+						size="sm"
+						class="min-w-0 justify-between"
+						aria-label={m['tasks.harness']()}
+						><AgentLogo agent={current!.harness} size="sm" /><span class="truncate">{agentInfo(current!.harness).name}</span><ChevronDown
+							size={14}
+						/></Button
+					>{/snippet}</DropdownMenu.Trigger
+			><DropdownMenu.Content
+				><DropdownMenu.RadioGroup
+					value={current.harness}
+					onValueChange={(value) => value && options && update(selectHarness(options, value))}
+					>{#each options.providers as provider (provider.id)}<DropdownMenu.RadioItem value={provider.id} closeOnSelect
+							>{provider.display_name}</DropdownMenu.RadioItem
+						>{/each}</DropdownMenu.RadioGroup
+				></DropdownMenu.Content
+			></DropdownMenu.Root
+		>
+		</div>
+	{/if}
+	{#if servers.length > 1 || (servers.length && !server)}
+		<div class="grid min-w-0 gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.model_server']()}</span>
+		<DropdownMenu.Root
+			><DropdownMenu.Trigger {disabled}
+				>{#snippet child({ props })}<Button
+						{...props}
+						variant="outline"
+						size="sm"
+						class="min-w-0 justify-between"
+						aria-label={m['tasks.model_server']()}
+						><span class="truncate">{server?.name ?? m['tasks.own_sign_in']()}</span><ChevronDown size={14} /></Button
+					>{/snippet}</DropdownMenu.Trigger
+			><DropdownMenu.Content
+				><DropdownMenu.RadioGroup
+					value={current.server}
+					onValueChange={(value) => options && current && update(selectServer(options, current, value))}
+					>{#if ownSignIn}<DropdownMenu.RadioItem value="" closeOnSelect>{m['tasks.own_sign_in']()}</DropdownMenu.RadioItem
+						>{/if}{#each servers as item (item.id)}<DropdownMenu.RadioItem value={item.id} closeOnSelect
+							>{item.name}</DropdownMenu.RadioItem
+						>{/each}</DropdownMenu.RadioGroup
+				></DropdownMenu.Content
+			></DropdownMenu.Root
+		>
+		</div>
+	{/if}
+	{#if showModel}
+		<div class="grid min-w-0 gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.model']()}</span>
+		<ModelCombobox
+			compact
+			value={current.model}
+			models={suggestions.models}
+			status={suggestions.status}
+			placeholder={m['profiles.model_placeholder']()}
+			aria-label={m['tasks.model']()}
+			{disabled}
+			allowCustom={!server}
+			canClear={!server && canClearModel}
+			onselect={(model) => current && update({ ...current, model })}
+			onrefresh={() => current && void suggestions.load(slug, current.harness, true, server)}
+		/>
+		</div>
+	{:else if current.model}
+		<!-- No server offers the proposed model: it runs on the agent's own sign-in. -->
+		<span class="text-xs text-muted-foreground">{current.model}</span>
+	{/if}
 {/if}

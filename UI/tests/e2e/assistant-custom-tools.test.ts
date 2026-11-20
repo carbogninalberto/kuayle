@@ -528,6 +528,7 @@ test('a custom tool run waits for approval with its exact inputs, then shows its
 	);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByTestId('approval-card').getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
 	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Run custom_run_e2e v2 on ENG-1?', { exact: true })).toBeVisible();
 	await expect(page.getByText('Run one Playwright spec.')).toBeVisible();

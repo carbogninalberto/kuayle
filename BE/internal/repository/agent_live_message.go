@@ -72,6 +72,7 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 	if !validAttachmentIDs(attachments) {
 		return nil, ErrAgentLiveMessageInvalid
 	}
+	body = strings.TrimSpace(body)
 	if len(attachments) == 0 || body != "" {
 		body, err = domain.CleanAgentLiveMessage(body)
 	}

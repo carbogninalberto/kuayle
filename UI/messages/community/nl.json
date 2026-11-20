@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Een codeeragent gaat in een geïsoleerde omgeving aan de slag met {title}, met deze instructies:",
 	"assistant.approval_repository": "Repository: {repository} op {branch}, uit de instellingen van {source}",
 	"assistant.approval_approve": "Goedkeuren",
+	"assistant.approval_review_details": "Klap de details uit om goed te keuren.",
 	"assistant.approval_deny": "Weigeren",
 	"assistant.approval_approving": "Codeeragent starten voor {identifier}",
 	"assistant.approval_approved": "Codeeragent gestart voor {identifier}",

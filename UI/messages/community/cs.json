@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Programovací agent bude pracovat na úkolu {title} v izolovaném prostředí podle těchto pokynů:",
 	"assistant.approval_repository": "Repozitář: {repository} ve větvi {branch}, z nastavení: {source}",
 	"assistant.approval_approve": "Schválit",
+	"assistant.approval_review_details": "Pro schválení rozbalte podrobnosti.",
 	"assistant.approval_deny": "Zamítnout",
 	"assistant.approval_approving": "Spouští se programovací agent na {identifier}",
 	"assistant.approval_approved": "Programovací agent spuštěn na {identifier}",

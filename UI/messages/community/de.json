@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Ein Coding-Agent bearbeitet {title} in einer isolierten Umgebung mit diesen Anweisungen:",
 	"assistant.approval_repository": "Repository: {repository} auf {branch}, aus den Einstellungen von {source}",
 	"assistant.approval_approve": "Freigeben",
+	"assistant.approval_review_details": "Zum Genehmigen die Details aufklappen.",
 	"assistant.approval_deny": "Ablehnen",
 	"assistant.approval_approving": "Coding-Agent für {identifier} wird gestartet",
 	"assistant.approval_approved": "Coding-Agent für {identifier} gestartet",

@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -74,7 +75,7 @@ func (f *fakeMultipartS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func newMultipartTestBackend(t *testing.T, fake *fakeMultipartS3) *S3Backend {
+func newS3TestBackend(t *testing.T, fake http.Handler) *S3Backend {
 	t.Helper()
 	server := httptest.NewServer(fake)
 	t.Cleanup(server.Close)
@@ -83,9 +84,18 @@ func newMultipartTestBackend(t *testing.T, fake *fakeMultipartS3) *S3Backend {
 	return backend
 }
 
+func TestS3GetMissingObject(t *testing.T) {
+	backend := newS3TestBackend(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w, "<Error><Code>NoSuchKey</Code></Error>")
+	}))
+	_, err := backend.Get(t.Context(), "missing")
+	require.ErrorIs(t, err, fs.ErrNotExist)
+}
+
 func TestS3PutFileMultipartUploadsEveryPartInOrder(t *testing.T) {
 	fake := &fakeMultipartS3{parts: map[int][]byte{}}
-	backend := newMultipartTestBackend(t, fake)
+	backend := newS3TestBackend(t, fake)
 	body := bytes.Repeat([]byte("0123456789"), 25) // 250 bytes: parts of 100, 100, 50
 
 	err := backend.PutFileMultipart(context.Background(), "kuayle/b.tar.gz", bytes.NewReader(body), int64(len(body)), 100,
@@ -100,7 +110,7 @@ func TestS3PutFileMultipartUploadsEveryPartInOrder(t *testing.T) {
 
 func TestS3PutFileMultipartAbortsWhenAPartFails(t *testing.T) {
 	fake := &fakeMultipartS3{parts: map[int][]byte{}, failPart: 2}
-	backend := newMultipartTestBackend(t, fake)
+	backend := newS3TestBackend(t, fake)
 	body := []byte(strings.Repeat("x", 300))
 
 	err := backend.PutFileMultipart(context.Background(), "k", bytes.NewReader(body), int64(len(body)), 100, "application/octet-stream", nil)
@@ -113,7 +123,7 @@ func TestS3PutFileMultipartAbortsWhenAPartFails(t *testing.T) {
 
 func TestS3PutFileMultipartRejectsABadPartSize(t *testing.T) {
 	fake := &fakeMultipartS3{parts: map[int][]byte{}}
-	backend := newMultipartTestBackend(t, fake)
+	backend := newS3TestBackend(t, fake)
 	err := backend.PutFileMultipart(context.Background(), "k", bytes.NewReader([]byte("x")), 1, 0, "", nil)
 	require.Error(t, err)
 	require.Empty(t, fake.calls)

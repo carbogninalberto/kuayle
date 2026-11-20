@@ -2049,8 +2049,10 @@ Send their IDs in `attachment_ids` on the live-message request. The server
 binds the creator's pending images in the same transaction as the message and
 its send mode. An image-only message can have an empty body. The manager
 copies each image to the run's read-only inbox before delivering the message
-or starting the iteration whose prompt references it. The chat history uses
-the original authenticated conversation thumbnails.
+or starting the iteration whose prompt references it. During live delivery,
+a missing or size-changed image is omitted with a note in the message. Other
+images and later messages still arrive. Temporary storage failures are retried.
+The chat history uses the original authenticated conversation thumbnails.
 
 **Sending now.** `SendLiveMessage(ws, task, body, mode)` queues the creator's
 message as above and, in the same transaction, acts on `mode`:

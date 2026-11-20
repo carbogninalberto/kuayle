@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Un agente de programación trabajará en {title} en un entorno aislado con estas instrucciones:",
 	"assistant.approval_repository": "Repositorio: {repository} en {branch}, según los ajustes de {source}",
 	"assistant.approval_approve": "Aprobar",
+	"assistant.approval_review_details": "Despliega los detalles para aprobar.",
 	"assistant.approval_deny": "Denegar",
 	"assistant.approval_approving": "Iniciando agente de programación en {identifier}",
 	"assistant.approval_approved": "Agente de programación iniciado en {identifier}",
