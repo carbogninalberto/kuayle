@@ -85,7 +85,7 @@ func redactLesson(ctx context.Context, db *sqlx.DB, ws uuid.UUID, task *uuid.UUI
 			return "", err
 		}
 		if err == nil {
-			secrets, err := lessonMachineSecrets(ctx, db, ws, machine)
+			secrets, err := NewDevMachineRepository(db).MachineSecretValues(ctx, ws, machine, lessonRedaction.key)
 			if err != nil {
 				return "", err
 			}
@@ -95,10 +95,8 @@ func redactLesson(ctx context.Context, db *sqlx.DB, ws uuid.UUID, task *uuid.UUI
 	return domain.LessonExcerpt(sanitize.RedactCredentials(text)), nil
 }
 
-// lessonMachineSecrets lists the secret values a machine's runs may hold, as
-// DevMachineService.machineSecretValues does for run output.
-func lessonMachineSecrets(ctx context.Context, db *sqlx.DB, ws, machine uuid.UUID) ([]string, error) {
-	store, key := NewDevMachineRepository(db), lessonRedaction.key
+// MachineSecretValues opens the machine, model server and historical run secrets for output redaction.
+func (store *DevMachineRepository) MachineSecretValues(ctx context.Context, ws, machine uuid.UUID, key []byte) ([]string, error) {
 	var sealed []string
 	envVars, err := store.ListEnvVarsInternal(ctx, machine, nil, "")
 	if err != nil {

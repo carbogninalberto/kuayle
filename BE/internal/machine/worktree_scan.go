@@ -46,6 +46,9 @@ func (m *Manager) runWorktreeScan(ctx context.Context, machine *domain.DevMachin
 	if err := json.Unmarshal(scan.Request, &request); err != nil {
 		return fail("The scan request is invalid")
 	}
+	if request.Kind.ReadsDocker() && (machine.CreatedByUserID == nil || *machine.CreatedByUserID != scan.RequestedBy || !request.ValidDockerRead()) {
+		return fail("The machine log request is unavailable")
+	}
 	services, err := m.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
 	if err != nil {
 		return err
@@ -59,6 +62,14 @@ func (m *Manager) runWorktreeScan(ctx context.Context, machine *domain.DevMachin
 	})
 	if err != nil {
 		return fail(worktreeScanFailure(err))
+	}
+	if request.Kind.ReadsDocker() {
+		values, err := m.store.MachineSecretValues(ctx, machine.WorkspaceID, machine.ID, m.encryptionKey)
+		if err != nil {
+			return fail("The machine output could not be checked for secrets")
+		}
+		safe := domain.MachineLogOutput(result.Content, request.Limit, values, result.Truncated)
+		result = &domain.WorktreeScanResult{Content: safe.Content, Truncated: safe.Truncated}
 	}
 	payload, err := marshalWorktreeScanResult(result)
 	if err != nil {
