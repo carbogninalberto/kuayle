@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Oldalpanelek",
 	"assistant.placeholder_agent": "Üzenet a(z) {identifier} {agent} agentjének…",
 	"assistant.places": "Asszisztens helyei",
+	"assistant.folders": "Mappák",
 	"assistant.recents": "Legutóbbiak",
 	"assistant.recents_empty": "Még nincs beszélgetés.",
 	"assistant.recents_loading": "Beszélgetések betöltése…",

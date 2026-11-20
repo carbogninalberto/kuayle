@@ -3346,6 +3346,7 @@
 	"assistant.panels": "साइड पैनल",
 	"assistant.placeholder_agent": "{identifier} के {agent} एजेंट को संदेश भेजें…",
 	"assistant.places": "असिस्टेंट के स्थान",
+	"assistant.folders": "फ़ोल्डर",
 	"assistant.recents": "हाल के",
 	"assistant.recents_empty": "अभी कोई बातचीत नहीं।",
 	"assistant.recents_loading": "बातचीत लोड हो रही हैं…",

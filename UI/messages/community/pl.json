@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Panele boczne",
 	"assistant.placeholder_agent": "Napisz do agenta {agent} dla {identifier}…",
 	"assistant.places": "Miejsca asystenta",
+	"assistant.folders": "Foldery",
 	"assistant.recents": "Ostatnie",
 	"assistant.recents_empty": "Brak rozmów.",
 	"assistant.recents_loading": "Ładowanie rozmów…",

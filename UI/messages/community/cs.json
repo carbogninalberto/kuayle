@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Boční panely",
 	"assistant.placeholder_agent": "Napsat agentovi {agent} úkolu {identifier}…",
 	"assistant.places": "Místa asistenta",
+	"assistant.folders": "Složky",
 	"assistant.recents": "Nedávné",
 	"assistant.recents_empty": "Zatím žádné konverzace.",
 	"assistant.recents_loading": "Načítání konverzací…",

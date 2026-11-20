@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Taulers laterals",
 	"assistant.placeholder_agent": "Envia un missatge a l'agent {agent} de {identifier}…",
 	"assistant.places": "Llocs de l'assistent",
+	"assistant.folders": "Carpetes",
 	"assistant.recents": "Recents",
 	"assistant.recents_empty": "Encara no hi ha converses.",
 	"assistant.recents_loading": "S'estan carregant les converses…",

@@ -19,6 +19,13 @@ func folderName(name string) (string, error) {
 	return name, nil
 }
 
+// A folder count includes only the chats its owner can still open.
+func conversationFolderCount() string {
+	return `(SELECT count(*) FROM conversations c WHERE c.folder_id=f.id AND c.workspace_id=f.workspace_id AND c.creator_id=f.owner_id
+ AND EXISTS (SELECT 1 FROM workspace_members cm WHERE cm.workspace_id=f.workspace_id AND cm.user_id=f.owner_id AND cm.role<>'guest')
+ AND ` + conversationScopePredicate("c") + `)`
+}
+
 // Folders lists the actor's own folders.
 func (r *ConversationRepository) Folders(ctx context.Context, ws uuid.UUID) ([]domain.ConversationFolder, error) {
 	user, err := conversationActor(ctx, ws)
@@ -26,7 +33,8 @@ func (r *ConversationRepository) Folders(ctx context.Context, ws uuid.UUID) ([]d
 		return nil, err
 	}
 	folders := []domain.ConversationFolder{}
-	err = r.db.SelectContext(ctx, &folders, `SELECT f.* FROM conversation_folders f JOIN workspace_members m ON m.workspace_id=f.workspace_id AND m.user_id=f.owner_id
+	err = r.db.SelectContext(ctx, &folders, `SELECT f.*, `+conversationFolderCount()+` AS count
+ FROM conversation_folders f JOIN workspace_members m ON m.workspace_id=f.workspace_id AND m.user_id=f.owner_id
  WHERE f.workspace_id=$1 AND f.owner_id=$2 ORDER BY lower(f.name), f.id`, ws, user)
 	return folders, err
 }
@@ -57,7 +65,7 @@ func (r *ConversationRepository) RenameFolder(ctx context.Context, ws, id uuid.U
 		return nil, err
 	}
 	folder := &domain.ConversationFolder{}
-	err = r.db.GetContext(ctx, folder, `UPDATE conversation_folders SET name=$4,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND owner_id=$3 RETURNING *`, id, ws, user, name)
+	err = r.db.GetContext(ctx, folder, `UPDATE conversation_folders AS f SET name=$4,updated_at=now() WHERE id=$1 AND workspace_id=$2 AND owner_id=$3 RETURNING f.*, `+conversationFolderCount()+` AS count`, id, ws, user, name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrConversationNotFound
 	}

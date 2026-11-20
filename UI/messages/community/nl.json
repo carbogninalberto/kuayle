@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Zijpanelen",
 	"assistant.placeholder_agent": "Stuur een bericht naar de {agent}-agent van {identifier}…",
 	"assistant.places": "Plekken van de assistent",
+	"assistant.folders": "Mappen",
 	"assistant.recents": "Recent",
 	"assistant.recents_empty": "Nog geen gesprekken.",
 	"assistant.recents_loading": "Gesprekken laden…",

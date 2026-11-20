@@ -525,6 +525,7 @@ export interface AssistantStatus {
 }
 const base = (slug: string) => `/api/workspaces/${encodeURIComponent(slug)}`;
 export interface ConversationFolder {
+	count: number;
 	id: string;
 	name: string;
 }
@@ -542,11 +543,16 @@ export const conversations = {
 		api.patch<Conversation>(`${base(slug)}/conversations/${encodeURIComponent(id)}`, { title }),
 	remove: (slug: string, id: string) => api.delete<void>(`${base(slug)}/conversations/${encodeURIComponent(id)}`),
 	status: (slug: string) => api.get<AssistantStatus>(`${base(slug)}/assistant/status`),
-	// project: a project id, or 'none' for chats without a visible project.
-	list: (slug: string, project?: string) =>
-		api.get<Conversation[]>(
-			`${base(slug)}/conversations${project ? `?project_id=${encodeURIComponent(project)}` : ''}`
-		),
+	list: (slug: string, limit: number, search: string, folder: string | null, before?: Conversation) => {
+		const params = new URLSearchParams({ limit: String(limit) });
+		if (search) params.set('q', search);
+		if (folder) params.set('folder_id', folder);
+		if (before) {
+			params.set('before', before.updated_at);
+			params.set('before_id', before.id);
+		}
+		return api.get<Conversation[]>(`${base(slug)}/conversations?${params}`);
+	},
 	setProject: (slug: string, id: string, project_id: string | null) =>
 		api.patch<Conversation>(`${base(slug)}/conversations/${encodeURIComponent(id)}`, { project_id }),
 	openIssue: (slug: string, issue_id: string) => api.post<Conversation>(`${base(slug)}/conversations`, { issue_id }),

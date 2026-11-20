@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Painéis laterais",
 	"assistant.placeholder_agent": "Mensagem para o agente {agent} de {identifier}…",
 	"assistant.places": "Locais do assistente",
+	"assistant.folders": "Pastas",
 	"assistant.recents": "Recentes",
 	"assistant.recents_empty": "Ainda sem conversas.",
 	"assistant.recents_loading": "A carregar conversas…",

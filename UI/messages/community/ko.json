@@ -3346,6 +3346,7 @@
 	"assistant.panels": "사이드 패널",
 	"assistant.placeholder_agent": "{identifier}의 {agent} 에이전트에게 메시지…",
 	"assistant.places": "어시스턴트 위치",
+	"assistant.folders": "폴더",
 	"assistant.recents": "최근 항목",
 	"assistant.recents_empty": "아직 대화가 없습니다.",
 	"assistant.recents_loading": "대화 불러오는 중…",

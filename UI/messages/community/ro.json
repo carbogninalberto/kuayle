@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Panouri laterale",
 	"assistant.placeholder_agent": "Trimite mesaj agentului {agent} pentru {identifier}…",
 	"assistant.places": "Locații ale asistentului",
+	"assistant.folders": "Dosare",
 	"assistant.recents": "Recente",
 	"assistant.recents_empty": "Nicio conversație încă.",
 	"assistant.recents_loading": "Se încarcă conversațiile…",

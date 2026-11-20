@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Seitenbereiche",
 	"assistant.placeholder_agent": "Nachricht an den {agent}-Agent von {identifier}…",
 	"assistant.places": "Assistenten-Bereiche",
+	"assistant.folders": "Ordner",
 	"assistant.recents": "Zuletzt",
 	"assistant.recents_empty": "Noch keine Unterhaltungen.",
 	"assistant.recents_loading": "Unterhaltungen werden geladen…",

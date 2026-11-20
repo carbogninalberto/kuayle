@@ -7,8 +7,8 @@ import type { Conversation } from '$lib/api/conversations';
 const MAX_KEYS = 20;
 const cache = new Map<string, Conversation[]>();
 
-export function recentsKey(userId: string | undefined, slug: string, filter: string): string | null {
-	return userId ? `${userId}:${slug}:${filter}` : null;
+export function recentsKey(userId: string | undefined, slug: string): string | null {
+	return userId ? `${userId}:${slug}` : null;
 }
 
 export function readRecents(key: string | null): Conversation[] | undefined {

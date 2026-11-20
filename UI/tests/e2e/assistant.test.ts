@@ -611,7 +611,7 @@ test('the issue page opens its conversation in the assistant instead of embeddin
 	const issueChat = { ...conversation, issue_id: chatIssue.id, team_id: chatIssue.team_id };
 	let opens = 0;
 	await page.route('**/api/workspaces/test/issues/ENG-1', (route) => route.fulfill({ json: chatIssue }));
-	await page.route('**/api/workspaces/test/conversations', (route) => {
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', (route) => {
 		if (route.request().method() === 'POST') {
 			expect(route.request().postDataJSON()).toEqual({ issue_id: chatIssue.id });
 			opens++;
@@ -662,7 +662,7 @@ test('the issue page opens its conversation in the assistant instead of embeddin
 test('a denied issue conversation reports the failure and stays on the issue', async ({ page }) => {
 	await fixture(page);
 	await page.route('**/api/workspaces/test/issues/ENG-1', (route) => route.fulfill({ json: chatIssue }));
-	await page.route('**/api/workspaces/test/conversations', (route) =>
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', (route) =>
 		route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } })
 	);
 	await page.setViewportSize({ width: 390, height: 844 });
@@ -1268,9 +1268,14 @@ test('a long conversation list scrolls inside the sidebar, never the page', asyn
 		id: `chat-${i + 2}`,
 		title: `Conversation ${i + 2}`
 	}));
-	await page.route('**/api/workspaces/test/conversations', (route) =>
-		route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation, ...many] })
-	);
+	const requests: URLSearchParams[] = [];
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', (route) => {
+		const params = new URL(route.request().url()).searchParams;
+		requests.push(params);
+		const rows = [conversation, ...many].filter(c => c.title.includes(params.get('q') ?? ''));
+		const start = rows.findIndex(c => c.id === params.get('before_id')) + 1;
+		return route.fulfill({ json: rows.slice(start, start + Number(params.get('limit') ?? 100)) });
+	});
 	state.queue = [
 		{
 			id: 'b',
@@ -1284,7 +1289,20 @@ test('a long conversation list scrolls inside the sidebar, never the page', asyn
 	];
 	await page.goto('/test/assistant?conversation=chat-1');
 	await expect(page.getByRole('region', { name: 'Background tasks', exact: true })).toBeAttached();
-	await expect(page.getByRole('navigation', { name: 'Conversations' }).getByRole('link')).toHaveCount(41);
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	const more = nav.getByRole('button', { name: 'Load more' });
+	await expect(more).toBeVisible();
+	expect(requests).toHaveLength(1);
+	expect(await nav.getByRole('link').count()).toBeLessThan(41);
+	const search = page.getByRole('searchbox', { name: 'Search conversations' });
+	await search.fill('Conversation 41');
+	await expect(nav.getByRole('link')).toHaveCount(1);
+	await expect(nav.getByRole('link', { name: 'Conversation 41' })).toBeVisible();
+	expect(requests.at(-1)?.get('q')).toBe('Conversation 41');
+	await search.press('Escape');
+	await more.click();
+	await expect(nav.getByRole('link')).toHaveCount(41);
+	await expect(more).toHaveCount(0);
 	// Visually hidden labels below the fold must not stretch the document.
 	expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
 	await page.mouse.move(640, 300);
@@ -1297,7 +1315,7 @@ test('switching conversations keeps Recents listed while the next one loads', as
 	const second = { ...conversation, id: 'chat-2', title: 'Second chat' };
 	let releases: (() => void)[] = [];
 	let listRequests = 0;
-	await page.route('**/api/workspaces/test/conversations', async (route) => {
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', async (route) => {
 		if (route.request().method() === 'POST') return route.fulfill({ json: conversation });
 		listRequests += 1;
 		if (listRequests > 1) await new Promise<void>((release) => releases.push(release));
@@ -1326,7 +1344,7 @@ test('the first conversation list shows loading, not the empty state', async ({ 
 	await fixture(page);
 	let release: (() => void) | undefined;
 	let requested = false;
-	await page.route('**/api/workspaces/test/conversations', async (route) => {
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', async (route) => {
 		if (route.request().method() === 'POST') return route.fulfill({ json: conversation });
 		requested = true;
 		await new Promise<void>((resolve) => (release = resolve));
@@ -1342,14 +1360,19 @@ test('the first conversation list shows loading, not the empty state', async ({ 
 	await expect(loading).toHaveCount(0);
 });
 
-test('a failed conversation list stops loading and shows the empty state', async ({ page }) => {
+test('retries a failed conversation list in place', async ({ page }) => {
 	await fixture(page);
-	await page.route('**/api/workspaces/test/conversations', (route) =>
-		route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR' } } })
-	);
+	let attempts = 0;
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', (route) => {
+		if (++attempts === 1) return route.fulfill({ status: 500, json: { error: { code: 'INTERNAL_ERROR' } } });
+		return route.fulfill({ json: [conversation] });
+	});
 	await page.goto('/test/assistant');
-	await expect(page.getByText('No conversations yet.')).toBeVisible();
-	await expect(page.getByRole('status').filter({ hasText: 'Loading conversations…' })).toHaveCount(0);
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	await nav.getByRole('button', { name: 'Retry' }).click();
+	await expect(nav.getByRole('link', { name: conversation.title })).toBeVisible();
+	await expect(nav.getByRole('button', { name: 'Retry' })).toHaveCount(0);
+	expect(attempts).toBe(2);
 });
 
 test('lists background agent work; failed tasks stay listed and finished ones fold into one row', async ({ page }) => {
@@ -1405,27 +1428,17 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	const newConversation = sidebar.getByRole('link', { name: 'New conversation', exact: true });
 	await expect(newConversation).toHaveAttribute('href', '/test/assistant');
 	await expect(newConversation).toHaveAttribute('title', 'New conversation');
-	const [newBox, cogBox] = await Promise.all([newConversation.boundingBox(), cog.boundingBox()]);
-	expect(newBox!.x + newBox!.width).toBeLessThanOrEqual(cogBox!.x);
-	expect(cogBox!.x - (newBox!.x + newBox!.width)).toBeLessThanOrEqual(8);
-	expect(Math.abs(newBox!.width - cogBox!.width)).toBeLessThanOrEqual(1);
-	expect(Math.abs(newBox!.height - cogBox!.height)).toBeLessThanOrEqual(1);
-	expect(Math.abs(newBox!.y - cogBox!.y)).toBeLessThanOrEqual(1);
-	// Tab moves straight from New to the cog.
-	await newConversation.focus();
-	await page.keyboard.press('Tab');
-	await expect(cog).toBeFocused();
-	// The three assistant places are one row of icon links with names and tooltips.
 	const places = sidebar.getByRole('navigation', { name: 'Assistant places' });
-	await expect(places.getByRole('link')).toHaveCount(3);
-	const placeLinks = ['Skills and tools', 'Agents', 'Dev Machines'].map((name) =>
-		places.getByRole('link', { name, exact: true })
-	);
-	for (const [index, name] of ['Skills and tools', 'Agents', 'Dev Machines'].entries())
-		await expect(placeLinks[index]!).toHaveAttribute('title', name);
-	await expect(places.getByRole('link', { name: 'New conversation' })).toHaveCount(0);
-	const placeBoxes = await Promise.all(placeLinks.map((link) => link.boundingBox()));
-	for (const box of placeBoxes) expect(Math.round(box!.y)).toBe(Math.round(placeBoxes[0]!.y));
+	await expect(places.getByRole('link')).toHaveCount(4);
+	const controls = [newConversation, places.getByRole('link', { name: 'Agents' }),
+		places.getByRole('link', { name: 'Dev Machines' }), cog, places.getByRole('button', { name: 'Hide conversations' })];
+	await newConversation.focus();
+	const first = await newConversation.boundingBox();
+	for (const control of controls.slice(1)) {
+		await page.keyboard.press('Tab');
+		await expect(control).toBeFocused();
+		expect((await control.boundingBox())!.y).toBe(first!.y);
+	}
 	await expect(sidebar.getByRole('button', { name: 'Search conversations' })).toHaveCount(0);
 	await expect(sidebar.getByRole('searchbox', { name: 'Search conversations' })).toBeVisible();
 	// Collapsing hides the whole column; reopening brings the new header back.
@@ -1455,7 +1468,7 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	const drawer = page.getByRole('dialog', { name: 'Assistant sidebar' });
 	await expect(drawer.getByRole('navigation', { name: 'Conversations' })).toBeVisible();
 	await expect(drawer.getByRole('link', { name: 'New conversation', exact: true })).toBeVisible();
-	await expect(drawer.getByRole('navigation', { name: 'Assistant places' }).getByRole('link')).toHaveCount(3);
+	await expect(drawer.getByRole('navigation', { name: 'Assistant places' }).getByRole('link')).toHaveCount(4);
 	expect(await drawer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 	await page.keyboard.press('Escape');
 	await expect(drawer).toHaveCount(0);
@@ -1561,15 +1574,15 @@ test('lists the issues a reply used and offers contextual suggestions', async ({
 test('groups conversations into folders and deletes one after confirmation', async ({ page }) => {
 	await fixture(page);
 	const other = { ...conversation, id: 'chat-2', title: 'Release notes' };
-	const folders: { id: string; name: string }[] = [];
+	const folders: { id: string; name: string; count: number }[] = [];
 	const moves: unknown[] = [];
 	const deletes: string[] = [];
-	await page.route('**/api/workspaces/test/conversations', (route) =>
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', (route) =>
 		route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation, other] })
 	);
 	await page.route('**/api/workspaces/test/conversation-folders', (route) => {
 		if (route.request().method() === 'POST') {
-			const folder = { id: 'folder-1', name: route.request().postDataJSON().name };
+			const folder = { id: 'folder-1', count: 0, name: route.request().postDataJSON().name };
 			folders.push(folder);
 			return route.fulfill({ status: 201, json: folder });
 		}
@@ -1604,18 +1617,18 @@ test('groups conversations into folders and deletes one after confirmation', asy
 	await name.press('Enter');
 	await expect(nav.getByRole('button', { name: /^Releases \d+$/ })).toBeVisible();
 
-	await nav.getByRole('button', { name: 'Actions for Release notes' }).click();
+	await nav.getByRole('link', { name: 'Release notes' }).click({ button: 'right' });
 	await page.getByRole('menuitem', { name: 'Move to', exact: true }).click();
 	await page.getByRole('menuitem', { name: 'Releases' }).click();
 	await expect.poll(() => moves).toEqual([{ folder_id: 'folder-1' }]);
 	const folder = nav.getByRole('button', { name: /^Releases \d+$/ });
 	await expect(folder).toContainText('1');
-	// Folders start collapsed unless they hold the open conversation.
-	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeHidden();
+	// Selecting a folder filters the separate conversation list.
+	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
 	await folder.click();
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
 
-	await nav.getByRole('button', { name: 'Actions for Release notes' }).click();
+	await nav.getByRole('link', { name: 'Release notes' }).click({ button: 'right' });
 	await page.getByRole('menuitem', { name: 'Delete' }).click();
 	const dialog = page.getByRole('alertdialog');
 	await expect(dialog).toContainText('Release notes');
@@ -1627,10 +1640,10 @@ test('groups conversations into folders and deletes one after confirmation', asy
 test('drags a conversation into a folder and back out to the list', async ({ page }) => {
 	await fixture(page);
 	const other = { ...conversation, id: 'chat-2', title: 'Release notes' };
-	const folders = [{ id: 'folder-1', name: 'Releases' }];
+	const folders = [{ id: 'folder-1', count: 0, name: 'Releases' }];
 	const moves: unknown[] = [];
 	let current = { ...other, folder_id: null as string | null };
-	await page.route('**/api/workspaces/test/conversations', (route) =>
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', (route) =>
 		route.fulfill({ json: route.request().method() === 'POST' ? conversation : [conversation, current] })
 	);
 	await page.route('**/api/workspaces/test/conversation-folders', (route) => route.fulfill({ json: folders }));
@@ -1644,11 +1657,11 @@ test('drags a conversation into a folder and back out to the list', async ({ pag
 	await page.goto('/test/assistant?conversation=chat-1');
 	const nav = page.getByRole('navigation', { name: 'Conversations' });
 	const row = nav.locator('[data-conversation="chat-2"]');
-	const folder = nav.getByRole('group', { name: 'Folder Releases' });
+	const folder = nav.getByRole('button', { name: /^Releases/ });
 	await expect(row).toBeVisible();
 	await row.dragTo(folder);
 	await expect.poll(() => moves).toEqual([{ folder_id: 'folder-1' }]);
-	// The folder opens to show where the conversation went.
+	// All recents remain available after filing a conversation.
 	await expect(nav.getByRole('button', { name: /^Releases 1$/ })).toBeVisible();
 	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
 	// Dropping on the list itself takes it out of the folder again.
@@ -1677,7 +1690,7 @@ test('renames a conversation in place from its menu', async ({ page }) => {
 	await expect(header.getByText('A persistent conversation')).toBeVisible();
 
 	// Escape keeps the old title and sends nothing.
-	await nav.getByRole('button', { name: 'Actions for A persistent conversation' }).click();
+	await nav.getByRole('link', { name: 'A persistent conversation' }).click({ button: 'right' });
 	await page.getByRole('menuitem', { name: 'Rename' }).click();
 	const field = nav.getByRole('textbox', { name: 'Conversation name' });
 	await expect(field).toBeFocused();
@@ -1687,7 +1700,7 @@ test('renames a conversation in place from its menu', async ({ page }) => {
 	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toBeVisible();
 	expect(renames).toEqual([]);
 
-	await nav.getByRole('button', { name: 'Actions for A persistent conversation' }).click();
+	await nav.getByRole('link', { name: 'A persistent conversation' }).click({ button: 'right' });
 	await page.getByRole('menuitem', { name: 'Rename' }).click();
 	await field.fill('  Launch plan ');
 	await field.press('Enter');
@@ -1697,112 +1710,92 @@ test('renames a conversation in place from its menu', async ({ page }) => {
 	await expect(header.getByText('Launch plan')).toBeVisible();
 });
 
-async function projectFixture(page: Page) {
-	const projects = [
-		{ id: 'p-1', name: 'Launch', team_id: null },
-		{ id: 'p-2', name: 'Company', team_id: null }
-	];
-	const tagged = { ...conversation, project_id: 'p-1', project: projects[0] };
-	const loose = { ...conversation, id: 'chat-2', title: 'Release notes', project_id: null, project: null };
-	const issueChat = {
-		...conversation,
-		id: 'chat-3',
-		title: 'ENG-1 · Fix login',
-		issue_id: 'issue-1',
-		team_id: 'team-1',
-		project_id: null,
-		project: null
-	};
-	const chats = [tagged, loose, issueChat];
-	const requests = { lists: [] as (string | null)[], creates: [] as unknown[], patches: [] as unknown[] };
-	await page.route('**/api/workspaces/test/projects', (route) => route.fulfill({ json: projects }));
-	await page.route(
-		(url) => url.pathname === '/api/workspaces/test/conversations',
-		(route) => {
-			if (route.request().method() === 'POST') {
-				requests.creates.push(route.request().postDataJSON());
-				return route.fulfill({ status: 201, json: tagged });
-			}
-			const filter = new URL(route.request().url()).searchParams.get('project_id');
-			requests.lists.push(filter);
-			const list = chats.filter((c) => !filter || (filter === 'none' ? !c.project : c.project?.id === filter));
-			return route.fulfill({ json: list });
-		}
-	);
-	await page.route('**/api/workspaces/test/conversations/chat-1', (route) => {
-		if (route.request().method() !== 'PATCH') return route.fallback();
-		const body = route.request().postDataJSON();
-		requests.patches.push(body);
-		tagged.project_id = body.project_id;
-		tagged.project = projects.find((p) => p.id === body.project_id) ?? (null as never);
-		return route.fulfill({ json: tagged });
-	});
-	return requests;
-}
-
-test('filters conversations by project, tags rows and moves a chat to another project', async ({ page }, testInfo) => {
+test('folds only folders and manages a folder from its context menu', async ({ page }, testInfo) => {
 	await fixture(page);
-	const requests = await projectFixture(page);
+	const folders = [{ id: 'release', name: 'Release planning', count: 1 }, { id: 'design', name: 'Design reviews', count: 0 }];
+	const chats = [{ ...conversation, folder_id: 'release' }, { ...conversation, id: 'notes', title: 'Review notes for the next release' }];
+	await page.route('**/conversation-folders', route => route.fulfill({ json: folders }));
+	await page.route('**/conversation-folders/release', route => {
+		if (route.request().method() === 'DELETE') return route.fulfill({ status: 204 });
+		return route.fulfill({ json: { ...folders[0], ...route.request().postDataJSON() } });
+	});
+	await page.route(url => url.pathname.endsWith('/conversations'), route => {
+		const folder = new URL(route.request().url()).searchParams.get('folder_id');
+		return route.fulfill({ json: folder ? chats.filter(c => 'folder_id' in c && c.folder_id === folder) : chats });
+	});
 	await page.goto('/test/assistant?conversation=chat-1');
-	const nav = page.getByRole('navigation', { name: 'Conversations' });
-	// Rows carry their project; the issue chat and the loose chat have none.
-	await expect(nav.getByText('Launch', { exact: true })).toHaveCount(1);
-	await expect(nav.getByText('Launch', { exact: true })).toBeVisible();
-	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
-	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('project-chips-desktop.png') });
-
-	const filter = page.getByRole('combobox', { name: 'Project filter' });
-	await expect(filter).toHaveText('All projects');
-	await filter.click();
-	await page.getByRole('option', { name: 'No project' }).click();
-	await expect(nav.getByRole('link', { name: 'Release notes' })).toBeVisible();
-	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toHaveCount(0);
-	await filter.click();
-	await page.getByRole('option', { name: 'Launch' }).click();
-	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toBeVisible();
-	await expect(nav.getByRole('link', { name: 'Release notes' })).toHaveCount(0);
-	expect(requests.lists).toEqual([null, 'none', 'p-1']);
-
-	// An issue chat follows its issue's project, so it cannot be moved.
-	await filter.click();
-	await page.getByRole('option', { name: 'All projects' }).click();
-	await nav.getByRole('button', { name: 'Actions for ENG-1 · Fix login' }).click();
-	await page.getByRole('menuitem', { name: 'Move to project' }).click();
-	await expect(page.getByRole('menuitem', { name: 'Company' })).toBeDisabled();
-	await page.keyboard.press('Escape');
-	await page.keyboard.press('Escape');
-
-	await filter.click();
-	await page.getByRole('option', { name: 'Launch' }).click();
-	await nav.getByRole('button', { name: 'Actions for A persistent conversation' }).click();
-	await page.getByRole('menuitem', { name: 'Move to project' }).click();
-	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('move-to-project-desktop.png') });
-	await page.getByRole('menuitem', { name: 'Company' }).click();
-	await expect.poll(() => requests.patches).toEqual([{ project_id: 'p-2' }]);
-	// It no longer belongs to the filtered project.
-	await expect(nav.getByRole('link', { name: 'A persistent conversation' })).toHaveCount(0);
+	const sidebar = page.getByRole('complementary', { name: 'Assistant sidebar' });
+	const folder = sidebar.getByRole('button', { name: 'Release planning 1' });
+	const toggle = sidebar.getByRole('button', { name: 'Folders', exact: true });
+	await expect(folder).toBeVisible();
+	await expect(sidebar.getByRole('link', { name: chats[1].title })).toBeVisible();
+	await sidebar.screenshot({ path: testInfo.outputPath('sidebar-desktop.png') });
+	await folder.click();
+	await expect(folder).toHaveAttribute('aria-pressed', 'true');
+	await expect(sidebar.getByRole('link', { name: chats[1].title })).toHaveCount(0);
+	await toggle.click();
+	await expect(folder).toBeHidden();
+	await expect(sidebar.getByRole('link', { name: chats[1].title })).toBeVisible();
+	await toggle.click();
+	await folder.press('ContextMenu');
+	await page.getByRole('menuitem', { name: 'Rename', exact: true }).press('Enter');
+	const name = sidebar.getByRole('textbox', { name: 'Folder name' });
+	await expect(name).toBeFocused();
+	await name.fill('Release archive');
+	await name.press('Enter');
+	const renamed = sidebar.getByRole('button', { name: 'Release archive 1' });
+	await page.evaluate(() => document.documentElement.classList.add('dark'));
+	await renamed.click({ button: 'right' });
+	const remove = page.getByRole('menuitem', { name: 'Delete', exact: true });
+	await expect(remove).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('sidebar-folder-menu-dark.png'), animations: 'disabled' });
+	await remove.click();
+	await page.getByRole('alertdialog').getByRole('button', { name: 'Delete folder' }).click();
+	await expect(renamed).toHaveCount(0);
+	await expect(sidebar.getByRole('link', { name: conversation.title })).toBeVisible();
 });
 
-test('a new chat starts in the filtered project and the filter is remembered', async ({ page }, testInfo) => {
+test('long press opens the conversation menu in the mobile drawer', async ({ page }, testInfo) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await fixture(page);
-	const requests = await projectFixture(page);
 	await page.goto('/test/assistant');
-	await page.getByRole('button', { name: 'Conversations' }).click();
-	const filter = page.getByRole('combobox', { name: 'Project filter' });
-	await filter.click();
-	await page.getByRole('option', { name: 'Launch' }).click();
-	await expect(
-		page.getByRole('navigation', { name: 'Conversations' }).getByText('A persistent conversation')
-	).toBeVisible();
-	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('project-filter-mobile.png') });
+	await page.getByRole('button', { name: 'Show conversations' }).click();
+	const drawer = page.getByRole('dialog', { name: 'Assistant sidebar' });
+	const row = drawer.getByRole('link', { name: conversation.title });
+	await expect(row).toBeVisible();
+	const session = await page.context().newCDPSession(page);
+	const box = (await row.boundingBox())!;
+	await session.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+	await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x + 20, y: box.y + box.height / 2 }] });
+	await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+	await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+	await expect(page.getByRole('menuitem', { name: 'Delete', exact: true })).toBeVisible();
+	await expect(page).toHaveURL(/\/test\/assistant$/);
+	await page.screenshot({ path: testInfo.outputPath('sidebar-mobile-menu.png'), animations: 'disabled' });
+});
 
-	await page.reload();
-	await expect.poll(() => requests.lists.at(-1)).toBe('p-1');
-	await page.getByRole('textbox', { name: 'Message' }).fill('Plan the launch');
-	await page.getByRole('textbox', { name: 'Message' }).press('Enter');
-	await expect.poll(() => requests.creates).toEqual([{ title: 'Plan the launch', project_id: 'p-1' }]);
+test('shows project tags and opens row menus from the keyboard', async ({ page }) => {
+	await fixture(page);
+	await page.addInitScript(() => localStorage.setItem('assistant-project-filter:user-1:test', 'p-1'));
+	const requests: (string | null)[] = [];
+	await page.route((url) => url.pathname === '/api/workspaces/test/conversations', (route) => {
+		requests.push(new URL(route.request().url()).searchParams.get('project_id'));
+		return route.fulfill({ json: [
+			{ ...conversation, project: { id: 'p-1', name: 'Launch' } },
+			{ ...conversation, id: 'chat-2', title: 'Release notes' }
+		] });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const nav = page.getByRole('navigation', { name: 'Conversations' });
+	await expect(nav.getByText('Launch', { exact: true })).toBeVisible();
+	await expect(page.getByRole('combobox', { name: 'Project filter' })).toHaveCount(0);
+	expect(requests).toEqual([null]);
+	const row = nav.getByRole('link', { name: 'Release notes' });
+	await row.press('Shift+F10');
+	await expect(page.getByRole('menuitem', { name: 'Rename' })).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: 'Move to project' })).toHaveCount(0);
+	await page.keyboard.press('Escape');
+	await expect(row).toBeFocused();
 });
 
 test('asks for approval before merging the reviewed pull request', async ({ page }) => {
