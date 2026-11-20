@@ -4,6 +4,7 @@ export function taskLabel(state: TaskState): string {
 	const labels: Record<TaskState, () => string> = {
 		queued: m['tasks.state.queued'],
 		preparing: m['tasks.state.preparing'],
+		waiting_for_disk: m['tasks.state.waiting_for_disk'],
 		running: m['tasks.state.running'],
 		waiting_input: m['tasks.state.waiting_input'],
 		validating: m['tasks.state.validating'],

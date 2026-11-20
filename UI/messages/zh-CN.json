@@ -2217,6 +2217,7 @@
 	"tasks.copied": "已复制",
 	"tasks.state.queued": "排队中",
 	"tasks.state.preparing": "准备中",
+	"tasks.state.waiting_for_disk": "正在等待磁盘空间",
 	"tasks.state.running": "运行中",
 	"tasks.state.waiting_input": "等待输入",
 	"tasks.state.validating": "验证中",

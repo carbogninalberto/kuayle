@@ -2217,6 +2217,7 @@
 	"tasks.copied": "הועתק",
 	"tasks.state.queued": "בתור",
 	"tasks.state.preparing": "בהכנה",
+	"tasks.state.waiting_for_disk": "ממתין לשטח פנוי בדיסק",
 	"tasks.state.running": "פועלת",
 	"tasks.state.waiting_input": "ממתינה לקלט",
 	"tasks.state.validating": "באימות",

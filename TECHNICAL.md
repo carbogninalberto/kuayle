@@ -826,6 +826,15 @@ running; multiple manager replicas on one host are not coordinated. An unknown
 host size never blocks. No machine is stopped to make room; the workspace/user
 machine quotas below still apply.
 
+**Host disk floor.** In monitored mode the manager stops running machines when
+free space drops below either configured floor, in GB or percent, and defers
+spawn and start operations that tasks are waiting for. Those tasks show
+**Waiting for disk space** with the measured free space and both floor values.
+Workspace owners and admins receive an inbox notice for affected tasks, grouped
+by breach. The manager retries starts automatically once both floors are met.
+The Compose configurations mount the Docker data filesystem at the manager's
+`DEV_MACHINE_HOST_DISK_PATH` so it can measure recovery while machines are stopped.
+
 Machine sizes are aggregate admission profiles:
 
 | Size | CPU | RAM | Workspace disk hard quota |
@@ -1086,7 +1095,7 @@ A task's creator can pause its running workflow and resume it from the same step
 - **State:** `agent_tasks.workflow_paused_at` marks a paused workflow and `workflow_pause_request` a pause that waits for the current step. `Claim` skips paused tasks and `applyWorkflowTx` refuses every move, so waiting steps do not advance and no step starts.
 - **Pause now on a working agent:** the attempt is stopped through the same cleanup a usage limit uses and the task ends in `blocked` ("Paused") with its machine, checkout, worktree and session kept. Resuming starts a new attempt of the same step with `resume_native_session=true`; visits and iterations are unchanged. A failed cleanup is retried by the worker until the task is paused. A paused task is not machine load.
 - **Otherwise:** a waiting or not yet started task pauses in place; a check, a publication or "after this step" pauses when the worker has the step's outcome (`ParkWorkflow`), before acting on it.
-- **Time:** the paused time is added to `workflow_budget_from` and to the step's `paused_seconds`, so neither the time budget nor the step's timeout counts it. The time budget counts working time only: `workflow_started_at` is set at the first `queued`→`preparing` move (migration `000173_workflow_clock`, KUA-171), and `agent_tasks.workflow_held_since` stops the clock at an approval, a merge or `waiting_input`, adding the held time to the budget start when the wait ends. A pause inside such a hold does not move the budget twice.
+- **Time:** the paused time is added to `workflow_budget_from` and to the step's `paused_seconds`, so neither the time budget nor the step's timeout counts it. The time budget counts working time only: `workflow_started_at` is set at the first `queued`→`preparing` move (migration `000173_workflow_clock`, KUA-171), and `agent_tasks.workflow_held_since` stops the clock during approval, merge, `waiting_input` and `waiting_for_disk` waits, adding the held time to the budget start when the wait ends. A pause inside such a hold does not move the budget twice.
 - **Audit:** `workflow_audit_events` records `pause_requested`, `paused`, `resumed` and `pause_withdrawn`; `GET /agent-tasks/:taskId/workflow` returns them as `pauses`.
 
 Details are in [BE/docs/agent-tasks.md](BE/docs/agent-tasks.md#pause-and-resume).

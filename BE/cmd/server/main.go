@@ -593,7 +593,7 @@ func main() {
 	go backupSvc.Run(conversationCtx)
 	go importSvc.Run(conversationCtx)
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)
-	go listenAutomationApprovals(conversationCtx, cfg.DatabaseURL, hub)
+	go listenWorkerNotifications(conversationCtx, cfg.DatabaseURL, hub)
 	if !cfg.AutomationWorkerExternal {
 		go automationSvc.Run(conversationCtx)
 	}

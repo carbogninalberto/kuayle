@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Скопійовано",
 	"tasks.state.queued": "У черзі",
 	"tasks.state.preparing": "Підготовка",
+	"tasks.state.waiting_for_disk": "Очікування вільного місця на диску",
 	"tasks.state.running": "Виконується",
 	"tasks.state.waiting_input": "Очікує введення",
 	"tasks.state.validating": "Перевірка",

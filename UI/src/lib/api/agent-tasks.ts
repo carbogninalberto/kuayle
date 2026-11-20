@@ -4,6 +4,7 @@ import type { ConversationAttachment } from './conversations';
 export type TaskState =
 	| 'queued'
 	| 'preparing'
+	| 'waiting_for_disk'
 	| 'running'
 	| 'waiting_input'
 	| 'validating'

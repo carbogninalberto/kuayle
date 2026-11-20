@@ -2217,6 +2217,7 @@
 	"tasks.copied": "کپی شد",
 	"tasks.state.queued": "در صف",
 	"tasks.state.preparing": "در حال آماده‌سازی",
+	"tasks.state.waiting_for_disk": "در انتظار فضای خالی دیسک",
 	"tasks.state.running": "در حال اجرا",
 	"tasks.state.waiting_input": "در انتظار ورودی",
 	"tasks.state.validating": "در حال اعتبارسنجی",
