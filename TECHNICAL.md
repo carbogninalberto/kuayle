@@ -2031,6 +2031,11 @@ reviews, activates, restores, deletes and test-runs them with their run
 history; chat shows `propose_tool` drafts and run approvals and results as
 escaped text. See [custom tools](BE/docs/conversations.md#custom-tools) and
 [custom tool runs](BE/docs/agent-tasks.md#custom-tool-runs).
+The optional [public URL reader](BE/docs/conversations.md#public-url-reader) runs
+through the Dev Machine egress proxy in `devmachine/egress`. The proxy builds
+from the `devmachine` context and uses a generated copy of the forge address
+check. After editing `BE/pkg/validate/public_ip.go`, run `go generate ./pkg/validate`
+from `BE` to update the copy. Backend tests verify that both files stay in sync.
 Command tools (KUA-153, migration 159) run one short shell command after
 approval: `run_command` read-only, `run_command_write` in the conversation's
 folder `/workspace/kuayle-assistant/<conversation>`, read with

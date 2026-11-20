@@ -87,6 +87,10 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
     }
     if (path.startsWith('BE/')) {
       flags.backend = true;
+      if (path.startsWith('BE/assistant-tools/')) {
+        if (['BE/assistant-tools/fetch_url.json', 'BE/assistant-tools/fetch_url.py'].includes(path)) flags.frontend = true;
+        continue;
+      }
       // The UI PAT scope contract test reads these backend definitions.
       if (['BE/internal/domain/personal_access_token.go', 'BE/internal/domain/permission.go'].includes(path)) flags.frontend = true;
       // The UI sanitizer tests read the class allowlist contract shared with the Go sanitizer.
