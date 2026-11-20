@@ -59,6 +59,7 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"start_preview":                 {machine: true},
 	"start_process":                 {machine: true},
 	"expose_port":                   {machine: true},
+	getMachineLogsTool:              {machine: true},
 	getMachineUsageTool:             {machine: true, role: roleAdminOrCreator, refusal: "only workspace admins or the task's creator can read its machine usage"},
 	"run_check":                     {machine: true},
 	"run_custom_tool":               {machine: true},

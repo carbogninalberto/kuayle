@@ -22,6 +22,8 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 // An assistant command runs in a fresh check container, like a custom tool:
@@ -33,10 +35,6 @@ import (
 // volume subpath, Docker API 1.45+) and starts there, so nothing else in the
 // workspace can change.
 
-// commandTimeout is the command's hard kill timeout inside the container;
-// tests shorten it.
-var commandTimeout = domain.CommandRunTimeout
-
 // commandBootstrap is the fixed command line of every command container. It
 // enters the working directory, then runs the command with sh under a hard
 // kill timeout ($1 seconds). timeout is not exec'd: busybox timeout execs the
@@ -46,12 +44,12 @@ const commandBootstrap = `set -u
 cd "$KUAYLE_COMMAND_CWD" 2>/dev/null || { echo "kuayle: the working directory $KUAYLE_COMMAND_CWD does not exist" >&2; exit 2; }
 kuayle_command=$KUAYLE_COMMAND
 unset KUAYLE_COMMAND KUAYLE_COMMAND_CWD KUAYLE_COMMAND_WRITE
-if command -v timeout >/dev/null 2>&1; then timeout -s KILL "$1" sh -c "$kuayle_command"; exit $?; fi
-exec sh -c "$kuayle_command"`
+timeout -s KILL "$1" sh -c "$kuayle_command"
+exit $?`
 
 // commandArgv is the container's argv after the sh entrypoint.
-func commandArgv() []string {
-	return []string{"-c", commandBootstrap, "kuayle-cmd", strconv.Itoa(int(commandTimeout / time.Second))}
+func commandArgv(timeoutSeconds int) []string {
+	return []string{"-c", commandBootstrap, "kuayle-cmd", strconv.Itoa(timeoutSeconds)}
 }
 
 // commandFolderPrep is the fixed script of a write run's prep container: it
@@ -215,7 +213,7 @@ func (r *DockerRuntime) RunCommand(ctx context.Context, machine *domain.DevMachi
 	if machine.DockerNetworkName == nil || machine.WorkspaceVolumeName == nil || run == nil {
 		return nil, fmt.Errorf("command runtime resources are unavailable")
 	}
-	if clean, ok := domain.CommandWorkingDirectory(run.WorkingDirectory); !ok || clean != run.WorkingDirectory || strings.ContainsRune(run.Command, 0) {
+	if clean, ok := domain.CommandWorkingDirectory(run.WorkingDirectory); !domain.ValidCommandTimeout(run.TimeoutSeconds) || !ok || clean != run.WorkingDirectory || strings.ContainsRune(run.Command, 0) {
 		return nil, fmt.Errorf("invalid command run")
 	}
 	if _, ok := commandWriteFolder(run.WorkingDirectory); run.Write && !ok {
@@ -228,7 +226,7 @@ func (r *DockerRuntime) RunCommand(ctx context.Context, machine *domain.DevMachi
 	} else if err := r.ensureImage(ctx, image); err != nil {
 		return nil, err
 	}
-	cmd := commandArgv()
+	cmd := commandArgv(run.TimeoutSeconds)
 	name := commandContainerName(machine, run.ID)
 	labels := machineLabels(machine)
 	labels["com.kuayle.service"] = "agent"
@@ -318,10 +316,6 @@ func commandRunFailure(err error) string {
 	return "The command could not finish"
 }
 
-// commandRunDeadline is the manager's hard stop for a run: the command's
-// timeout plus a grace period that lets the container's own kill fire first.
-var commandRunDeadline = domain.CommandRunTimeout + 15*time.Second
-
 // runCommand executes an approved command run once. The store re-checks the
 // run's authority (the requester still owns the running machine and may use
 // it) for every write; the container gets no credentials.
@@ -366,38 +360,60 @@ func (m *Manager) runCommand(ctx context.Context, machine *domain.DevMachine, op
 	if image == "" {
 		return &terminalOperationError{code: "command_unavailable", message: "Developer environment is unavailable"}
 	}
-	runCtx, cancel := context.WithTimeout(ctx, commandRunDeadline)
+	// Allow the container to report its exit and final output after its hard kill.
+	runCtx, cancel := context.WithTimeout(ctx, time.Duration(run.TimeoutSeconds)*time.Second+15*time.Second)
 	defer cancel()
-	writer := &toolOutputWriter{last: time.Now(), write: func(content string, truncated bool) error {
+	writer := &toolOutputWriter{write: func(content string, truncated bool) error {
 		// Belt-and-braces: the buffer already redacts each line, and every
 		// stored chunk of a migration run passes the same redaction again.
 		if run.Migration {
 			content = redactMigrationOutput(secret, content)
 		}
-		writeCtx, done := context.WithTimeout(runCtx, 5*time.Second)
+		writeCtx, done := context.WithTimeout(ctx, 5*time.Second)
 		defer done()
 		return m.store.AppendCommandRunOutput(writeCtx, *op, content, truncated)
 	}}
-	// Nothing on the machine holds Kuayle credentials; the buffer only
-	// bounds and stores the output, and a migration run's buffer also
-	// redacts its secret per logical line, like a custom tool's.
-	redactions := map[string]string{}
-	if run.Migration {
-		redactions[domain.MigrationSecretEnv] = secret
-	}
-	output := newAgentOutputBuffer(redactions, writer.persist)
 	observer := &AgentObserver{
 		Authorize: func() error { _, err := m.store.GetCommandRun(runCtx, *op); return err },
 		Started:   func(string) error { return m.store.StartCommandRun(runCtx, *op) },
-		Output:    output.WriteDocker,
 	}
+	var finishOutput func() error
+	if run.Migration {
+		output := newAgentOutputBuffer(map[string]string{domain.MigrationSecretEnv: secret}, writer.persist)
+		observer.Output, finishOutput = output.WriteDocker, output.Finish
+	} else {
+		// The store caps the tail. Keep feeding it even after a verbose suite
+		// exceeds an agent transcript's record limit. Decode split UTF-8 per stream.
+		stdout := transform.NewWriter(writer, unicode.UTF8.NewDecoder())
+		stderr := transform.NewWriter(writer, unicode.UTF8.NewDecoder())
+		observer.PlainOutput = true
+		observer.Output = func(stream string, data []byte) error {
+			out := stdout
+			if stream == "stderr" {
+				out = stderr
+			}
+			_, err := out.Write(data)
+			return err
+		}
+		finishOutput = func() error { return errors.Join(stdout.Close(), stderr.Close()) }
+	}
+	flushDone := make(chan error, 1)
+	go func() {
+		err := writer.flushWhileRunning(runCtx)
+		if err != nil {
+			cancel()
+		}
+		flushDone <- err
+	}()
 	result, execErr := m.runtime.RunCommand(runCtx, machine, run, image, secret, observer)
-	if execErr == nil {
-		execErr = output.Finish()
+	cancel()
+	execErr = errors.Join(execErr, <-flushDone)
+	// Persist the last batch even when the manager deadline stopped the runtime.
+	// A migration's partial last line may contain an incomplete secret.
+	if execErr == nil || !run.Migration {
+		execErr = errors.Join(execErr, finishOutput())
 	}
-	if execErr == nil {
-		execErr = writer.flush()
-	}
+	execErr = errors.Join(execErr, writer.flush())
 	cleanup := func() {
 		cleanupCtx, done := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer done()
@@ -408,8 +424,8 @@ func (m *Manager) runCommand(ctx context.Context, machine *domain.DevMachine, op
 	if execErr != nil {
 		// A command runs at most once: its container is removed whatever happened.
 		cleanup()
-		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-			return &terminalOperationError{code: "command_timeout", message: fmt.Sprintf("The command took too long and was stopped after %d seconds", int(domain.CommandRunTimeout/time.Second))}
+		if ctx.Err() == nil && errors.Is(runCtx.Err(), context.DeadlineExceeded) {
+			return &terminalOperationError{code: "command_timeout", message: fmt.Sprintf("The command took too long and was stopped after %d seconds", run.TimeoutSeconds)}
 		}
 		if errors.Is(execErr, repository.ErrCommandMachineUnavailable) || errors.Is(execErr, repository.ErrCommandRunForbidden) {
 			return &terminalOperationError{code: "command_unauthorized", message: "The run is no longer allowed on this machine"}

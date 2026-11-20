@@ -81,6 +81,7 @@ type ManagerStore interface {
 	// Worktree scans (scan_worktree) are read-only; their result is stored on
 	// the scan row, whose ID is the operation's.
 	WorktreeScanForOperation(context.Context, uuid.UUID) (*domain.WorktreeScan, error)
+	MachineSecretValues(context.Context, uuid.UUID, uuid.UUID, []byte) ([]string, error)
 	CompleteWorktreeScan(context.Context, uuid.UUID, json.RawMessage, *string) error
 	LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error)
 	RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error
@@ -513,7 +514,11 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 	}
 	finalCtx, finalCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer finalCancel()
-	if err != nil && (errors.Is(err, errManagerShutdown) || errors.Is(context.Cause(ctx), errManagerShutdown)) {
+	shutdown := errors.Is(err, errManagerShutdown) || errors.Is(context.Cause(ctx), errManagerShutdown)
+	if err != nil && shutdown && operation.Action == domain.DevMachineOpRunCommand {
+		// The command container was removed. Requeuing would execute an approved command twice.
+		err = &terminalOperationError{code: "command_interrupted", message: "The machine manager stopped before the command finished"}
+	} else if err != nil && shutdown {
 		// The manager is stopping: hand the operation to the next one, which
 		// continues it. It never counts as a failed attempt.
 		if deferErr := m.store.DeferOperation(finalCtx, operation.ID, m.owner, "manager_restart", "The machine manager restarted; the next manager continues this operation", 0); deferErr != nil {
