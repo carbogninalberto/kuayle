@@ -21,6 +21,7 @@
 	import { m } from '$lib/features/i18n/messages';
 	import AgentSubagent from './AgentSubagent.svelte';
 	import AppPortLinks from './AppPortLinks.svelte';
+	import AssistantProcessResult from './AssistantProcessResult.svelte';
 	import UpgradeProgress from './UpgradeProgress.svelte';
 	import { safePullRequestUrl } from './merged-work';
 	import BulkIssueChanges from './BulkIssueChanges.svelte';
@@ -152,6 +153,21 @@
 					return m['assistant.approval_expired']({ identifier });
 				default:
 					return m['assistant.custom_run_denied']({ identifier, tool });
+			}
+		}
+		if (approval.action === 'start_process') {
+			const machine = approval.payload.machine;
+			switch (approval.status) {
+				case 'approving':
+					return m['assistant.process_approving']({ machine });
+				case 'approved':
+					return m['assistant.process_approved']({ machine });
+				case 'failed':
+					return m['assistant.process_approval_failed']({ machine, error: approval.error ?? '' });
+				case 'expired':
+					return m['assistant.approval_expired']({ identifier: machine });
+				default:
+					return m['assistant.process_denied']({ machine });
 			}
 		}
 		const identifier = approval.payload.identifier;
@@ -422,6 +438,10 @@
 					{slug}
 					taskId={approval.task_id}
 					{identifier}
+				/>{:else if approval.action === 'start_process' && approval.status === 'approved'}<AssistantProcessResult
+					{slug}
+					conversationId={approval.conversation_id}
+					processId={approval.id}
 				/>{:else if approval.action === 'start_preview' && approval.status === 'approved'}<AppPortLinks
 					{slug}
 					machineId={approval.payload.machine_id}

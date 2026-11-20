@@ -155,7 +155,7 @@ func (c ChecksCoverage) incomplete() bool { return c.Truncated || c.StatusesUnav
 
 func (s *GitHubService) PullRequestChecks(ctx context.Context, ws uuid.UUID, repository string, number int) (string, []PullRequestCheck, ChecksCoverage, error) {
 	var coverage ChecksCoverage
-	client, token, owner, name, err := s.pullClient(ctx, ws, repository)
+	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository, "checks", "statuses")
 	if err != nil {
 		return "", nil, coverage, err
 	}

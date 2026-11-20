@@ -446,3 +446,21 @@ func (h *ConversationHandler) CommandRun(c *echo.Context) error {
 	}
 	return response.Success(c, http.StatusOK, result)
 }
+
+// AssistantProcess reads or stops the process started by an approval in this conversation.
+func (h *ConversationHandler) AssistantProcess(c *echo.Context) error {
+	id, err := conversationID(c)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	process, err := uuid.Parse(c.Param("processId"))
+	if err != nil {
+		return conversationError(c, repository.ErrConversationNotFound)
+	}
+	req := c.Request()
+	result, err := h.svc.AssistantProcess(req.Context(), middleware.GetWorkspace(c).ID, id, process, req.Method == http.MethodDelete)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}

@@ -129,7 +129,7 @@ func (s *GitHubService) PullRequestSummary(ctx context.Context, ws uuid.UUID, re
 }
 
 func (s *GitHubService) CommitChecks(ctx context.Context, ws uuid.UUID, repository, sha string) ([]PullRequestCheck, ChecksCoverage, error) {
-	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository)
+	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository, "checks", "statuses")
 	if err != nil {
 		return nil, ChecksCoverage{}, err
 	}
@@ -156,7 +156,7 @@ func (s *GitHubService) CreateRelease(ctx context.Context, ws uuid.UUID, reposit
 }
 
 func (s *GitHubService) WorkflowRuns(ctx context.Context, ws uuid.UUID, repository, sha string) ([]gh.WorkflowRun, error) {
-	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository)
+	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository, "actions")
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +164,7 @@ func (s *GitHubService) WorkflowRuns(ctx context.Context, ws uuid.UUID, reposito
 }
 
 func (s *GitHubService) WorkflowRun(ctx context.Context, ws uuid.UUID, repository string, id int64) (*gh.WorkflowRun, []gh.WorkflowJob, bool, error) {
-	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository)
+	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository, "actions")
 	if err != nil {
 		return nil, nil, false, err
 	}

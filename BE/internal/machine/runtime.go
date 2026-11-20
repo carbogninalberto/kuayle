@@ -137,6 +137,9 @@ type Runtime interface {
 	StartPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, taskID uuid.UUID, argv []string, port int, docker map[string]string) error
 	StopPreview(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, taskID uuid.UUID) error
 	RemovePreviews(ctx context.Context, machine *domain.DevMachine) error
+	StartAssistantProcess(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.AssistantProcess) error
+	AssistantProcessRunning(context.Context, *domain.AssistantProcess) (bool, error)
+	RemoveAssistantProcess(context.Context, *domain.AssistantProcess) error
 	// ScanPorts lists the developer container's listening TCP ports, the
 	// listening preview ports, and takes the agents' port requests;
 	// WritePortState publishes the result to them.
