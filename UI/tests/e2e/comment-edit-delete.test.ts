@@ -190,10 +190,10 @@ test('a column resized in the description editor keeps its width', async ({ page
 });
 
 test('a description whose widths live only in col styles keeps them through the editor', async ({ page }) => {
-	// Storage the API can hand the app: the sanitizer keeps <col style> widths
-	// and Tiptap reads widths only from cell colwidth / <col width>, which
-	// these cells and cols do not carry.
-	const description = '<table><colgroup><col style="width: 180px"><col style="width: 160px"><col width="25%"></colgroup>' +
+	// Storage the API can hand the app, self-closing columns included: the
+	// sanitizer keeps <col style> widths and Tiptap reads widths only from
+	// cell colwidth / <col width>, which these cells and cols do not carry.
+	const description = '<table><colgroup><col style="width: 180px"/><col style="width: 160px"/><col width="25%"/></colgroup>' +
 		'<tbody><tr><th>Step</th><th>Result</th><th>Note</th></tr><tr><td>Build</td><td>Passed</td><td>On main</td></tr></tbody></table>';
 	const { pageErrors, issue } = await mockIssue(page, 'owner', description);
 	await page.goto('/test/issue/ENG-1');
@@ -210,6 +210,42 @@ test('a description whose widths live only in col styles keeps them through the 
 	await expect.poll(() => issue.description ?? '', { timeout: 10_000 }).toContain('colwidth="180"');
 	expect(issue.description).toContain('colwidth="160"');
 	expect(issue.description).not.toMatch(/colwidth="25"|width: 25px/);
+	expect(pageErrors).toEqual([]);
+});
+
+test('a table with merged first-row cells keeps its resized widths', async ({ page }, testInfo) => {
+	// The editor's markup for a resized merged cell: Tiptap writes a 0
+	// colwidth entry for the spanned column, and derives the column layout
+	// only from that first row, so the 0 entry must survive save and reload.
+	const description = '<table style="width: 340px"><colgroup><col style="width: 180px"><col style="width: 160px"></colgroup>' +
+		'<tbody><tr><th colspan="2" colwidth="180,0">Release</th></tr><tr><td>Build</td><td>Passed</td></tr></tbody></table>';
+	const { pageErrors, issue } = await mockIssue(page, 'owner', description);
+	await page.goto('/test/issue/ENG-1');
+
+	// The stored sentinel width loads: the first column is 180px in the editor.
+	await expect(page.locator('.ProseMirror table col').nth(0)).toHaveAttribute('style', /width: 180px/);
+
+	// Drag the boundary after the first column wider.
+	const cell = page.getByRole('cell', { name: 'Build' });
+	const box = await cell.boundingBox();
+	expect(box).not.toBeNull();
+	await page.mouse.move(box!.x + box!.width - 2, box!.y + box!.height / 2);
+	await expect(page.locator('.column-resize-handle').first()).toBeVisible();
+	await page.mouse.down();
+	await page.mouse.move(box!.x + box!.width + 60, box!.y + box!.height / 2, { steps: 8 });
+	await page.mouse.up();
+
+	// The saved description keeps the first-row colwidth with its 0 entry.
+	await expect.poll(() => {
+		const match = issue.description?.match(/colwidth="(\d+),(\d+)"/) ?? null;
+		return match ? Number(match[1]) : 0;
+	}, { timeout: 10_000 }).toBeGreaterThan(200);
+	expect(issue.description).toMatch(/colwidth="\d+,0"/);
+	await page.screenshot({ path: testInfo.outputPath('table-merged-resized.png') });
+
+	// Reopening the issue parses the stored widths back into the editor.
+	await page.reload();
+	await expect(page.locator('.ProseMirror table col').nth(0)).toHaveAttribute('style', /width: 2\d\dpx/);
 	expect(pageErrors).toEqual([]);
 });
 

@@ -189,6 +189,25 @@ func TestSanitizeHTMLKeepsTableColumnWidths(t *testing.T) {
 	}
 }
 
+// Tiptap's resize plugin writes 0 colwidth entries as placeholders for the
+// columns a merged first-row cell spans; the editor derives the layout only
+// from that first row, so dropping the attribute would lose it on reload.
+func TestSanitizeHTMLKeepsMergedCellColumnWidths(t *testing.T) {
+	input := `<table style="width: 340px"><colgroup>` +
+		`<col style="width: 180px"><col style="width: 160px"></colgroup><tbody>` +
+		`<tr><th colspan="2" colwidth="180,0">Release</th></tr>` +
+		`<tr><td>Build</td><td>Passed</td></tr></tbody></table>`
+	want := input
+	for _, clean := range []func(string) string{SanitizeHTML, SanitizeEditorContent} {
+		if got := clean(input); got != want {
+			t.Errorf("widths changed: got %q, want %q", got, want)
+		}
+		if resaved := clean(want); resaved != want {
+			t.Errorf("resave changed %q to %q", want, resaved)
+		}
+	}
+}
+
 // Column widths widen the sanitizer for one purpose only: table sizing. Every
 // other style declaration, and every width value the editor cannot load
 // faithfully (a 25% attribute would parse as 25px), still disappears.

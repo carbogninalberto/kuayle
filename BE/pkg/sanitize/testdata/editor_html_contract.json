@@ -136,6 +136,10 @@
       "html": "<table style=\"width: 340px\"><colgroup><col style=\"width: 180px\"><col style=\"min-width: 50px\"></colgroup><tbody><tr><th colwidth=\"180\">Step</th><th>Result</th></tr><tr><td>Build</td><td align=\"right\">Passed</td></tr></tbody></table>"
     },
     {
+      "name": "resizable table with merged cells",
+      "html": "<table style=\"width: 340px\"><colgroup><col style=\"width: 180px\"><col style=\"width: 160px\"></colgroup><tbody><tr><th colspan=\"2\" colwidth=\"180,0\">Release</th></tr><tr><td>Build</td><td>Passed</td></tr></tbody></table>"
+    },
+    {
       "name": "registry entry",
       "html": "<p>Merged <span class=\"registry-ref\" data-kind=\"pull-request\">#12</span> for <span data-type=\"mention\" data-kind=\"issue\" data-id=\"\" data-label=\"ENG-7\" data-identifier=\"ENG-7\" class=\"mention mention-issue\">ENG-7</span></p>"
     }

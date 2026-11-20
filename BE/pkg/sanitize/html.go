@@ -40,8 +40,10 @@ func init() {
 	// colwidth, and nothing but pixel width/min-width styles on colgroup
 	// columns and the table itself. Any other style declaration is dropped.
 	// The width attribute must be a bare integer (px optional): the editor
-	// reads it with parseInt, so a value like 25% would load as 25px.
-	policy.AllowAttrs("colwidth").Matching(regexp.MustCompile(`^[1-9][0-9]{0,3}(,[1-9][0-9]{0,3})*$`)).OnElements("th", "td")
+	// reads it with parseInt, so a value like 25% would load as 25px. A 0
+	// colwidth entry is the editor's placeholder for the columns a merged
+	// cell spans, so it stays too.
+	policy.AllowAttrs("colwidth").Matching(regexp.MustCompile(`^[0-9]{1,4}(,[0-9]{1,4})*$`)).OnElements("th", "td")
 	policy.AllowAttrs("width").Matching(regexp.MustCompile(`^[1-9][0-9]{0,3}(px)?$`)).OnElements("col")
 	policy.AllowStyles("width", "min-width").Matching(regexp.MustCompile(`^[0-9]{1,4}(\.[0-9]+)?px$`)).OnElements("table", "col")
 

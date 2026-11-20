@@ -35,8 +35,11 @@ test('only bare integers are valid width attributes', () => {
 });
 
 test('cell colwidth lists integers separated by commas', () => {
-	for (const value of ['180', '180,240']) assert.ok(COLWIDTH.test(value), value);
-	for (const value of ['abc', '12,,34', '180,', ',180', '0', '99999', '']) assert.ok(!COLWIDTH.test(value), value);
+	// A 0 entry is the editor's placeholder for the columns a merged cell
+	// spans: Tiptap writes it for a resized <th colspan="2">, and stripping
+	// the attribute would lose the whole column layout on reload.
+	for (const value of ['180', '180,240', '180,0', '0,180', '180,0,240']) assert.ok(COLWIDTH.test(value), value);
+	for (const value of ['abc', '12,,34', '180,', ',180', '99999', '180,99999', '']) assert.ok(!COLWIDTH.test(value), value);
 });
 
 test('a col style width parses to the pixels the editor imports', () => {

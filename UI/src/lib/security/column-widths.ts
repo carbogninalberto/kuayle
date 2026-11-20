@@ -4,8 +4,9 @@
 // BE/pkg/sanitize/html.go must keep accepting exactly these forms, and its
 // tests read the shared contract (testdata/editor_html_contract.json).
 
-// A first-row cell's per-column widths, comma-separated across a colspan.
-export const COLWIDTH = /^[1-9]\d{0,3}(,[1-9]\d{0,3})*$/;
+// A first-row cell's per-column widths, comma-separated across a colspan;
+// a 0 entry is the editor's placeholder for the spanned columns.
+export const COLWIDTH = /^\d{1,4}(,\d{1,4})*$/;
 // A bare integer (px optional): the editor reads the attribute with parseInt.
 export const COL_WIDTH = /^[1-9]\d{0,3}(px)?$/;
 

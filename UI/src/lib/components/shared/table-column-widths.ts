@@ -47,7 +47,7 @@ function normalizeTable(table: Element): boolean {
  * Content without colgroup columns is returned unchanged.
  */
 export function normalizeTableColumnWidths(html: string): string {
-	if (!/<col[\s>]/i.test(html)) return html;
+	if (!/<col(?=[\s/>])/i.test(html)) return html;
 	const doc = new DOMParser().parseFromString(html, 'text/html');
 	let changed = false;
 	for (const table of doc.querySelectorAll('table')) {
