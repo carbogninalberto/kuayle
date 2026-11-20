@@ -192,7 +192,7 @@ func TestAssistantReusesTheUsersOwnMachine(t *testing.T) {
 	require.Empty(t, f.approvals(t, a), "nothing starts, so nothing needs approval")
 	require.Zero(t, f.temporary.started)
 
-	content = f.call(t, &a, "run_command_write", `{"command":"echo hi > note.txt"}`)
+	content = f.call(t, &a, "run_command_write", `{"command":"echo hi > note.txt","timeout_seconds":600}`)
 	require.Contains(t, content, "pending_user_approval", "commands always need approval, even on the user's own machine")
 	approvals := f.approvals(t, a)
 	require.Len(t, approvals, 1)
@@ -201,15 +201,19 @@ func TestAssistantReusesTheUsersOwnMachine(t *testing.T) {
 	require.Equal(t, machine, payload.MachineID)
 	require.True(t, payload.Reused)
 	require.True(t, payload.Write)
+	require.Equal(t, 600, payload.TimeoutSeconds)
 	require.False(t, payload.Temporary)
 	require.Equal(t, domain.CommandFolder(a.Conversation.ID), payload.WorkingDirectory)
 
+	_, err := f.commands.RunForApproval(f.ctx, f.ws, approvals[0].ID, f.user)
+	require.ErrorIs(t, err, repository.ErrCommandRunNotFound, "requesting a longer run cannot start it")
 	approved, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, approvals[0].ID, true)
 	require.NoError(t, err)
 	require.Equal(t, "approved", approved.Status)
 	run, err := f.commands.RunForApproval(f.ctx, f.ws, approvals[0].ID, f.user)
 	require.NoError(t, err)
 	require.True(t, run.Write)
+	require.Equal(t, 600, run.TimeoutSeconds)
 	require.True(t, run.Reused)
 	require.Equal(t, machine, *run.MachineID)
 
@@ -219,6 +223,17 @@ func TestAssistantReusesTheUsersOwnMachine(t *testing.T) {
 	require.Equal(t, "laptop-box", card["machine"])
 	require.Equal(t, true, card["reused"])
 	require.Equal(t, "queued", card["status"])
+	// Angle brackets expand when encoded into the model's JSON result.
+	output := strings.Repeat("<", domain.CommandOutputBytes) + "tests passed\n"
+	f.runQueued(t, run.ID, output)
+	card, err = f.service.CommandRun(f.ctx, f.ws, a.Conversation.ID, approvals[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, output[len(output)-domain.CommandOutputBytes:], card["output_tail"])
+	require.Equal(t, true, card["output_truncated"])
+	require.NotNil(t, card["duration_ms"])
+	content = f.call(t, &a, "get_command_run", `{"run_id":"`+run.ID.String()+`"}`)
+	require.Contains(t, content, "tests passed")
+	require.Contains(t, content, `"status":"succeeded"`)
 	_, err = f.service.CommandRun(f.ctx, f.ws, uuid.New(), approvals[0].ID)
 	require.ErrorIs(t, err, repository.ErrConversationNotFound)
 }

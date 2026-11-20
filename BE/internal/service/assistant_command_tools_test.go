@@ -172,3 +172,38 @@ func TestPrepareTemporaryMachineStillOffersQuotaWhenNoneIsLive(t *testing.T) {
 	require.Equal(t, 1, payload.QuotaUsed)
 	require.Equal(t, 2, payload.QuotaLimit)
 }
+
+func TestPrepareCommandTimeout(t *testing.T) {
+	user := uuid.New()
+	tools := commandToolsWith(&commandStoreStub{reusable: runningMachineNamed("dev")}, user)
+	for _, action := range []string{"run_command", "run_command_write"} {
+		for _, tc := range []struct {
+			input string
+			want  int
+		}{
+			{`{"command":"pwd"}`, 60},
+			{`{"command":"pwd","timeout_seconds":1}`, 1},
+			{`{"command":"pwd","timeout_seconds":600}`, 600},
+			{`{"command":"pwd","timeout_seconds":0}`, 0},
+			{`{"command":"pwd","timeout_seconds":-1}`, 0},
+			{`{"command":"pwd","timeout_seconds":601}`, 0},
+			{`{"command":"pwd","timeout_seconds":1.5}`, 0},
+		} {
+			payload, err := tools.prepareCommand(t.Context(), commandAttempt(user), action, tc.input)
+			if tc.want == 0 {
+				require.Error(t, err, tc.input)
+			} else {
+				require.NoError(t, err, tc.input)
+				require.Equal(t, tc.want, payload.TimeoutSeconds)
+			}
+		}
+	}
+}
+
+func TestCommandApprovalRefusesOutOfRangeTimeout(t *testing.T) {
+	store := &queueRunStore{}
+	approvals := &AssistantApprovals{conversations: &repository.ConversationRepository{}, commands: store}
+	approval := &domain.ConversationApproval{Action: "run_command", Payload: []byte(`{"command":"pwd","timeout_seconds":601}`)}
+	_, _ = approvals.runCommand(t.Context(), uuid.New(), uuid.New(), approval)
+	require.Empty(t, store.queued)
+}

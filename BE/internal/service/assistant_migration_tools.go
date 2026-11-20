@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -125,7 +124,7 @@ func (t *AssistantTools) prepareMigration(ctx context.Context, a domain.Conversa
 		}
 	}
 	return domain.MigrationRunPayload{CommandMachine: domain.CommandMachineOf(machine, false), Action: name, Description: action.Description,
-		Command: action.Command, TimeoutSeconds: int(domain.CommandRunTimeout / time.Second)}, nil
+		Command: action.Command, TimeoutSeconds: domain.DefaultCommandTimeoutSeconds}, nil
 }
 
 // migrationPrompt tells the model when to request a named migration action,

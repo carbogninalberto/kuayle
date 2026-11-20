@@ -42,6 +42,11 @@ func TestCommandRunsAreQueuedOnlyOnTheRequestersMachine(t *testing.T) {
 	run, err := commands.QueueRun(member, f.ws, f.member, request(mine))
 	require.NoError(t, err)
 	require.Equal(t, "queued", run.Status)
+	require.Equal(t, 60, run.TimeoutSeconds)
+	for _, seconds := range []int{0, 601} {
+		_, err = f.db.Exec(`UPDATE assistant_command_runs SET timeout_seconds=$2 WHERE id=$1`, run.ID, seconds)
+		require.ErrorContains(t, err, "SQLSTATE 23514")
+	}
 	require.Equal(t, "Tools", run.MachineName)
 	require.Equal(t, 1000, run.CPUMillis)
 	require.Equal(t, 2048, run.MemoryMB)
@@ -58,6 +63,10 @@ func TestCommandRunsAreQueuedOnlyOnTheRequestersMachine(t *testing.T) {
 	require.Equal(t, run.Command, execution.Command)
 	require.NoError(t, machines.StartCommandRun(t.Context(), op))
 	require.NoError(t, machines.AppendCommandRunOutput(t.Context(), op, strings.Repeat("x", domain.CommandOutputBytes), false))
+	live, err := commands.Run(member, f.ws, run.ID, f.member)
+	require.NoError(t, err)
+	require.Equal(t, "running", live.Status)
+	require.Len(t, live.Output, domain.CommandOutputBytes)
 	require.NoError(t, machines.AppendCommandRunOutput(t.Context(), op, "1267650600228229401496703205376\n", false))
 	require.NoError(t, machines.CompleteCommandRun(t.Context(), op, 0))
 	done, err := commands.Run(member, f.ws, run.ID, f.member)
