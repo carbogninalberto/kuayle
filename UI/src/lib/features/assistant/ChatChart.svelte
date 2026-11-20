@@ -38,6 +38,15 @@
 
 	function buildOption(): echarts.EChartsOption {
 		const colors = fallbackColors.map((fallback, index) => resolveColor(`--chart-${index + 1}`, fallback));
+		// The theme defines five chart tokens, but pies may draw up to 12
+		// slices: past the tokens each band fades toward the page background
+		// instead of repeating a colour, so no two slices look the same.
+		const pieColor = (index: number): string => {
+			const band = Math.floor(index / colors.length);
+			return band === 0
+				? colors[index]
+				: echarts.color.modifyAlpha(colors[index % colors.length], Math.max(1 - band * 0.25, 0.4));
+		};
 		const foreground = resolveColor('--foreground', '#1a1a1a');
 		const muted = resolveColor('--muted-foreground', '#6b6b6b');
 		const border = resolveColor('--border', '#d4d4d4');
@@ -107,7 +116,7 @@
 							data: spec.categories.map((name, index) => ({
 								name,
 								value: spec.series[0].data[index],
-								itemStyle: { color: colors[index % colors.length] }
+								itemStyle: { color: pieColor(index) }
 							})),
 							label: { color: muted, fontSize: 10 },
 							itemStyle: { borderColor: 'transparent', borderWidth: 1 }

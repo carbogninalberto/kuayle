@@ -12,6 +12,9 @@ export const MAX_RICH_BYTES_PER_MESSAGE = 131072;
 
 const MAX_STRING_LENGTH = 200;
 const MAX_CATEGORIES = 100;
+// Pies draw one slice per category, so beyond a dozen the colours repeat and
+// the slices stop being readable; more categories stay visible as code.
+const MAX_PIE_CATEGORIES = 12;
 const MAX_SERIES = 5;
 const CHART_TYPES = ['bar', 'line', 'area', 'pie'] as const;
 const SPEC_KEYS = new Set(['type', 'title', 'unit', 'categories', 'series']);
@@ -94,6 +97,7 @@ export function parseChartSpec(json: string): ChartSpec | null {
 		if (!isText(entry.name) || !isNumberArray(entry.data, value.categories.length)) return null;
 		series.push({ name: entry.name, data: entry.data });
 	}
+	if (value.type === 'pie' && value.categories.length > MAX_PIE_CATEGORIES) return null;
 	if (value.type === 'pie' && series.length !== 1) return null;
 	if (value.type === 'pie' && series[0].data.some((entry) => entry < 0)) return null;
 
