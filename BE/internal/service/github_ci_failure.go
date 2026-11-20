@@ -267,7 +267,7 @@ func (s *GitHubService) readCIChecks(ctx context.Context, ws uuid.UUID, reposito
 // readCIChecksFromGitHub reads a commit's failed checks: each one's failed
 // step, its annotations and the end of at most maxLogs job logs.
 func (s *GitHubService) readCIChecksFromGitHub(ctx context.Context, ws uuid.UUID, repository, headSHA string, maxLogs int) ([]domain.CIFailedCheck, bool) {
-	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository)
+	client, token, owner, name, err := s.repositoryClient(ctx, ws, repository, "checks", "actions")
 	if err != nil {
 		return nil, false
 	}
