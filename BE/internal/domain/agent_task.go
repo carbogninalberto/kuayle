@@ -282,7 +282,7 @@ func ValidAgentTaskTransition(from, to string) bool {
 		return false
 	}
 	if to == "cancelling" {
-		return from == "queued" || from == "preparing" || from == "running" || from == "waiting_input" || from == "validating" || from == "publishing" || from == "awaiting_review" || from == "blocked" || from == "failed"
+		return from == "queued" || from == "preparing" || from == "waiting_for_disk" || from == "running" || from == "waiting_input" || from == "validating" || from == "publishing" || from == "awaiting_review" || from == "blocked" || from == "failed"
 	}
 	if to == "blocked" {
 		// From cancelling: the runtime of an attempt paused by a usage limit
@@ -293,7 +293,9 @@ func ValidAgentTaskTransition(from, to string) bool {
 	case "queued":
 		return to == "preparing"
 	case "preparing":
-		return to == "running"
+		return to == "running" || to == "waiting_for_disk"
+	case "waiting_for_disk":
+		return to == "preparing"
 	case "running":
 		return to == "waiting_input" || to == "publishing"
 	case "waiting_input":

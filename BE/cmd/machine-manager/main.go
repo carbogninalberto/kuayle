@@ -117,6 +117,7 @@ func main() {
 			HostMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
 			HostMinFreeGB:      configValue.DevMachine.HostDiskMinFreeGB,
 		})
+	manager.SetHostDiskNotifications(repository.NewNotificationRepository(database))
 	manager.SetCapacity(machine.CapacityConfig{ReservedCPUMillis: configValue.DevMachine.HostReservedCPUMillis, ReservedMemoryMB: configValue.DevMachine.HostReservedMemoryMB, CPUOvercommit: configValue.DevMachine.CPUOvercommit})
 	manager.SetMachineDomain(configValue.DevMachine.Domain)
 	manager.SetImages(machine.MachineImages{

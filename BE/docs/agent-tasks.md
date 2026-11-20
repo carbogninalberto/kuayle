@@ -1024,7 +1024,7 @@ transition inside the transition's transaction:
 | Task state | Session state |
 | --- | --- |
 | `queued` | `created` (first attempt) or `starting` (follow-up) |
-| `preparing` | `starting` |
+| `preparing`, `waiting_for_disk` | `starting` |
 | `running` | `active` |
 | `waiting_input` | `waiting_input` |
 | `publishing`, `awaiting_review`, `blocked` | `suspended` (the harness exited; a follow-up can resume it) |
@@ -1246,7 +1246,7 @@ start that has not begun: when a cancelling task has no attempt yet and its own
 machine (the one created for its reservation, used by no other task or run) has
 only the task's own spawn or start operations (its creation spawn and its
 `task-start:` keys) that the manager has not leased and that made no attempt,
-typically ones waiting for host capacity, cleanup cancels them instead of
+typically ones waiting for host capacity or disk space, cleanup cancels them instead of
 waiting. A start the user requested on that machine is not withdrawn. A machine that never ran is then permanently deleted through the
 ordinary teardown, which cancellation waits for; one that ran before (stopped or
 paused, restarting for a retry) keeps its workspace and its desired state
@@ -1324,6 +1324,13 @@ is keyed by task, task generation and machine generation, so a machine paused
 again is started again while a start that failed for good is not retried in a
 loop. An exhausted checkout is requeued at most once per explicit task
 generation, so polling cannot silently produce unlimited setup retries.
+A task whose machine cannot start below the host disk floor moves from
+`preparing` to `waiting_for_disk`. Its status shows the free space measured at
+the refusal and the configured floor in GB and percent. Workspace owners and
+admins receive an inbox notice once per breach observed by the manager. The
+manager retries the queued start without consuming an attempt. The task worker
+then picks the task up in `preparing` and continues the same iteration. Disk
+wait time is excluded from the workflow budget.
 A new task machine is a custom-size machine with the workspace policy's task
 machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB), headless unless an
 environment applies; see [Resource Limits and Quotas](../../TECHNICAL.md#resource-limits-and-quotas)
@@ -1633,7 +1640,7 @@ retries. If the agent is unassigned while its task is being created, the start
 finds its assignment gone and cancels the task it just created.
 
 **Unassignment.** Removing an agent cancels its task when the task is still
-working: `queued`, `preparing`, `running`, `waiting_input`, `validating`,
+working: `queued`, `preparing`, `waiting_for_disk`, `running`, `waiting_input`, `validating`,
 `publishing`, `blocked` or `failed`. Cancellation is the normal `cancelling`
 transition, recorded with the member who unassigned as its actor, so the
 runtime is stopped and cleaned up as for a cancelled task. A task
@@ -2473,9 +2480,9 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   (`Hold`) and fails or pauses. The time budget counts **working time only**:
   its clock starts when the task first leaves `queued` for real work
   (`preparing`), so a task blocked behind a blocker never runs it, and it is
-  stopped at a person's wait — an approval, a merge, or `waiting_input` —
-  recorded in `workflow_held_since`. When that wait ends, the time held is
-  added to the budget start (`workflow_budget_from`); while it is held there
+  stopped during an approval or merge wait, `waiting_input`, or
+  `waiting_for_disk`. The hold is recorded in `workflow_held_since`. When the
+  wait ends, its duration is added to the budget start (`workflow_budget_from`); while it is held there
   is no deadline and nothing wakes the task for the budget. An iteration that
   is running is not interrupted; its run's own time limit bounds it and the
   budget applies when it ends. Continuing passes a visit limit once; past a

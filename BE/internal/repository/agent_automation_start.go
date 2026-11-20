@@ -140,7 +140,7 @@ func recordAutomationApproval(ctx context.Context, tx *sqlx.Tx, run domain.Agent
 	_, err := tx.ExecContext(ctx, `WITH inserted AS (
  INSERT INTO notifications(user_id,workspace_id,issue_id,type,title,source_team_ids)
  SELECT n.user_id,n.workspace_id,n.issue_id,'agent_automation_approval',$5,n.source_team_ids
- FROM (SELECT $1::uuid AS user_id,$2::uuid AS workspace_id,$3::uuid AS issue_id,ARRAY[$4::uuid] AS source_team_ids) n
+ FROM (SELECT $1::uuid AS user_id,$2::uuid AS workspace_id,$3::uuid AS issue_id,ARRAY[$4::uuid] AS source_team_ids,'agent_automation_approval' AS type) n
  WHERE `+notificationVisible(recipient, "n")+` RETURNING user_id,workspace_id)
  SELECT pg_notify('agent_automation_approval',workspace_id::text||'/'||user_id::text) FROM inserted`,
 		run.OwnerID, run.WorkspaceID, run.IssueID, run.TeamID, title)

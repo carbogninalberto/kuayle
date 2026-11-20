@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Kopiert",
 	"tasks.state.queued": "Eingereiht",
 	"tasks.state.preparing": "Wird vorbereitet",
+	"tasks.state.waiting_for_disk": "Warten auf freien Speicherplatz",
 	"tasks.state.running": "Läuft",
 	"tasks.state.waiting_input": "Wartet auf Eingabe",
 	"tasks.state.validating": "Wird validiert",

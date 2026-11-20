@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Kopieret",
 	"tasks.state.queued": "I kø",
 	"tasks.state.preparing": "Forbereder",
+	"tasks.state.waiting_for_disk": "Venter på ledig diskplads",
 	"tasks.state.running": "Kører",
 	"tasks.state.waiting_input": "Venter på input",
 	"tasks.state.validating": "Validerer",

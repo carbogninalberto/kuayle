@@ -71,7 +71,10 @@
 		</p>
 		{#if failed && task.reason}<p class="mt-1 line-clamp-2 text-xs break-words text-destructive">
 				{m['assistant.task_step_error']({ reason: task.reason })}
-			</p>{/if}
+			</p>
+		{:else if task.state === 'waiting_for_disk'}
+			<p class="mt-1 text-xs break-words text-muted-foreground">{task.reason}</p>
+		{/if}
 	</div>
 	<div class="flex shrink-0 items-center gap-1">
 		{#if failed && onretry}<Button variant="ghost" size="sm" class="h-7 px-2 text-xs" onclick={onretry}

@@ -181,7 +181,8 @@ names the issue, the new state and the recorded reason, plus the pull request
 link once its publication was recorded, and links to the issue conversation. The
 delivery worker applies the usual allowlist, membership, binding and issue-scope
 checks at send time, so a moved or revoked issue chat is not delivered. Other
-transitions (queued, preparing, running, validating, publishing) do not notify.
+transitions (queued, preparing, waiting_for_disk, running, validating,
+publishing) do not notify the creator on Telegram.
 
 A coding agent's question to the orchestrator (an outbox file with
 `"kind":"question"` that Kuayle accepted; see the

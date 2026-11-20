@@ -37,7 +37,7 @@ func AgentSessionState(kind string, generation int64, taskState string) (string,
 			return "starting", true
 		}
 		return "created", true
-	case "preparing":
+	case "preparing", "waiting_for_disk":
 		return "starting", true
 	case "running":
 		return "active", true
