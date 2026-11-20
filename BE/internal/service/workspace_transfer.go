@@ -288,6 +288,8 @@ func collectUserID(target map[uuid.UUID]bool, value any) {
 
 func sanitizeExportRow(table string, row dto.WorkspaceTransferRow) {
 	switch table {
+	case "issue_templates":
+		delete(row, "recurrence_lease_until")
 	case "assets":
 		delete(row, "storage_key")
 	case "webhooks":
@@ -753,6 +755,8 @@ func prepareImportedRow(table string, row dto.WorkspaceTransferRow) {
 		sanitizeImportedText(row, column, clean)
 	}
 	switch table {
+	case "issue_templates":
+		delete(row, "recurrence_lease_until")
 	case "issue_history":
 		// Recorded description versions are shown again as HTML in version history.
 		if transferString(row["field"]) == "description" {

@@ -174,6 +174,8 @@ export interface IssueTemplate {
 	assignee_id: string | null;
 	recurrence_rule?: unknown;
 	next_run_at: string | null;
+	last_run_at: string | null;
+	last_error: string | null;
 	is_active: boolean;
 	created_by: string;
 	created_at: string;

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -48,11 +49,6 @@ func (s *IssueTemplateService) Create(ctx context.Context, workspaceID, creatorI
 		}
 	}
 
-	var recurrence *json.RawMessage
-	if len(req.RecurrenceRule) > 0 {
-		recurrence = &req.RecurrenceRule
-	}
-
 	tmpl := &domain.IssueTemplate{
 		ID:                uuid.New(),
 		WorkspaceID:       workspaceID,
@@ -62,9 +58,11 @@ func (s *IssueTemplateService) Create(ctx context.Context, workspaceID, creatorI
 		Status:            req.Status,
 		Priority:          req.Priority,
 		LabelIDs:          labelIDsJSON,
-		RecurrenceRule:    recurrence,
 		IsActive:          true,
 		CreatedBy:         creatorID,
+	}
+	if err := configureTemplateSchedule(tmpl, req.RecurrenceRule); err != nil {
+		return nil, err
 	}
 
 	if req.TeamID != nil {
@@ -155,17 +153,47 @@ func (s *IssueTemplateService) Update(ctx context.Context, id uuid.UUID, req dto
 		labelIDsJSON, _ := json.Marshal(req.LabelIDs)
 		tmpl.LabelIDs = labelIDsJSON
 	}
-	if len(req.RecurrenceRule) > 0 {
-		tmpl.RecurrenceRule = &req.RecurrenceRule
-	}
+	ruleChanged := len(req.RecurrenceRule) > 0
+	resetSchedule := ruleChanged || (req.IsActive != nil && *req.IsActive != tmpl.IsActive)
 	if req.IsActive != nil {
 		tmpl.IsActive = *req.IsActive
 	}
 
-	if err := s.templateRepo.Update(ctx, tmpl); err != nil {
+	if ruleChanged || (resetSchedule && tmpl.IsActive) {
+		rule := req.RecurrenceRule
+		if !ruleChanged && tmpl.RecurrenceRule != nil {
+			rule = *tmpl.RecurrenceRule
+		}
+		if err := configureTemplateSchedule(tmpl, rule); err != nil {
+			return nil, err
+		}
+	} else if resetSchedule {
+		tmpl.NextRunAt = nil
+	}
+	if err := s.templateRepo.Update(ctx, tmpl, resetSchedule); err != nil {
 		return nil, err
 	}
 	return tmpl, nil
+}
+
+func configureTemplateSchedule(tmpl *domain.IssueTemplate, rule json.RawMessage) error {
+	schedule, err := domain.ParseIssueTemplateSchedule(rule)
+	if err != nil {
+		return err
+	}
+	tmpl.RecurrenceRule, tmpl.NextRunAt = nil, nil
+	if schedule == nil {
+		return nil
+	}
+	next, err := schedule.Next(time.Now())
+	if err != nil {
+		return err
+	}
+	tmpl.RecurrenceRule = &rule
+	if tmpl.IsActive {
+		tmpl.NextRunAt = &next
+	}
+	return nil
 }
 
 func validTemplateStatus(status string) bool {

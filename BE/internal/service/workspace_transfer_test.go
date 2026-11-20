@@ -43,6 +43,15 @@ func TestSanitizeExportRowRemovesSecretsAndDisablesIntegrations(t *testing.T) {
 	}
 }
 
+func TestWorkspaceTransferDiscardsTemplateWorkerLease(t *testing.T) {
+	for _, prepare := range []func(string, dto.WorkspaceTransferRow){sanitizeExportRow, prepareImportedRow} {
+		row := dto.WorkspaceTransferRow{"recurrence_lease_until": "2026-11-30T00:02:00Z", "next_run_at": "2026-11-30T00:00:00Z"}
+		prepare("issue_templates", row)
+		require.NotContains(t, row, "recurrence_lease_until")
+		require.Equal(t, "2026-11-30T00:00:00Z", row["next_run_at"])
+	}
+}
+
 func TestRemapTransferValueRewritesIDsNestedJSONAndAssetURLs(t *testing.T) {
 	oldID := uuid.New().String()
 	newID := uuid.New().String()
