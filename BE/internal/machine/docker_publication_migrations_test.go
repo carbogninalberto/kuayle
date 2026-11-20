@@ -134,8 +134,9 @@ func TestPublicationHandsOffIndependentlyAddedIdenticalMigrationPaths(t *testing
 	f.run(f.root, nil, "clone", "-q", f.origin, winner)
 	addMigrationPair(f, winner, "000178_feature")
 	f.run(winner, nil, "push", "-q", "origin", "main")
+	f.commitFile(f.checkout, "task.txt", kuayleIdentity)
 	addMigrationPair(f, f.checkout, "000178_feature")
-	head := f.commitFile(f.checkout, "task.txt", kuayleIdentity)
+	head := f.head()
 
 	output, err := f.push(head, "")
 	require.NoError(t, err, output)
