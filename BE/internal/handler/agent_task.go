@@ -296,36 +296,61 @@ func (h *AgentTaskHandler) Pause(c *echo.Context) error {
 	return response.Success(c, http.StatusAccepted, result)
 }
 
-// WorkflowSwitch says what moving the creator's task to the newest version
-// of its workflow would do: where it continues, or why it cannot be moved.
-// It changes nothing.
+// WorkflowSwitch previews the creator's requested move.
 func (h *AgentTaskHandler) WorkflowSwitch(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
 	}
-	plan, _, err := h.svc.SwitchWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, false)
+	target := domain.WorkflowSwitchTarget{WorkflowID: c.QueryParam("workflow_id"), Node: c.QueryParam("node")}
+	if !validWorkflowSwitchTarget(target) {
+		return agentTaskError(c, repository.ErrConversationInvalid)
+	}
+	plan, _, err := h.svc.SwitchWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, target, false)
 	if err != nil {
-		return agentTaskError(c, err)
+		return workflowSwitchError(c, target, err)
 	}
 	return response.Success(c, http.StatusOK, plan)
 }
 
-// SwitchWorkflow moves the creator's task to the newest version of its
-// workflow. A task that cannot be moved is a conflict that names the reason.
+// SwitchWorkflow applies the creator's requested move.
 func (h *AgentTaskHandler) SwitchWorkflow(c *echo.Context) error {
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
 	}
-	plan, task, err := h.svc.SwitchWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, true)
+	var target domain.WorkflowSwitchTarget
+	if c.Request().ContentLength != 0 {
+		if err := bindTask(c, &target); err != nil {
+			return agentTaskError(c, err)
+		}
+	}
+	if !validWorkflowSwitchTarget(target) {
+		return agentTaskError(c, repository.ErrConversationInvalid)
+	}
+	plan, task, err := h.svc.SwitchWorkflow(c.Request().Context(), middleware.GetWorkspace(c).ID, id, target, true)
 	if err != nil {
-		return agentTaskError(c, err)
+		return workflowSwitchError(c, target, err)
 	}
 	if task == nil {
 		return response.Error(c, http.StatusConflict, "WORKFLOW_SWITCH_REFUSED", plan.Refused)
 	}
 	return response.Success(c, http.StatusOK, map[string]any{"switch": plan, "task": task})
+}
+
+func validWorkflowSwitchTarget(target domain.WorkflowSwitchTarget) bool {
+	if target.WorkflowID == "" {
+		return target.Node == "" && target.ExpectedVersionID == nil
+	}
+	return strings.TrimSpace(target.Node) != ""
+}
+
+func workflowSwitchError(c *echo.Context, target domain.WorkflowSwitchTarget, err error) error {
+	if target.WorkflowID != "" && errors.Is(err, repository.ErrConversationNotFound) {
+		// Use the same refusal for a missing or inaccessible task.
+		return response.Error(c, http.StatusNotFound, "WORKFLOW_SWITCH_REFUSED", "not_creator")
+	}
+	return agentTaskError(c, err)
 }
 
 // ResumeUsageLimit is "Resume" on a paused task: a workflow its creator

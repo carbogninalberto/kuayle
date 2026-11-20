@@ -676,6 +676,9 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 		return err
 	}
 	node, ok := graph.Node(step.NodeID)
+	if ok && task.WorkflowStatus != nil && *task.WorkflowStatus == domain.WorkflowStatusEntering {
+		return w.enterSwitchedStep(ctx, task, *graph, profiles, node, step.Reason)
+	}
 	if !ok || task.WorkflowStatus == nil || *task.WorkflowStatus != domain.WorkflowStatusWaiting || step.FinishedAt != nil {
 		return w.tasks.SetWorkflowWake(ctx, task, nil)
 	}
@@ -798,6 +801,29 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 		record = ci.record
 	}
 	return w.outcome(ctx, task, outcome, detail, "", record)
+}
+
+func (w *WorkflowRunner) enterSwitchedStep(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, reason string) error {
+	cursor := task.Cursor()
+	// The switch recorded the first visit so it could appear in the path.
+	// Entry renders the prompt with the count from before that visit.
+	cursor.Visits[node.ID]--
+	vars, err := w.variables(ctx, task, graph, profiles, "", "", "")
+	if err != nil {
+		return err
+	}
+	entry, outcome, detail, err := w.enter(ctx, task, graph, profiles, cursor, domain.WorkflowDecision{To: node, Reason: reason}, reason, vars, w.now())
+	if err != nil {
+		return err
+	}
+	if outcome != "" {
+		return w.Outcome(ctx, task, outcome, detail)
+	}
+	_, err = w.tasks.ApplyWorkflow(ctx, task, repository.WorkflowApply{
+		Sequence: task.WorkflowSequence, Version: task.WorkflowVersionID, Hold: true, EnterCurrent: true,
+		Entry: entry, Iteration: entry.Kind == repository.WorkflowEnterIteration,
+	})
+	return err
 }
 
 // stopCI pauses the workflow at a CI step that found CI still failing on a

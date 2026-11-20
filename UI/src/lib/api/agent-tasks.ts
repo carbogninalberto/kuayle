@@ -1,6 +1,7 @@
 import { api } from './client';
 import type { AgentProvider, AgentRun, DevMachineLogChunk, ModelServer, TerminalSessionLaunchResponse } from '$lib/types/dev-machine';
 import type { ConversationAttachment } from './conversations';
+import type { WorkflowBudget, WorkflowNodeType } from './workflows';
 export type TaskState =
 	| 'queued'
 	| 'preparing'
@@ -336,13 +337,41 @@ export type WorkflowSwitchRefusal =
 	| 'finished'
 	| 'not_at_rest'
 	| 'step_removed'
-	| 'step_changed';
+	| 'step_changed'
+	| 'workflow_archived'
+	| 'workflow_unavailable'
+	| 'workflow_unusable'
+	| 'step_missing'
+	| 'step_not_runnable'
+	| 'target_version_changed'
+	| 'not_creator'
+	| 'session_required';
+export interface WorkflowSwitchTarget {
+	workflow_id: string;
+	node: string;
+	expected_version_id?: string;
+}
 export interface WorkflowSwitch {
 	from_version: number;
 	to_version: number;
 	node?: string;
 	node_label?: string;
 	refused?: WorkflowSwitchRefusal;
+	continuation?: {
+		from_workflow_id: string;
+		from_workflow_name: string;
+		from_node: string;
+		to_workflow_id: string;
+		to_workflow_name: string;
+		to_version_id: string;
+		node_type: WorkflowNodeType;
+		carries: string[];
+		budget: WorkflowBudget;
+		max_visits: number;
+		timeout_minutes: number;
+		resets: string[];
+		time_spent_seconds: number;
+	};
 }
 
 export type WorkflowPauseMode = 'now' | 'after_step';
@@ -391,9 +420,10 @@ export const agentTasks = {
 	// What moving the task to the newest version of its workflow would do
 	// (nothing changes), and the move itself. Creator only; a task that
 	// cannot be moved answers 409 with the reason.
-	workflowSwitch: (slug: string, id: string) => api.get<WorkflowSwitch>(`${task(slug, id)}/workflow/switch`),
-	switchWorkflow: (slug: string, id: string) =>
-		api.post<{ switch: WorkflowSwitch; task: AgentTask }>(`${task(slug, id)}/workflow/switch`, {}),
+	workflowSwitch: (slug: string, id: string, target?: Pick<WorkflowSwitchTarget, 'workflow_id' | 'node'>, signal?: AbortSignal) =>
+		api.get<WorkflowSwitch>(`${task(slug, id)}/workflow/switch${target ? `?${new URLSearchParams(target)}` : ''}`, { signal }),
+	switchWorkflow: (slug: string, id: string, target?: WorkflowSwitchTarget) =>
+		api.post<{ switch: WorkflowSwitch; task: AgentTask }>(`${task(slug, id)}/workflow/switch`, target ?? {}),
 	resumeUsageLimit: (slug: string, id: string) => api.post<AgentTask>(`${task(slug, id)}/resume`, {}),
 	cancelUsageLimitResume: (slug: string, id: string) => api.delete<AgentTask>(`${task(slug, id)}/resume`),
 	// A retry on an issue whose work was merged answers 409 MERGED_WORK naming

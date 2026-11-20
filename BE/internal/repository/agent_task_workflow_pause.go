@@ -374,22 +374,18 @@ func (r *AgentTaskRepository) WorkflowPauses(ctx context.Context, ws, id uuid.UU
 		At      time.Time       `db:"created_at"`
 	}
 	if err = tx.SelectContext(ctx, &rows, `SELECT action,actor_id,detail,created_at FROM workflow_audit_events
- WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6,$7) ORDER BY id DESC LIMIT 500`,
-		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn, domain.WorkflowSwitchAction); err != nil {
+ WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6,$7,$8) ORDER BY id DESC LIMIT 500`,
+		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn, domain.WorkflowSwitchAction, domain.WorkflowContinueAction); err != nil {
 		return nil, err
 	}
 	// The newest events, listed oldest first.
 	slices.Reverse(rows)
 	events := make([]domain.WorkflowPauseEvent, 0, len(rows))
 	for _, row := range rows {
-		var detail struct {
-			Sequence    int    `json:"sequence"`
-			Mode        string `json:"mode"`
-			FromVersion int    `json:"from_version"`
-			ToVersion   int    `json:"to_version"`
-		}
-		_ = json.Unmarshal(row.Detail, &detail)
-		events = append(events, domain.WorkflowPauseEvent{Action: row.Action, Sequence: detail.Sequence, Mode: detail.Mode, FromVersion: detail.FromVersion, ToVersion: detail.ToVersion, ActorID: row.ActorID, At: row.At})
+		var event domain.WorkflowPauseEvent
+		_ = json.Unmarshal(row.Detail, &event)
+		event.Action, event.ActorID, event.At = row.Action, row.ActorID, row.At
+		events = append(events, event)
 	}
 	return events, nil
 }

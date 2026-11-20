@@ -1463,13 +1463,19 @@ const (
 // on which step, and who asked (nil when a requested pause took effect).
 // FromVersion and ToVersion are set for a move.
 type WorkflowPauseEvent struct {
-	Action      string     `json:"action"`
-	Sequence    int        `json:"sequence"`
-	Mode        string     `json:"mode,omitempty"`
-	FromVersion int        `json:"from_version,omitempty"`
-	ToVersion   int        `json:"to_version,omitempty"`
-	ActorID     *uuid.UUID `json:"actor_id,omitempty"`
-	At          time.Time  `json:"at"`
+	Action         string     `json:"action"`
+	Sequence       int        `json:"sequence"`
+	Mode           string     `json:"mode,omitempty"`
+	FromVersion    int        `json:"from_version,omitempty"`
+	ToVersion      int        `json:"to_version,omitempty"`
+	FromWorkflowID *uuid.UUID `json:"from_workflow_id,omitempty"`
+	ToWorkflowID   *uuid.UUID `json:"to_workflow_id,omitempty"`
+	ToWorkflowName string     `json:"to_workflow_name,omitempty"`
+	FromNode       string     `json:"from_node,omitempty"`
+	ToNode         string     `json:"to_node,omitempty"`
+	ToNodeLabel    string     `json:"to_node_label,omitempty"`
+	ActorID        *uuid.UUID `json:"actor_id,omitempty"`
+	At             time.Time  `json:"at"`
 }
 
 // WorkflowStepRun is one agent run of a task as its timeline shows it, placed
@@ -1497,11 +1503,12 @@ type WorkflowStepRun struct {
 
 // Workflow runner statuses stored on the task.
 const (
-	WorkflowStatusRunning = "running"
-	WorkflowStatusWaiting = "waiting"
-	WorkflowStatusPaused  = "paused"
-	WorkflowStatusDone    = "done"
-	WorkflowStatusFailed  = "failed"
+	WorkflowStatusEntering = "entering"
+	WorkflowStatusRunning  = "running"
+	WorkflowStatusWaiting  = "waiting"
+	WorkflowStatusPaused   = "paused"
+	WorkflowStatusDone     = "done"
+	WorkflowStatusFailed   = "failed"
 )
 
 // ValidWorkflowTaskTransition is the task state change a workflow runner may

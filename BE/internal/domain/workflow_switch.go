@@ -16,11 +16,25 @@ const (
 	WorkflowSwitchStepRemoved = "step_removed"
 	// The step exists but does another kind of work there.
 	WorkflowSwitchStepChanged = "step_changed"
+	WorkflowSwitchArchived    = "workflow_archived"
+	WorkflowSwitchUnavailable = "workflow_unavailable"
+	WorkflowSwitchUnusable    = "workflow_unusable"
+	WorkflowSwitchStepMissing = "step_missing"
+	WorkflowSwitchStepInvalid = "step_not_runnable"
+	WorkflowSwitchTargetStale = "target_version_changed"
 )
 
 // WorkflowSwitchAction is the audit action of a task moved to another
 // version of its workflow.
 const WorkflowSwitchAction = "version_switched"
+const WorkflowContinueAction = "workflow_switched"
+
+// WorkflowSwitchTarget is empty for a compatible upgrade in place.
+type WorkflowSwitchTarget struct {
+	WorkflowID        string     `json:"workflow_id"`
+	Node              string     `json:"node"`
+	ExpectedVersionID *uuid.UUID `json:"expected_version_id,omitempty"`
+}
 
 // WorkflowSwitch is what moving a task to the newest version of its workflow
 // would do, or why it cannot be moved. Nothing is automatic: a person asks.
@@ -32,7 +46,30 @@ type WorkflowSwitch struct {
 	Node      string `json:"node,omitempty"`
 	NodeLabel string `json:"node_label,omitempty"`
 	// Refused is empty when the task can be moved.
-	Refused string `json:"refused,omitempty"`
+	Refused      string                `json:"refused,omitempty"`
+	Continuation *WorkflowContinuation `json:"continuation,omitempty"`
+}
+
+type WorkflowContinuation struct {
+	FromWorkflowID   uuid.UUID      `json:"from_workflow_id"`
+	FromWorkflowName string         `json:"from_workflow_name"`
+	FromNode         string         `json:"from_node"`
+	ToWorkflowID     uuid.UUID      `json:"to_workflow_id"`
+	ToWorkflowName   string         `json:"to_workflow_name"`
+	ToVersionID      uuid.UUID      `json:"to_version_id"`
+	NodeType         string         `json:"node_type"`
+	Carries          []string       `json:"carries"`
+	Budget           WorkflowBudget `json:"budget"`
+	MaxVisits        int            `json:"max_visits"`
+	TimeoutMinutes   int            `json:"timeout_minutes"`
+	Resets           []string       `json:"resets"`
+	TimeSpentSeconds int64          `json:"time_spent_seconds"`
+}
+
+// A workflow starts at a concrete step. Start and end describe the graph's
+// boundaries, and the built-in Standard flow has no pinned version.
+func (n WorkflowNode) CanContinueFrom() bool {
+	return n.Type != WorkflowNodeStart && n.Type != WorkflowNodeEnd
 }
 
 // WorkflowSwitchBlocked says why the task's state does not allow a move, or

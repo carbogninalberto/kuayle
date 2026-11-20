@@ -779,6 +779,9 @@ versions validated on save, defaults per workspace, team and project, and a
 runner that drives each task's pinned version node by node under the worker's
 lease. Tasks without a pinned version run the built-in Standard workflow,
 which is the existing fixed flow.
+A paused task with a pinned workflow can [continue on a chosen step of
+another workflow](BE/docs/agent-tasks.md#continuing-on-a-chosen-workflow-step)
+with its existing checkout, branch and pull request (migration 199).
 A workflow's ship approval (an approval leading to `done` or a merge step, or,
 reached after CI passed, through agent steps to `done`) marks a draft pull
 request ready and brings a branch behind its base up to date when it is

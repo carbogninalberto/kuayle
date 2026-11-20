@@ -202,8 +202,8 @@ func (r *AgentTaskRepository) DebugTrace(ctx context.Context, ws, id uuid.UUID, 
 	}
 	reverseTraceRows(out.Signals)
 	if err = tx.SelectContext(ctx, &out.Audits, `SELECT id,action,actor_id,detail,created_at FROM workflow_audit_events
- WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6,$7) ORDER BY id DESC LIMIT $8`,
-		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn, domain.WorkflowSwitchAction, limits.Rows+1); err != nil {
+ WHERE workspace_id=$1 AND entity='task_workflow' AND entity_id=$2 AND action IN ($3,$4,$5,$6,$7,$8) ORDER BY id DESC LIMIT $9`,
+		ws, id, domain.WorkflowPauseActionRequested, domain.WorkflowPauseActionPaused, domain.WorkflowPauseActionResumed, domain.WorkflowPauseActionWithdrawn, domain.WorkflowSwitchAction, domain.WorkflowContinueAction, limits.Rows+1); err != nil {
 		return nil, err
 	}
 	reverseTraceRows(out.Audits)

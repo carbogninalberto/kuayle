@@ -45,7 +45,7 @@ export interface TimelineStep {
 }
 
 type Task = Pick<AgentTask, 'id' | 'state' | 'run_id' | 'provider' | 'model' | 'updated_at'>;
-type View = Pick<TaskWorkflow, 'graph' | 'profiles' | 'steps'> & { runs?: WorkflowStepRun[] };
+type View = Pick<TaskWorkflow, 'graph' | 'profiles' | 'steps' | 'runs' | 'pauses'>;
 
 const failedOutcomes = new Set([
 	'agent_failed',
@@ -56,7 +56,7 @@ const failedOutcomes = new Set([
 	'task_failed',
 	'failed'
 ]);
-const stoppedOutcomes = new Set(['task_cancelled', 'retried']);
+const stoppedOutcomes = new Set(['task_cancelled', 'retried', 'workflow_switched']);
 
 function outcomeStatus(outcome: string | null | undefined): StepStatus {
 	if (!outcome) return 'done';
@@ -104,8 +104,10 @@ export function workflowTimeline(view: View, task: Task): TimelineStep[] {
 	const steps = [...view.steps].sort((a, b) => a.sequence - b.sequence);
 	const last = steps.at(-1)?.sequence;
 	const runs = view.runs ?? [];
+	const switchSequence = view.pauses?.findLast((event) => event.action === 'workflow_switched')?.sequence ?? 0;
 	return steps.map((step: WorkflowStep) => {
-		const node = view.graph.nodes.find((n) => n.id === step.node_id);
+		const historical = step.sequence < switchSequence;
+		const node = historical ? undefined : view.graph.nodes.find((n) => n.id === step.node_id);
 		const profile = node?.profile_id ? view.profiles.find((p) => p.id === node.profile_id) : undefined;
 		const agent = step.node_type === 'agent';
 		const current = step.sequence === last && !step.finished_at;
@@ -127,7 +129,7 @@ export function workflowTimeline(view: View, task: Task): TimelineStep[] {
 			anchor: `step-${step.sequence}`,
 			kind: agent ? 'agent' : 'row',
 			nodeType: step.node_type,
-			label: node?.label ?? '',
+			label: node?.label ?? (historical ? step.node_id : ''),
 			profile: profile?.name,
 			harness: agent ? ran?.provider || profile?.harness : undefined,
 			model: agent ? (ran ? ran.model : profile?.model) || undefined : undefined,

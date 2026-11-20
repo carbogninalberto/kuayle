@@ -90,7 +90,9 @@
 			? m['tasks.state.paused']()
 			: event.action === 'resumed'
 				? m['tasks.path.resumed']()
-				: m['tasks.path.moved']({ version: event.to ?? '' });
+				: event.action === 'switched'
+					? m['tasks.path.switched']({ workflow: event.workflow ?? '', version: event.to ?? '', step: event.node ?? '' })
+					: m['tasks.path.moved']({ version: event.to ?? '' });
 
 	// Durations of running steps tick.
 	let now = $state(Date.now());

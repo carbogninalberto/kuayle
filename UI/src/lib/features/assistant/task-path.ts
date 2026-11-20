@@ -33,11 +33,14 @@ export interface PathStep {
 export interface PathEvent {
 	kind: 'event';
 	key: string;
-	action: 'paused' | 'resumed' | 'moved';
+	action: 'paused' | 'resumed' | 'moved' | 'switched';
 	at: string;
 	/** A move: the workflow versions it went from and to. */
 	from?: number;
 	to?: number;
+	workflow?: string;
+	node?: string;
+	sequence?: number;
 }
 
 export type PathEntry = PathStep | PathEvent;
@@ -89,7 +92,8 @@ function attemptGenerations(steps: TimelineStep[], generation: number, groups: {
 const eventAction: Partial<Record<WorkflowPauseEvent['action'], PathEvent['action']>> = {
 	paused: 'paused',
 	resumed: 'resumed',
-	version_switched: 'moved'
+	version_switched: 'moved',
+	workflow_switched: 'switched'
 };
 
 /** The whole path, oldest first: every step, with what happened between them. */
@@ -111,16 +115,22 @@ export function taskPath(
 	const events = (context.pauses ?? [])
 		.flatMap((event, index): PathEvent[] => {
 			const action = eventAction[event.action];
-			return action
-				? [{ kind: 'event', key: `${action}-${index}`, action, at: event.at, from: event.from_version, to: event.to_version }]
-				: [];
+			if (!action) return [];
+			const entry: PathEvent = { kind: 'event', key: `${action}-${index}`, action, at: event.at, from: event.from_version, to: event.to_version };
+			if (action === 'switched') {
+				entry.workflow = event.to_workflow_name;
+				entry.node = event.to_node_label || event.to_node;
+				entry.sequence = event.sequence;
+			}
+			return [entry];
 		})
 		.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 	const entries: PathEntry[] = [];
 	let placed = 0;
 	steps.forEach((step, index) => {
 		// What happened before this step began belongs to the one before it.
-		while (index > 0 && placed < events.length && Date.parse(events[placed].at) < Date.parse(step.startedAt))
+		while (index > 0 && placed < events.length &&
+			(step.anchor === `step-${events[placed].sequence}` || Date.parse(events[placed].at) < Date.parse(step.startedAt)))
 			entries.push(events[placed++]);
 		const last = index === steps.length - 1;
 		entries.push({

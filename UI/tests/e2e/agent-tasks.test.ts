@@ -914,6 +914,127 @@ test('a task whose step the newest version lost stays on its version and says wh
 	expect(state.switches).toBe(0);
 });
 
+test('continues a paused task on a chosen workflow step after reviewing the plan', async ({ page }) => {
+	const { state } = await fixture(page);
+	const at = new Date().toISOString();
+	await page.setViewportSize({ width: 1440, height: 900 });
+	const node = { id: 'repair', label: 'Repair checks', type: 'agent', position: { x: 0, y: 0 } };
+	const graph = { nodes: [node], edges: [], budget: { max_iterations: 5, max_minutes: 45 } };
+	const originalStep = { sequence: 1, node_id: 'implement', node_type: 'agent', visit: 1, entered_at: new Date(Date.now() - 30 * 60_000).toISOString() };
+	state.task = {
+		id: 'task-1', workspace_id: 'workspace-1', conversation_id: 'chat-1', creator_id: 'user-1',
+		issue_id: 'issue-1', team_id: 'team-1', state: 'blocked', reason: 'Paused', generation: 1,
+		kind: 'implement', prompt: 'Repair the release', provider: 'codex', run_id: 'run-1', checkout_id: 'checkout-1',
+		created_at: originalStep.entered_at, updated_at: at, workflow_paused_at: at, workflow_status: 'running',
+		workflow_version_id: 'version-1', workflow_node: 'implement'
+	};
+	state.workflowView = {
+		workflow_id: 'source', version: 1, name: 'Implementation',
+		graph: { nodes: [{ ...node, id: 'implement', label: 'Implement' }], edges: [], budget: {} },
+		node: 'implement', sequence: 1, visits: { implement: 1 }, iterations: 1,
+		profiles: [], steps: [originalStep], pauses: [], task_state: 'blocked', status: 'running'
+	};
+	await page.route('**/api/workspaces/test/workflows', (route) => route.fulfill({ json: {
+		workflows: [
+			{ id: 'source', name: 'Implementation', latest_version: 1, graph },
+			{ id: 'target', name: 'Release repair', latest_version: 3, graph },
+			{ id: 'archived', name: 'Archived', latest_version: 1, archived: true, graph }
+		]
+	} }));
+	const switches: unknown[] = [];
+	let refused = true;
+	await page.route('**/agent-tasks/task-1/workflow/switch*', async (route) => {
+		const request = route.request();
+		const query = new URL(request.url()).searchParams;
+		const continuation = {
+			from_workflow_name: 'Implementation', to_workflow_name: 'Release repair', to_version_id: 'version-3',
+			node_type: 'agent', budget: graph.budget, resets: ['visits', 'iterations', 'budget_extensions', 'time_budget'],
+			carries: ['task', 'machine', 'worktree', 'checkout', 'branch', 'pull_request'], time_spent_seconds: 1800
+		};
+		const plan = { from_version: 1, to_version: 3, node: node.id, node_label: node.label, continuation };
+		if (request.method() === 'GET') {
+			if (!query.has('workflow_id')) return route.fulfill({ json: state.workflowSwitch });
+			expect(Object.fromEntries(query)).toEqual({ workflow_id: 'target', node: 'repair' });
+			return route.fulfill({ json: refused ? { refused: 'step_missing' } : plan });
+		}
+		switches.push(request.postDataJSON());
+		state.task = { ...state.task, state: 'awaiting_review', workflow_status: 'entering', reason: 'Workflow · Continue on Repair checks',
+			workflow_paused_at: null, workflow_node: 'repair',
+			workflow_version_id: 'version-3', updated_at: new Date().toISOString() };
+		state.workflowView = {
+			...state.workflowView, workflow_id: 'target', version: 3, name: 'Release repair', graph, task_state: 'awaiting_review',
+			status: 'entering', node: 'repair', sequence: 2, visits: { repair: 1 }, iterations: 0,
+			steps: [
+				{ ...originalStep, outcome: 'workflow_switched', finished_at: at },
+				{ sequence: 2, node_id: 'repair', node_type: 'agent', visit: 1, entered_at: at }
+			],
+			pauses: [{ action: 'workflow_switched', sequence: 2, from_version: 1, to_version: 3,
+				to_workflow_name: 'Release repair', to_node_label: 'Repair checks', at }]
+		};
+		return route.fulfill({ json: { switch: plan, task: state.task } });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await showAgents(page);
+	const open = async () => {
+		await openTaskMenu(page);
+		await page.getByRole('menuitem', { name: 'Continue on another workflow…' }).click();
+	};
+	const dialog = page.getByRole('dialog', { name: 'Continue on another workflow' });
+	const confirm = dialog.getByRole('button', { name: 'Continue task' });
+	const select = async () => {
+		await dialog.getByRole('combobox', { name: 'Workflow' }).click();
+		await expect(page.getByRole('option', { name: /Implementation|Archived/ })).toHaveCount(0);
+		await page.getByRole('option', { name: 'Release repair' }).click();
+		await dialog.getByRole('combobox', { name: 'Step' }).focus();
+		await page.keyboard.press('ArrowDown');
+		await page.getByRole('option', { name: 'Repair checks' }).click();
+	};
+	await open();
+	await expect(confirm).toBeDisabled();
+	await select();
+	await expect(dialog.getByRole('alert')).toContainText('The selected step no longer exists');
+	await expect(confirm).toBeDisabled();
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await expect(page.getByRole('button', { name: 'More actions', exact: true })).toBeFocused();
+	refused = false;
+	await open();
+	await select();
+	await expect(dialog).toContainText('Release repair');
+	await expect(dialog).toContainText('Repair checks');
+	await expect(dialog).toContainText('existing pull request');
+	await expect(dialog).toContainText(/Maximum minutes\s*45/);
+	await expect(dialog).toContainText('30m');
+	expect(switches).toHaveLength(0);
+	if (process.env.KUAYLE_SWITCH_SCREENSHOT) await page.screenshot({ path: process.env.KUAYLE_SWITCH_SCREENSHOT });
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await page.setViewportSize({ width: 390, height: 720 });
+	await showAgents(page);
+	await open();
+	await select();
+	await expect(confirm).toBeEnabled();
+	await expect(confirm).toBeInViewport();
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.reload();
+	await showAgents(page);
+	await open();
+	await select();
+	await confirm.click();
+	await expect(dialog).toBeHidden();
+	expect(switches).toEqual([{ workflow_id: 'target', node: 'repair', expected_version_id: 'version-3' }]);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Queued', { exact: true })).toBeVisible();
+	const fullPath = tasks.getByRole('button', { name: 'Full path' });
+	await expect(fullPath).toBeVisible();
+	await fullPath.click();
+	await expect(tasks.getByText('Continued on Release repair (version 3) at Repair checks')).toBeVisible();
+	if (process.env.KUAYLE_SWITCH_SCREENSHOT) {
+		await page.mouse.move(0, 0);
+		await expect(page.getByRole('tooltip')).toHaveCount(0);
+		await tasks.screenshot({ path: process.env.KUAYLE_SWITCH_SCREENSHOT.replace('.png', '-path.png') });
+	}
+});
+
 // KUA-129: a running workflow is paused from the task card's menu, where
 // cancel is, now or after the current step. A paused task says "Paused" and
 // has one next step, Resume.

@@ -2778,8 +2778,7 @@ version (KUA-130). It is never automatic.
   harness, model and instructions and is continued with them. Label, prompt,
   limits and the transitions may differ, and so may every other step.
   Otherwise the move is refused (`step_removed`, `step_changed`) and the task
-  stays on its version: it is never left without a valid step. Choosing another
-  step to continue from is not offered.
+  stays on its version. This mode always continues from the current step.
 - The step the task is on keeps the prompt it was entered with. The new
   prompts, profiles, transitions and limits apply from its next step.
 - A person's retry goes back to the latest implementing step the task's current
@@ -2803,6 +2802,61 @@ version (KUA-130). It is never automatic.
   ([workflow-switch.ts](../../UI/src/lib/features/assistant/workflow-switch.ts)).
   The move is listed in the workflow view's `pauses`, and the task card's
   path shows it where it happened ("Moved to workflow version N").
+
+### Continuing on a chosen workflow step
+
+The task creator can pick a destination workflow and step from **Continue on
+another workflow…** in the task card menu (KUA-174). The rest rule in
+`domain.WorkflowSwitchBlocked` allows a switch when a person has paused the
+task and its attempt has stopped, or when the task is waiting in the workflow.
+Confirming the switch releases the pause and the worker enters the selected step.
+
+- Preview with `GET /agent-tasks/:taskId/workflow/switch?workflow_id=<id>&node=<step-id>`.
+  Confirm with `POST` to the same path and a JSON body containing `workflow_id`
+  and `node`. The optional `expected_version_id` pins the preview's
+  `continuation.to_version_id` for confirmation. Omit both destination fields
+  to use the compatible version upgrade described above.
+- Choose a different active workflow in the task's workspace. The destination must pass
+  the same policy checks as a new task and is pinned to its latest saved
+  version. The `standard` alias selects the workspace's
+  saved Standard override. The built-in Standard flow has no saved version.
+  Select an executable step from the graph. The start and end nodes mark the
+  graph's boundaries.
+- A preview changes nothing. It returns `from_version`, `to_version`, `node`
+  and `node_label`. Its `continuation` names the source workflow and step, the
+  destination workflow and version ID, and the destination step type. The
+  `carries` list names the task, machine, worktree, checkout, branch and pull
+  request, which stay attached when present. Publication continues on the same
+  branch and updates the existing open pull request.
+- The plan includes the destination `budget`, the selected step's `max_visits`
+  and `timeout_minutes`, and `resets` for visits, iterations, budget extensions
+  and the time budget. The first entry counts as visit one, and a new coding or
+  planning attempt counts as the first iteration. The audit records
+  `time_spent_seconds` against the prior budget, excluding time paused or held
+  for a person. The new budget starts fresh.
+- The worker uses the destination step's profile, harness, model, effort and
+  rendered prompt. An implementing, planning or supervised agent starts a new
+  attempt on the kept checkout, with a fresh native session. Reviewer profiles
+  start a fresh review of the published pull request. CI, approval and merge
+  steps enter as a new visit, with their own timeout and no earlier step
+  decision or merge authorization. The task's earlier runs and path remain in
+  its history.
+- Preview refusals include `not_at_rest`, `finished`, `no_workflow`,
+  `workflow_unavailable`, `workflow_unusable`, `workflow_archived`, `step_missing`
+  and `step_not_runnable`. Confirmation rechecks the plan, can also refuse
+  with `target_version_changed`, and returns `409 WORKFLOW_SWITCH_REFUSED` with
+  the reason. Both calls are session-only. Tokens receive `403` with `session_required` for the
+  reason. A non-creator or an inaccessible task receives `404` with
+  `not_creator` for an explicit switch.
+- Switching drops the worker lease and advances the step sequence. Old moves
+  also fail the `WorkflowApply.Version` check. The `workflow_switched` event
+  in `workflow_audit_events` records the actor and both workflows, versions and
+  steps. The workflow view includes it in `pauses` and the task card shows it
+  in **Full path**.
+
+Migration 199 records the switch sequence on the task. Before rolling it
+back, let workers finish entering any selected steps. Rollback removes that
+sequence while retaining the audit events and workflow step history.
 
 ## Task notebook
 

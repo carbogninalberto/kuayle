@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -21,9 +22,34 @@ func (s *AgentTaskService) Resume(ctx context.Context, ws, id uuid.UUID) (*domai
 	return s.Repo.ResumePaused(ctx, ws, id, usageLimitResumeNowText)
 }
 
-// SwitchWorkflow says what moving the creator's task to the newest version
-// of its workflow would do, and with apply does it. A refusal is an answer,
-// not an error: the plan says why.
-func (s *AgentTaskService) SwitchWorkflow(ctx context.Context, ws, id uuid.UUID, apply bool) (*domain.WorkflowSwitch, *domain.AgentTask, error) {
-	return s.Repo.SwitchWorkflow(ctx, ws, id, apply)
+// SwitchWorkflow plans or applies a creator's requested workflow move.
+func (s *AgentTaskService) SwitchWorkflow(ctx context.Context, ws, id uuid.UUID, target domain.WorkflowSwitchTarget, apply bool) (*domain.WorkflowSwitch, *domain.AgentTask, error) {
+	if target.WorkflowID == "" {
+		return s.Repo.SwitchWorkflow(ctx, ws, id, target, apply)
+	}
+	plan, _, err := s.Repo.SwitchWorkflow(ctx, ws, id, target, false)
+	if err != nil || plan.Refused != "" {
+		return plan, nil, err
+	}
+	versionID := plan.Continuation.ToVersionID
+	if s.definitions == nil {
+		return nil, nil, ErrInvalidOperation
+	}
+	version, err := s.definitions.Version(ctx, ws, versionID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, _, err = s.runnableWorkflow(ctx, ws, version); err != nil {
+		var step *WorkflowStepError
+		if !errors.Is(err, ErrWorkflowUnusable) && !errors.As(err, &step) {
+			return nil, nil, err
+		}
+		plan.Refused, plan.Continuation = domain.WorkflowSwitchUnusable, nil
+		return plan, nil, nil
+	}
+	if !apply {
+		return plan, nil, nil
+	}
+	target.ExpectedVersionID = &versionID
+	return s.Repo.SwitchWorkflow(ctx, ws, id, target, true)
 }
