@@ -50,7 +50,7 @@ type PortRequest struct {
 // PortScan is the developer container's listening TCP ports, the agent
 // requests taken (and removed) from it, the ports published by containers
 // of the machine's Docker daemon (listening in the docker service container)
-// and the ports of the task preview containers that listen.
+// and the ports of the task preview and chat process containers that listen.
 type PortScan struct {
 	Listening []int
 	Requests  []PortRequest

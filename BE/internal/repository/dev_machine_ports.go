@@ -40,12 +40,12 @@ func (r *DevMachineRepository) ListPorts(ctx context.Context, workspaceID, machi
 		viewer = uuidSQL(access.UserID)
 	}
 	ports := []domain.DevMachinePort{}
-	err := r.db.SelectContext(ctx, &ports, `SELECT p.*,
+	err := r.db.SelectContext(ctx, &ports, `SELECT port.*,
  CASE WHEN t.creator_id=`+viewer+` AND `+teamVisible(ctx, "i.team_id")+` THEN i.identifier_text END AS task_identifier
- FROM dev_machine_ports p
- LEFT JOIN agent_tasks t ON t.id=p.agent_task_id AND t.workspace_id=p.workspace_id
+ FROM dev_machine_ports port
+ LEFT JOIN agent_tasks t ON t.id=port.agent_task_id AND t.workspace_id=port.workspace_id
  LEFT JOIN issues i ON i.id=t.issue_id AND i.workspace_id=t.workspace_id
- WHERE p.workspace_id=$1 AND p.machine_id=$2 ORDER BY p.port`, workspaceID, machineID)
+ WHERE port.workspace_id=$1 AND port.machine_id=$2 AND `+appPortAvailable+` ORDER BY port.port`, workspaceID, machineID)
 	return ports, err
 }
 
@@ -53,13 +53,13 @@ func (r *DevMachineRepository) ListPorts(ctx context.Context, workspaceID, machi
 // identifiers.
 func (r *DevMachineRepository) MachinePorts(ctx context.Context, machineID uuid.UUID) ([]domain.DevMachinePort, error) {
 	ports := []domain.DevMachinePort{}
-	err := r.db.SelectContext(ctx, &ports, `SELECT p.*,NULL::text AS task_identifier FROM dev_machine_ports p WHERE p.machine_id=$1 ORDER BY p.port`, machineID)
+	err := r.db.SelectContext(ctx, &ports, `SELECT port.*,NULL::text AS task_identifier FROM dev_machine_ports port WHERE port.machine_id=$1 AND `+appPortAvailable+` ORDER BY port.port`, machineID)
 	return ports, err
 }
 
 func (r *DevMachineRepository) GetPort(ctx context.Context, workspaceID, machineID, portID uuid.UUID) (*domain.DevMachinePort, error) {
 	var port domain.DevMachinePort
-	err := r.db.GetContext(ctx, &port, `SELECT p.*,NULL::text AS task_identifier FROM dev_machine_ports p WHERE p.workspace_id=$1 AND p.machine_id=$2 AND p.id=$3`, workspaceID, machineID, portID)
+	err := r.db.GetContext(ctx, &port, `SELECT port.*,NULL::text AS task_identifier FROM dev_machine_ports port WHERE port.workspace_id=$1 AND port.machine_id=$2 AND port.id=$3 AND `+appPortAvailable, workspaceID, machineID, portID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -135,7 +135,12 @@ func (r *DevMachineRepository) DeletePort(ctx context.Context, workspaceID, mach
 	if err != nil {
 		return nil, err
 	}
-	if err = revokePortSessions(ctx, tx, machineID, []int{port.Port}); err != nil {
+	if port.Source == domain.DevMachinePortSourceProcess {
+		err = revokeAssistantProcessPort(ctx, tx, &port)
+	} else {
+		err = revokePortSessions(ctx, tx, machineID, []int{port.Port})
+	}
+	if err != nil {
 		return nil, err
 	}
 	if port.Source == domain.DevMachinePortSourceTask && port.AgentTaskID != nil {
@@ -190,7 +195,7 @@ func (r *DevMachineRepository) SetListeningPorts(ctx context.Context, machineID 
 	}
 	const served = `CASE WHEN port=ANY($3::int[]) THEN 'docker' WHEN source<>'task' OR target='developer' THEN 'developer' ELSE 'preview' END`
 	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_ports SET target=`+served+`,updated_at=now()
- WHERE machine_id=$1 AND port=ANY($2::int[]) AND target<>`+served,
+ WHERE machine_id=$1 AND target<>'process' AND port=ANY($2::int[]) AND target<>`+served,
 		machineID, pq.Array(listening), pq.Array(docker)); err != nil {
 		return err
 	}

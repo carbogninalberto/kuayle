@@ -832,6 +832,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			return "Approved: the pull request draft state was changed.", true
 		case "accept_agent_work":
 			return "Approved: the work was accepted in Kuayle without merging.", true
+		case "start_process":
+			return "Approved: the process is starting. Open or stop it from the chat in Kuayle.", true
 		case "start_preview":
 			return "Approved: the preview is starting. Open it from the chat in Kuayle.", true
 		case "expose_port":
@@ -857,6 +859,8 @@ func telegramApprovalAnswer(approval *domain.ConversationApproval, err error) (s
 			message = "The work could not be accepted."
 		case "message_task":
 			message = "The message was not sent."
+		case "start_process":
+			message = "The process could not start."
 		case "start_preview":
 			message = "The preview could not be started."
 		case "expose_port":

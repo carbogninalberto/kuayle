@@ -305,6 +305,24 @@ export interface TemporaryMachinePayload {
 	working_directory: string;
 	credentials: boolean;
 }
+export interface AssistantProcessPayload {
+	machine_id: string;
+	machine: string;
+	command: string;
+	working_directory: string;
+	port: number;
+	ttl_minutes: number;
+}
+
+export interface AssistantProcess {
+	id: string;
+	machine_id: string | null;
+	port: number;
+	status: 'queued' | 'running' | 'stopping' | 'stopped' | 'failed';
+	expires_at: string;
+	preview_url?: string;
+}
+
 // A command run's result, as the approval card and get_command_run show it.
 export interface CommandRunResult extends Omit<CommandMachine, 'machine_id'> {
 	machine_id: string | null;
@@ -456,6 +474,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'publish_task_changes'; payload: { identifier: string; title: string; outcome?: 'published' | 'empty'; pull_request_url?: string } }
 		| { action: 'message_task'; payload: TaskMessagePayload }
 		| { action: 'start_preview'; payload: PreviewPayload }
+		| { action: 'start_process'; payload: AssistantProcessPayload }
 		| { action: 'expose_port'; payload: ExposePortPayload }
 		| { action: 'run_check'; payload: RunCheckPayload }
 		| { action: 'run_custom_tool'; payload: RunCustomToolPayload }
@@ -572,6 +591,10 @@ export const conversations = {
 		api.get<CommandRunResult>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approval)}/command-run`
 		),
+	assistantProcess: (slug: string, id: string, process: string) =>
+		api.get<AssistantProcess>(`${base(slug)}/conversations/${encodeURIComponent(id)}/processes/${encodeURIComponent(process)}`),
+	stopAssistantProcess: (slug: string, id: string, process: string) =>
+		api.delete<AssistantProcess>(`${base(slug)}/conversations/${encodeURIComponent(id)}/processes/${encodeURIComponent(process)}`),
 	retry: (slug: string, id: string, message: string, request_id: string) =>
 		api.post<ConversationMessage>(
 			`${base(slug)}/conversations/${encodeURIComponent(id)}/messages/${encodeURIComponent(message)}/retry`,

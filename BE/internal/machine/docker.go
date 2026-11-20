@@ -1799,6 +1799,8 @@ func agentTaskCount(items []container.Summary, machine *domain.DevMachine, run s
 			runs[id] = true
 		} else if task := item.Labels[previewTaskLabel]; task != "" {
 			runs[previewTaskKey(task)] = true
+		} else if id := item.Labels[processLabel]; id != "" {
+			runs[id] = true
 		}
 	}
 	return len(runs)

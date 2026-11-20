@@ -102,6 +102,10 @@ type managerStoreFake struct {
 	deferredCalls []deferredOperationCall
 }
 
+func (f *managerStoreFake) AssistantProcessesToCheck(context.Context) ([]domain.AssistantProcess, error) {
+	return nil, nil
+}
+
 // deferredOperationCall is one DeferOperation call as the fakes record it.
 type deferredOperationCall struct {
 	ID      uuid.UUID

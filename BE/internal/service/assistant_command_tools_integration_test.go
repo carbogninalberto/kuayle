@@ -422,3 +422,33 @@ func TestCommandPromptOnlyWhenTheToolIsOffered(t *testing.T) {
 	require.Empty(t, tools.commandPrompt(context.Background(), uuid.New()))
 	require.Equal(t, time.Duration(assistantCommandWait), tools.commandWait)
 }
+
+func TestAssistantAdHocProcessNeedsApprovalAndCanBeStoppedFromChat(t *testing.T) {
+	f := newCommandToolsFixture(t)
+	machines := NewDevMachineService(repository.NewDevMachineRepository(f.db), nil, true, "machines.example.test",
+		nil, time.Minute, DevMachineImages{})
+	f.service.tools.SetMachines(repository.NewAgentTaskRepository(f.db), machines)
+	machine := f.ownMachine(t, f.user, "laptop-box")
+	a := f.attempt(t, "Keep a server running")
+	content := f.call(t, &a, "start_process", `{"command":"python3 -m http.server 4321","port":4321}`)
+	require.Contains(t, content, "pending_user_approval")
+	approvals := f.approvals(t, a)
+	require.Len(t, approvals, 1)
+	id := approvals[0].ID
+	var payload domain.AssistantProcessPayload
+	require.NoError(t, json.Unmarshal(approvals[0].Payload, &payload))
+	require.Equal(t, machine, payload.MachineID)
+	require.Equal(t, 30, payload.TTLMinutes)
+	_, err := f.service.AssistantProcess(f.ctx, f.ws, a.Conversation.ID, id, false)
+	require.ErrorIs(t, err, repository.ErrConversationNotFound)
+	approved, err := f.service.ResolveApproval(f.ctx, f.ws, a.Conversation.ID, id, true)
+	require.NoError(t, err)
+	require.Equal(t, "approved", approved.Status, approved.Error)
+	args := `{"process_id":"` + id.String() + `"}`
+	content = f.call(t, &a, "get_process", args)
+	require.Contains(t, content, `"status":"queued"`)
+	content = f.call(t, &a, "stop_process", args)
+	require.Contains(t, content, `"status":"stopping"`)
+	content = f.call(t, &a, "get_process", args)
+	require.Contains(t, content, `"status":"stopping"`)
+}
