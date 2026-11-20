@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Kopyalandı",
 	"tasks.state.queued": "Kuyrukta",
 	"tasks.state.preparing": "Hazırlanıyor",
+	"tasks.state.waiting_for_disk": "Boş disk alanı bekleniyor",
 	"tasks.state.running": "Çalışıyor",
 	"tasks.state.waiting_input": "Girdi bekliyor",
 	"tasks.state.validating": "Doğrulanıyor",

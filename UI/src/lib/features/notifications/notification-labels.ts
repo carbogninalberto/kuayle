@@ -8,6 +8,7 @@ const TYPE_MESSAGE_KEYS = {
 	review_needed: 'notify.title.review_needed',
 	issues_deleted: 'notify.title.issues_deleted',
 	backup_failed: 'inbox.type.backup_failed',
+	host_disk_low: 'tasks.state.waiting_for_disk',
 	status_changed: 'inbox.type.status_changed',
 	assigned: 'inbox.type.assigned',
 	commented: 'inbox.type.commented',

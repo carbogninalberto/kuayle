@@ -2217,6 +2217,7 @@
 	"tasks.copied": "คัดลอกแล้ว",
 	"tasks.state.queued": "อยู่ในคิว",
 	"tasks.state.preparing": "กำลังเตรียม",
+	"tasks.state.waiting_for_disk": "กำลังรอพื้นที่ว่างบนดิสก์",
 	"tasks.state.running": "กำลังทำงาน",
 	"tasks.state.waiting_input": "รออินพุต",
 	"tasks.state.validating": "กำลังตรวจสอบความถูกต้อง",

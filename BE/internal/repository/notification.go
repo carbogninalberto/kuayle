@@ -26,6 +26,22 @@ func (r *NotificationRepository) Create(ctx context.Context, n *domain.Notificat
 	return r.db.QueryRowContext(ctx, query, n.ID, n.UserID, n.WorkspaceID, n.IssueID, n.Type, n.Title, n.SourceTeamIDs).Scan(&n.CreatedAt)
 }
 
+// NotifyHostDiskWait delivers one operational notice per admin and workspace
+// for this breach, even when several deferred starts report it concurrently.
+// The notice carries only host disk figures, with no issue or team data.
+func (r *NotificationRepository) NotifyHostDiskWait(ctx context.Context, workspaceID, machineID, breach uuid.UUID, reason string) error {
+	_, err := r.db.ExecContext(ctx, `WITH inserted AS (INSERT INTO notifications(id,user_id,workspace_id,type,title)
+		SELECT md5($3::uuid::text || ':' || wm.workspace_id || ':' || wm.user_id)::uuid,
+			wm.user_id,wm.workspace_id,'host_disk_low',$4
+		FROM workspace_members wm WHERE wm.workspace_id=$1 AND wm.role IN ('owner','admin')
+		AND EXISTS (SELECT 1 FROM agent_tasks t WHERE t.workspace_id=wm.workspace_id AND t.machine_id=$2
+			AND t.state IN ('queued','preparing','waiting_for_disk'))
+		ON CONFLICT (id) DO NOTHING RETURNING user_id,workspace_id)
+		SELECT pg_notify('host_disk_low',workspace_id::text||'/'||user_id::text) FROM inserted`,
+		workspaceID, machineID, breach, "Agent tasks waiting for disk space. "+reason)
+	return err
+}
+
 func (r *NotificationRepository) CreateOrRefresh(ctx context.Context, n *domain.Notification, window time.Duration) error {
 	if err := r.AuthorizeDelivery(ctx, n); err != nil {
 		return err
@@ -74,7 +90,7 @@ func (r *NotificationRepository) AuthorizeDelivery(ctx context.Context, n *domai
 	}
 	recipient := domain.WithAccess(ctx, domain.Access{UserID: n.UserID, WorkspaceID: n.WorkspaceID})
 	var allowed int
-	return r.db.GetContext(recipient, &allowed, `SELECT 1 FROM (SELECT $1::uuid AS user_id, $2::uuid AS workspace_id, $3::uuid AS issue_id, $4::uuid[] AS source_team_ids) n WHERE `+notificationVisible(recipient, "n"), n.UserID, n.WorkspaceID, n.IssueID, n.SourceTeamIDs)
+	return r.db.GetContext(recipient, &allowed, `SELECT 1 FROM (SELECT $1::uuid AS user_id, $2::uuid AS workspace_id, $3::uuid AS issue_id, $4::uuid[] AS source_team_ids, $5::text AS type) n WHERE `+notificationVisible(recipient, "n"), n.UserID, n.WorkspaceID, n.IssueID, n.SourceTeamIDs, n.Type)
 }
 
 func notificationVisible(ctx context.Context, alias string) string {
@@ -83,7 +99,9 @@ func notificationVisible(ctx context.Context, alias string) string {
 		return "FALSE"
 	}
 	return "(" + alias + ".user_id = " + uuidSQL(actor.UserID) + " AND " + workspaceVisible(ctx, alias+".workspace_id") +
-		" AND (" + alias + ".issue_id IS NULL OR " + issueVisible(ctx, alias+".issue_id") + ") AND CASE WHEN " + alias + ".source_team_ids IS NOT NULL THEN NOT EXISTS (SELECT 1 FROM unnest(" + alias + ".source_team_ids) source_team(id) WHERE NOT (" + teamVisible(ctx, "source_team.id") + " AND EXISTS (SELECT 1 FROM teams origin_team WHERE origin_team.id=source_team.id AND origin_team.workspace_id=" + alias + ".workspace_id)))" +
+		" AND (" + alias + ".issue_id IS NULL OR " + issueVisible(ctx, alias+".issue_id") + ") AND CASE" +
+		" WHEN " + alias + ".type='host_disk_low' AND " + alias + ".issue_id IS NULL AND " + alias + ".source_team_ids IS NULL THEN EXISTS (SELECT 1 FROM workspace_members admin WHERE admin.workspace_id=" + alias + ".workspace_id AND admin.user_id=" + alias + ".user_id AND admin.role IN ('owner','admin'))" +
+		" WHEN " + alias + ".source_team_ids IS NOT NULL THEN NOT EXISTS (SELECT 1 FROM unnest(" + alias + ".source_team_ids) source_team(id) WHERE NOT (" + teamVisible(ctx, "source_team.id") + " AND EXISTS (SELECT 1 FROM teams origin_team WHERE origin_team.id=source_team.id AND origin_team.workspace_id=" + alias + ".workspace_id)))" +
 		" WHEN " + alias + ".issue_id IS NOT NULL THEN " + issueVisible(ctx, alias+".issue_id") +
 		" ELSE NOT EXISTS (SELECT 1 FROM teams legacy_team WHERE legacy_team.workspace_id=" + alias + ".workspace_id AND legacy_team.is_private) END)"
 }

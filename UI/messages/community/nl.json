@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Gekopieerd",
 	"tasks.state.queued": "In wachtrij",
 	"tasks.state.preparing": "Voorbereiden",
+	"tasks.state.waiting_for_disk": "Wacht op vrije schijfruimte",
 	"tasks.state.running": "Actief",
 	"tasks.state.waiting_input": "Wacht op invoer",
 	"tasks.state.validating": "Valideren",

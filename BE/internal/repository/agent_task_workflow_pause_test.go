@@ -765,3 +765,22 @@ func TestWorkflowPauseThenWaitingInputAddsBothToTheBudget(t *testing.T) {
 	require.NoError(t, f.db.Get(&held, `SELECT workflow_held_since FROM agent_tasks WHERE id=$1`, f.task.ID))
 	require.Nil(t, held, "the hold ends with the wait")
 }
+
+func TestDiskWaitExcludesTimeFromTheWorkflowBudget(t *testing.T) {
+	f := newPauseFixture(t)
+	f.exec(`UPDATE agent_tasks SET state='preparing' WHERE id=$1`, f.task.ID)
+	require.NoError(t, f.repo.Transition(f.ctx, *f.claimed, "waiting_for_disk", "Host disk below the Dev Machine floor"))
+	held := f.current()
+	require.NotNil(t, held.WorkflowHeldSince)
+	require.NotNil(t, held.WorkflowStartedAt)
+	budgetFrom := held.WorkflowBudgetFrom
+	if budgetFrom == nil {
+		budgetFrom = held.WorkflowStartedAt
+	}
+	f.exec(`UPDATE agent_tasks SET workflow_held_since=workflow_held_since-interval '5 minutes' WHERE id=$1`, f.task.ID)
+	require.NoError(t, f.repo.Transition(f.ctx, *f.claimed, "preparing", "Preparing the dev machine"))
+	resumed := f.current()
+	require.Nil(t, resumed.WorkflowHeldSince)
+	require.NotNil(t, resumed.WorkflowBudgetFrom)
+	require.WithinDuration(t, budgetFrom.Add(5*time.Minute), *resumed.WorkflowBudgetFrom, time.Second)
+}

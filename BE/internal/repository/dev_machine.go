@@ -34,6 +34,7 @@ type DevMachineStore interface {
 	ListMachinesForUser(context.Context, uuid.UUID, uuid.UUID, string, *uuid.UUID, int, int) ([]domain.DevMachine, int, error)
 	CountActiveMachines(context.Context, uuid.UUID, *uuid.UUID) (int, error)
 	GetOperationByIdempotency(context.Context, uuid.UUID, uuid.UUID, string) (*domain.DevMachineOperation, error)
+	GetMachineStartOperation(context.Context, uuid.UUID, uuid.UUID, int64) (*domain.DevMachineOperation, error)
 	SetDesiredAndEnqueue(context.Context, uuid.UUID, uuid.UUID, domain.DevMachineStatus, *domain.DevMachineOperation) error
 	GetPolicy(context.Context, uuid.UUID) (*domain.DevMachineWorkspacePolicy, error)
 	UpsertPolicy(context.Context, *domain.DevMachineWorkspacePolicy) error
@@ -395,6 +396,20 @@ func (r *DevMachineRepository) GetOperationByIdempotency(ctx context.Context, wo
 	var operation domain.DevMachineOperation
 	err := r.db.GetContext(ctx, &operation, `SELECT * FROM dev_machine_operations
 		WHERE workspace_id=$1 AND machine_id=$2 AND idempotency_key=$3`, workspaceID, machineID, key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &operation, err
+}
+
+// GetMachineStartOperation finds a start the manager can still act on,
+// including a terminal disk refusal left by an older manager.
+func (r *DevMachineRepository) GetMachineStartOperation(ctx context.Context, workspaceID, machineID uuid.UUID, generation int64) (*domain.DevMachineOperation, error) {
+	var operation domain.DevMachineOperation
+	err := r.db.GetContext(ctx, &operation, `SELECT * FROM dev_machine_operations
+		WHERE workspace_id=$1 AND machine_id=$2 AND generation=$3 AND action IN ('spawn','start')
+		AND (status IN ('pending','leased') OR (status='failed' AND error_code='host_disk_low'))
+		ORDER BY created_at DESC LIMIT 1`, workspaceID, machineID, generation)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -2780,6 +2795,28 @@ func (r *DevMachineRepository) ListResourceAllocations(ctx context.Context) ([]d
 // attempt, keeping the reason visible, for waits such as host capacity.
 func (r *DevMachineRepository) DeferOperation(ctx context.Context, id uuid.UUID, owner, code, message string, delay time.Duration) error {
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_operations SET status='pending',attempts=GREATEST(attempts-1,0),error_code=$3,error_message=$4,lease_owner=NULL,lease_expires_at=NULL,available_at=NOW()+make_interval(secs => $5) WHERE id=$1 AND lease_owner=$2`, id, owner, code, message, delay.Seconds())
+	return err
+}
+
+func (r *DevMachineRepository) HasTaskWaitingForMachine(ctx context.Context, workspaceID, machineID uuid.UUID) (bool, error) {
+	var waiting bool
+	err := r.db.GetContext(ctx, &waiting, `SELECT EXISTS (SELECT 1 FROM agent_tasks
+		WHERE workspace_id=$1 AND machine_id=$2 AND state IN ('queued','preparing','waiting_for_disk'))`, workspaceID, machineID)
+	return waiting, err
+}
+
+// RequeueHostDiskRefusals recovers task machines refused by older managers,
+// which settled host_disk_low as a terminal failure before touching Docker.
+func (r *DevMachineRepository) RequeueHostDiskRefusals(ctx context.Context, reason string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_operations o SET status='pending',
+		attempts=GREATEST(attempts-1,0), completed_at=NULL, available_at=now(),
+		error_code=CASE WHEN $1='' THEN NULL ELSE 'host_disk_low' END, error_message=NULLIF($1,'')
+		FROM dev_machines m WHERE m.id=o.machine_id AND m.workspace_id=o.workspace_id AND m.generation=o.generation
+		AND m.desired_status='running' AND m.delete_requested_at IS NULL
+		AND m.status IN ('queued','configuring','spawning','stopped','paused','failed')
+		AND o.action IN ('spawn','start') AND o.status='failed' AND o.error_code='host_disk_low'
+		AND EXISTS (SELECT 1 FROM agent_tasks t WHERE t.workspace_id=m.workspace_id AND t.machine_id=m.id
+			AND t.state IN ('queued','preparing','waiting_for_disk'))`, reason)
 	return err
 }
 

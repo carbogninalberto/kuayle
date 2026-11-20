@@ -17,6 +17,7 @@ export function taskTone(state: AgentTask['state'] | string): TaskTone {
 		case 'awaiting_review':
 			return 'review';
 		case 'blocked':
+		case 'waiting_for_disk':
 			return 'warning';
 		case 'failed':
 			return 'error';

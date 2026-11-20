@@ -23,6 +23,7 @@ type taskLifecycleStore interface {
 	Start(context.Context, domain.AgentTask) (*domain.Issue, error)
 	Get(context.Context, uuid.UUID, uuid.UUID) (*domain.AgentTask, error)
 	Claim(context.Context) (*domain.AgentTask, error)
+	WaitingForHostDisk(context.Context, domain.AgentTask) (bool, error)
 	Transition(context.Context, domain.AgentTask, string, string) error
 	Revoke(context.Context, domain.AgentTask) error
 	NoteWaiting(context.Context, domain.AgentTask, string) error
@@ -225,6 +226,13 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 	ctx = domain.WithTaskExecution(ctx, task)
 	if task.State == "queued" {
 		return s.store.Transition(ctx, task, "preparing", "Resolving repository and execution environment")
+	}
+	if task.State == "waiting_for_disk" {
+		waiting, err := s.store.WaitingForHostDisk(ctx, task)
+		if err != nil || waiting {
+			return err
+		}
+		return s.store.Transition(ctx, task, "preparing", "Preparing the dev machine")
 	}
 	if task.State == "preparing" {
 		ready, err := s.runtime.Prepare(ctx, &task)
@@ -468,6 +476,10 @@ func (s *AgentTaskService) preparationError(ctx context.Context, task domain.Age
 		// Not a failure: the machine starts once running machines free enough.
 		return s.store.NoteWaiting(ctx, task, hostCapacityWaitReason+" ("+strings.TrimPrefix(err.Error(), ErrHostCapacityWait.Error()+": ")+"). It starts when running machines free enough; cancel the task to withdraw it.")
 	}
+	var diskWait *hostDiskWait
+	if errors.As(err, &diskWait) {
+		return s.store.Transition(ctx, task, "waiting_for_disk", diskWait.reason)
+	}
 	var slotWait *repository.MachineSlotWaitError
 	if errors.As(err, &slotWait) {
 		// Not a failure either: the task starts once a task on the machine
@@ -667,19 +679,24 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 	if err = r.attachAgent(ctx, machine, task.Provider); err != nil {
 		return false, err
 	}
+	if machine.Status != domain.DevMachineStatusRunning && machine.DesiredStatus == domain.DevMachineStatusRunning {
+		start, err := s.store.GetMachineStartOperation(ctx, machine.WorkspaceID, machine.ID, machine.Generation)
+		if err != nil {
+			return false, err
+		}
+		if start != nil {
+			return false, machineAdmissionWait(start)
+		}
+	}
 	switch machine.Status {
 	case domain.DevMachineStatusQueued, domain.DevMachineStatusSpawning, domain.DevMachineStatusConfiguring:
-		if machine.Status == domain.DevMachineStatusQueued {
-			return false, r.hostCapacityWait(ctx, machine, fmt.Sprintf("spawn:%d", machine.Generation))
-		}
 		return false, nil
 	case domain.DevMachineStatusRunning:
 	case domain.DevMachineStatusPaused, domain.DevMachineStatusStopped, domain.DevMachineStatusFailed:
 		// Reused machines may be paused or stopped; the task starts them. A
 		// start already requested is awaited rather than queued again.
 		if machine.Status != domain.DevMachineStatusFailed && machine.DesiredStatus == domain.DevMachineStatusRunning {
-			// The task's start took the machine to the next generation.
-			return false, r.hostCapacityWait(ctx, machine, fmt.Sprintf("task-start:%s:%d:%d", task.ID, task.Generation, machine.Generation-1))
+			return false, nil
 		}
 		// The machine generation keys each start, so a machine paused again
 		// after this task started it is started again, while a start that
@@ -715,15 +732,21 @@ var ErrHostCapacityWait = errors.New("host_capacity_wait")
 
 const hostCapacityWaitReason = "Waiting for host capacity to start the dev machine"
 
-func (r *devMachineTaskRuntime) hostCapacityWait(ctx context.Context, machine *domain.DevMachine, key string) error {
-	operation, err := r.machines.store.GetOperationByIdempotency(ctx, machine.WorkspaceID, machine.ID, key)
-	if err != nil || operation == nil {
-		return err
-	}
-	if operation.Status != domain.DevMachineOpStatusPending || operation.ErrorCode == nil || *operation.ErrorCode != ErrHostCapacityWait.Error() || operation.ErrorMessage == nil {
+type hostDiskWait struct{ reason string }
+
+func (e *hostDiskWait) Error() string { return e.reason }
+
+func machineAdmissionWait(operation *domain.DevMachineOperation) error {
+	if operation.ErrorCode == nil || operation.ErrorMessage == nil {
 		return nil
 	}
-	return fmt.Errorf("%w: %s", ErrHostCapacityWait, *operation.ErrorMessage)
+	if *operation.ErrorCode == "host_disk_low" && (operation.Status == domain.DevMachineOpStatusPending || operation.Status == domain.DevMachineOpStatusLeased) {
+		return &hostDiskWait{reason: *operation.ErrorMessage}
+	}
+	if *operation.ErrorCode == ErrHostCapacityWait.Error() && operation.Status == domain.DevMachineOpStatusPending {
+		return fmt.Errorf("%w: %s", ErrHostCapacityWait, *operation.ErrorMessage)
+	}
+	return nil
 }
 
 func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRun, error) {

@@ -198,7 +198,9 @@
 							{#if said}<p
 									class="mr-6 text-xs leading-4 break-words {entry.stopped
 										? 'text-[var(--status-error)]'
-										: 'text-muted-foreground'} {opened[entry.key] ? '' : 'line-clamp-3'}"
+									: 'text-muted-foreground'} {opened[entry.key] || (step.current && task.state === 'waiting_for_disk')
+									? ''
+									: 'line-clamp-3'}"
 									data-testid="task-path-note"
 								>
 									{said}
