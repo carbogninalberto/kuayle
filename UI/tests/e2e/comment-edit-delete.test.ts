@@ -150,6 +150,146 @@ test('a member may edit only their own comment and delete none', async ({ page }
 	expect(state.writes).toEqual([]);
 });
 
+test('a column resized in the description editor keeps its width', async ({ page }, testInfo) => {
+	// Stored markup exactly as the editor emits it for a resized table: the
+	// width lives in the cell colwidth attributes and the colgroup.
+	const description = '<table style="width: 340px"><colgroup><col style="width: 180px"><col style="min-width: 50px"></colgroup><tbody><tr><th colwidth="180">Step</th><th>Result</th></tr><tr><td>Build</td><td>Passed</td></tr></tbody></table>';
+	const comment = '<table style="width: 340px"><colgroup><col style="width: 180px"><col style="min-width: 50px"></colgroup><tbody><tr><th colwidth="180">Check</th><th>Outcome</th></tr></tbody></table>';
+	const { pageErrors, issue } = await mockIssue(page, 'owner', description, comment);
+	await page.goto('/test/issue/ENG-1');
+
+	// A stored table with fixed column widths renders in the reader unchanged.
+	await expect(commentCard(page, 'Check').getByRole('table').locator('col').first())
+		.toHaveAttribute('style', 'width: 180px');
+
+	// The description is the editor: drag the first column's edge wider.
+	const header = page.getByRole('columnheader', { name: 'Step' });
+	const box = await header.boundingBox();
+	expect(box).not.toBeNull();
+	await page.mouse.move(box!.x + box!.width - 2, box!.y + box!.height / 2);
+	await expect(page.locator('.column-resize-handle').first()).toBeVisible();
+	await page.mouse.down();
+	await page.mouse.move(box!.x + box!.width + 60, box!.y + box!.height / 2, { steps: 8 });
+	await page.mouse.up();
+
+	// The resized width survives the sanitizer into the saved description.
+	await expect.poll(() => {
+		const match = issue.description?.match(/colwidth="(\d+)"/) ?? null;
+		return match ? Number(match[1]) : 0;
+	}, { timeout: 10_000 }).toBeGreaterThan(200);
+	expect(issue.description).toContain('<colgroup>');
+	expect(issue.description).toMatch(/<col style="width: \d{3}px">/);
+	expect(issue.description).not.toMatch(/position|background|url\(/);
+
+	await page.screenshot({ path: testInfo.outputPath('table-column-resized.png') });
+
+	// Reopening the issue parses the stored widths back into the editor.
+	await page.reload();
+	await expect(page.locator('.ProseMirror table col').first()).toHaveAttribute('style', /width: 2\d\dpx/);
+	expect(pageErrors).toEqual([]);
+});
+
+test('a description whose widths live only in col styles keeps them through the editor', async ({ page }) => {
+	// Storage the API can hand the app, self-closing columns included: the
+	// sanitizer keeps <col style> widths and Tiptap reads widths only from
+	// cell colwidth / <col width>, which these cells and cols do not carry.
+	const description = '<table><colgroup><col style="width: 180px"/><col style="width: 160px"/><col width="25%"/></colgroup>' +
+		'<tbody><tr><th>Step</th><th>Result</th><th>Note</th></tr><tr><td>Build</td><td>Passed</td><td>On main</td></tr></tbody></table>';
+	const { pageErrors, issue } = await mockIssue(page, 'owner', description);
+	await page.goto('/test/issue/ENG-1');
+
+	// The col styles imported as widths; the % width did not become 25px.
+	const cols = page.locator('.ProseMirror table col');
+	await expect(cols.nth(0)).toHaveAttribute('style', /width: 180px/);
+	await expect(cols.nth(1)).toHaveAttribute('style', /width: 160px/);
+	await expect(cols.nth(2)).toHaveAttribute('style', /min-width: 50px/);
+
+	// Saving writes the imported widths where the editor reads them back.
+	await page.getByRole('columnheader', { name: 'Step' }).click();
+	await page.keyboard.type('!');
+	await expect.poll(() => issue.description ?? '', { timeout: 10_000 }).toContain('colwidth="180"');
+	expect(issue.description).toContain('colwidth="160"');
+	expect(issue.description).not.toMatch(/colwidth="25"|width: 25px/);
+	expect(pageErrors).toEqual([]);
+});
+
+test('a resized comment column keeps its rendered width after saving, reloading and editing', async ({ page }) => {
+	const comment = '<table><colgroup><col style="width: 160px"/><col/></colgroup>' +
+		'<tbody><tr><th colspan="2">Checklist</th></tr><tr><td>Build</td><td>Ready</td></tr></tbody></table>';
+	const { state } = await mockIssue(page, 'owner', null, comment);
+	await page.goto('/test/issue/ENG-1');
+	const card = commentCard(page, 'Checklist');
+	const editor = card.getByTestId('comment-editor');
+	const cell = card.getByRole('cell', { name: 'Build', exact: true });
+	async function editComment() {
+		await card.hover();
+		await card.getByRole('button', { name: 'Comment actions' }).click();
+		await page.getByRole('menuitem', { name: 'Edit' }).click();
+		await expect(editor).toBeVisible();
+	}
+	await editComment();
+	await expect(editor.locator('col').first()).toHaveCSS('width', '160px');
+	await cell.scrollIntoViewIfNeeded();
+	const box = (await cell.boundingBox())!;
+	const edge = box.x + box.width - 2;
+	const y = box.y + box.height / 2;
+	await cell.hover({ position: { x: box.width - 2, y: box.height / 2 } });
+	await expect(editor.locator('.column-resize-handle').first()).toBeVisible();
+	await page.mouse.down();
+	await page.mouse.move(edge + 60, y, { steps: 8 });
+	await page.mouse.up();
+	await editor.getByRole('button', { name: 'Save' }).click();
+	await expect.poll(() => state.bodies.at(-1)).toMatch(/colwidth="\d+,0"/);
+	const width = Number(state.bodies.at(-1)!.match(/colwidth="(\d+),0"/)![1]);
+	expect(Math.abs(width - 220)).toBeLessThanOrEqual(2);
+	await page.reload();
+	await expect(cell).toHaveCSS('width', `${width}px`);
+
+	await editComment();
+	await cell.getByText('Build', { exact: true }).dblclick({ position: { x: 4, y: 8 } });
+	await page.keyboard.insertText('Build checked');
+	await editor.getByRole('button', { name: 'Save' }).click();
+	await expect.poll(() => state.bodies.at(-1)).toContain('Build checked');
+	expect(state.bodies.at(-1)).toContain(`colwidth="${width},0"`);
+	await expect(card.getByRole('cell', { name: 'Build checked' })).toHaveCSS('width', `${width}px`);
+});
+
+test('a table with merged first-row cells keeps its resized widths', async ({ page }, testInfo) => {
+	// The editor's markup for a resized merged cell: Tiptap writes a 0
+	// colwidth entry for the spanned column, and derives the column layout
+	// only from that first row, so the 0 entry must survive save and reload.
+	const description = '<table style="width: 340px"><colgroup><col style="width: 180px"><col style="width: 160px"></colgroup>' +
+		'<tbody><tr><th colspan="2" colwidth="180,0">Release</th></tr><tr><td>Build</td><td>Passed</td></tr></tbody></table>';
+	const { pageErrors, issue } = await mockIssue(page, 'owner', description);
+	await page.goto('/test/issue/ENG-1');
+
+	// The stored sentinel width loads: the first column is 180px in the editor.
+	await expect(page.locator('.ProseMirror table col').nth(0)).toHaveAttribute('style', /width: 180px/);
+
+	// Drag the boundary after the first column wider.
+	const cell = page.getByRole('cell', { name: 'Build' });
+	const box = await cell.boundingBox();
+	expect(box).not.toBeNull();
+	await page.mouse.move(box!.x + box!.width - 2, box!.y + box!.height / 2);
+	await expect(page.locator('.column-resize-handle').first()).toBeVisible();
+	await page.mouse.down();
+	await page.mouse.move(box!.x + box!.width + 60, box!.y + box!.height / 2, { steps: 8 });
+	await page.mouse.up();
+
+	// The saved description keeps the first-row colwidth with its 0 entry.
+	await expect.poll(() => {
+		const match = issue.description?.match(/colwidth="(\d+),(\d+)"/) ?? null;
+		return match ? Number(match[1]) : 0;
+	}, { timeout: 10_000 }).toBeGreaterThan(200);
+	expect(issue.description).toMatch(/colwidth="\d+,0"/);
+	await page.screenshot({ path: testInfo.outputPath('table-merged-resized.png') });
+
+	// Reopening the issue parses the stored widths back into the editor.
+	await page.reload();
+	await expect(page.locator('.ProseMirror table col').nth(0)).toHaveAttribute('style', /width: 2\d\dpx/);
+	expect(pageErrors).toEqual([]);
+});
+
 test('issue and comment tables survive editing and reloading', async ({ page }, testInfo) => {
 	// API fixtures represent the stored output of a Markdown table and an HTML table.
 	const description = '<table><thead><tr><th>Step</th><th align="right">Result</th></tr></thead><tbody><tr><td>Build<br>CI</td><td align="right">Passed</td></tr></tbody></table>';
@@ -171,9 +311,11 @@ test('issue and comment tables survive editing and reloading', async ({ page }, 
 	await mine.getByRole('button', { name: 'Comment actions' }).click();
 	await page.getByRole('menuitem', { name: 'Edit' }).click();
 	const editor = mine.getByTestId('comment-editor');
-	await editor.getByRole('cell', { name: 'Mobile' }).click();
-	await page.keyboard.press('End');
-	await page.keyboard.insertText(' checked');
+	const mobile = editor.getByRole('cell', { name: 'Mobile' });
+	// Opening a legacy table keeps the existing cell minimum until a column is resized.
+	await expect(mobile).toHaveCSS('min-width', '96px');
+	await mobile.getByText('Mobile', { exact: true }).dblclick();
+	await page.keyboard.insertText('Mobile checked');
 	await page.screenshot({ path: testInfo.outputPath('issue-tables-editing.png') });
 	await editor.getByRole('button', { name: 'Save' }).click();
 	await expect.poll(() => state.bodies.at(-1)).toContain('Mobile checked');

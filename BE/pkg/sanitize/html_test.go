@@ -149,13 +149,17 @@ func TestSanitizeEditorContentKeepsSafeHTMLTable(t *testing.T) {
 }
 
 func TestSanitizeHTMLKeepsTiptapTableOnResave(t *testing.T) {
-	// Captured from Tiptap's getHTML() after editing the Mobile cell.
+	// Captured from Tiptap's getHTML() after editing the Mobile cell. Column
+	// widths live in colgroup and cell colwidth attributes; the table style
+	// only carries the derived width/min-width, which stays.
 	input := `<p>Review summary.</p><table style="min-width: 50px;"><colgroup>` +
 		`<col style="min-width: 25px;"><col style="min-width: 25px;"></colgroup><tbody>` +
 		`<tr><th colspan="2"><p>Review checklist</p></th></tr>` +
 		`<tr><td rowspan="2"><p>UI</p></td><td><p>Desktop</p></td></tr>` +
 		`<tr><td align="center" style="text-align: center;"><p>Mobile checked</p></td></tr></tbody></table><p></p>`
-	want := `<p>Review summary.</p><table><tbody><tr><th colspan="2"><p>Review checklist</p></th></tr>` +
+	want := `<p>Review summary.</p><table style="min-width: 50px"><colgroup>` +
+		`<col style="min-width: 25px"><col style="min-width: 25px"></colgroup><tbody>` +
+		`<tr><th colspan="2"><p>Review checklist</p></th></tr>` +
 		`<tr><td rowspan="2"><p>UI</p></td><td><p>Desktop</p></td></tr>` +
 		`<tr><td align="center"><p>Mobile checked</p></td></tr></tbody></table><p></p>`
 	got := SanitizeHTML(input)
@@ -164,6 +168,61 @@ func TestSanitizeHTMLKeepsTiptapTableOnResave(t *testing.T) {
 	}
 	if resaved := SanitizeEditorContent(got); resaved != want {
 		t.Fatalf("SanitizeEditorContent() on resave = %q, want %q", resaved, want)
+	}
+}
+
+// A table with dragged column widths is exactly what the editor stores, so it
+// passes through unchanged, and keeps passing through on every later resave.
+func TestSanitizeHTMLKeepsTableColumnWidths(t *testing.T) {
+	input := `<table style="width: 340px"><colgroup>` +
+		`<col style="width: 180px"><col style="min-width: 50px"></colgroup><tbody>` +
+		`<tr><th colwidth="180">Step</th><th>Result</th></tr>` +
+		`<tr><td>Build</td><td align="right">Passed</td></tr></tbody></table>`
+	want := input
+	for _, clean := range []func(string) string{SanitizeHTML, SanitizeEditorContent} {
+		if got := clean(input); got != want {
+			t.Errorf("widths changed: got %q, want %q", got, want)
+		}
+		if resaved := clean(want); resaved != want {
+			t.Errorf("resave changed %q to %q", want, resaved)
+		}
+	}
+}
+
+// Tiptap's resize plugin writes 0 colwidth entries as placeholders for the
+// columns a merged first-row cell spans; the editor derives the layout only
+// from that first row, so dropping the attribute would lose it on reload.
+func TestSanitizeHTMLKeepsMergedCellColumnWidths(t *testing.T) {
+	input := `<table style="width: 340px"><colgroup>` +
+		`<col style="width: 180px"><col style="width: 160px"></colgroup><tbody>` +
+		`<tr><th colspan="2" colwidth="180,0">Release</th></tr>` +
+		`<tr><td>Build</td><td>Passed</td></tr></tbody></table>`
+	want := input
+	for _, clean := range []func(string) string{SanitizeHTML, SanitizeEditorContent} {
+		if got := clean(input); got != want {
+			t.Errorf("widths changed: got %q, want %q", got, want)
+		}
+		if resaved := clean(want); resaved != want {
+			t.Errorf("resave changed %q to %q", want, resaved)
+		}
+	}
+}
+
+// Column widths widen the sanitizer for one purpose only: table sizing. Every
+// other style declaration, and every width value the editor cannot load
+// faithfully (a 25% attribute would parse as 25px), still disappears.
+func TestSanitizeHTMLStripsEverythingButColumnWidths(t *testing.T) {
+	input := `<div style="width: 340px; position: fixed">Cover</div>` +
+		`<table style="width: 340px; background: url(https://evil.example/x); color: red" onclick="run()">` +
+		`<colgroup><col style="width: 180px; position: fixed" width="200em"><col style="min-width: 99999px" width="25%"></colgroup>` +
+		`<tbody><tr><th colwidth="12,,34">A</th><td colwidth="abc">B</td>` +
+		`<td style="width: 10px">C</td></tr></tbody></table>`
+	want := `<div>Cover</div>` +
+		`<table style="width: 340px">` +
+		`<colgroup><col style="width: 180px"><col></colgroup>` +
+		`<tbody><tr><th>A</th><td>B</td><td>C</td></tr></tbody></table>`
+	if got := SanitizeHTML(input); got != want {
+		t.Fatalf("SanitizeHTML() = %q, want %q", got, want)
 	}
 }
 

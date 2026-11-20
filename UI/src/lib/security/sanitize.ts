@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify';
 import { filterEditorClasses } from './editor-classes';
+import { COLWIDTH, COL_WIDTH, filterColumnWidthStyles } from './column-widths';
 import { deferRemoteImage } from './remote-images';
 
 const ALLOWED_TAGS = [
@@ -8,7 +9,7 @@ const ALLOWED_TAGS = [
 	'ul', 'ol', 'li', 'blockquote', 'hr',
 	'input', 'span', 'div', 'label',
 	'img',
-	'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td'
+	'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'colgroup', 'col'
 ];
 
 const ALLOWED_ATTR = [
@@ -17,7 +18,7 @@ const ALLOWED_ATTR = [
 	'href', 'target', 'rel', 'download',
 	'type', 'checked', 'disabled',
 	'src', 'alt', 'width', 'height',
-	'align', 'colspan', 'rowspan'
+	'align', 'colspan', 'rowspan', 'colwidth', 'style'
 ];
 
 const TABLE_ALIGNMENTS = new Set(['left', 'center', 'right']);
@@ -52,8 +53,29 @@ function createPurify() {
 				const span = node.getAttribute(name);
 				if (span !== null && !/^\d{1,3}$/.test(span)) node.removeAttribute(name);
 			}
+			const colwidth = node.getAttribute('colwidth');
+			if (colwidth !== null && !COLWIDTH.test(colwidth)) node.removeAttribute('colwidth');
 		} else {
 			node.removeAttribute('align');
+			node.removeAttribute('colwidth');
+		}
+		if (node.tagName === 'COL') {
+			const width = node.getAttribute('width');
+			if (width !== null && !COL_WIDTH.test(width)) node.removeAttribute('width');
+		} else if (node.tagName !== 'IMG') {
+			node.removeAttribute('width');
+		}
+		// Column widths are the only inline styles stored content may keep;
+		// on every other element the attribute is dropped entirely.
+		if (node.tagName === 'TABLE' || node.tagName === 'COL') {
+			const style = node.getAttribute('style');
+			if (style !== null) {
+				const kept = filterColumnWidthStyles(style);
+				if (kept) node.setAttribute('style', kept);
+				else node.removeAttribute('style');
+			}
+		} else {
+			node.removeAttribute('style');
 		}
 		if (node.tagName === 'A') {
 			node.setAttribute('rel', 'noopener noreferrer nofollow');

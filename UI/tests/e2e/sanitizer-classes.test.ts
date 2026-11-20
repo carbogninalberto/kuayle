@@ -16,6 +16,10 @@ const createdAt = '2026-01-01T00:00:00Z';
 const overlayUrl = 'https://overlay.example/landing';
 
 const classAttributes = (html: string) => [...html.matchAll(/\sclass="([^"]*)"/g)].map((match) => match[1]);
+const widthAttributes = (html: string) =>
+	[...html.matchAll(/<(table|col|th|td)\b([^>]*)>/g)]
+		.flatMap(([, , attrs]) => [...attrs.matchAll(/\s(style|width|colwidth)="([^"]*)"/g)].map((match) => `${match[1]}=${match[2]}`))
+		.sort();
 
 async function mockIssueWithComments(page: Page, bodies: string[]) {
 	await page.routeWebSocket('**/ws', () => {});
@@ -196,5 +200,27 @@ test('comments keep editor classes and lose every other class', async ({ page })
 		...contract.stripped.map((doc) => classAttributes(doc.want))
 	];
 	expect(rendered).toEqual(expected);
+
+	// Column-width markup is the only style stored content may keep: widths
+	// survive and everything else (position, background, oversized or invalid
+	// width values) does not reach the rendered comment.
+	const renderedWidths = await page.evaluate(() =>
+		[...document.querySelectorAll('.prose')]
+			.filter((body) => !body.closest('.ProseMirror') && !body.querySelector('.ProseMirror') && !body.classList.contains('ProseMirror'))
+			.map((body) =>
+				[...body.querySelectorAll('table, col, th, td')]
+					.flatMap((element) =>
+						['style', 'width', 'colwidth']
+							.filter((name) => element.hasAttribute(name))
+							.map((name) => `${name}=${element.getAttribute(name)}`)
+					)
+					.sort()
+			)
+	);
+	const expectedWidths = [
+		...contract.documents.map((doc) => widthAttributes(doc.html)),
+		...contract.stripped.map((doc) => widthAttributes(doc.want))
+	];
+	expect(renderedWidths).toEqual(expectedWidths);
 	await expect(page.locator('.prose:not(.ProseMirror) .mention-issue').first()).toBeVisible();
 });
