@@ -21,8 +21,6 @@ type proxy struct {
 	dial      func(context.Context, string, string) (net.Conn, error)
 }
 
-var carrierGradeNAT = mustCIDR("100.64.0.0/10")
-
 func main() {
 	p := &proxy{allow: domains(os.Getenv("KUAYLE_EGRESS_ALLOWLIST")), deny: domains(os.Getenv("KUAYLE_EGRESS_DENYLIST"))}
 	p.transport = &http.Transport{
@@ -121,7 +119,7 @@ func (p *proxy) dialContext(ctx context.Context, _, address string) (net.Conn, e
 		dial = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
 	}
 	for _, address := range addresses {
-		if privateIP(address.IP) {
+		if !IsPublicIP(address.IP) {
 			continue
 		}
 		return dial(ctx, "tcp", net.JoinHostPort(address.IP.String(), port))
@@ -152,18 +150,6 @@ func (p *proxy) allowed(host string) bool {
 		}
 	}
 	return false
-}
-
-func privateIP(ip net.IP) bool {
-	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() || carrierGradeNAT.Contains(ip)
-}
-
-func mustCIDR(value string) *net.IPNet {
-	_, network, err := net.ParseCIDR(value)
-	if err != nil {
-		panic(err)
-	}
-	return network
 }
 
 func domains(value string) []string {

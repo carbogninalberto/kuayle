@@ -93,6 +93,28 @@ test('headless and shared developer image inputs select only their consumers', (
   }
 });
 
+test('the egress proxy and its address guard use the devmachine image context', () => {
+  for (const path of ['devmachine/egress/main.go', 'devmachine/egress/public_ip.go']) {
+    const plan = planForPaths([path]);
+    assert.equal(plan.backend, true);
+    assert.equal(plan.runtime, true);
+    assert.deepEqual(plan.architectures, ['amd64', 'arm64']);
+    assert.deepEqual(ids(plan.devImages), ['egress']);
+    assert.equal(plan.devImages[0].context, './devmachine');
+  }
+});
+
+test('the public URL custom tool selects backend tests and its browser fixture', () => {
+  for (const path of ['BE/assistant-tools/fetch_url.py', 'BE/assistant-tools/fetch_url.json']) {
+    const plan = planForPaths([path]);
+    assert.equal(plan.backend, true);
+    assert.equal(plan.frontend, true);
+    assert.deepEqual(plan.devImages, []);
+    assert.deepEqual(plan.releaseImages, []);
+  }
+  assert.equal(planForPaths(['BE/assistant-tools/test_fetch_url.py']).frontend, false);
+});
+
 test('the machine Docker daemon image and the shared Docker CLI installer select their consumers', () => {
   const daemon = planForPaths(['devmachine/docker/kuayle-docker-start']);
   assert.equal(daemon.backend, true);
