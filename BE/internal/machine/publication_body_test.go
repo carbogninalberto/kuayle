@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -93,4 +94,50 @@ func TestPublicationBodyIsBounded(t *testing.T) {
 
 	publication.PullRequestTemplate = "{{summary}}"
 	require.True(t, strings.HasPrefix(publicationBody(publication, content, ""), "## Description\n"), "an invalid stored template falls back to the default")
+}
+
+func TestPublicationBodyKeepsCompleteEvidenceWhenTemplateOverflows(t *testing.T) {
+	publication := bodyPublication()
+	publication.PullRequestTemplate = "## Description\n" + strings.Repeat("{{description}}", 50) + "\n\n## Evidence\n{{screenshots}}"
+	content := pullRequestContent{
+		file:        &domain.AgentPullRequest{Description: strings.Repeat("é", 1500)},
+		screenshots: []publishedScreenshot{{URL: screenshotURL("acme", "app", strings.Repeat("a", 40), "login.png"), Caption: "Login"}},
+		notices:     []string{screenshotsRecoveredNote},
+	}
+	body := publicationBody(publication, content, "")
+	require.LessOrEqual(t, len(body), pullRequestBodyMaxBytes)
+	require.Equal(t, 1, strings.Count(body, "![Login]("+content.screenshots[0].URL+")"))
+	require.Contains(t, body, screenshotsRecoveredNote)
+	require.Contains(t, body, "## Description\nAddresses REC-1")
+}
+
+func TestPublicationBodyReportsScreenshotsThatExceedTheBodyLimit(t *testing.T) {
+	current := screenshotURL("acme", "app", strings.Repeat("b", 40), "current.png")
+	content := pullRequestContent{screenshots: []publishedScreenshot{{URL: current}}}
+	for i := 0; i < 100; i++ {
+		link := screenshotURL("acme", "app", strings.Repeat("a", 40), fmt.Sprintf("%098d.png", i))
+		content.earlierScreenshots = append(content.earlierScreenshots, publishedScreenshot{URL: link, Caption: strings.Repeat("é", 120), recovered: i == 99})
+	}
+	body := publicationBody(bodyPublication(), content, "")
+	images := previousScreenshotImages(body)
+	require.Greater(t, len(images), 1)
+	require.Equal(t, current, images[0].URL)
+	require.Contains(t, body, "### Earlier attempts")
+	require.Less(t, len(images), len(content.earlierScreenshots)+1)
+	require.Equal(t, 1, strings.Count(body, screenshotsOverflowNote))
+	require.NotContains(t, body, screenshotsRecoveredNote)
+	require.LessOrEqual(t, len(body), pullRequestBodyMaxBytes)
+}
+
+func TestPublicationBodyReportsInlineEvidenceLostToTruncation(t *testing.T) {
+	publication := bodyPublication()
+	publication.PullRequestTemplate = "## Description\n" + strings.Repeat("{{description}}", 50) + "\n\n## Notes\n{{notes}}"
+	link := screenshotURL("acme", "app", strings.Repeat("a", 40), "settings.png")
+	body := publicationBody(publication, pullRequestContent{
+		repository: "acme/app",
+		file:       &domain.AgentPullRequest{Description: strings.Repeat("d", 1500), Notes: "![Settings](" + link + ")"},
+	}, "")
+	require.NotContains(t, body, link)
+	require.Contains(t, body, screenshotsOverflowNote)
+	require.LessOrEqual(t, len(body), pullRequestBodyMaxBytes)
 }

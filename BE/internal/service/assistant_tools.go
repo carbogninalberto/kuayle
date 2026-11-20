@@ -60,11 +60,14 @@ type assistantMemberRepo interface {
 // model only proposes calls; every call re-checks the conversation creator's
 // current role and team visibility in Go, exactly like the HTTP routes.
 type AssistantTools struct {
-	issueLabels repository.LabelRepo
-	issues      repository.IssueRepo
-	teams       repository.TeamRepo
-	members     assistantMemberRepo
-	creator     assistantIssueCreator
+	issueLabels   repository.LabelRepo
+	issueMembers  assistantIssueMembers
+	issueCycles   assistantIssueCycles
+	issueProjects assistantIssueProjects
+	issues        repository.IssueRepo
+	teams         repository.TeamRepo
+	members       assistantMemberRepo
+	creator       assistantIssueCreator
 	// The GitHub permission preflight is skipped until SetGitHubAccess wires it.
 	access githubAccess
 	// Planning tools are unavailable until SetPlanning wires them.
@@ -255,8 +258,8 @@ var assistantToolCatalog = []assistantTool{
 	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12, including the development repository coding agents use for it when one is configured on the issue, its project, team or workspace.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent works in the development repository configured for the issue, its project, team or workspace, so do not ask for a repository unless this tool reports that none is configured. The agent only starts after the user approves in Kuayle; never claim work has started. Set harness, model and effort only when the user named them; omitted settings use their configured defaults. Pass the model ID when known (for example claude-opus-5-5 for Opus 5.5); OpenCode models are written provider/model (for example opencode-go/deepseek-v4.1-flash). The user can still change them on the approval card. Set workflow (a workflow name or ID of the workspace, or \"standard\") only when the user named one; otherwise the issue's default workflow is used, and a custom workflow's first agent step decides the harness and model.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"model":{"type":"string","maxLength":200},"effort":{"type":"string","enum":["low","medium","high","xhigh","max"]},"workflow":{"type":"string","maxLength":100}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	bulkUpdateTool,
-	{name: "update_issue", description: "Change an existing issue's title, description, status or priority. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4}},"required":["identifier"],"additionalProperties":false}`},
-	{name: "create_issue", description: "Create a new issue, optionally as a sub-issue of parent_identifier to split work between agents. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32}},"required":["team_key","title"],"additionalProperties":false}`},
+	{name: "update_issue", description: "Change an existing issue's title, description, status, priority, assignees, due date, cycle, project or labels. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4},` + assistantIssueFieldParams + `},"required":["identifier"],"additionalProperties":false}`},
+	{name: "create_issue", description: "Create an issue with optional assignees, due date, cycle, project and labels. Use parent_identifier to create a sub-issue. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32},` + assistantIssueFieldParams + `},"required":["team_key","title"],"additionalProperties":false}`},
 	{name: "plan_issues", description: "Order up to 20 issues by their blocked-by dependencies into waves that can run in parallel. Delegated issues with unfinished blockers wait automatically, so a whole plan can be delegated at once.", parameters: `{"type":"object","properties":{"identifiers":{"type":"array","minItems":1,"maxItems":20,"items":{"type":"string","maxLength":32}}},"required":["identifiers"],"additionalProperties":false}`},
 	{name: "get_agent_work", agentWork: true, description: "Read the coding tasks on an issue as Kuayle recorded them: state, attempt, model and effort, pull request, latest review decision (agent_review.stale=true means the pull request head moved after that review: its findings are withheld, which is not the same as no findings; propose request_agent_review for the new head and do not repeat old findings) and latest manual check (run_check). Use it before saying anything about an issue's code, pull request or merge.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "watch_agent_work", agentWork: true, watch: true, description: "Register a one-shot watch on an issue's latest coding task and ping the user in this chat when the task reaches a state, so they need not keep asking. until is awaiting_review, completed or failed; omit it for any end state (completed, failed or cancelled). The watch never fires for a state the task already reached: when the call reports the task is already in that state, tell the user that state instead of registering. Only call this when the user asked to be notified, pinged or alerted about a task.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"until":{"type":"string","enum":["awaiting_review","completed","failed"]}},"required":["identifier"],"additionalProperties":false}`},
@@ -542,13 +545,14 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		return t.linkIssues(ctx, ws, arguments)
 	case "update_issue":
 		var input struct {
+			assistantIssueFields
 			Identifier  string  `json:"identifier"`
 			Title       *string `json:"title"`
 			Description *string `json:"description"`
 			Status      *string `json:"status"`
 			Priority    *int    `json:"priority"`
 		}
-		if err := decodeToolInput(arguments, &input); err != nil {
+		if err := decodeIssueWriteInput(arguments, &input); err != nil {
 			return nil, nil, err
 		}
 		request := dto.UpdateIssueRequest{Description: input.Description, Priority: input.Priority, Status: input.Status}
@@ -562,16 +566,17 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		if input.Description != nil && utf8.RuneCountInString(*input.Description) > 8000 {
 			return nil, nil, toolFailure("invalid issue fields")
 		}
-		return t.updateIssue(ctx, ws, user, input.Identifier, request)
+		return t.updateIssue(ctx, ws, user, input.Identifier, request, input.assistantIssueFields)
 	case "create_issue":
 		var input struct {
+			assistantIssueFields
 			TeamKey     string `json:"team_key"`
 			Title       string `json:"title"`
 			Description string `json:"description"`
 			Priority    *int   `json:"priority"`
 			Parent      string `json:"parent_identifier"`
 		}
-		if err := decodeToolInput(arguments, &input); err != nil {
+		if err := decodeIssueWriteInput(arguments, &input); err != nil {
 			return nil, nil, err
 		}
 		input.Title = strings.TrimSpace(input.Title)
@@ -585,7 +590,15 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		if team == nil {
 			return nil, nil, toolFailure("team %q is not available; call list_teams", truncateRunes(input.TeamKey, 16))
 		}
-		request := dto.CreateIssueRequest{TeamID: team.ID.String(), Title: input.Title, Priority: input.Priority}
+		var fields dto.UpdateIssueRequest
+		if err := t.resolveIssueFields(ctx, ws, user, team.ID, nil, input.assistantIssueFields, &fields); err != nil {
+			return nil, nil, err
+		}
+		request := dto.CreateIssueRequest{
+			TeamID: team.ID.String(), Title: input.Title, Priority: input.Priority,
+			AssigneeIDs: fields.AssigneeIDs, DueDate: fields.DueDate, CycleID: fields.CycleID,
+			ProjectID: fields.ProjectID, LabelIDs: fields.LabelIDs,
+		}
 		if parent := strings.ToUpper(strings.TrimSpace(input.Parent)); parent != "" {
 			issue, err := t.issues.GetByIdentifier(ctx, ws, parent)
 			if err != nil || issue == nil {
@@ -601,29 +614,39 @@ func (t *AssistantTools) run(ctx context.Context, ws, user uuid.UUID, name, argu
 		if err != nil {
 			return nil, nil, toolFailure("the issue could not be created")
 		}
-		return issueSummary(*issue), &issue.ID, nil
+		return t.issueWriteResult(ctx, issue, fields, "created")
 	}
 	return nil, nil, toolFailure("unknown tool")
 }
 
-func (t *AssistantTools) updateIssue(ctx context.Context, ws, user uuid.UUID, identifier string, request dto.UpdateIssueRequest) (any, *uuid.UUID, error) {
+func (t *AssistantTools) updateIssue(ctx context.Context, ws, user uuid.UUID, identifier string, request dto.UpdateIssueRequest, fields assistantIssueFields) (any, *uuid.UUID, error) {
 	if request.Status != nil && !slices.Contains([]string{"backlog", "todo", "in_progress", "in_review", "done", "cancelled"}, *request.Status) {
 		return nil, nil, toolFailure("invalid status")
 	}
 	if request.Priority != nil && (*request.Priority < 0 || *request.Priority > 4) {
 		return nil, nil, toolFailure("priority must be 0 to 4")
 	}
-	if request.Title == nil && request.Description == nil && request.Status == nil && request.Priority == nil && request.AssigneeIDs == nil && request.LabelIDs == nil && request.ProjectID == nil && request.CycleID == nil {
+	hasFields := !fields.empty()
+	if !hasFields && request.Title == nil && request.Description == nil && request.Status == nil && request.Priority == nil && request.AssigneeIDs == nil && request.LabelIDs == nil && request.ProjectID == nil && request.CycleID == nil && request.DueDate == nil {
 		return nil, nil, toolFailure("no changes requested")
 	}
 	identifier = strings.ToUpper(strings.TrimSpace(identifier))
 	// Resolve with the user's own visibility first; missing and hidden issues look the same.
-	if issue, err := t.issues.GetByIdentifier(ctx, ws, identifier); err != nil || issue == nil {
+	existing, err := t.issues.GetByIdentifier(ctx, ws, identifier)
+	if err != nil || existing == nil {
 		return nil, nil, toolFailure("issue not found")
+	}
+	if hasFields {
+		if err := t.resolveIssueFields(ctx, ws, user, existing.TeamID, existing, fields, &request); err != nil {
+			return nil, nil, err
+		}
 	}
 	issue, err := t.creator.Update(ctx, ws, user, identifier, request)
 	if err != nil {
 		return nil, nil, toolFailure("the issue could not be updated")
+	}
+	if hasFields {
+		return t.issueWriteResult(ctx, issue, request, "updated")
 	}
 	return issueSummary(*issue), &issue.ID, nil
 }

@@ -52,8 +52,10 @@
 </script>
 
 {#if stoppable}
-	<Button variant="outline" size="sm" class="shrink-0" disabled={busy} onclick={() => (open = true)}>
-		{#if busy}<LoaderCircle class="animate-spin" />{:else}<Square />{/if}{m['tasks.stop']()}
+	<Button variant="outline" size="sm" class="@max-[36rem]:w-7 @max-[36rem]:px-0" disabled={busy}
+		aria-label={m['tasks.stop']()} title={m['tasks.stop']()} onclick={() => (open = true)}>
+		{#if busy}<LoaderCircle class="animate-spin" />{:else}<Square />{/if}
+		<span class="hidden @min-[36rem]:inline">{m['tasks.stop']()}</span>
 	</Button>
 	<AlertDialog.Root bind:open>
 		<AlertDialog.Content>
@@ -68,7 +70,9 @@
 		</AlertDialog.Content>
 	</AlertDialog.Root>
 {:else if retryable}
-	<Button variant="outline" size="sm" class="shrink-0" disabled={busy} onclick={() => void stop()}>
-		{#if busy}<LoaderCircle class="animate-spin" />{/if}{m['tasks.retry_cancel']()}
+	<Button variant="outline" size="sm" class="@max-[36rem]:w-7 @max-[36rem]:px-0" disabled={busy}
+		aria-label={m['tasks.retry_cancel']()} title={m['tasks.retry_cancel']()} onclick={() => void stop()}>
+		{#if busy}<LoaderCircle class="animate-spin" />{:else}<Square />{/if}
+		<span class="hidden @min-[36rem]:inline">{m['tasks.retry_cancel']()}</span>
 	</Button>
 {/if}

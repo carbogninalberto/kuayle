@@ -1,7 +1,8 @@
 FROM golang:1.26.11-alpine AS build
 WORKDIR /src
-COPY egress/main.go .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /egress main.go
+COPY egress/*.go egress/go.mod ./
+ENV CGO_ENABLED=0
+RUN go test ./... && go build -trimpath -ldflags="-s -w" -o /egress .
 
 FROM alpine:3.23
 ARG SECURITY_REFRESH=initial

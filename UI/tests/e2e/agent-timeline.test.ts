@@ -180,6 +180,7 @@ async function fixture(page: Page) {
 		// A task without a workflow lists its attempts.
 		runs: [] as any[],
 		logs: {} as Record<string, any[]>,
+		sessions: [] as any[],
 		sockets: [] as WebSocketRoute[],
 		events: [] as any[]
 	};
@@ -241,7 +242,7 @@ async function fixture(page: Page) {
 			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
 			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
 			if (rest === '/history') return route.fulfill({ json: { transitions: [] } });
-			if (rest === '/sessions') return route.fulfill({ json: { sessions: [] } });
+			if (rest === '/sessions') return route.fulfill({ json: { sessions: state.sessions } });
 			if (rest === '/publication') return route.fulfill({ json: { step: null } });
 			if (rest === '/signals') return route.fulfill({ json: [] });
 			return route.fulfill({ json: task });
@@ -296,6 +297,43 @@ function workflowFixture(state: Awaited<ReturnType<typeof fixture>>['state']) {
 }
 
 const stepButton = (page: Page, sequence: number) => page.locator(`#step-${sequence}`).getByRole('button').first();
+
+test('requested reviews join the path in order and open with the keyboard', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	workflowFixture(state);
+	const reviewSession = (id: string, taskId: string, created_at: string, provider: string) => ({
+		id, task_id: taskId, purpose: 'review', state: 'completed', provider, created_at,
+		review: { commit_sha: '0123456789', pull_request_number: 12, findings: '**Check the query.**', verdict: 'comment' }
+	});
+	state.sessions = [
+		reviewSession('later', 'review-later', at(20), 'opencode'),
+		reviewSession('workflow', 'review-1', at(14), 'codex'),
+		reviewSession('earlier', 'review-earlier', at(9), 'claude-code')
+	];
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const path = page.getByRole('region', { name: 'Agent thread of ENG-1' }).getByRole('list', { name: 'Path taken' });
+	const rows = path.getByRole('listitem');
+	await expect(rows).toHaveCount(8);
+	await expect(rows.nth(3)).toContainText('Review by Claude Code');
+	await expect(rows.nth(4)).toContainText('Publish');
+	await expect(rows.nth(5)).toContainText('Review · Reviewer');
+	await expect(rows.last()).toContainText('Review by OpenCode');
+	const review = path.getByRole('button', { name: /Review by Claude Code/ });
+	await expect(review).toHaveAttribute('aria-expanded', 'false');
+	await expect(path.getByText('Check the query.')).toHaveCount(0);
+	await review.press('Enter');
+	await expect(review).toHaveAttribute('aria-expanded', 'true');
+	await expect(rows.nth(3).locator('strong')).toHaveText('Check the query.');
+	await review.press('Space');
+	await expect(review).toHaveAttribute('aria-expanded', 'false');
+	const workflowReview = stepButton(page, 5);
+	await expect(workflowReview).toHaveAttribute('aria-expanded', 'false');
+	await workflowReview.click();
+	await expect(rows.nth(5).locator('strong')).toHaveText('Check the query.');
+	await expect(rows.nth(5).getByText('Commit 0123456 of pull request #12')).toBeVisible();
+	await expect(path.getByText('Check the query.')).toHaveCount(1);
+	await page.screenshot({ path: testInfo.outputPath('agent-review-timeline.png') });
+});
 
 test('a workflow task reads as a timeline: one labelled section per step, the running one open', async ({
 	page
@@ -359,16 +397,21 @@ test('a workflow task reads as a timeline: one labelled section per step, the ru
 	});
 	await expect(running.getByText('Tests pass now.')).toBeVisible();
 
-	// A step that is not an agent's is a compact row with nothing to open.
+	// A compact workflow row discloses recorded step metadata.
 	const publish = page.locator('#step-4');
 	await expect(publish).toHaveAttribute('data-step', 'row');
 	await expect(publish).toContainText('Publish');
-	await expect(publish.getByRole('button')).toHaveCount(0);
+	const publishDetails = publish.getByRole('button', { name: /Publish/ });
+	await expect(publishDetails).toHaveAttribute('aria-expanded', 'false');
 	const [rowHeight, stepHeight] = await Promise.all([
 		publish.evaluate((element) => element.getBoundingClientRect().height),
 		page.locator('#step-3').evaluate((element) => element.getBoundingClientRect().height)
 	]);
 	expect(rowHeight).toBeLessThan(stepHeight);
+	await publishDetails.press('Enter');
+	await expect(publishDetails).toHaveAttribute('aria-expanded', 'true');
+	await expect(publish.getByRole('img', { name: 'Done' })).toBeVisible();
+	await publishDetails.press('Space');
 
 	// A finished step opens with the keyboard: its result first, as Markdown,
 	// the trace that led to it below.
@@ -399,14 +442,16 @@ test('a workflow task reads as a timeline: one labelled section per step, the ru
 	await expect(page.locator('#step-2').getByRole('button', { name: /Find the list/ })).toBeVisible();
 
 	// The whole request is one click away.
-	const request = thread.getByText('LAST-LINE-OF-THE-REQUEST');
-	const cut = () => request.evaluate((element) => element.scrollHeight > element.clientHeight + 1);
-	expect(await cut()).toBe(true);
+	const header = thread.getByTestId('agent-thread-header');
+	const request = thread.getByText(/LAST-LINE-OF-THE-REQUEST/);
 	const expand = thread.getByRole('button', { name: 'Expand' });
 	await expect(expand).toHaveAttribute('aria-expanded', 'false');
+	await expect(request).toBeHidden();
+	const headerHeight = (await header.boundingBox())!.height;
 	await expand.click();
 	await expect(thread.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
-	expect(await cut()).toBe(false);
+	await expect(request).toBeVisible();
+	expect((await header.boundingBox())!.height).toBe(headerHeight);
 	await page.screenshot({ path: testInfo.outputPath('timeline-desktop.png'), fullPage: true });
 
 	// The review a step started is read in the step and opens from it.
@@ -425,7 +470,7 @@ test('the step the task moves to opens and the one it left closes', async ({ pag
 	workflowFixture(state);
 	// A short window, so the timeline is taller than the view on any machine
 	// and there is something to scroll.
-	await page.setViewportSize({ width: 1280, height: 480 });
+	await page.setViewportSize({ width: 1280, height: 360 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1#step-3');
 	// A link to a step opens that step beside the running one.
 	await expect(stepButton(page, 3)).toHaveAttribute('aria-expanded', 'true');
@@ -436,13 +481,17 @@ test('the step the task moves to opens and the one it left closes', async ({ pag
 	await expect(page.locator('#step-2').getByRole('article', { name: 'Plan' })).toBeVisible();
 	const viewport = page.getByLabel('Messages', { exact: true });
 	const scrollTop = () => viewport.evaluate((element) => element.scrollTop);
-	// (A wheel, as a person scrolls: the view follows new output only until then.
-	// The view first has to have followed down, or there is nothing to scroll up.)
-	await expect.poll(scrollTop).toBeGreaterThan(0);
+	// The scrollable transcript moves underneath the pinned header.
 	await viewport.hover();
+	await page.mouse.wheel(0, 160);
+	await expect.poll(scrollTop).toBeGreaterThan(0);
+	const header = page.getByTestId('agent-thread-header');
+	const viewportTop = (await viewport.boundingBox())!.y;
+	const headerTop = (await header.boundingBox())!.y;
+	expect(Math.abs(headerTop - viewportTop)).toBeLessThanOrEqual(1);
 	await expect(async () => {
 		const top = await scrollTop();
-		await page.mouse.wheel(0, -200);
+		await page.mouse.wheel(0, -60);
 		expect(await scrollTop()).toBeLessThan(top);
 	}).toPass();
 	const before = await scrollTop();
@@ -569,6 +618,11 @@ test('the timeline fits a phone', async ({ page }, testInfo) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	const header = thread.getByTestId('agent-thread-header');
+	const controls = ['Expand', 'Download trace', 'Stop'].map((name) => header.getByRole('button', { name, exact: true }));
+	const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
+	expect(new Set(boxes.map((box) => box?.y)).size).toBe(1);
+	expect((await header.boundingBox())!.height).toBeLessThanOrEqual(42);
 	await expect(thread.getByRole('list', { name: 'Path taken' }).getByRole('listitem')).toHaveCount(6);
 	await expect(page.locator('#step-6').getByText('Renaming the parameter.')).toBeVisible();
 	// The model leaves the line and shows inside the open step instead.
@@ -591,6 +645,9 @@ test('the timeline fits a phone', async ({ page }, testInfo) => {
 		expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 		await page.screenshot({ path: testInfo.outputPath(`timeline-390-${dark ? 'dark' : 'light'}.png`), fullPage: true });
 	}
+	await page.setViewportSize({ width: 320, height: 740 });
+	await expect(header.getByRole('button', { name: 'Download trace' })).toBeInViewport();
+	expect(await header.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 
 const count = (requests: string[], pattern: RegExp) => requests.filter((request) => pattern.test(request)).length;

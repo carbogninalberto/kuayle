@@ -40,10 +40,10 @@ type agentFileRuntime interface {
 	ReadAgentFile(ctx context.Context, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, name string, limit int) ([]byte, error)
 }
 
-// screenshotPublisher is implemented by GitHub clients that can commit files
-// to a branch of their own.
+// screenshotPublisher reads and commits evidence on a separate branch.
 type screenshotPublisher interface {
 	PublishFilesToBranch(token, owner, repo, branch, message string, files []githubclient.RepositoryFile) (string, error)
+	ListBranchSnapshot(token, owner, repo, branch string) (string, []githubclient.TreeEntry, error)
 }
 
 func parseAgentFileRead(output string) ([]byte, error) {
@@ -119,7 +119,7 @@ func (m *Manager) pullRequestFiles(ctx context.Context, github githubAPI, token 
 		logger.WithField("reason", parsed.Error).Warn("agent pull request file was rejected")
 		return pullRequestContent{}
 	}
-	content := pullRequestContent{file: &parsed}
+	content := pullRequestContent{file: &parsed, repository: checkout.RepositoryFullName}
 	publisher, publishes := github.(screenshotPublisher)
 	if len(parsed.Screenshots) == 0 || !publishes {
 		return content
@@ -148,6 +148,7 @@ func (m *Manager) pullRequestFiles(ctx context.Context, github githubAPI, token 
 	commit, err := publisher.PublishFilesToBranch(token, owner, repository, screenshotBranch(*run.TaskID), publication.IssueIdentifier+": screenshots for the pull request description", files)
 	if err != nil {
 		logger.WithField("error", strings.ReplaceAll(safeError(err), token, "[redacted]")).Warn("agent screenshots could not be published")
+		content.addScreenshotNotice(screenshotsUploadFailedNote)
 		return content
 	}
 	for i, file := range files {

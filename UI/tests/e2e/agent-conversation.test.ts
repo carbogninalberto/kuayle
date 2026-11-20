@@ -199,7 +199,11 @@ async function fixture(page: Page) {
 			return route.fulfill({ json: state.events.filter((e) => e.cursor > Number(url.searchParams.get('after') ?? 0)) });
 		if (path.endsWith('/conversations/chat-1'))
 			return route.fulfill({
-				json: { conversation, issue, messages: [], agent_messages: [], cursor: 0, has_more: false }
+				json: {
+					conversation, issue, messages: [],
+					agent_messages: state.liveMessages.map((message) => ({ ...message, identifier: 'ENG-1' })),
+					cursor: state.events.length, has_more: false
+				}
 			});
 		const match = path.match(/\/agent-tasks\/task-1(\/.*)?$/);
 		if (match) {
@@ -320,6 +324,26 @@ const composer = (page: Page) => page.getByRole('textbox', { name: 'Write to the
 const composerButton = (page: Page, name: string) => page.getByTestId('agent-composer').getByRole('button', { name, exact: true });
 const tooltip = (page: Page) => page.locator('[data-slot="tooltip-content"]');
 const noOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+
+test('a sent message appears once in the assistant chat and stays after reload', async ({ page }) => {
+	const { state, deliver } = await fixture(page);
+	await page.goto(agentUrl);
+	const message = 'Keep the existing route.';
+	await composer(page).fill(message);
+	await composer(page).press('Enter');
+	await expect(thread(page).getByRole('article', { name: 'You' })).toContainText(message);
+
+	await thread(page).getByRole('link', { name: 'Assistant', exact: true }).click();
+	const echo = page.getByRole('article', { name: 'You', exact: true }).filter({ hasText: message });
+	await expect(echo).toHaveCount(1);
+	await expect(echo.getByRole('link', { name: 'ENG-1' })).toBeVisible();
+	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+	deliver(1, at(10));
+	await expect(echo).toHaveCount(1);
+	await page.reload();
+	await expect(echo).toHaveCount(1);
+	expect(state.sends).toEqual([{ body: message }]);
+});
 
 test('a message sent from the running step is shown inline with its state, and the reply is the next item', async ({
 	page
@@ -471,7 +495,10 @@ test('interrupt and send stops the turn and the message is taken up in the same 
 	await interrupt.click();
 	await expect.poll(() => state.sends).toEqual([{ body: 'Stop: the migration must not drop the column', mode: 'interrupt' }]);
 	await expect(composer(page)).toHaveValue('');
+	await expect(thread(page).getByRole('status').filter({ hasText: 'Cancelling' })).toBeVisible();
+	await thread(page).getByRole('button', { name: 'Expand', exact: true }).press('Enter');
 	await expect(thread(page).getByText('Interrupting: stopping the agent to deliver a message')).toBeVisible();
+	await thread(page).getByRole('button', { name: 'Show less', exact: true }).press('Space');
 	// The composer stays: what is said meanwhile joins the message.
 	await expect(composer(page)).toBeVisible();
 	await expect(interrupt).toHaveCount(0);
@@ -638,7 +665,9 @@ test('with no step running a message waits after the last step, or starts an ite
 	await start.click();
 	await expect.poll(() => state.sends.at(-1)).toEqual({ body: 'And skip the flaky test', mode: 'start' });
 	await expect(page.getByTestId('agent-composer').getByRole('alert')).toHaveCount(0);
+	await thread(page).getByRole('button', { name: 'Expand', exact: true }).click();
 	await expect(thread(page).getByText("Started to deliver a message from the task's owner")).toBeVisible();
+	await thread(page).getByRole('button', { name: 'Show less', exact: true }).click();
 	state.task = { ...state.task, state: 'running' };
 	state.workflow = {
 		...state.workflow,

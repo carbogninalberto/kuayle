@@ -6,6 +6,7 @@
 	import BubbleMenu from './EditorBubbleMenu.svelte';
 	import type { BubbleMenuPluginProps } from '@tiptap/extension-bubble-menu';
 	import StarterKit from '@tiptap/starter-kit';
+	import { TableKit } from '@tiptap/extension-table';
 	import Placeholder from '@tiptap/extension-placeholder';
 	import TaskList from '@tiptap/extension-task-list';
 	import TaskItem from '@tiptap/extension-task-item';
@@ -751,6 +752,22 @@
 				codeBlock: false,
 				link: false,
 				underline: false,
+			}),
+			TableKit,
+			Extension.create({
+				name: 'tableCellAlignment',
+				addGlobalAttributes() {
+					return [{
+						types: ['tableCell', 'tableHeader'],
+						attributes: {
+							// The storage sanitizer keeps align and strips inline styles.
+							align: {
+								default: null,
+								renderHTML: ({ align }) => align ? { align } : {}
+							}
+						}
+					}];
+				}
 			}),
 			Placeholder.configure({ placeholder }),
 			TaskList,

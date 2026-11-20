@@ -461,8 +461,8 @@ streaming, history, denied access, mobile layout and long transcript scrolling.
 ## Orchestrator tools
 
 The worker offers OpenAI-compatible function tools: `list_teams`,
-`search_issues`, `get_issue`, `create_issue`, `update_issue` (title, description,
-status or priority; assignees are not changed), `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
+`search_issues`, `get_issue`, `create_issue`, `update_issue`,
+`delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
 `get_agent_work`, `list_agent_work`, `watch_agent_work`
 (see [watching agent work](#watching-agent-work)), `merge_pull_request`, `accept_agent_work`
 (see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
@@ -507,13 +507,33 @@ action is one catalog entry in `assistant_wiki_tools.go`, a case in
 `runWikiTool` (or, for an approval tool, in `prepareWikiApproval`, the
 `requestApproval` switch, `AssistantApprovals.wikiAction`, the policy table and
 the approvals' action constraint).
-`create_issue` accepts a `parent_identifier`. The write tools (`create_issue`,
-`update_issue`, `link_issues` and `link_repository`) count toward the per-reply
-change limit. The model only proposes calls.
+`create_issue` accepts a `parent_identifier`, and `update_issue` can change the
+status. Both accept title, description, priority and the optional fields below.
+
+- `assignees` is an array of workspace member names or email addresses. Use
+  `["me"]` for the conversation creator.
+- `due_date` is a calendar date in `YYYY-MM-DD` format. The assistant converts
+  relative dates such as Friday using the current date in the user's time zone.
+- `cycle` and `project` accept a name or ID from the issue's team.
+- `labels` is an array of label names. The available labels are workspace-wide
+  labels and labels of the issue's current or newly selected project.
+
+Names match case-insensitively. A missing or ambiguous match fails the call
+before the issue is written and includes the offending value and up to 25
+available options. The error says when more options are available. On update,
+omit fields to keep their values. Use `""` to clear `due_date`, `cycle` or
+`project`. Assignee and label arrays replace the corresponding sets, and empty
+arrays clear them. Changing or clearing the project removes labels scoped to
+the previous project. If the tool cannot confirm the requested assignees or
+labels after saving, it reports which issue was saved so any correction can
+target that issue.
+
+The write tools (`create_issue`, `update_issue`, `link_issues` and
+`link_repository`) count toward the per-reply change limit. The model only proposes calls.
 `AssistantTools` executes each in Go as the conversation creator, re-reading the
 current workspace role (guests and roles without `issue:create` or
 `issue:update` are refused) and
-using the same team-visibility-scoped repositories and `IssueService.Create` as
+using the same team-visibility-scoped repositories and `IssueService` writes as
 the HTTP routes. Arguments are strict JSON: unknown fields such as a creator ID
 are rejected, and the issue is always created with the user's own identity.
 Teams are resolved by key among the teams the user can see.
@@ -804,6 +824,32 @@ validated inputs, and an approved or `auto` run is polled (found by its
 `approval_id` in the tool's runs) until it ends; `get_tool_run` is one line.
 Scripts, inputs and output are always rendered as escaped text.
 
+#### Public URL reader
+
+A workspace owner or admin can add `fetch_url` in **Settings → Assistant →
+Custom tools → New tool**. Use the values in the [tool definition](../assistant-tools/fetch_url.json)
+and paste the [Python script](../assistant-tools/fetch_url.py) into Script. Add
+the required string parameter `url`, select **Read-only** and **Runs
+automatically**, and choose **Save draft and test**. Test the draft on a
+running Dev Machine you own, then review and activate it to offer
+`custom_fetch_url` to the assistant. Calls from chat also need a machine.
+
+The tool issues HTTPS GET requests to DNS hostnames on port 443 through the Dev
+Machine egress proxy. The proxy applies its domain policy and the same
+public-address check as the forge client. Each redirect is checked again.
+Fetches have a 15-second total deadline, a five-redirect limit and a 256 KiB
+response limit. HTML is converted
+to text, and text and listings are returned as `untrusted_data`. For longer
+text, pass the returned `next_url` unchanged to read the next part.
+
+Public GitHub repository roots, `tree` and `blob` links use the [GitHub Contents
+API](https://docs.github.com/en/rest/repos/contents#get-repository-content)
+without credentials. The machine's egress policy must allow `api.github.com`.
+To draft a skill, ask the assistant to open the repository, follow the
+`SKILL.md` link, read any continuations, and use `propose_skill`. For sources
+over the existing 12,000-character proposal limit, ask for a draft based on
+the source within that limit.
+
 A provider may return tool calls only when tools were offered and must finish
 the turn with `finish_reason: "tool_calls"`. One reply runs at most 400 tool
 calls (at most 32 per model round, enough rounds for each call to run in its
@@ -891,13 +937,14 @@ issue `identifier`) to the conversation that owns the task, when that
 conversation's creator is the task's creator; this includes messages the
 machine manager records while the attempt runs, so an open chat updates within
 seconds. History returns `agent_messages`: the accepted (`received`)
-`from_agent` messages of the conversation's tasks in the page's span of time
+`from_agent` messages and the creator's queued or delivered `to_agent` messages
+of the conversation's tasks in the page's span of time
 (from its oldest message, or the beginning for the oldest page, up to the
 next newer page),
 newest 200, oldest first, labelled with their issue. The chat places them
 between its messages by time as distinct items labelled "Coding agent ·
-ENG-1", rendered as escaped plain text (never Markdown, so no links, images or
-HTML), with a note that the assistant does not act on them unless asked. A
+ENG-1" or "You · ENG-1", rendered as escaped plain text. Incoming items carry a
+note that the assistant does not act on them unless asked. A
 `kind: "question"` item is marked as a question, and one that arrives live
 raises a toast; the creator also gets a [Telegram notice](telegram.md#task-notifications)
 when linked. The agent view shows both directions with their delivery state
