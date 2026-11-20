@@ -1531,6 +1531,17 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		}
 		return m.store.UpdateServiceRuntime(runContext, service.ID, containerID, "running", "healthy", nil)
 	}, Detach: m.detach}
+	if store, ok := m.store.(interface {
+		PromptLiveImages(context.Context, uuid.UUID) ([]domain.ConversationAttachment, error)
+	}); ok && run.TaskID != nil {
+		images, err := store.PromptLiveImages(runContext, run.ID)
+		if err != nil {
+			return err
+		}
+		if len(images) > 0 {
+			observer.PrepareInbox = func(ctx context.Context) error { return m.writeLiveImages(ctx, machine, run, images) }
+		}
+	}
 	// While an unattended attempt runs, queued live messages reach its inbox
 	// and its outbox is collected every few seconds.
 	stopLive := func() {}

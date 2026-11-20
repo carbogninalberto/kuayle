@@ -17,14 +17,6 @@
 	}: { id: string; payload: ShipPayload; notes?: string; disabled?: boolean } = $props();
 </script>
 
-<Item.Title
-	>{m['assistant.ship_title']({
-		identifier: payload.identifier,
-		number: payload.pull_request,
-		tag: payload.release.tag,
-		repository: payload.repository
-	})}</Item.Title
->
 <Item.Description class="line-clamp-none">{m['assistant.ship_description']({ title: payload.title })}</Item.Description>
 <ShipSteps {payload} />
 {#if payload.merge.head_change}<MergeHeadChange

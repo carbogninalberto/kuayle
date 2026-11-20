@@ -233,6 +233,9 @@ async function fixture(page: Page) {
 				state.sends.push(input);
 				const seq = state.liveMessages.filter((item) => item.direction === 'to_agent').length + 1;
 				const sent = {
+					...(input.attachment_ids?.length ? {attachments: input.attachment_ids.map((id: string) => ({
+						id, filename: 'screen.png', conversation_id: 'chat-1', width: 1440, height: 900
+					}))} : {}),
 					id: `to-${seq}`,
 					task_id: 'task-1',
 					direction: 'to_agent',
@@ -354,10 +357,10 @@ test('a message sent from the running step is shown inline with its state, and t
 	const running = page.locator('#step-3');
 	await expect(running.getByRole('button', { name: /Ran 2 commands/ })).toBeVisible();
 
-	// A transcript and a composer: no thread of its own, no target chip, no helper sentence.
+	// A transcript and a composer: no thread of its own, the target chip identifies its recipient.
 	await expect(composer(page)).toBeVisible();
 	await expect(thread(page).getByRole('region', { name: 'Live messages' })).toHaveCount(0);
-	await expect(page.getByRole('button', { name: /^Send to: / })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /^Send to: / })).toHaveAccessibleName('Send to: ENG-1 · Claude Code agent');
 	await expect(page.getByTestId('agent-composer').getByText('The running agent reads it after its current step.')).toHaveCount(0);
 	await expect(thread(page).getByText('The running agent reads it after its current step.')).toHaveCount(0);
 	await expect(page.getByText(/not to the assistant/)).toHaveCount(0);
@@ -773,4 +776,41 @@ test('the conversation fits a phone', async ({ page }, testInfo) => {
 	const box = await mine.boundingBox();
 	expect(box!.x).toBeGreaterThanOrEqual(0);
 	expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+});
+
+test('the shared composer keeps the draft when switching targets and sends its image to the agent', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	await page.route('**/conversations/chat-1/attachments', route => route.fulfill({ json: {
+		id: 'image-1', filename: 'screen.png', content_type: 'image/png', width: 1, height: 1, size: 68
+	} }));
+	await page.setViewportSize({width: 1440, height: 900});
+	await page.goto(agentUrl);
+	await expect(composer(page)).toBeVisible();
+	const screenshot = await page.screenshot({ animations: 'disabled' });
+	await page.route('**/conversations/chat-1/attachments/image-1*', route => route.fulfill({ contentType: 'image/png', body: screenshot }));
+	await composer(page).fill('Check this screen');
+	await page.locator('input[type=file]').setInputFiles({
+		name: 'screen.png', mimeType: 'image/png',
+		buffer: screenshot
+	});
+	await expect(composerButton(page, 'Send')).toBeEnabled();
+	const chip = page.getByRole('button', { name: /^Send to:/ });
+	await expect(chip).toHaveAttribute('title', 'ENG-1 · Claude Code agent');
+	expect(await chip.locator('span.truncate').evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('agent-image.png') });
+	await page.getByRole('button', { name: /^Send to:/ }).click();
+	await page.getByRole('menuitemcheckbox', { name: 'Assistant', exact: true }).click();
+	await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Check this screen');
+	await page.getByRole('button', { name: /^Send to:/ }).click();
+	await page.getByRole('menuitemcheckbox', { name: /Claude Code/ }).click();
+	await composer(page).press('Enter');
+	await expect.poll(() => state.sends).toEqual([{ body: 'Check this screen', attachment_ids: ['image-1'] }]);
+	await expect(page.getByRole('img', { name: 'screen.png' })).toBeVisible();
+	await page.reload();
+	await expect(page.getByRole('img', { name: 'screen.png' })).toBeVisible();
+	await page.goto(agentUrl);
+	await thread(page).getByRole('img', { name: 'screen.png' }).click();
+	await expect(page.getByRole('dialog').getByRole('img', { name: 'screen.png' })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(page.getByRole('dialog')).toHaveCount(0);
 });

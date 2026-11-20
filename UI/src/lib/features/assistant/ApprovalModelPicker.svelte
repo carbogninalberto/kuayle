@@ -79,8 +79,9 @@
 </script>
 
 {#if options && current}
-	<div class="flex flex-wrap items-center gap-2">
+	<div class="flex flex-wrap items-end gap-3">
 		{#if !harnessLocked && options.providers.length > 1}
+			<div class="grid gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.harness']()}</span>
 			<DropdownMenu.Root
 				><DropdownMenu.Trigger {disabled}
 					>{#snippet child({ props })}<Button
@@ -102,8 +103,10 @@
 					></DropdownMenu.Content
 				></DropdownMenu.Root
 			>
+			</div>
 		{/if}
 		{#if servers.length > 1 || (servers.length && !server)}
+			<div class="grid gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.model_server']()}</span>
 			<DropdownMenu.Root
 				><DropdownMenu.Trigger {disabled}
 					>{#snippet child({ props })}<Button
@@ -124,8 +127,10 @@
 					></DropdownMenu.Content
 				></DropdownMenu.Root
 			>
+			</div>
 		{/if}
 		{#if showModel}
+			<div class="grid gap-1.5"><span class="text-xs font-medium text-muted-foreground">{m['tasks.model']()}</span>
 			<ModelCombobox
 				compact
 				value={current.model}
@@ -139,6 +144,7 @@
 				onselect={(model) => current && update({ ...current, model })}
 				onrefresh={() => current && void suggestions.load(slug, current.harness, true, server)}
 			/>
+			</div>
 		{:else if current.model}
 			<!-- No server offers the proposed model: it runs on the agent's own sign-in. -->
 			<span class="text-xs text-muted-foreground">{current.model}</span>

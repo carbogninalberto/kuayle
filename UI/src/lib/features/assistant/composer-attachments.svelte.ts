@@ -96,10 +96,18 @@ export class ComposerAttachments {
 			void conversations.removeAttachment(this.slug, this.conversation, item.attachment.id).catch(() => {});
 	}
 
-	// After a successful send the images belong to the message.
-	clear() {
+	// A completed send owns only the files it submitted. New draft uploads stay put.
+	consume(ids: string[]) {
+		this.items = this.items.filter(item => {
+			if (!item.attachment || !ids.includes(item.attachment.id)) return true;
+			URL.revokeObjectURL(item.preview);
+			return false;
+		});
+		this.notice = '';
+	}
+
+	dispose() {
 		for (const item of this.items) URL.revokeObjectURL(item.preview);
 		this.items = [];
-		this.notice = '';
 	}
 }

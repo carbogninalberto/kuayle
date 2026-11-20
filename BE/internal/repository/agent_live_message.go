@@ -42,11 +42,11 @@ func (r *AgentTaskRepository) QueueLiveMessage(ctx context.Context, ws, id uuid.
 // A mode the task's state does not allow is ErrAgentTaskConflict and queues
 // nothing. Starting a new iteration on an issue whose work was merged is a
 // domain.MergedWorkError, which also queues nothing, unless confirmMerged.
-func (r *AgentTaskRepository) SendLiveMessage(ctx context.Context, ws, id uuid.UUID, body, mode string, confirmMerged bool) (*domain.AgentLiveMessage, error) {
+func (r *AgentTaskRepository) SendLiveMessage(ctx context.Context, ws, id uuid.UUID, body, mode string, confirmMerged bool, attachments ...uuid.UUID) (*domain.AgentLiveMessage, error) {
 	if mode != "" && mode != domain.AgentLiveSendInterrupt && mode != domain.AgentLiveSendStart {
 		return nil, ErrAgentLiveMessageInvalid
 	}
-	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderUser, body, nil, mode, confirmMerged)
+	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderUser, body, nil, mode, confirmMerged, attachments...)
 }
 
 // QueueApprovedLiveMessage queues the message of an approved message_task
@@ -61,7 +61,7 @@ func (r *AgentTaskRepository) QueueApprovedLiveMessage(ctx context.Context, ws, 
 	return r.queueLiveMessage(ctx, ws, id, domain.AgentLiveSenderOrchestrator, body, &request, "", false)
 }
 
-func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string, request *uuid.UUID, mode string, confirmMerged bool) (*domain.AgentLiveMessage, error) {
+func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.UUID, sender, body string, request *uuid.UUID, mode string, confirmMerged bool, attachments ...uuid.UUID) (*domain.AgentLiveMessage, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
 		return nil, err
@@ -69,7 +69,12 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 	if sender != domain.AgentLiveSenderUser && sender != domain.AgentLiveSenderOrchestrator {
 		return nil, ErrAgentLiveMessageInvalid
 	}
-	body, err = domain.CleanAgentLiveMessage(body)
+	if !validAttachmentIDs(attachments) {
+		return nil, ErrAgentLiveMessageInvalid
+	}
+	if len(attachments) == 0 || body != "" {
+		body, err = domain.CleanAgentLiveMessage(body)
+	}
 	if err != nil {
 		return nil, ErrAgentLiveMessageInvalid
 	}
@@ -114,10 +119,23 @@ func (r *AgentTaskRepository) queueLiveMessage(ctx context.Context, ws, id uuid.
 	if err != nil {
 		return nil, err
 	}
+	for position, attachment := range attachments {
+		var image domain.ConversationAttachment
+		err = tx.GetContext(ctx, &image, `UPDATE conversation_attachments SET live_message_id=$1,position=$2
+			WHERE id=$3 AND workspace_id=$4 AND conversation_id=$5 AND uploaded_by=$6 AND message_id IS NULL AND live_message_id IS NULL
+			RETURNING `+attachmentColumns, message.ID, position, attachment, ws, task.ConversationID, actor)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrAgentLiveMessageInvalid
+		}
+		if err != nil {
+			return nil, err
+		}
+		message.Attachments = append(message.Attachments, image)
+	}
 	// What a person tells the agent is part of the task's notebook. A message
 	// the assistant drafted and the person approved is marked as such.
 	if err = noteNotebook(ctx, tx, id, &actor, domain.NotebookNote{Instruction: &domain.NotebookInstruction{
-		Source: domain.NotebookInstructionLive, AuthorID: &actor, Assistant: sender == domain.AgentLiveSenderOrchestrator, Text: message.Body, At: message.CreatedAt}}); err != nil {
+		Source: domain.NotebookInstructionLive, AuthorID: &actor, Assistant: sender == domain.AgentLiveSenderOrchestrator, Text: message.DeliveryBody(), At: message.CreatedAt}}); err != nil {
 		return nil, err
 	}
 	if err = liveMessageEvents(ctx, tx, []domain.AgentLiveMessage{message}); err != nil {
@@ -323,7 +341,10 @@ func (r *AgentTaskRepository) LiveMessages(ctx context.Context, ws, id uuid.UUID
 	}
 	messages := []domain.AgentLiveMessage{}
 	err = tx.SelectContext(ctx, &messages, `SELECT * FROM (SELECT * FROM agent_live_messages WHERE task_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2) m ORDER BY created_at,id`, id, limit)
-	return messages, err
+	if err != nil {
+		return nil, err
+	}
+	return messages, loadLiveImages(ctx, tx, messages)
 }
 
 // ClaimLiveMessages places the task's queued messages, oldest first, in its
@@ -341,8 +362,11 @@ func (r *AgentTaskRepository) ClaimLiveMessages(ctx context.Context, task domain
 	}
 	defer tx.Rollback()
 	messages := []domain.AgentLiveMessage{}
-	if err = tx.SelectContext(ctx, &messages, `SELECT * FROM agent_live_messages WHERE task_id=$1 AND workspace_id=$2 AND state='delivered' AND delivered_via='prompt' AND run_id=$3 ORDER BY seq`, task.ID, task.WorkspaceID, task.RunID); err != nil || len(messages) > 0 {
-		return messages, err
+	if err = tx.SelectContext(ctx, &messages, `SELECT * FROM agent_live_messages WHERE task_id=$1 AND workspace_id=$2 AND state='delivered' AND delivered_via='prompt' AND run_id=$3 ORDER BY seq`, task.ID, task.WorkspaceID, task.RunID); err != nil {
+		return nil, err
+	}
+	if len(messages) > 0 {
+		return messages, loadLiveImages(ctx, tx, messages)
 	}
 	var candidates []struct {
 		domain.AgentLiveMessage
@@ -350,11 +374,12 @@ func (r *AgentTaskRepository) ClaimLiveMessages(ctx context.Context, task domain
 		// was never created, or it was interrupted, paused or cancelled), so
 		// this claim does not count as one more attempt that was given it.
 		Orphan bool `db:"orphan"`
+		Images int  `db:"images"`
 	}
 	// The task's previous attempt, whose unanswered messages this one takes.
 	const previous = `(SELECT rn.id FROM dev_machine_agent_runs rn WHERE rn.task_id=m.task_id AND rn.id<>$4 ORDER BY rn.created_at DESC,rn.id LIMIT 1)`
 	const unfinished = `(NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id) OR EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id AND rn.status='cancelled'))`
-	if err = tx.SelectContext(ctx, &candidates, `SELECT m.*,(m.state='delivered' AND `+unfinished+`) AS orphan
+	if err = tx.SelectContext(ctx, &candidates, `SELECT m.*,(m.state='delivered' AND `+unfinished+`) AS orphan,(SELECT count(*) FROM conversation_attachments a WHERE a.live_message_id=m.id) AS images
  FROM agent_live_messages m WHERE m.task_id=$1 AND m.workspace_id=$2 AND m.direction='to_agent' AND (m.state='queued'
   OR (m.state='delivered' AND m.delivered_via='prompt' AND NOT EXISTS (SELECT 1 FROM dev_machine_agent_runs rn WHERE rn.id=m.run_id) AND NOT EXISTS (SELECT 1 FROM agent_tasks tk WHERE tk.run_id=m.run_id))
   OR (m.state='delivered' AND m.deliveries>=1 AND m.workflow_node IS NOT DISTINCT FROM $6::text AND m.run_id=`+previous+`
@@ -365,7 +390,7 @@ func (r *AgentTaskRepository) ClaimLiveMessages(ctx context.Context, task domain
 	}
 	fresh, orphans := []uuid.UUID{}, []uuid.UUID{}
 	for _, candidate := range candidates {
-		cost := len(candidate.Body) + 240
+		cost := len(candidate.Body) + 240 + candidate.Images*domain.AgentLiveImagePathBytes
 		if cost > room {
 			break
 		}
@@ -396,7 +421,10 @@ func (r *DevMachineRepository) PendingLiveMessages(ctx context.Context, run uuid
 	messages := []domain.AgentLiveMessage{}
 	err := r.db.SelectContext(ctx, &messages, `SELECT m.* FROM agent_live_messages m JOIN agent_tasks t ON t.id=m.task_id AND t.workspace_id=m.workspace_id
  WHERE t.run_id=$1 AND t.state NOT IN ('completed','cancelled','cancelling') AND m.state='queued' ORDER BY m.seq LIMIT $2`, run, liveMessagesPerDelivery)
-	return messages, err
+	if err != nil {
+		return nil, err
+	}
+	return messages, loadLiveImages(ctx, r.db, messages)
 }
 
 // MarkLiveMessagesDelivered records that run's inbox received the messages.
@@ -532,6 +560,9 @@ func ownerOfLiveTask(ctx context.Context, tx *sqlx.Tx, task uuid.UUID) (*liveMes
 // about it (task.live_message), labelled with the issue, in the transaction
 // that changed it, so open chats and task cards update live.
 func liveMessageEvents(ctx context.Context, tx *sqlx.Tx, messages []domain.AgentLiveMessage) error {
+	if err := loadLiveImages(ctx, tx, messages); err != nil {
+		return err
+	}
 	owners := map[uuid.UUID]*liveMessageOwner{}
 	for _, message := range messages {
 		owner, known := owners[message.TaskID]
@@ -593,5 +624,59 @@ func conversationAgentMessages(ctx context.Context, tx *sqlx.Tx, c domain.Conver
     OR (m.direction='to_agent' AND m.sender='user' AND m.author_id=$3 AND m.state IN ('queued','delivered')))
   AND ($4::timestamptz IS NULL OR m.created_at>=$4) AND ($5::timestamptz IS NULL OR m.created_at<$5)
  ORDER BY m.created_at DESC,m.id DESC LIMIT 200) a ORDER BY created_at,id`, c.ID, c.WorkspaceID, c.CreatorID, from, to)
-	return messages, err
+	if err != nil {
+		return nil, err
+	}
+	live := make([]domain.AgentLiveMessage, len(messages))
+	for i := range messages {
+		live[i] = messages[i].AgentLiveMessage
+	}
+	if err = loadLiveImages(ctx, tx, live); err != nil {
+		return nil, err
+	}
+	for i := range messages {
+		messages[i].Attachments = live[i].Attachments
+	}
+	return messages, nil
+}
+
+// loadLiveImages fetches all images for a page or event batch in message order.
+func loadLiveImages(ctx context.Context, q sqlx.QueryerContext, messages []domain.AgentLiveMessage) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, 0, len(messages))
+	byID := make(map[uuid.UUID]*domain.AgentLiveMessage, len(messages))
+	for i := range messages {
+		if messages[i].Direction != domain.AgentLiveToAgent {
+			continue
+		}
+		ids = append(ids, messages[i].ID)
+		messages[i].Attachments = nil
+		byID[messages[i].ID] = &messages[i]
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var rows []struct {
+		domain.ConversationAttachment
+		LiveID uuid.UUID `db:"live_message_id"`
+	}
+	if err := sqlx.SelectContext(ctx, q, &rows, `SELECT `+attachmentColumns+`,live_message_id FROM conversation_attachments
+		WHERE live_message_id=ANY($1) ORDER BY live_message_id,position`, pq.Array(ids)); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		msg := byID[row.LiveID]
+		msg.Attachments = append(msg.Attachments, row.ConversationAttachment)
+	}
+	return nil
+}
+
+// PromptLiveImages lists the files named in the prompt before its agent starts.
+func (r *DevMachineRepository) PromptLiveImages(ctx context.Context, run uuid.UUID) ([]domain.ConversationAttachment, error) {
+	var images []domain.ConversationAttachment
+	err := r.db.SelectContext(ctx, &images, `SELECT `+attachmentColumns+` FROM conversation_attachments
+		WHERE live_message_id IN (SELECT id FROM agent_live_messages WHERE run_id=$1 AND delivered_via='prompt') ORDER BY live_message_id,position`, run)
+	return images, err
 }

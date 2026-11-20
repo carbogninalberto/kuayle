@@ -592,3 +592,16 @@ func (f *headsFake) ReadPullRequestHead(context.Context, uuid.UUID, string, int)
 	}
 	return f.head.SHA, nil
 }
+
+func TestPendingApprovalRemainsAvailableOutsideTheLatestHistoryPage(t *testing.T) {
+	f := newToolFixture(t)
+	a, pending, _ := requestDelegation(t, f)
+	_, err := f.db.Exec(`INSERT INTO conversation_messages(conversation_id,request_id,role,content,status)
+		SELECT $1,gen_random_uuid(),'user','Later message','completed' FROM generate_series(1,51)`, a.Conversation.ID)
+	require.NoError(t, err)
+	history, err := f.repo.History(f.ctx, f.ws, a.Conversation.ID, 0)
+	require.NoError(t, err)
+	require.Empty(t, history.Tools)
+	require.Len(t, history.Approvals, 1)
+	require.Equal(t, pending.ID, history.Approvals[0].ID)
+}

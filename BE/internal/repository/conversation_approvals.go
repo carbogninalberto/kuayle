@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/lib/pq"
 )
 
 var ErrApprovalExpired = errors.New("approval has expired")
@@ -182,20 +183,18 @@ func (r *ConversationRepository) FinishApproval(ctx context.Context, ws, convers
 	return approval, nil
 }
 
-func toolApprovals(ctx context.Context, tx *sqlx.Tx, calls []domain.ConversationToolCall) ([]domain.ConversationApproval, error) {
-	approvals := []domain.ConversationApproval{}
-	if len(calls) == 0 {
-		return approvals, nil
-	}
+// The initial page also carries outstanding decisions from older history.
+func toolApprovals(ctx context.Context, tx *sqlx.Tx, conversation uuid.UUID, calls []domain.ConversationToolCall, includePending bool) ([]domain.ConversationApproval, error) {
 	ids := make([]uuid.UUID, len(calls))
 	for i, call := range calls {
 		ids[i] = call.ID
 	}
-	query, args, err := sqlx.In(`SELECT * FROM conversation_approvals WHERE tool_call_id IN (?) ORDER BY created_at`, ids)
-	if err != nil {
-		return nil, err
-	}
-	err = tx.SelectContext(ctx, &approvals, tx.Rebind(query), args...)
+	approvals := []domain.ConversationApproval{}
+	err := tx.SelectContext(ctx, &approvals, `SELECT a.*,m.model AS message_model FROM conversation_approvals a
+		JOIN conversation_tool_calls t ON t.id=a.tool_call_id
+		JOIN conversation_messages m ON m.id=t.message_id
+		WHERE a.conversation_id=$1 AND (a.tool_call_id=ANY($2) OR ($3 AND a.status='pending'))
+		ORDER BY a.created_at,a.id`, conversation, pq.Array(ids), includePending)
 	return approvals, err
 }
 

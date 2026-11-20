@@ -435,6 +435,10 @@ export const WIKI_APPROVAL_ACTIONS = [
 ] as const;
 export type WikiApprovalAction = (typeof WIKI_APPROVAL_ACTIONS)[number];
 
+export function isWikiApproval(approval: ConversationApproval): approval is Extract<ConversationApproval, { action: WikiApprovalAction }> {
+	return (WIKI_APPROVAL_ACTIONS as readonly string[]).includes(approval.action);
+}
+
 export interface BulkIssuePayload {
 	changes: Record<string, unknown>[];
 	results?: { identifier: string; success: boolean; error?: string }[];
@@ -468,6 +472,7 @@ export type ConversationApproval = ApprovalBase &
 		| { action: 'ship_pull_request'; payload: ShipPayload }
 	);
 interface ApprovalBase {
+	message_model?: string;
 	id: string;
 	conversation_id: string;
 	tool_call_id: string;

@@ -51,7 +51,7 @@ func (r *ConversationRepository) CreateAttachment(ctx context.Context, ws, id uu
 	}
 	defer tx.Rollback()
 	var pending int
-	if err = tx.GetContext(ctx, &pending, `SELECT count(*) FROM conversation_attachments WHERE conversation_id=$1 AND uploaded_by=$2 AND message_id IS NULL`, id, c.CreatorID); err != nil {
+	if err = tx.GetContext(ctx, &pending, `SELECT count(*) FROM conversation_attachments WHERE conversation_id=$1 AND uploaded_by=$2 AND message_id IS NULL AND live_message_id IS NULL`, id, c.CreatorID); err != nil {
 		return nil, err
 	}
 	if pending >= domain.ConversationAttachmentPendingLimit {
@@ -90,7 +90,7 @@ func (r *ConversationRepository) RemovePendingAttachment(ctx context.Context, ws
 		return err
 	}
 	defer tx.Rollback()
-	result, err := tx.ExecContext(ctx, `DELETE FROM conversation_attachments WHERE id=$1 AND conversation_id=$2 AND uploaded_by=$3 AND message_id IS NULL`, attachment, id, c.CreatorID)
+	result, err := tx.ExecContext(ctx, `DELETE FROM conversation_attachments WHERE id=$1 AND conversation_id=$2 AND uploaded_by=$3 AND message_id IS NULL AND live_message_id IS NULL`, attachment, id, c.CreatorID)
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func bindAttachments(ctx context.Context, tx *sqlx.Tx, c domain.Conversation, m 
 	m.Attachments = []domain.ConversationAttachment{}
 	for position, attachment := range ids {
 		var a domain.ConversationAttachment
-		err := tx.GetContext(ctx, &a, `UPDATE conversation_attachments SET message_id=$1,position=$2 WHERE id=$3 AND conversation_id=$4 AND uploaded_by=$5 AND message_id IS NULL RETURNING `+attachmentColumns, m.ID, position, attachment, c.ID, c.CreatorID)
+		err := tx.GetContext(ctx, &a, `UPDATE conversation_attachments SET message_id=$1,position=$2 WHERE id=$3 AND conversation_id=$4 AND uploaded_by=$5 AND message_id IS NULL AND live_message_id IS NULL RETURNING `+attachmentColumns, m.ID, position, attachment, c.ID, c.CreatorID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrConversationInvalid
 		}
@@ -244,7 +244,7 @@ func (r *ConversationRepository) SentAttachments(ctx context.Context, ws, id uui
 // ExpirePendingAttachments deletes uploads that were never sent. Their
 // storage keys move to the garbage list through the delete trigger.
 func (r *ConversationRepository) ExpirePendingAttachments(ctx context.Context, age time.Duration, limit int) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM conversation_attachments WHERE id IN (SELECT id FROM conversation_attachments WHERE message_id IS NULL AND created_at<now()-make_interval(secs=>$1) ORDER BY created_at LIMIT $2)`, age.Seconds(), limit)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM conversation_attachments WHERE id IN (SELECT id FROM conversation_attachments WHERE message_id IS NULL AND live_message_id IS NULL AND created_at<now()-make_interval(secs=>$1) ORDER BY created_at LIMIT $2) AND message_id IS NULL AND live_message_id IS NULL`, age.Seconds(), limit)
 	if err != nil {
 		return 0, err
 	}

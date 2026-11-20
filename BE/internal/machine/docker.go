@@ -846,8 +846,6 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 			runtimeEnvironment = append(runtimeEnvironment, "COMPOSE_PROJECT_NAME="+taskComposeProject(workingDirectory))
 		}
 	}
-	// Without an inbox the attempt still runs; live messages then wait for
-	// the next attempt's prompt.
 	// A planning step's worktree is read-only, with its outbox writable.
 	if mounts := readOnlyWorktreeMounts(*machine.WorkspaceVolumeName, run, checkout); len(mounts) > 0 {
 		if ping, pingErr := r.client.Ping(ctx, client.PingOptions{}); pingErr == nil && apiAtLeast(ping.APIVersion, volumeSubpathAPI) {
@@ -858,10 +856,20 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 			log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID, "docker_api": ping.APIVersion}).Warn("the planning step's worktree could not be mounted read-only; Docker API 1.45 is required")
 		}
 	}
+	// Prompt images must exist before the agent starts. For text-only runs
+	// an unavailable inbox still allows delivery through the next prompt.
 	if agentHasLiveInbox(run) {
 		if err := r.prepareLiveInbox(ctx, machine, run, provider.ImageRef); err != nil {
+			if observer != nil && observer.PrepareInbox != nil {
+				return nil, err
+			}
 			log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("live inbox could not be prepared")
 		} else {
+			if observer != nil && observer.PrepareInbox != nil {
+				if err := observer.PrepareInbox(ctx); err != nil {
+					return nil, err
+				}
+			}
 			hostConfig.Mounts = append(hostConfig.Mounts, liveInboxMount(machine, run))
 		}
 	}

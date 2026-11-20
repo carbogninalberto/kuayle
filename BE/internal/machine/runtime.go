@@ -33,9 +33,11 @@ type AgentOutput func(stream string, data []byte) error
 // container startup (or on recovery of an executed container), before Output.
 // Any callback failing requires the runtime to stop the native process.
 type AgentObserver struct {
-	Authorize func() error
-	Started   func(containerID string) error
-	Output    AgentOutput
+	// PrepareInbox writes images referenced by the prompt before container startup.
+	PrepareInbox func(context.Context) error
+	Authorize    func() error
+	Started      func(containerID string) error
+	Output       AgentOutput
 	// Detach, when closed, makes the runtime stop following a running agent
 	// attempt without stopping it: it returns ErrAgentDetached and the
 	// container keeps running, for the next machine manager to re-adopt.

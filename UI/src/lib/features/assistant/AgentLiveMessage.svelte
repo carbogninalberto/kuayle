@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
+	import { page } from '$app/state';
 	import {
 		Bot,
 		Check,
@@ -16,6 +17,7 @@
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import type { AgentLiveMessage } from '$lib/api/agent-tasks';
+	import MessageAttachments from './MessageAttachments.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import { answerContext, type AnswerContext, type MessageState, type PlacedMessage } from './agent-conversation';
 	import { getLocale, m } from '$lib/features/i18n/messages';
@@ -126,12 +128,15 @@
 			data-state={placed.state}
 		>
 			<Message.Content class="items-end gap-1">
-				<Bubble.Root variant="muted" class="max-w-[92%]"
+				{#if message.attachments?.length}
+					<MessageAttachments slug={page.params.workspaceSlug!} conversationId={message.attachments[0].conversation_id} attachments={message.attachments} />
+				{/if}
+				{#if message.body}<Bubble.Root variant="muted" class="max-w-[92%]"
 					><Bubble.Content class="rounded-2xl rounded-br-md ps-3.5 pe-9 py-2 break-words whitespace-pre-wrap"
 						>{message.body}</Bubble.Content
 					>
 					<CopyMessageButton text={message.body} />
-				</Bubble.Root>
+				</Bubble.Root>{/if}
 				<Message.Footer class="gap-1.5 px-1 text-[11px] font-normal">
 					{#if message.sender === 'orchestrator'}<span
 							role="img"

@@ -2044,6 +2044,14 @@ Messages delivered before migration 151 have `deliveries = 0` and owe no
 reply. Every implementing prompt, the Claude hook's text and the
 `kuayle-agents` skill state the reply format.
 
+A live message can include up to six images uploaded to the task's conversation.
+Send their IDs in `attachment_ids` on the live-message request. The server
+binds the creator's pending images in the same transaction as the message and
+its send mode. An image-only message can have an empty body. The manager
+copies each image to the run's read-only inbox before delivering the message
+or starting the iteration whose prompt references it. The chat history uses
+the original authenticated conversation thumbnails.
+
 **Sending now.** `SendLiveMessage(ws, task, body, mode)` queues the creator's
 message as above and, in the same transaction, acts on `mode`:
 

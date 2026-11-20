@@ -89,6 +89,7 @@ test('starting a temporary machine shows its size, lifetime, credentials and quo
 	]);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Start a temporary machine?', { exact: true })).toBeVisible();
 	await expect(
 		page.getByText('A 1 vCPU, 2 GB memory, 20 GB disk machine for this conversation, permanently deleted 30 minutes after it starts.')
@@ -108,6 +109,7 @@ test('a command shows exactly what runs and where, then its result names the mac
 	]);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Run a read-only command on tmp-1a2b3c4d?', { exact: true })).toBeVisible();
 	await expect(page.getByText(command, { exact: false })).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
@@ -161,6 +163,7 @@ test('a write command on the user own machine says it is reused and writable', a
 		})
 	]);
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Run a command that can write files on laptop-box?', { exact: true })).toBeVisible();
 	await expect(page.getByText('laptop-box: 4 vCPU, 8 GB memory, 40 GB disk · your own machine, reused')).toBeVisible();
 	await expect(
@@ -176,6 +179,7 @@ for (const [result, hasLink] of [['published', true], ['published', false], ['em
 			{ ...approval(action, payload), issue_id: 'issue-1' }
 		], 'approving');
 		await page.goto('/test/assistant?conversation=chat-1');
+		await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 		await expect(page.getByText('Publish stopped task changes for ENG-1?')).toBeVisible();
 		await expect(page.getByText(/draft pull request marked “not validated”/)).toBeVisible();
 		expect(state.decisions).toEqual([]);

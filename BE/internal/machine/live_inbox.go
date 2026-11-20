@@ -103,6 +103,31 @@ func (m *Manager) startLiveChannel(ctx context.Context, machine *domain.DevMachi
 	}
 }
 
+// Write the image bytes before the message that names them becomes visible.
+// Copy one bounded object at a time, including when replaying a prompt batch.
+func (m *Manager) writeLiveImages(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, images []domain.ConversationAttachment) error {
+	if len(images) == 0 {
+		return nil
+	}
+	writer, ok := m.runtime.(liveInboxRuntime)
+	if !ok || m.attachmentFiles == nil {
+		return errLiveInboxUnavailable
+	}
+	for _, image := range images {
+		if _, ok := domain.ConversationAttachmentTypes[image.ContentType]; !ok || image.ID == uuid.Nil {
+			return fmt.Errorf("invalid live image")
+		}
+		data, err := m.readAttachment(ctx, image.StorageKey, image.Size)
+		if err != nil {
+			return err
+		}
+		if err = writer.WriteLiveInbox(ctx, machine, run, []domain.AgentLiveInboxFile{{Name: image.InboxName(), Data: data}}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // deliverLiveInbox writes the run's queued messages to its inbox, then marks
 // them delivered. A failed mark leaves them queued; rewriting the same
 // <seq>.json is harmless because the reader tracks sequence numbers.
@@ -119,6 +144,9 @@ func (m *Manager) deliverLiveInbox(ctx context.Context, machine *domain.DevMachi
 	files := make([]domain.AgentLiveInboxFile, 0, len(messages))
 	ids := make([]uuid.UUID, 0, len(messages))
 	for _, message := range messages {
+		if err := m.writeLiveImages(ctx, machine, run, message.Attachments); err != nil {
+			return err
+		}
 		file, err := message.InboxFile()
 		if err != nil {
 			return err

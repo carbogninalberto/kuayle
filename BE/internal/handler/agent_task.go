@@ -545,7 +545,8 @@ func (h *AgentTaskHandler) LiveMessages(c *echo.Context) error {
 }
 
 type liveMessageRequest struct {
-	Body string `json:"body"`
+	AttachmentIDs []uuid.UUID `json:"attachment_ids"`
+	Body          string      `json:"body"`
 	// Mode is empty, "interrupt" (stop the working agent and resume its
 	// session with the message) or "start" (start an attempt for it).
 	Mode string `json:"mode"`
@@ -566,7 +567,7 @@ func (h *AgentTaskHandler) SendLiveMessage(c *echo.Context) error {
 	if err = bindTask(c, &input); err != nil {
 		return agentTaskError(c, err)
 	}
-	message, err := h.svc.SendLiveMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Body, input.Mode, input.ConfirmMerged)
+	message, err := h.svc.SendLiveMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Body, input.Mode, input.ConfirmMerged, input.AttachmentIDs...)
 	if err != nil {
 		return agentTaskError(c, err)
 	}
