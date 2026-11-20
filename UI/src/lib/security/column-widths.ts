@@ -48,11 +48,12 @@ export function filterColumnWidthStyles(style: string): string {
  * percentage, another unit, or no width declaration at all).
  */
 export function columnStyleWidth(style: string): number | null {
-	for (const declaration of style.split(';')) {
+	for (const declaration of style.split(';').reverse()) {
 		const parsed = splitDeclaration(declaration);
 		if (!parsed || parsed.property.toLowerCase() !== 'width') continue;
-		const match = /^(\d{1,4}(?:\.\d+)?)px$/i.exec(parsed.value);
-		return match ? Math.round(Number(match[1])) : null;
+		if (WIDTH_VALUE.test(parsed.value)) {
+			return Math.min(9999, Math.round(parseFloat(parsed.value)));
+		}
 	}
 	return null;
 }

@@ -213,6 +213,47 @@ test('a description whose widths live only in col styles keeps them through the 
 	expect(pageErrors).toEqual([]);
 });
 
+test('a resized comment column keeps its rendered width after saving, reloading and editing', async ({ page }) => {
+	const comment = '<table><colgroup><col style="width: 160px"/><col/></colgroup>' +
+		'<tbody><tr><th colspan="2">Checklist</th></tr><tr><td>Build</td><td>Ready</td></tr></tbody></table>';
+	const { state } = await mockIssue(page, 'owner', null, comment);
+	await page.goto('/test/issue/ENG-1');
+	const card = commentCard(page, 'Checklist');
+	const editor = card.getByTestId('comment-editor');
+	const cell = card.getByRole('cell', { name: 'Build', exact: true });
+	async function editComment() {
+		await card.hover();
+		await card.getByRole('button', { name: 'Comment actions' }).click();
+		await page.getByRole('menuitem', { name: 'Edit' }).click();
+		await expect(editor).toBeVisible();
+	}
+	await editComment();
+	await expect(editor.locator('col').first()).toHaveCSS('width', '160px');
+	await cell.scrollIntoViewIfNeeded();
+	const box = (await cell.boundingBox())!;
+	const edge = box.x + box.width - 2;
+	const y = box.y + box.height / 2;
+	await cell.hover({ position: { x: box.width - 2, y: box.height / 2 } });
+	await expect(editor.locator('.column-resize-handle').first()).toBeVisible();
+	await page.mouse.down();
+	await page.mouse.move(edge + 60, y, { steps: 8 });
+	await page.mouse.up();
+	await editor.getByRole('button', { name: 'Save' }).click();
+	await expect.poll(() => state.bodies.at(-1)).toMatch(/colwidth="\d+,0"/);
+	const width = Number(state.bodies.at(-1)!.match(/colwidth="(\d+),0"/)![1]);
+	expect(Math.abs(width - 220)).toBeLessThanOrEqual(2);
+	await page.reload();
+	await expect(cell).toHaveCSS('width', `${width}px`);
+
+	await editComment();
+	await cell.getByText('Build', { exact: true }).dblclick({ position: { x: 4, y: 8 } });
+	await page.keyboard.insertText('Build checked');
+	await editor.getByRole('button', { name: 'Save' }).click();
+	await expect.poll(() => state.bodies.at(-1)).toContain('Build checked');
+	expect(state.bodies.at(-1)).toContain(`colwidth="${width},0"`);
+	await expect(card.getByRole('cell', { name: 'Build checked' })).toHaveCSS('width', `${width}px`);
+});
+
 test('a table with merged first-row cells keeps its resized widths', async ({ page }, testInfo) => {
 	// The editor's markup for a resized merged cell: Tiptap writes a 0
 	// colwidth entry for the spanned column, and derives the column layout
@@ -270,9 +311,11 @@ test('issue and comment tables survive editing and reloading', async ({ page }, 
 	await mine.getByRole('button', { name: 'Comment actions' }).click();
 	await page.getByRole('menuitem', { name: 'Edit' }).click();
 	const editor = mine.getByTestId('comment-editor');
-	await editor.getByRole('cell', { name: 'Mobile' }).click();
-	await page.keyboard.press('End');
-	await page.keyboard.insertText(' checked');
+	const mobile = editor.getByRole('cell', { name: 'Mobile' });
+	// Opening a legacy table keeps the existing cell minimum until a column is resized.
+	await expect(mobile).toHaveCSS('min-width', '96px');
+	await mobile.getByText('Mobile', { exact: true }).dblclick();
+	await page.keyboard.insertText('Mobile checked');
 	await page.screenshot({ path: testInfo.outputPath('issue-tables-editing.png') });
 	await editor.getByRole('button', { name: 'Save' }).click();
 	await expect.poll(() => state.bodies.at(-1)).toContain('Mobile checked');

@@ -44,6 +44,8 @@ test('cell colwidth lists integers separated by commas', () => {
 
 test('a col style width parses to the pixels the editor imports', () => {
 	assert.equal(columnStyleWidth('width: 180px'), 180);
+	assert.equal(columnStyleWidth('width: 170px; width: 180px'), 180);
+	assert.equal(columnStyleWidth('width: 9999.8px'), 9999);
 	assert.equal(columnStyleWidth('WIDTH: 180.4px'), 180);
 	assert.equal(columnStyleWidth('min-width: 50px; width: 180px'), 180);
 	assert.equal(columnStyleWidth('width: 180px !important'), 180);

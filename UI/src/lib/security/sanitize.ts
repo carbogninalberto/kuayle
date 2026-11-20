@@ -62,6 +62,8 @@ function createPurify() {
 		if (node.tagName === 'COL') {
 			const width = node.getAttribute('width');
 			if (width !== null && !COL_WIDTH.test(width)) node.removeAttribute('width');
+		} else if (node.tagName !== 'IMG') {
+			node.removeAttribute('width');
 		}
 		// Column widths are the only inline styles stored content may keep;
 		// on every other element the attribute is dropped entirely.

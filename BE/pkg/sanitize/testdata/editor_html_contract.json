@@ -162,7 +162,7 @@
     },
     {
       "name": "column widths beyond the allowlist",
-      "html": "<table style=\"width: 340px; position: fixed; background: url(https://evil.example/x)\" onclick=\"run()\"><colgroup><col style=\"WIDTH: 180px; color: red\" width=\"25%\"><col style=\"width: 99999px; min-width: 50px\"></colgroup><tbody><tr><th colwidth=\"180,240\" style=\"width: 100px\">Step</th><td colwidth=\"12,,34\">A</td><td colwidth=\"abc\">B</td></tr></tbody></table>",
+      "html": "<table style=\"width: 340px; position: fixed; background: url(https://evil.example/x)\" onclick=\"run()\"><colgroup><col style=\"WIDTH: 180px; color: red\" width=\"25%\"><col style=\"width: 99999px; min-width: 50px\"></colgroup><tbody><tr><th width=\"90%\" colwidth=\"180,240\" style=\"width: 100px\">Step</th><td colwidth=\"12,,34\">A</td><td colwidth=\"abc\">B</td></tr></tbody></table>",
       "want": "<table style=\"width: 340px\"><colgroup><col style=\"WIDTH: 180px\"><col style=\"min-width: 50px\"></colgroup><tbody><tr><th colwidth=\"180,240\">Step</th><td>A</td><td>B</td></tr></tbody></table>"
     }
   ]

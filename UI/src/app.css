@@ -797,9 +797,9 @@ html.pointer-cursors [data-slot="switch"] {
 	overflow-wrap: anywhere;
 }
 
-/* Tables the editor sized through a colgroup choose their own column
-   widths; the 6rem cell floor would fight them. */
-:where(.prose, .description-content) table:has(colgroup) :is(th, td) {
+/* Only explicitly sized columns override the default cell minimum.
+   Tiptap also emits a colgroup for tables nobody has resized. */
+:where(.prose, .description-content) table:has(> colgroup > col:is([width], [style^="width:" i], [style*="; width:" i])) :is(th, td) {
 	min-width: 0;
 }
 

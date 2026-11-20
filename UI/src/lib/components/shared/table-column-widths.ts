@@ -23,15 +23,15 @@ function normalizeTable(table: Element): boolean {
 			?? (attribute !== null && COL_WIDTH.test(attribute) ? parseInt(attribute, 10) : null)
 		);
 	}
-	const row = table.querySelector(':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr');
+	const row = table.querySelector<HTMLTableRowElement>(':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr');
 	if (!row) return changed;
 	let column = 0;
-	for (const cell of Array.from(row.children)) {
-		if (cell.tagName !== 'TH' && cell.tagName !== 'TD') continue;
-		const span = /^\d{1,2}$/.test(cell.getAttribute('colspan') ?? '') ? parseInt(cell.getAttribute('colspan')!, 10) : 1;
-		if (cell.getAttribute('colwidth') === null) {
-			const cellWidths = widths.slice(column, column + span);
-			if (cellWidths.length === span && cellWidths.every((width) => width !== null)) {
+	for (const cell of row.cells) {
+		const span = cell.colSpan;
+		if (!cell.hasAttribute('colwidth')) {
+			// A merged cell can span both fixed and automatic columns.
+			const cellWidths = Array.from({ length: span }, (_, i) => widths[column + i] ?? 0);
+			if (cellWidths.some(width => width > 0)) {
 				cell.setAttribute('colwidth', cellWidths.join(','));
 				changed = true;
 			}
