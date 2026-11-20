@@ -155,6 +155,11 @@
       "name": "classes on block elements and images",
       "html": "<div class=\"fixed inset-0\"><p class=\"hidden\">text</p><img class=\"w-screen h-screen\" src=\"/api/workspaces/acme/assets/123e4567-e89b-12d3-a456-426614174000\" alt=\"x\"></div>",
       "want": "<div><p>text</p><img src=\"/api/workspaces/acme/assets/123e4567-e89b-12d3-a456-426614174000\" alt=\"x\"></div>"
+    },
+    {
+      "name": "column widths beyond the allowlist",
+      "html": "<table style=\"width: 340px; position: fixed; background: url(https://evil.example/x)\" onclick=\"run()\"><colgroup><col style=\"WIDTH: 180px; color: red\" width=\"25%\"><col style=\"width: 99999px; min-width: 50px\"></colgroup><tbody><tr><th colwidth=\"180,240\" style=\"width: 100px\">Step</th><td colwidth=\"12,,34\">A</td><td colwidth=\"abc\">B</td></tr></tbody></table>",
+      "want": "<table style=\"width: 340px\"><colgroup><col style=\"WIDTH: 180px\"><col style=\"min-width: 50px\"></colgroup><tbody><tr><th colwidth=\"180,240\">Step</th><td>A</td><td>B</td></tr></tbody></table>"
     }
   ]
 }

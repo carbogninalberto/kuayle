@@ -190,12 +190,12 @@ func TestSanitizeHTMLKeepsTableColumnWidths(t *testing.T) {
 }
 
 // Column widths widen the sanitizer for one purpose only: table sizing. Every
-// other style declaration, and every width value the editor cannot emit,
-// still disappears.
+// other style declaration, and every width value the editor cannot load
+// faithfully (a 25% attribute would parse as 25px), still disappears.
 func TestSanitizeHTMLStripsEverythingButColumnWidths(t *testing.T) {
 	input := `<div style="width: 340px; position: fixed">Cover</div>` +
 		`<table style="width: 340px; background: url(https://evil.example/x); color: red" onclick="run()">` +
-		`<colgroup><col style="width: 180px; position: fixed" width="200em"><col style="min-width: 99999px"></colgroup>` +
+		`<colgroup><col style="width: 180px; position: fixed" width="200em"><col style="min-width: 99999px" width="25%"></colgroup>` +
 		`<tbody><tr><th colwidth="12,,34">A</th><td colwidth="abc">B</td>` +
 		`<td style="width: 10px">C</td></tr></tbody></table>`
 	want := `<div>Cover</div>` +

@@ -189,6 +189,30 @@ test('a column resized in the description editor keeps its width', async ({ page
 	expect(pageErrors).toEqual([]);
 });
 
+test('a description whose widths live only in col styles keeps them through the editor', async ({ page }) => {
+	// Storage the API can hand the app: the sanitizer keeps <col style> widths
+	// and Tiptap reads widths only from cell colwidth / <col width>, which
+	// these cells and cols do not carry.
+	const description = '<table><colgroup><col style="width: 180px"><col style="width: 160px"><col width="25%"></colgroup>' +
+		'<tbody><tr><th>Step</th><th>Result</th><th>Note</th></tr><tr><td>Build</td><td>Passed</td><td>On main</td></tr></tbody></table>';
+	const { pageErrors, issue } = await mockIssue(page, 'owner', description);
+	await page.goto('/test/issue/ENG-1');
+
+	// The col styles imported as widths; the % width did not become 25px.
+	const cols = page.locator('.ProseMirror table col');
+	await expect(cols.nth(0)).toHaveAttribute('style', /width: 180px/);
+	await expect(cols.nth(1)).toHaveAttribute('style', /width: 160px/);
+	await expect(cols.nth(2)).toHaveAttribute('style', /min-width: 50px/);
+
+	// Saving writes the imported widths where the editor reads them back.
+	await page.getByRole('columnheader', { name: 'Step' }).click();
+	await page.keyboard.type('!');
+	await expect.poll(() => issue.description ?? '', { timeout: 10_000 }).toContain('colwidth="180"');
+	expect(issue.description).toContain('colwidth="160"');
+	expect(issue.description).not.toMatch(/colwidth="25"|width: 25px/);
+	expect(pageErrors).toEqual([]);
+});
+
 test('issue and comment tables survive editing and reloading', async ({ page }, testInfo) => {
 	// API fixtures represent the stored output of a Markdown table and an HTML table.
 	const description = '<table><thead><tr><th>Step</th><th align="right">Result</th></tr></thead><tbody><tr><td>Build<br>CI</td><td align="right">Passed</td></tr></tbody></table>';

@@ -39,8 +39,10 @@ func init() {
 	// Column widths the editor's resizable tables persist: a cell's widths in
 	// colwidth, and nothing but pixel width/min-width styles on colgroup
 	// columns and the table itself. Any other style declaration is dropped.
+	// The width attribute must be a bare integer (px optional): the editor
+	// reads it with parseInt, so a value like 25% would load as 25px.
 	policy.AllowAttrs("colwidth").Matching(regexp.MustCompile(`^[1-9][0-9]{0,3}(,[1-9][0-9]{0,3})*$`)).OnElements("th", "td")
-	policy.AllowAttrs("width").Matching(regexp.MustCompile(`^[1-9][0-9]{0,3}(px|%)?$`)).OnElements("col")
+	policy.AllowAttrs("width").Matching(regexp.MustCompile(`^[1-9][0-9]{0,3}(px)?$`)).OnElements("col")
 	policy.AllowStyles("width", "min-width").Matching(regexp.MustCompile(`^[0-9]{1,4}(\.[0-9]+)?px$`)).OnElements("table", "col")
 
 	// Class values are narrowed to the editor's own names by restrictClasses.

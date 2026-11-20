@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify';
 import { filterEditorClasses } from './editor-classes';
+import { COLWIDTH, COL_WIDTH, filterColumnWidthStyles } from './column-widths';
 import { deferRemoteImage } from './remote-images';
 
 const ALLOWED_TAGS = [
@@ -21,18 +22,6 @@ const ALLOWED_ATTR = [
 ];
 
 const TABLE_ALIGNMENTS = new Set(['left', 'center', 'right']);
-const COLWIDTH = /^[1-9]\d{0,3}(,[1-9]\d{0,3})*$/;
-const COL_WIDTH = /^[1-9]\d{0,3}(px|%)?$/;
-const WIDTH_DECLARATION = /^(width|min-width)\s*:\s*\d{1,4}(\.\d+)?px$/;
-
-/**
- * The width declarations resizable tables carry: pixel width and min-width,
- * nothing broader. Any other style is removed below, because model output
- * must not be able to restyle the page.
- */
-function filterColumnWidthStyles(style: string): string {
-	return style.split(';').map((declaration) => declaration.trim()).filter((declaration) => WIDTH_DECLARATION.test(declaration)).join('; ');
-}
 
 const SAFE_URL_PATTERN = /^(https?:|mailto:)/i;
 

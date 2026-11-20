@@ -64,6 +64,7 @@
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import type { Issue } from '$lib/types/issue';
 	import { Attachment } from './attachment.extension';
+	import { normalizeTableColumnWidths } from './table-column-widths';
 
 	let {
 		content = '',
@@ -805,7 +806,7 @@
 		lastSyncedContent = content;
 		editor = new Editor({
 			extensions,
-			content,
+			content: normalizeTableColumnWidths(content),
 			editable,
 			onUpdate: ({ editor: e }) => {
 				onupdate?.(sanitizeEditorOutput(e.getHTML()));
@@ -953,7 +954,7 @@
 			lastSyncedContent = content;
 			const current = sanitizeEditorOutput(editor.getHTML());
 			if (current !== content) {
-				editor.commands.setContent(content, { emitUpdate: false });
+				editor.commands.setContent(normalizeTableColumnWidths(content), { emitUpdate: false });
 			}
 		}
 	});
