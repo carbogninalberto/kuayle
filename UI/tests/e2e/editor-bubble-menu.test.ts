@@ -59,6 +59,8 @@ async function openIssue(
 			});
 		if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
+		if (path === '/api/workspaces/test/agent-tasks')
+			return route.fulfill({ json: [{ id: 'task-1', state: 'running', issue_identifier: 'ENG-1' }] });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/teams')
 			return route.fulfill({
@@ -135,6 +137,49 @@ async function selectText(target: Locator) {
 }
 
 for (const width of [1280, 390]) {
+	test(`attachment actions stay at the editor's bottom left above the dock (${width}px)`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 720 });
+		await page.addInitScript(() => localStorage.setItem('kuayle.agents.test', '1'));
+		await openIssue(page);
+		const dock = page.getByRole('region', { name: 'Terminal dock' });
+		await expect(dock).toBeVisible();
+		const image = page.getByRole('button', { name: 'Upload image', exact: true });
+		const files = page.getByRole('button', { name: 'Attach files', exact: true });
+		const dockTop = (await dock.boundingBox())!.y;
+		const editorLeft = (await editor(page).boundingBox())!.x;
+
+		for (const top of [0, 300]) {
+			expect(await scrollDescription(page, top)).toBe(top);
+			for (const button of [image.first(), files.first()]) {
+				await expect(button).toBeInViewport({ ratio: 1 });
+				const box = (await button.boundingBox())!;
+				expect(box.x).toBeGreaterThanOrEqual(editorLeft);
+				expect(box.x).toBeLessThan(editorLeft + 64);
+				expect(box.y + box.height).toBeLessThanOrEqual(dockTop);
+				expect(box.y + box.height).toBeGreaterThan(dockTop - 24);
+			}
+		}
+		await editor(page).locator('p').first().click();
+		for (let line = 0; line < 30; line++) await page.keyboard.press('ArrowDown');
+		const caretBottom = await editor(page).evaluate(() => window.getSelection()!.getRangeAt(0).getBoundingClientRect().bottom);
+		expect(caretBottom).toBeLessThan((await image.first().boundingBox())!.y);
+
+		const comment = page.locator('.tiptap').nth(1);
+		await comment.click();
+		const descriptionBox = (await editor(page).boundingBox())!;
+		expect((await image.first().boundingBox())!.y).toBeGreaterThanOrEqual(descriptionBox.y + descriptionBox.height);
+		await page.keyboard.press('Tab');
+		await expect(image.last()).toBeFocused();
+		const field = (await comment.boundingBox())!;
+		const button = (await image.last().boundingBox())!;
+		expect(button.y).toBeGreaterThanOrEqual(field.y + field.height);
+		expect(Math.abs(button.x - field.x)).toBeLessThan(12);
+		await page.keyboard.press('Tab');
+		await expect(files.last()).toBeFocused();
+		const [chooser] = await Promise.all([page.waitForEvent('filechooser'), files.last().press('Enter')]);
+		expect(chooser.isMultiple()).toBe(true);
+	});
+
 	test(`untouched issue editors stay hidden on outer scrolling and resize (${width}px)`, async ({ page }) => {
 		await page.setViewportSize({ width, height: 720 });
 		const evidence = await openIssue(page);
@@ -173,7 +218,7 @@ test('text formatting works and selection clearing or leaving dismisses the menu
 	await expect(menus(page)).toHaveCount(0);
 	await selectText(editor(page).locator('p').first());
 	await expect(menus(page)).toHaveCount(1);
-	await page.getByText('Editor regression 1', { exact: true }).click();
+	await page.getByRole('button', { name: 'Details', exact: true }).click();
 	await expect(menus(page)).toHaveCount(0);
 	await page.waitForTimeout(400);
 	await expect(menus(page)).toHaveCount(0);
