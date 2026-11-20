@@ -1005,20 +1005,22 @@ type DevMachineResourceAllocation struct {
 // App port sources: exposed by the machine owner, by an agent inside the
 // developer container, or by Kuayle for a task's preview.
 const (
-	DevMachinePortSourceUser  = "user"
-	DevMachinePortSourceAgent = "agent"
-	DevMachinePortSourceTask  = "task"
+	DevMachinePortSourceUser    = "user"
+	DevMachinePortSourceAgent   = "agent"
+	DevMachinePortSourceTask    = "task"
+	DevMachinePortSourceProcess = "process"
 )
 
 // App port targets: the container that serves the port. Ports published by
 // containers of the machine's Docker daemon are served by its docker service.
 // A task's preview port is served by that task's preview container (or by the
 // daemon, when the preview command publishes it there), never by the developer
-// container.
+// container. A chat process port always routes to its process container.
 const (
 	DevMachinePortTargetDeveloper = "developer"
 	DevMachinePortTargetDocker    = "docker"
 	DevMachinePortTargetPreview   = "preview"
+	DevMachinePortTargetProcess   = "process"
 )
 
 // PreviewPortHost is the machine network name of the preview container that

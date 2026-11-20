@@ -497,6 +497,8 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 		} else if tool.customTools {
 			// A proposal's full script reaches only the card.
 			output, modelContent, runErr = s.tools.runCustomToolTool(ctx, a, tool.name, call.Function.Arguments)
+		} else if tool.name == "get_process" || tool.name == "stop_process" {
+			output, runErr = s.assistantProcessTool(ctx, a, tool.name, call.Function.Arguments)
 		} else if tool.name == "watch_agent_work" {
 			// The watch is bound to this conversation and the turn that asked.
 			output, issueID, runErr = s.tools.watchAgentWork(ctx, a, call.Function.Arguments)
@@ -621,6 +623,8 @@ func (s *ConversationService) requestApproval(ctx context.Context, a domain.Conv
 			return existing, nil, nil
 		}
 		payload = machine
+	case "start_process":
+		payload, err = s.tools.prepareAssistantProcess(ctx, a, arguments)
 	case "run_command", "run_command_write":
 		// Commands and temporary machines belong to the user's machine, not to an issue.
 		payload, err = s.tools.prepareCommand(ctx, a, action, arguments)

@@ -389,6 +389,8 @@ func (s *AssistantApprovals) dispatch(ctx context.Context, ws, conversation, id 
 		return s.taskMessage(ctx, ws, conversation, approval)
 	case "start_preview":
 		return s.startPreview(ctx, ws, conversation, approval)
+	case "start_process":
+		return s.startAssistantProcess(ctx, ws, conversation, approval)
 	case "expose_port":
 		return s.exposePort(ctx, ws, conversation, approval)
 	case "run_check":
