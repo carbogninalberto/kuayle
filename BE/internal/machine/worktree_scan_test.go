@@ -97,3 +97,36 @@ func TestWorktreeScanFailureIsRecordedOnTheScan(t *testing.T) {
 	require.NotNil(t, store.scanError)
 	require.Contains(t, *store.scanError, "scan")
 }
+
+type scanSecretStore struct {
+	*worktreeScanStoreFake
+	secretErr error
+}
+
+func (s *scanSecretStore) MachineSecretValues(context.Context, uuid.UUID, uuid.UUID, []byte) ([]string, error) {
+	return []string{"fixture-machine-secret"}, s.secretErr
+}
+
+func TestMachineLogsRedactBeforeStoringScan(t *testing.T) {
+	req := domain.WorktreeScanRequest{Kind: domain.MachineScanContainerLogs, Container: "web", Limit: 2}
+	m, store, runtime, op := worktreeScanManager(t, req, &domain.WorktreeScanResult{Content: "old\nfixture-machine-secret\npassword=fixture-value\n"}, nil)
+	owner := uuid.New()
+	store.machine.CreatedByUserID, store.scan.RequestedBy = &owner, owner
+	secrets := &scanSecretStore{worktreeScanStoreFake: store}
+	m.store = secrets
+	require.NoError(t, m.processOperation(context.Background(), op))
+	require.Equal(t, req, runtime.job.Request)
+	var stored domain.WorktreeScanResult
+	require.NoError(t, json.Unmarshal(store.result, &stored))
+	require.Equal(t, "[REDACTED]\npassword=[REDACTED]", stored.Content)
+	require.True(t, stored.Truncated)
+	secrets.secretErr = errors.New("internal failure with private details")
+	require.NoError(t, m.processOperation(context.Background(), op))
+	require.Nil(t, store.result)
+	require.Equal(t, "The machine output could not be checked for secrets", *store.scanError)
+	store.scan.RequestedBy = uuid.New()
+	runtime.job = WorktreeScanJob{}
+	require.NoError(t, m.processOperation(context.Background(), op))
+	require.Empty(t, runtime.job.Request.Kind)
+	require.Nil(t, store.result)
+}

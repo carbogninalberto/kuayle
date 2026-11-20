@@ -83,6 +83,7 @@ type ManagerStore interface {
 	// Worktree scans (scan_worktree) are read-only; their result is stored on
 	// the scan row, whose ID is the operation's.
 	WorktreeScanForOperation(context.Context, uuid.UUID) (*domain.WorktreeScan, error)
+	MachineSecretValues(context.Context, uuid.UUID, uuid.UUID, []byte) ([]string, error)
 	CompleteWorktreeScan(context.Context, uuid.UUID, json.RawMessage, *string) error
 	LeaseOperations(context.Context, string, int, time.Duration) ([]domain.DevMachineOperation, error)
 	RenewOperationLease(context.Context, uuid.UUID, string, time.Duration) error
