@@ -20,6 +20,7 @@ type RepositoryFile struct {
 type TreeEntry struct {
 	Path string `json:"path"`
 	Type string `json:"type"`
+	SHA  string `json:"sha"`
 }
 
 var gitObjectSHA = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
@@ -74,13 +75,23 @@ func (c *Client) ListBranchSnapshot(token, owner, repo, branch string) (string, 
 	if err != nil {
 		return "", nil, err
 	}
+	entries, err := c.ListTree(token, owner, repo, tree)
+	return head, entries, err
+}
+
+// ListTree reads one directory at the given revision, rejecting a partial listing.
+func (c *Client) ListTree(token, owner, repo, ref string) ([]TreeEntry, error) {
 	var result struct {
-		Tree []TreeEntry `json:"tree"`
+		Tree      []TreeEntry `json:"tree"`
+		Truncated bool        `json:"truncated"`
 	}
-	if err := c.do(http.MethodGet, gitDataURL(owner, repo)+"/trees/"+tree, token, nil, &result); err != nil {
-		return "", nil, err
+	if err := c.do(http.MethodGet, gitDataURL(owner, repo)+"/trees/"+escapePath(ref), token, nil, &result); err != nil {
+		return nil, err
 	}
-	return head, result.Tree, nil
+	if result.Truncated {
+		return nil, fmt.Errorf("the GitHub tree at %s was truncated", ref)
+	}
+	return result.Tree, nil
 }
 
 // PublishFilesToBranch commits files as the whole tree of a branch with its

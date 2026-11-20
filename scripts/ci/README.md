@@ -17,6 +17,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 | --- | --- |
 | Root documentation (`*.md`, `LICENSE`, `NOTICE`), README files anywhere, `BE/docs/`, `docs/`, `assets/`, `selfhosting/*.md`, `AGENTS.md`, `AGENTS/`, `.env.example`, `.gitignore`, and `.github/` files outside `workflows/` and `actions/` (funding, templates, CODEOWNERS) | Agent Harness only, plus lightweight planning/result jobs. Harness runs on every PR because its links reference all repository areas. |
 | `BE/` code, migrations, module dependencies | Backend tests and Go security; Docker lifecycle; API and all-in-one readiness on amd64/arm64; gateway/manager builds and scans on both architectures; updater scan. Backend dependencies are conservatively shared across its Go binaries. |
+| `BE/migrations/` SQL | Before applying SQL, Backend Tests compares PR additions with the latest fetched base and rejects duplicate versions in the PR head. Locally, fetch the base and run `node scripts/ci/migration-versions.mjs origin/main HEAD`. |
 | Backend token/permission definitions | Also Frontend Checks: the UI PAT scope contract test reads both backend files. |
 | Sanitizer class allowlist (`BE/pkg/sanitize/editor_classes.go` and its `testdata/editor_html_contract.json`) | Also Frontend Checks: the UI sanitizer unit and browser tests read the shared contract. |
 | `BE/**/*_test.go` | Backend tests and Go security. Docker lifecycle is also selected for its integration test file; no production image builds for test-only changes. |

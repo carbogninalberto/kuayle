@@ -223,6 +223,76 @@ func TestApprovingTheShipApprovalOfABranchBehindMergesTheUpdateOnceGreen(t *test
 	require.Equal(t, "completed", h.w.task.State)
 }
 
+func TestShipSendsMigrationCollisionBackToTheImplementer(t *testing.T) {
+	for _, when := range []string{"entering approval", "after approval", "after branch update"} {
+		t.Run(when, func(t *testing.T) {
+			h := newWorkflowHarness(t, domain.WorkflowBudget{})
+			merger := h.withGitHub()
+			const repair = "Migration number collision with main: BE/migrations/000178_bulk_issue_approvals.up.sql and BE/migrations/000178_saml_sso.up.sql. Renumber the task migration pair and update its references."
+			switch when {
+			case "entering approval":
+				h.agentFinishes("Added a migration")
+				h.pulls.status.HeadSHA, h.pulls.checksHead = h.head(), h.head()
+				h.published()
+				h.review("approve", "Looks good")
+				h.pulls.status.Behind = 1
+				h.pulls.status.migrationRepair = repair
+				h.ci("success", "")
+			case "after approval":
+				h.toShip()
+				h.pulls.status.Behind = 1
+				require.NoError(t, h.decideAs(WorkflowDecisionApprove))
+				h.pulls.status.migrationRepair = repair
+				require.True(t, h.tick())
+			case "after branch update":
+				h.toShip()
+				h.pulls.status.Behind = 1
+				verifiedUpdate(h.pulls, h.head(), "head2", "base2")
+				require.NoError(t, h.decideAs(WorkflowDecisionApprove))
+				require.True(t, h.tick())
+				h.pulls.status.migrationRepair = repair
+				require.True(t, h.later(time.Minute))
+			}
+			require.Equal(t, "implement", h.current().NodeID)
+			require.Equal(t, "queued", h.w.task.State)
+			require.Contains(t, h.w.task.Prompt, repair)
+			require.Empty(t, merger.merged)
+			if when != "after branch update" {
+				for _, call := range h.pulls.calls {
+					require.NotContains(t, call, "update:")
+				}
+			}
+		})
+	}
+}
+
+func TestShipRetriesWhenGitHubCannotCheckMigrations(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	merger := h.withGitHub()
+	h.agentFinishes("Added a migration")
+	h.pulls.status.HeadSHA, h.pulls.checksHead = h.head(), h.head()
+	h.published()
+	h.review("approve", "Looks good")
+	h.pulls.status.Behind = 1
+	h.pulls.status.migrationCheckUnavailable = true
+	h.ci("success", "")
+	require.Equal(t, "ship", h.current().NodeID)
+	require.NoError(t, h.decideAs(WorkflowDecisionApprove))
+	require.True(t, h.tick())
+	require.Contains(t, h.w.task.Reason, "could not check")
+	for _, call := range h.pulls.calls {
+		require.NotContains(t, call, "update:")
+	}
+	require.Empty(t, merger.merged)
+	require.NotNil(t, h.w.task.WorkflowWakeAt, "the approved merge will retry")
+
+	h.pulls.status.migrationCheckUnavailable = false
+	h.pulls.status.Behind = 0
+	h.pulls.checks = passingChecks
+	require.True(t, h.later(time.Minute))
+	require.Equal(t, []string{"acme/app#12@" + h.head() + "/squash"}, merger.merged)
+}
+
 // KUA-209: a merge that cannot happen keeps the task at its approval with the
 // reason, and a person can approve again once it is fixed.
 func TestAShipMergeThatFailsStaysAtTheApproval(t *testing.T) {

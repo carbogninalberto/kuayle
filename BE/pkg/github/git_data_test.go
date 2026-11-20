@@ -141,3 +141,23 @@ func TestPublishFilesToBranchRefusesUnexpectedAnswers(t *testing.T) {
 	require.ErrorAs(t, err, &apiErr)
 	require.Equal(t, 403, apiErr.Status)
 }
+
+func TestListTreeReadsOneLevel(t *testing.T) {
+	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, "/repos/owner/repo/git/trees/feature/x", r.URL.Path)
+		require.Empty(t, r.URL.Query().Get("recursive"))
+		require.Equal(t, "Bearer secret", r.Header.Get("Authorization"))
+		return commentResponse(200, `{"tree":[{"path":"go.mod","type":"blob","sha":"a"},{"path":"UI","type":"tree","sha":"b"}],"truncated":false}`), nil
+	})}}
+	entries, err := c.ListTree("secret", "owner", "repo", "feature/x")
+	require.NoError(t, err)
+	require.Equal(t, []TreeEntry{{Path: "go.mod", Type: "blob", SHA: "a"}, {Path: "UI", Type: "tree", SHA: "b"}}, entries)
+}
+
+func TestListTreeRejectsTruncatedResults(t *testing.T) {
+	c := &Client{httpClient: &http.Client{Transport: commentTransport(func(*http.Request) (*http.Response, error) {
+		return commentResponse(200, `{"tree":[],"truncated":true}`), nil
+	})}}
+	_, err := c.ListTree("secret", "owner", "repo", "main")
+	require.ErrorContains(t, err, "truncated")
+}

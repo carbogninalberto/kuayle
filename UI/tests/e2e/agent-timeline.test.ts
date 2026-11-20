@@ -517,6 +517,32 @@ test('the step the task moves to opens and the one it left closes', async ({ pag
 	await expect(page.locator('#step-6').getByRole('article', { name: 'Agent' })).toContainText('Renaming the parameter.');
 });
 
+test('a ship migration collision shows both paths on the way back to the implementer', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	workflowFixture(state);
+	const view = workflow();
+	const branchMigration = 'BE/migrations/000178_bulk_issue_approvals.up.sql';
+	const baseMigration = 'BE/migrations/000178_saml_sso.up.sql';
+	view.graph.nodes.push(node('ship', 'approval', 'Ready to ship'));
+	view.steps.splice(5, 0, step(6, 'ship', 'approval', 18, {
+		outcome: 'branch_conflict',
+		detail: `Migration number collision with main. Renumber the task migration ${branchMigration}, which shares a version with ${baseMigration}.`,
+		finished_at: at(19)
+	}));
+	view.steps[6].sequence = view.runs[3].step = view.sequence = 7;
+	view.runs[3].status = 'queued';
+	view.task_state = 'queued';
+	state.workflow = view;
+	state.task = { ...state.task, state: 'queued' };
+
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1#step-6');
+	const ship = page.locator('#step-6');
+	await expect(ship.getByText(branchMigration)).toBeVisible();
+	await expect(ship.getByText(baseMigration)).toBeVisible();
+	await expect(page.locator('#step-7')).toContainText('Implement');
+	await page.screenshot({ path: testInfo.outputPath('ship-migration-collision.png') });
+});
+
 // A running task can be stopped from where it is watched: one click, one
 // confirmation. It reads as cancelling until the task reports cancelled.
 test('a running task is stopped from the agent view in two clicks', async ({ page }) => {

@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"regexp"
@@ -21,9 +22,10 @@ type PublishRequest struct {
 	PublishedCommit string
 	// Lease is the GitHub tip SyncCheckout saw when the agent had rewritten the
 	// published commit. When set, the push is guarded by force-with-lease.
-	Lease   string
-	Message string
-	Token   string
+	Lease           string
+	IssueIdentifier string
+	Message         string
+	Token           string
 }
 
 var (
@@ -183,6 +185,9 @@ fi
 g rev-parse --verify HEAD
 `
 
+//go:embed publication_migrations.cjs
+var publicationMigrationsScript string
+
 // The push step copies only the recorded commit into a new temporary repository
 // with no hooks or inherited configuration, then pushes it. It prints none and
 // pushes nothing when the commit has nothing to publish because GitHub's base
@@ -196,7 +201,7 @@ g rev-parse --verify HEAD
 // tip at push time, so a commit that landed in between is never discarded. The
 // commit is read through publishCheckoutScript, so the agent-writable
 // checkout's configuration is never loaded, with or without the token.
-const publishPushScript = `set -eu
+var publishPushScript = `set -eu
 repository=$1 branch=$2 path=$3 commit=$4 base=$5 email=$6 lease=${7:-} step=publish
 umask 077
 ` + publishCheckoutScript + `git init -q --bare "$work/repo"
@@ -265,6 +270,26 @@ messages=$(git --git-dir="$work/repo" log --format=%B "$commit" --not --glob='re
 if printf '%s\n' "$authors" | grep -vxF -- "$email" | grep -q . || printf '%s\n' "$messages" | grep -qi '^co-authored-by:'; then
   echo "publication adds commits by another author" >&2; exit 1
 fi
+# Compare against the freshly fetched base before publishing. The helper
+# works on Git objects alone and never receives the repository credential.
+renumbered=
+if [ -n "$(git --git-dir="$work/repo" ls-tree -d refs/kuayle/remote/base -- BE/migrations)" ] &&
+   [ -n "$(git --git-dir="$work/repo" ls-tree -d "$commit" -- BE/migrations)" ]; then
+  if ! command -v node >/dev/null 2>&1; then
+    printf 'blocked\nPublication needs Node.js in the developer container to check BE/migrations against the latest base. Use a developer image with Node.js, then retry publication.\n'
+    exit 0
+  fi
+  GIT_AUTHOR_NAME="${9:-Kuayle Agent}" GIT_COMMITTER_NAME="${9:-Kuayle Agent}" \
+    GIT_AUTHOR_EMAIL="$email" GIT_COMMITTER_EMAIL="$email" env -u NODE_OPTIONS -u NODE_PATH \
+    node - "$work/repo" refs/kuayle/remote/base "$commit" "${10:-}" > "$work/migration-result" <<'KUAYLE_MIGRATIONS'
+` + publicationMigrationsScript + `KUAYLE_MIGRATIONS
+  renumbered=$(cat "$work/migration-result")
+  case $renumbered in
+    blocked*) printf '%s\n' "$renumbered"; exit 0 ;;
+    "") ;;
+    *) commit=$renumbered ;;
+  esac
+fi
 # Check the outgoing history against the destination tip. For a new branch,
 # exclude its base history. For an existing branch include base commits a
 # sync brings in, and tree changes from dropping commits on a leased push.
@@ -305,6 +330,7 @@ if [ -n "$lease" ]; then
 else
   remote push -q "$url" "$commit:refs/heads/$branch"
 fi
+[ -z "$renumbered" ] || printf 'renumbered %s\n' "$commit"
 `
 
 // PublishCheckout commits pending task changes and pushes the task branch. It
@@ -342,7 +368,7 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 		return "", fmt.Errorf("publication returned an invalid commit")
 	}
 	pushed, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishPushScript, "kuayle-publish-push",
-		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease, strconv.FormatBool(request.WorkflowsWrite)}, request.Token+"\n")
+		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, commit, checkout.BaseBranch, request.AuthorEmail, request.Lease, strconv.FormatBool(request.WorkflowsWrite), request.AuthorName, request.IssueIdentifier}, request.Token+"\n")
 	if err != nil {
 		return "", err
 	}
@@ -351,7 +377,8 @@ func (r *DockerRuntime) PublishCheckout(ctx context.Context, _ *domain.DevMachin
 
 // pushedCommit reads the push step's stdout: none when the commit had nothing
 // to publish, remains when GitHub's task branch still holds removed work, and
-// a list of workflow paths when permission is missing, and nothing after a push.
+// nothing when the original commit was pushed. A renumbering reports the
+// commit actually pushed or a reason the agent must repair the checkout.
 func pushedCommit(output, commit string) (string, error) {
 	output = strings.TrimSpace(output)
 	if paths, ok := strings.CutPrefix(output, "workflows\n"); ok {
@@ -363,11 +390,21 @@ func pushedCommit(output, commit string) (string, error) {
 	case "remains":
 		return "", ErrPublishedWorkRemains
 	}
+	if detail, ok := strings.CutPrefix(output, "blocked\n"); ok {
+		return "", &checkoutSyncBlockedError{detail: detail}
+	}
+	if head, ok := strings.CutPrefix(output, "renumbered "); ok {
+		if !publishCommitPattern.MatchString(head) {
+			return "", fmt.Errorf("publication returned an invalid renumbered commit")
+		}
+		return head, nil
+	}
 	return commit, nil
 }
 
-// The sync step brings the checkout up to the task branch on GitHub before it is
-// published: commits others pushed (a maintainer merging the base branch into
+// The sync step refreshes the base tracking ref before an agent visit or
+// publication, and brings the checkout up to the task branch on GitHub:
+// commits others pushed (a maintainer merging the base branch into
 // the pull request) are fetched and fast-forwarded to, never overwritten. If
 // pending work prevents a fast-forward, it is committed and then merged with
 // the fetched tip. A conflict leaves that commit and the merge in the checkout
@@ -381,7 +418,7 @@ func pushedCommit(output, commit string) (string, error) {
 // credential is gone, so no program named by its configuration or attributes
 // runs.
 const publishSyncScript = `set -eu
-repository=$1 branch=$2 path=$3 published=$4 step=sync
+repository=$1 branch=$2 path=$3 published=$4 base=$8 step=sync
 export GIT_AUTHOR_NAME="$5" GIT_AUTHOR_EMAIL="$6" GIT_COMMITTER_NAME="$5" GIT_COMMITTER_EMAIL="$6"
 message=$7
 umask 077
@@ -401,16 +438,19 @@ chmod 0700 "$work/askpass"
 git init -q --bare "$work/repo"
 remote() { GIT_ASKPASS="$work/askpass" KUAYLE_PUBLISH_TOKEN_FILE="$work/token" git --git-dir="$work/repo" -c credential.helper= -c core.hooksPath=/dev/null "$@" </dev/null; }
 url="https://github.com/$repository"
-# A branch that is not on GitHub yet has nothing to bring in.
+set -- "+refs/heads/$base:refs/kuayle/base"
+# The base is fetched even before the task's first push.
 if remote ls-remote --exit-code --heads "$url" "refs/heads/$branch" >/dev/null; then
-  remote fetch -q --no-tags --no-recurse-submodules "$url" "+refs/heads/$branch:refs/kuayle/branch"
+  set -- "$@" "+refs/heads/$branch:refs/kuayle/branch"
   fetched=1
 else
   status=$?
   [ "$status" -eq 2 ] || exit "$status"
   fetched=
 fi
+remote fetch -q --no-tags --no-recurse-submodules "$url" "$@"
 rm -f "$work/token" "$work/askpass"
+g fetch -q --no-tags --no-recurse-submodules "$work/repo" "+refs/kuayle/base:refs/remotes/origin/$base"
 block_checkout() { printf 'blocked\n%s\n' "$1"; exit 0; }
 check_conflicts() {
   files=$(g -c core.quotePath=false diff --cached --name-only --diff-filter=U)
@@ -483,7 +523,7 @@ func (r *DockerRuntime) SyncCheckout(ctx context.Context, _ *domain.DevMachine, 
 	}
 	output, err := r.execInputOutput(ctx, developerContainer, []string{"sh", "-c", publishSyncScript, "kuayle-publish-sync",
 		checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, request.PublishedCommit,
-		request.AuthorName, request.AuthorEmail, request.Message}, request.Token+"\n")
+		request.AuthorName, request.AuthorEmail, request.Message, checkout.BaseBranch}, request.Token+"\n")
 	if err != nil {
 		return "", err
 	}

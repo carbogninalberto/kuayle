@@ -151,14 +151,13 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 	// for a guarded force push instead of changing the checkout.
 	request := PublishRequest{
 		AuthorName: identity.Name, AuthorEmail: identity.Email, Token: token, WorkflowsWrite: grant.WorkflowsWrite, PublishedCommit: publication.PublishedCommit,
-		Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
+		IssueIdentifier: publication.IssueIdentifier, Message: title + "\n\nKuayle agent task " + run.TaskID.String(),
 	}
 	request.Lease, err = m.runtime.SyncCheckout(ctx, machine, services, checkout, request)
 	if err != nil {
 		var blocked *checkoutSyncBlockedError
 		if errors.As(err, &blocked) {
-			detail := strings.ToValidUTF8(strings.ReplaceAll(blocked.detail, token, "[redacted]"), "�")
-			return &terminalOperationError{code: domain.PublicationCheckoutBlockedCode, message: truncateText(detail, 1900)}
+			return blocked.publicationError(token)
 		}
 		return errors.New("checkout_sync_failed: " + strings.ReplaceAll(safeError(err), token, "[redacted]"))
 	}
@@ -175,6 +174,10 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		var terminal *terminalOperationError
 		if errors.As(err, &terminal) {
 			return &terminalOperationError{code: terminal.code, message: strings.ReplaceAll(terminal.message, token, "[redacted]")}
+		}
+		var blocked *checkoutSyncBlockedError
+		if errors.As(err, &blocked) {
+			return blocked.publicationError(token)
 		}
 		detail := strings.ReplaceAll(err.Error(), token, "[redacted]")
 		if match := workflowPushRejection.FindStringSubmatch(detail); match != nil {
@@ -244,6 +247,11 @@ func (m *Manager) publishAgent(ctx context.Context, machine *domain.DevMachine, 
 		result = domain.AgentPublicationResult{Branch: checkout.WorkingBranch, Commit: commit, PullRequestNumber: pullRequest.Number, PullRequestURL: safeURL}
 	}
 	return m.store.CompletePublication(ctx, *op, result)
+}
+
+func (blocked *checkoutSyncBlockedError) publicationError(token string) error {
+	detail := strings.ToValidUTF8(strings.ReplaceAll(blocked.detail, token, "[redacted]"), "�")
+	return &terminalOperationError{code: domain.PublicationCheckoutBlockedCode, message: truncateText(detail, 1900)}
 }
 
 // GitHub may reject the push even after preflight, for example when the

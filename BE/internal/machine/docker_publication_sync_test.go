@@ -92,7 +92,7 @@ func (f *scriptFixture) script(body, input, name string, args ...string) (string
 }
 
 func (f *scriptFixture) sync(published string) (string, error) {
-	return f.script(publishSyncScript, "fixture-credential\n", "sync", "acme/app", "kuayle/rec-1", f.checkout, published, "Kuayle Agent", "agent@kuayle.invalid", "REC-1: Dark mode")
+	return f.script(publishSyncScript, "fixture-credential\n", "sync", "acme/app", "kuayle/rec-1", f.checkout, published, "Kuayle Agent", "agent@kuayle.invalid", "REC-1: Dark mode", "main")
 }
 
 // commit runs the commit step with a commit message, as the manager does.
@@ -101,7 +101,7 @@ func (f *scriptFixture) commit(floor string) (string, error) {
 }
 
 func (f *scriptFixture) push(commit, lease string) (string, error) {
-	return f.script(publishPushScript, "fixture-credential\n", "push", "acme/app", "kuayle/rec-1", f.checkout, commit, "main", "agent@kuayle.invalid", lease)
+	return f.script(publishPushScript, "fixture-credential\n", "push", "acme/app", "kuayle/rec-1", f.checkout, commit, "main", "agent@kuayle.invalid", lease, "false", "Kuayle Agent", "REC-1")
 }
 
 // freshCheckout replaces the checkout with a clone that only knows the base
@@ -163,7 +163,7 @@ type reviewFixRuntime struct {
 }
 
 func (r reviewFixRuntime) SyncCheckout(_ context.Context, _ *domain.DevMachine, _ []domain.DevMachineService, checkout *domain.DevMachineCheckout, req PublishRequest) (string, error) {
-	output, err := r.fixture.script(publishSyncScript, req.Token+"\n", "sync", checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, req.PublishedCommit, req.AuthorName, req.AuthorEmail, req.Message)
+	output, err := r.fixture.script(publishSyncScript, req.Token+"\n", "sync", checkout.RepositoryFullName, checkout.WorkingBranch, checkout.WorkspacePath, req.PublishedCommit, req.AuthorName, req.AuthorEmail, req.Message, checkout.BaseBranch)
 	if err != nil {
 		return "", err
 	}

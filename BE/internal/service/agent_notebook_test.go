@@ -218,6 +218,7 @@ func TestAttemptRecordsItsPromptBySource(t *testing.T) {
 	require.Contains(t, by["project/prompt"], "Use pnpm.")
 	require.Contains(t, by["contract/prompt"], domain.NotebookUpdateHelp)
 	require.Contains(t, by["contract/prompt"], "Kuayle execution contract")
+	require.Contains(t, by["contract/prompt"], "BE/migrations on the latest base")
 	require.Contains(t, by["profile/instructions_file"], "Write small commits.")
 	require.Equal(t, notebook.RenderWith(domain.NotebookRender{PlanInPrompt: true, RequestInPrompt: true}), by["notebook/instructions_file"])
 	require.Equal(t, 1, strings.Count(run.Prompt+by["notebook/instructions_file"], plan), "the plan is given once")

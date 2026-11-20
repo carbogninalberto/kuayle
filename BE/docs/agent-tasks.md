@@ -216,9 +216,13 @@ fenced task transaction under the workspace and machine locks. The manager
 re-verifies the same phase authority (task still `publishing`, current run,
 creator, machine generation, enabled policy, live operation lease) on every read
 and write, and checks that the checkout is the task's own ready checkout. It
-fetches the task branch before starting a new visit on a previously published
-task checkout, and fetches again at publication. Reattaching to a running agent
-leaves its checkout alone. Only a fresh repository receives the fetch credential.
+fetches the task branch and refreshes the base tracking ref before starting a
+new visit on a previously published task checkout, and fetches again at
+publication. Reattaching to a running agent leaves its checkout alone. Only a
+fresh repository receives the fetch credential. The implementing attempt's prompt and Kuayle's
+[backend agent instructions](../../AGENTS/SKILLS/kuayle-backend/SKILL.md) ask
+implementers to fetch and inspect the base before numbering a migration under
+`BE/migrations` and again before publication.
 When the remote branch advances, a clean checkout fast-forwards to its tip.
 Pending edits are committed locally first and merged with that tip. A conflict
 leaves the saved commit, unmerged files and merge state in the checkout.
@@ -268,7 +272,20 @@ force-pushed. Then:
    below. The developer images (Ubuntu 26.04) ship a newer git. Otherwise it
    refuses a push that would add a commit by
    another author or with a co-author trailer, since the checkout's
-   remote-tracking refs the commit step relied on are agent-writable. It pushes
+   remote-tracking refs the commit step relied on are agent-writable. If the
+   task and base use the same number for different SQL migrations under
+   `BE/migrations`, the publisher moves the task-owned pairs from the first
+   collision onward to numbers above both branches' highest version. It
+   updates literal references to those names in tracked text files and adds a
+   `chore(migrations)` commit under the publication identity with the task's
+   issue prefix. The checkout picks up that commit
+   on its next sync. When a changed test or runner targets a version by
+   number alone, the intended migration can be ambiguous. If ownership,
+   pairing, ordering or references require manual repair, publication stops
+   with the conflicting paths and sends the task back through the checkout
+   repair flow. The migration check requires Node.js, which the developer
+   images ship. If the runtime is unavailable, publication reports what is
+   needed to retry. It pushes
    the commit to the fixed `https://github.com/<checkout repository>` URL, without
    force unless the sync returned a lease. The lease makes the push the
    `--force-with-lease` one described above, and a force is refused when it would
@@ -820,6 +837,16 @@ added migration 162 merged green one after the other and broke `main`
   says "the branch conflicts with `<base>`; needs a rebase" and names
   `update_pull_request_branch`, which sends the task agent to merge the base
   and resolve the conflicts.
+- **Migration number collisions** under `BE/migrations` are checked before
+  updating and before merging the resulting head. GitHub's branch update
+  preserves the filenames from both branches. A workflow sends the
+  task back to the implementing step with the conflicting paths and the
+  renumbering instructions. For chat approvals, `update_pull_request_branch`
+  can send those instructions to the task agent for approval. The repaired
+  commit goes through the usual checks and merge approval. Kuayle reads the
+  migration tree at the live base commit returned by GitHub's comparison.
+  If GitHub cannot provide the complete tree, an approved merge waits and
+  retries the check.
 - **Up to date**: the head's checks (check runs and commit statuses, read as
   `get_pull_request_checks` does) must not be failing, still running or only
   partly readable. Checks register a moment after a push or update-branch, so a

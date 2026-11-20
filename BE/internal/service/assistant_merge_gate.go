@@ -54,8 +54,10 @@ const (
 // mergeHold is why Kuayle does not merge now; an empty reason lets it merge.
 type mergeHold struct {
 	reason string
-	// pending is set when only the head's checks are still running (or not
-	// registered yet), so the same head may merge once they pass.
+	// GitHub's branch update cannot repair this collision, and the
+	// approved commit must not be rewritten during a merge.
+	migrationRepair string
+	// pending is set while waiting for the head's CI or migration check.
 	pending bool
 	// updated is set when Kuayle just brought the branch up to date: the wait
 	// now names the new head, whose checks have to pass first.
@@ -72,9 +74,8 @@ type mergeHold struct {
 	mergedElsewhere bool
 }
 
-// waits reports whether a merge keeps waiting rather than ending: while the
-// head's checks run, right after Kuayle updated the branch, and, once Kuayle
-// updated it, while GitHub's answer may still change on its own.
+// waits reports whether a merge keeps waiting: while CI or the migration
+// check is pending, after an update, or while GitHub settles that update.
 func (h mergeHold) waits(wait *domain.MergeWait) bool {
 	return h.pending || h.updated || (h.transient && wait.Updates > 0)
 }
@@ -176,9 +177,15 @@ func (g mergeGate) check(ctx context.Context, ws, actor uuid.UUID, repository st
 		}
 		wait.Updating = false
 	}
+	if status.migrationRepair != "" {
+		return mergeHold{migrationRepair: status.migrationRepair,
+			reason: status.migrationRepair + " Next step: update_pull_request_branch to send the repair to the task agent, then ask to merge again once its checks pass"}, nil
+	}
 	switch {
 	case status.Behind < 0:
 		return mergeHold{transient: true, reason: fmt.Sprintf("GitHub did not report whether pull request #%d contains the latest %s, so it was not merged. Next step: ask to merge again in a moment", number, base)}, nil
+	case status.migrationCheckUnavailable:
+		return mergeHold{pending: true, reason: migrationCheckUnavailableReason + ". Kuayle will retry"}, nil
 	case status.Behind > 0:
 		if status.MergeableState == "dirty" || (status.Mergeable != nil && !*status.Mergeable) {
 			return mergeHold{reason: branchConflictRefusal(number, base)}, nil
