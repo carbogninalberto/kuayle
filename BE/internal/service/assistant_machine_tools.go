@@ -36,6 +36,7 @@ type assistantMachinePorts interface {
 
 type assistantMachineService interface {
 	assistantMachinePorts
+	AgentLogTail(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *uuid.UUID, int) (domain.MachineLogResult, error)
 	GetResourceUsageForUser(ctx context.Context, ws, machine, user uuid.UUID) (*domain.DevMachine, *domain.DevMachineUsage, error)
 }
 
@@ -52,6 +53,7 @@ func (s *AssistantApprovals) SetMachines(tasks assistantMachineTasks, ports assi
 const getMachineUsageTool = "get_machine_usage"
 
 var assistantMachineToolCatalog = []assistantTool{
+	machineLogsTool,
 	{name: "start_preview", machines: true, approval: true, description: "Ask the user to approve starting the preview of an issue's newest coding task: its configured preview command runs in the task's worktree on its machine, on its own app port. Only the task's creator can start it. After approval the user opens it from the approval card; call list_ports for the link.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "stop_preview", machines: true, description: "Stop the running preview of an issue's newest coding task. Only call this when the user asked to stop it.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
 	{name: "expose_port", machines: true, approval: true, description: "Ask the user to approve exposing a TCP port (1024-65535) of the machine of an issue's newest coding task on its own authenticated gateway link. A port the machine already exposes is reused. Only the machine's owner can expose ports or open the link. Only call this when the user asked to expose or open a port.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"port":{"type":"integer","minimum":1024,"maximum":65535},"label":{"type":"string","maxLength":40}},"required":["identifier","port"],"additionalProperties":false}`},
@@ -90,11 +92,11 @@ func (t *AssistantTools) machineTask(ctx context.Context, ws, user uuid.UUID, id
 		return nil, nil, err
 	}
 	if target.CreatorID != user {
-		return nil, nil, toolFailure("only the task's creator can manage its preview and ports")
+		return nil, nil, toolFailure("only the task's creator can access its machine")
 	}
 	task, err := t.machineTasks.Get(ctx, ws, target.TaskID)
 	if errors.Is(err, repository.ErrConversationNotFound) || errors.Is(err, repository.ErrAgentTaskUnauthorized) {
-		return nil, nil, toolFailure("only the task's creator can manage its preview and ports")
+		return nil, nil, toolFailure("only the task's creator can access its machine")
 	}
 	if err != nil {
 		return nil, nil, err

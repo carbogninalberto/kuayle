@@ -174,6 +174,9 @@ func (t *AssistantTools) queueWorktreeScan(ctx context.Context, ws, user uuid.UU
 	}
 	scan, err := t.worktreeScans.CreateWorktreeScan(ctx, ws, user, target, req)
 	if err != nil {
+		if req.Kind.ReadsDocker() && errors.Is(err, repository.ErrWorktreeUnavailable) {
+			return nil, toolFailure("Docker reads require a running machine you own")
+		}
 		return nil, worktreeScanFailure(err)
 	}
 	if scan == nil {
@@ -250,6 +253,9 @@ func worktreeScanFailure(err error) error {
 // kind's fields and the same byte budget as the GitHub scans.
 func worktreeScanResult(scan *domain.WorktreeScan, result domain.WorktreeScanResult, req domain.WorktreeScanRequest) map[string]any {
 	kind := req.Kind
+	if kind.ReadsDocker() {
+		return map[string]any{"content": result.Content, "truncated": result.Truncated}
+	}
 	out := map[string]any{
 		"machine": scan.MachineName, "repository": scan.Repository,
 		"branch": result.Branch, "commit": result.Commit, "dirty": result.Dirty,

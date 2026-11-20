@@ -126,6 +126,17 @@ docker compose ps --services | sort | tr '\n' ' '`
 	require.Contains(t, output, "hello")
 	require.Contains(t, output, "extra web")
 
+	containersRead, err := runtime.scanMachineDocker(ctx, services, domain.WorktreeScanRequest{Kind: domain.MachineScanContainers, Limit: 10})
+	require.NoError(t, err)
+	require.Contains(t, containersRead.Content, "proj-web-1")
+	require.NotContains(t, containersRead.Content, gatewayName)
+	_, err = run(developer, `docker run --name log-fixture busybox:1.37 sh -c 'echo first; echo last >&2'`)
+	require.NoError(t, err)
+	logs, err := runtime.scanMachineDocker(ctx, services, domain.WorktreeScanRequest{Kind: domain.MachineScanContainerLogs, Container: "log-fixture", Limit: 2})
+	require.NoError(t, err)
+	require.Contains(t, logs.Content, "first\n")
+	require.Contains(t, logs.Content, "last\n")
+
 	scan, err := runtime.ScanPorts(ctx, machine, services)
 	require.NoError(t, err)
 	require.True(t, slices.Contains(scan.Docker, 3000), "published ports are scanned: %v", scan.Docker)

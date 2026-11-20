@@ -7,9 +7,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// WorktreeScanKind is what a worktree scan reads on a dev machine. Scans are
-// read-only: they run rg and git in the developer container without
-// credentials and never change the checkout.
+// WorktreeScanKind selects a read-only checkout or machine Docker operation.
 type WorktreeScanKind string
 
 const (
@@ -23,7 +21,14 @@ const (
 	WorktreeScanStatus WorktreeScanKind = "status"
 	// WorktreeScanList lists the task worktrees under /workspace/tasks.
 	WorktreeScanList WorktreeScanKind = "list"
+	// Machine-only Docker reads use the same bounded, read-only scan queue.
+	MachineScanContainers    WorktreeScanKind = "containers"
+	MachineScanContainerLogs WorktreeScanKind = "container_logs"
 )
+
+func (kind WorktreeScanKind) ReadsDocker() bool {
+	return kind == MachineScanContainers || kind == MachineScanContainerLogs
+}
 
 // DevMachineOpScanWorktree runs one worktree scan. It is read-only, so the
 // manager runs it beside agent work on the same machine.
@@ -45,6 +50,7 @@ const (
 // WorktreeScanRequest is what one scan reads. Only the fields of its kind are
 // used; Path and Glob are relative to the checkout and never leave it.
 type WorktreeScanRequest struct {
+	Container       string           `json:"container,omitempty"`
 	Kind            WorktreeScanKind `json:"kind"`
 	Pattern         string           `json:"pattern,omitempty"`
 	Glob            string           `json:"glob,omitempty"`
@@ -116,9 +122,8 @@ type WorktreeScan struct {
 	WorkspacePath string `json:"workspace_path,omitempty" db:"workspace_path"`
 }
 
-// WorktreeScanTarget names what a scan reads: a task's checkout (TaskID), or
-// with only MachineID one of the requester's own machines, which only a list
-// scan accepts.
+// WorktreeScanTarget selects a task checkout, or an owned machine for a
+// worktree listing or Docker read.
 type WorktreeScanTarget struct {
 	TaskID    *uuid.UUID
 	MachineID *uuid.UUID
