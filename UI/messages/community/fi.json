@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Koodausagentti työstää kohdetta {title} eristetyssä ympäristössä näillä ohjeilla:",
 	"assistant.approval_repository": "Repository: {repository}, haara {branch}, asetuksista: {source}",
 	"assistant.approval_approve": "Hyväksy",
+	"assistant.approval_review_details": "Avaa tiedot hyväksyäksesi.",
 	"assistant.approval_deny": "Hylkää",
 	"assistant.approval_approving": "Käynnistetään koodausagentti kohteelle {identifier}",
 	"assistant.approval_approved": "Koodausagentti käynnistetty kohteelle {identifier}",

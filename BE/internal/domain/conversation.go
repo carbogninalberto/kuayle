@@ -120,6 +120,7 @@ type ConversationToolCall struct {
 // backend binds it to one actor, one action and one target; UI state is never
 // the authority.
 type ConversationApproval struct {
+	MessageModel   string          `json:"message_model,omitempty" db:"message_model"`
 	ID             uuid.UUID       `json:"id" db:"id"`
 	ConversationID uuid.UUID       `json:"conversation_id" db:"conversation_id"`
 	ToolCallID     uuid.UUID       `json:"tool_call_id" db:"tool_call_id"`

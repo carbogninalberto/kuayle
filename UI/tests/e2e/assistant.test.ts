@@ -122,13 +122,13 @@ async function fixture(page: Page) {
 				if (state.decisionStatus !== 200)
 					return route.fulfill({ status: state.decisionStatus, json: { error: { code: 'INTERNAL_ERROR' } } });
 				const resolved = {
-					...state.approvals[0],
+					...state.approvals.find(a => path.endsWith('/' + a.id)),
 					status: decision === 'approve' ? 'approved' : 'denied',
 					task_id: decision === 'approve' ? 'task-9' : undefined,
 					resolved_at: '2026-10-26T10:05:00Z',
 					updated_at: '2026-10-26T10:05:00Z'
 				};
-				state.approvals = [resolved];
+				state.approvals = state.approvals.map(a => a.id === resolved.id ? resolved : a);
 				return route.fulfill({ json: resolved });
 			}
 			if (path.endsWith('/events')) {
@@ -837,10 +837,11 @@ test('asks for approval before delegating and records the decision from the back
 		}
 	];
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Start a coding agent on ENG-1?', { exact: true })).toBeVisible();
-	await expect(page.getByText('<b onmouseover=', { exact: false })).toBeVisible();
+	await expect(page.getByTestId('approval-details')).toContainText('Implement');
 	await expect(page.getByText('Effort: high', { exact: true })).toBeVisible();
-	// The approval request closes the message: it comes after the reply's text.
+	// The decision stays between the reply and the composer.
 	const text = await page.getByText('Approval is pending.', { exact: true }).boundingBox();
 	const request = await page.getByText('Start a coding agent on ENG-1?', { exact: true }).boundingBox();
 	expect(request!.y).toBeGreaterThan(text!.y);
@@ -954,6 +955,7 @@ test('the approval card runs the model on the model server the user picked', asy
 		if (request.method() === 'POST' && request.url().includes('/approvals/')) bodies.push(request.postDataJSON());
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	const serverButton = page.getByRole('button', { name: 'Model server' });
 	await expect(serverButton).toHaveText('Gateway A');
 	const model = page.getByRole('combobox', { name: 'Model', exact: true });
@@ -1016,6 +1018,7 @@ async function pendingDelegation(page: Page, payload: Record<string, unknown> = 
 			action: 'delegate_issue',
 			actor_id: 'user-1',
 			issue_id: 'issue-1',
+			message_model: answered.model,
 			payload: { identifier: 'ENG-1', title: 'Dark mode', instructions: 'Implement dark mode', ...payload },
 			status: 'pending',
 			expires_at: '2026-10-27T10:00:00Z',
@@ -1065,6 +1068,7 @@ test('the approval card runs the workflow the approver picked, without a model c
 		return route.fulfill({ json: resolved });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	const workflow = page.getByTestId('task-workflow');
 	await expect(workflow).toHaveText('Issue default');
 	await expect(page.getByRole('button', { name: 'Model server' })).toBeVisible();
@@ -1095,6 +1099,7 @@ test('a model picked before choosing a custom workflow is not sent with it', asy
 		return route.fulfill({ json: { ...state.approvals[0], status: 'approved', task_id: 'task-9' } });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await page.getByRole('button', { name: 'Model server' }).click();
 	await page.getByRole('menuitemradio', { name: 'Gateway B' }).click();
 	await page.getByTestId('task-workflow').click();
@@ -1117,6 +1122,7 @@ test('an untouched card keeps the workflow the assistant proposed and its model 
 		return route.fulfill({ json: { ...state.approvals[0], status: 'approved', task_id: 'task-9' } });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByTestId('task-workflow')).toHaveText('Standard');
 	await expect(page.getByRole('button', { name: 'Model server' })).toBeVisible();
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
@@ -1132,6 +1138,7 @@ test('going back to the issue default is sent as an empty workflow', async ({ pa
 		return route.fulfill({ json: { ...state.approvals[0], status: 'approved', task_id: 'task-9' } });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByTestId('task-workflow')).toHaveText('Review loop');
 	await expect(page.getByRole('button', { name: 'Model server' })).toHaveCount(0);
 	await page.getByTestId('task-workflow').click();
@@ -1159,6 +1166,7 @@ test('a workflow the server refuses is explained and the card stays pending', as
 		return route.fulfill({ json: { ...state.approvals[0], status: 'approved', task_id: 'task-9' } });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await page.getByTestId('task-workflow').click();
 	await page.getByRole('option', { name: 'Review loop' }).click();
 	await page.getByRole('button', { name: 'Approve', exact: true }).click();
@@ -1233,6 +1241,7 @@ test('only a delegation offers a workflow; reviews and follow-ups keep their car
 		}
 	];
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).first().click();
 	await expect(page.getByText('Review ENG-1 with Claude Code?', { exact: true })).toBeVisible();
 	await expect(page.getByText('Start a follow-up on ENG-1?', { exact: true })).toBeVisible();
 	await expect(page.getByTestId('task-workflow')).toHaveCount(1);
@@ -1245,6 +1254,7 @@ test('a guest who cannot list workflows keeps the card without a workflow picker
 		route.fulfill({ status: 403, json: { error: { code: 'FORBIDDEN' } } })
 	);
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Model server' })).toBeVisible();
 	await expect(page.getByTestId('task-workflow')).toHaveCount(0);
@@ -1837,6 +1847,8 @@ test('asks for approval before merging the reviewed pull request', async ({ page
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByTestId('approval-card').getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Merge pull request #12 for ENG-1?', { exact: true })).toBeVisible();
 	await expect(
 		page.getByText('Merges (squash) the reviewed commit 0123456 of Dark mode in acme/app.', { exact: false })
@@ -1918,7 +1930,10 @@ test('an approved merge waiting for the updated branch shows it waits, then that
 		return route.fulfill({ json: waiting });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
-	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	const card = page.getByTestId('approval-card');
+	await card.getByRole('button', { expanded: false }).click();
+	await expect(card.getByRole('link', { name: 'Open pull request' })).toHaveAttribute('href', pending.payload.pull_request_url);
+	await card.getByRole('button', { name: 'Approve', exact: true }).click();
 	await expect(
 		page.getByText(
 			'Approved: Kuayle brought the branch of ENG-1 up to date and merges it once the checks on the new head pass',
@@ -2020,6 +2035,7 @@ for (const card of pullRequestCards) {
 		const state = await fixture(page);
 		machineApproval(state, card.name, { ...pullRequestPayload, ...card.payload });
 		await page.goto('/test/assistant?conversation=chat-1');
+		await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 		await expect(page.getByText(card.title, { exact: true })).toBeVisible();
 		for (const text of card.text) await expect(page.getByText(text, { exact: false })).toBeVisible();
 		await expect(page.getByRole('link', { name: 'Open pull request' })).toHaveAttribute(
@@ -2115,6 +2131,7 @@ test('merge approval shows the commit others pushed after the task was published
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Merge pull request #108 for ENG-1?', { exact: true })).toBeVisible();
 	// The card names the exact commit that merges, not the one Kuayle published.
 	await expect(page.getByText('reviewed commit 3220dbc of Dark mode', { exact: false })).toBeVisible();
@@ -2175,6 +2192,8 @@ test('an approval card names the GitHub App permissions the action lacks', async
 		})
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(page.getByTestId('approval-card')).toContainText('GitHub App permission missing');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	const gap = page.getByTestId('github-access-gap');
 	await expect(gap).toContainText('GitHub App permission missing');
 	await expect(gap).toContainText('(contents: write)');
@@ -2187,6 +2206,7 @@ test('an approval card names the GitHub App permissions the action lacks', async
 
 	state.approvals = [approval({ missing: [], unverified: true, message: 'GitHub did not answer.' })] as any;
 	await page.reload();
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByTestId('github-access-gap')).toContainText("Couldn't verify GitHub App permissions");
 	await expect(page.getByTestId('github-access-gap').getByRole('link')).toHaveCount(0);
 });
@@ -2248,6 +2268,7 @@ test('merge approval warns when the list of commits others pushed is truncated',
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Merge pull request #108 for ENG-1?', { exact: true })).toBeVisible();
 	// The card names the exact commit that merges, not the one Kuayle published.
 	await expect(page.getByText('reviewed commit 3220dbc of Dark mode', { exact: false })).toBeVisible();
@@ -2302,6 +2323,7 @@ test('asks for approval before accepting work in Kuayle without merging', async 
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Accept the work on ENG-1 without merging?', { exact: true })).toBeVisible();
 	await expect(
 		page.getByText('Completes iteration 2 of Dark mode in Kuayle. Pull request #12 stays open and is not merged.', {
@@ -2383,6 +2405,8 @@ test('a requested review and a follow-up wait for approval in the chat', async (
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).first().click();
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Review ENG-1 with Claude Code?', { exact: true })).toBeVisible();
 	await expect(
 		page.getByText('The agent reviews commit 0123456 of pull request #12 without pushing anything.', { exact: true })
@@ -2443,6 +2467,7 @@ test('a follow-up on merged work names the merged pull request on its card', asy
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Start a follow-up on ENG-1?', { exact: true })).toBeVisible();
 	const merged = page.getByTestId('follow-up-merged');
 	await expect(merged).toContainText("This issue's work was merged in #12. Approving runs the agent again anyway.");
@@ -2453,6 +2478,7 @@ test('a follow-up on merged work names the merged pull request on its card', asy
 	// A link that is not a web address is not offered.
 	payload.merged_pull_request.url = 'javascript:alert(1)';
 	await page.reload();
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByTestId('follow-up-merged')).toContainText('merged in #12');
 	await expect(page.getByTestId('follow-up-merged').getByRole('link')).toHaveCount(0);
 });
@@ -2542,6 +2568,7 @@ test('a preview waits for approval, then opens its link from the chat', async ({
 	let started = false;
 	const launches = await machinePorts(page, () => (started ? [previewPort] : []));
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Start the preview of ENG-1?', { exact: true })).toBeVisible();
 	await expect(
 		page.getByText("Runs the preview command of Dark mode in the task's worktree on machine eng-1-dark-mode.", {
@@ -2576,6 +2603,7 @@ test('an exposed port says it is reused and lists its link', async ({ page }) =>
 	const web = { ...previewPort, id: 'port-1', port: 3000, label: 'web', source: 'user', agent_task_id: null, host };
 	await machinePorts(page, () => [web]);
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Expose port 3000 of ENG-1?', { exact: true })).toBeVisible();
 	await expect(
 		page.getByText(`Publishes port 3000 of machine eng-1-dark-mode at ${host}.`, { exact: true })
@@ -2660,6 +2688,7 @@ test('a check run waits for approval and shows the exact command it runs', async
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Run the check on ENG-1?', { exact: true })).toBeVisible();
 	await expect(
 		page.getByText('Runs on the checkout of Dark mode, without starting the agent or changing the task:', {
@@ -2716,6 +2745,7 @@ test('an instance upgrade waits for approval, shows both versions and follows th
 		});
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Upgrade Kuayle from 0.2.8 to 0.3.0?', { exact: true })).toBeVisible();
 	await expect(page.getByText('v0.3.0: Faster boards', { exact: true })).toBeVisible();
 	// Nothing is requested from the updater, and nothing runs, before approval.
@@ -2806,6 +2836,7 @@ test('a release waits for approval with its notes editable, and publishes the ed
 		return route.fulfill({ json: approved });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Publish v1.3.0 of acme/app?', { exact: true })).toBeVisible();
 	await expect(page.getByText('Tags 0123456 on main, where all 12 checks passed.', { exact: false })).toBeVisible();
 	await expect(page.getByTestId('release-scan')).toContainText(
@@ -2930,6 +2961,7 @@ test('shipping asks for one approval that lists every step, then follows each st
 		return route.fulfill({ json: approving });
 	});
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Ship ENG-7: merge #42 and publish v1.4.0 of acme/app?', { exact: true })).toBeVisible();
 	// Every step is listed, in order, before anything runs.
 	const steps = page.getByTestId('ship-steps').getByRole('listitem');
@@ -3057,13 +3089,10 @@ test('message_task shows the whole message and sends it only when approved', asy
 		}
 	] as any;
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Send this message to the agent on ENG-1?', { exact: true })).toBeVisible();
-	await expect(
-		page.getByText('The coding agent working on Dark mode receives exactly this text as a message from you:', {
-			exact: true
-		})
-	).toBeVisible();
-	const shown = page.locator('[data-slot="code-block-code"]');
+	await expect(page.getByTestId('approval-card')).toContainText('Dark mode');
+	const shown = page.getByTestId('approval-details');
 	await expect(shown.getByText('Also add tests.', { exact: false })).toBeVisible();
 	await expect(shown.getByText('Keep the v1 route until the migration lands.', { exact: false })).toBeVisible();
 	await expect(page.getByText('Message sent to the running agent of ENG-1')).toHaveCount(0);
@@ -3457,6 +3486,7 @@ test('bulk issue changes share one approval and report individual outcomes', asy
 	];
 	machineApproval(state, 'bulk_update_issues', { changes });
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Update issues (3)', { exact: true })).toBeVisible();
 	const rows = page.getByRole('listitem').filter({ hasText: /ENG-[123]/ });
 	await expect(rows).toHaveCount(3);
@@ -3493,10 +3523,124 @@ test('one approval lists all 25 proposed issue updates', async ({ page }) => {
 	}));
 	machineApproval(state, 'bulk_update_issues', { changes });
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(1);
 	const rows = page.getByRole('listitem').filter({ hasText: /ENG-\d+/ });
 	await expect(rows).toHaveCount(25);
 	await expect(rows.last()).toHaveText(`ENG-25 Status: Done · Project: ${project}`);
 	await rows.last().scrollIntoViewIfNeeded();
 	expect(await rows.last().evaluate((row) => row.scrollWidth <= row.clientWidth)).toBe(true);
+});
+
+test('pending approvals stay above the composer in creation order with keyboard disclosure', async ({ page }, testInfo) => {
+	const title = 'Track delivery for WhatsApp Business messages';
+	const state = await pendingDelegation(page, {
+		title, instructions: '## Delivery status\n\nPersist **provider message IDs**.',
+		repository: 'acme/notifications', base_branch: 'main', workflow_id: 'standard', workflow: 'Standard'
+	});
+	const first = state.approvals[0];
+	await page.route('**/api/workspaces/test/workflows', route => route.fulfill({
+		json: { ...workflowList, defaults: [{ workflow_id: 'workflow-loop' }] }
+	}));
+	state.approvals.unshift({
+		...first, id: 'approval-2', tool_call_id: 'tool-10', created_at: '2026-11-01T10:00:00Z',
+		action: 'message_task', payload: { identifier: 'ENG-2', title: 'Update the delivery report', body: 'Include delayed messages.' }
+	});
+	await page.setViewportSize({width: 1440, height: 960});
+	await page.goto('/test/assistant?conversation=chat-1');
+	const stack = page.getByTestId('approval-stack');
+	const cards = stack.getByRole('article');
+	await expect(cards).toHaveCount(2);
+	await expect(cards.first()).toContainText(title);
+	await expect(cards.last()).toContainText('Update the delivery report');
+	const toggle = cards.first().getByRole('button', { expanded: false });
+	await toggle.focus();
+	await page.keyboard.press('Enter');
+	await expect(cards.first().getByRole('heading', { name: 'Delivery status' })).toBeVisible();
+	await expect(cards.first().locator('strong')).toHaveText('provider message IDs');
+	await expect(cards.first().getByRole('combobox', { name: 'Model', exact: true })).toBeVisible();
+	await expect(cards.first().getByTestId('task-workflow')).toHaveText('Standard');
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('approvals-expanded.png') });
+	await page.keyboard.press('Space');
+	await expect(toggle).toBeFocused();
+	await expect(cards.first().getByRole('heading', { name: 'Delivery status' })).toBeHidden();
+	await expect(stack).toBeInViewport();
+	expect(await stack.evaluate(el => !!el.closest('[data-slot="message-scroller"]'))).toBe(false);
+	const form = page.getByRole('form');
+	await expect(form.getByRole('textbox')).toBeEnabled();
+	await expect(form.locator('[data-slot="input-group"]')).toHaveCSS('opacity', '1');
+	expect((await stack.boundingBox())!.y + (await stack.boundingBox())!.height).toBeLessThanOrEqual((await form.boundingBox())!.y + 1);
+	await page.emulateMedia({ reducedMotion: 'reduce' });
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(page.getByTestId('assistant-sidebar')).toHaveCount(0);
+	await expect(cards.last()).toBeInViewport();
+	await page.evaluate(() => {
+		document.documentElement.classList.add('dark');
+		document.documentElement.setAttribute('data-theme', 'dark');
+	});
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('approvals-phone.png') });
+	await toggle.click();
+	const card = cards.first();
+	const heading = (await card.getByRole('button', { name: new RegExp(title), expanded: true }).boundingBox())!;
+	const decision = (await card.getByRole('button', { name: 'Approve' }).boundingBox())!;
+	expect(heading.y + heading.height).toBeLessThan(decision.y);
+	expect(Math.abs(heading.x + heading.width - decision.x - decision.width)).toBeLessThan(2);
+	const fields = [
+		card.getByTestId('task-workflow'),
+		card.getByRole('button', { name: 'Model server' }),
+		card.getByRole('combobox', { name: 'Model', exact: true })
+	];
+	const bounds = await Promise.all(fields.map(field => field.boundingBox()));
+	expect(Math.max(...bounds.map(b => b!.y)) - Math.min(...bounds.map(b => b!.y))).toBeLessThan(2);
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('approvals-controls-phone.png') });
+	await fields[0].click();
+	await page.getByRole('option', { name: 'Issue default' }).click();
+	const note = card.getByText("A custom workflow's first agent step decides the coding agent and model.");
+	await expect(note).toBeVisible();
+	expect((await note.boundingBox())!.width).toBeGreaterThan(decision.x + decision.width - heading.x - 2);
+	await cards.first().getByRole('button', { name: 'Deny' }).click();
+	await expect(cards).toHaveCount(1);
+	await expect(cards.first()).toContainText('Update the delivery report');
+});
+
+test('a live approval keeps the reader’s scroll position and typing focus', async ({ page }) => {
+	const state = await pendingDelegation(page, {
+		instructions: ['## Implementation', ...Array.from({ length: 25 }, (_, index) => `- Verify case ${index + 1}`), '', 'Persist delivery tracking IDs.'].join('\n')
+	});
+	const [approval] = state.approvals;
+	state.approvals = [];
+	state.messages = longTranscript(48);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const viewport = page.locator('[data-slot="message-scroller-viewport"]');
+	const composer = page.getByRole('textbox', { name: 'Message', exact: true });
+	await expect(page.locator('[data-slot="message"]')).toHaveCount(48);
+	await expect.poll(() => atLiveEdge(viewport)).toBe(true);
+	await composer.fill('Draft in progress');
+	await viewport.hover();
+	await page.mouse.wheel(0, -1500);
+	await expect.poll(() => atLiveEdge(viewport)).toBe(false);
+	const position = await viewport.evaluate(el => el.scrollTop);
+	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+	state.approvals = [approval];
+	state.sockets.at(-1)!.send(JSON.stringify({
+		id: 'pending', cursor: 1, conversation_id: 'chat-1', type: 'approval.requested', payload: approval
+	}));
+	const card = page.getByTestId('approval-card');
+	await expect(card).toBeInViewport();
+	await expect(card).toContainText(approval.message_model);
+	await expect(composer).toBeFocused();
+	await expect(composer).toHaveValue('Draft in progress');
+	await card.getByRole('button', { expanded: false }).click();
+	const details = card.getByTestId('approval-details');
+	await expect(details.getByRole('heading', { name: 'Implementation' })).toBeVisible();
+	const end = details.getByText('Persist delivery tracking IDs.', { exact: true });
+	await end.scrollIntoViewIfNeeded();
+	await expect(end).toBeInViewport();
+	expect(await details.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+	expect(await viewport.evaluate(el => el.scrollTop)).toBe(position);
+	await card.getByRole('button', { name: 'Deny', exact: true }).click();
+	await expect(card).toHaveCount(0);
+	await expect(composer).toBeFocused();
+	expect(await viewport.evaluate(el => el.scrollTop)).toBe(position);
 });

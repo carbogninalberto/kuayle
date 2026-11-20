@@ -83,7 +83,7 @@ func withLiveMessages(prompt string, messages []domain.AgentLiveMessage) string 
 			}
 			b.WriteString(":\n")
 		}
-		fmt.Fprintf(&b, "From %s (%s):\n~~~text\n%s\n~~~\n", sender, message.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), strings.ReplaceAll(message.Body, "~~~", "~ ~ ~"))
+		fmt.Fprintf(&b, "From %s (%s):\n~~~text\n%s\n~~~\n", sender, message.CreatedAt.UTC().Format("2006-01-02 15:04 UTC"), strings.ReplaceAll(message.DeliveryBody(), "~~~", "~ ~ ~"))
 	}
 	b.WriteString(liveReplyRule)
 	return prompt + b.String()

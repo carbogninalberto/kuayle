@@ -6,6 +6,7 @@
 	import type { AgentLiveChatMessage } from '$lib/api/agent-tasks';
 	import { m } from '$lib/features/i18n/messages';
 	import { cn } from '$lib/utils.js';
+	import MessageAttachments from './MessageAttachments.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 
 	// An echo of a live message in the owning assistant conversation.
@@ -39,12 +40,15 @@
 					><CircleHelp size={11} aria-hidden="true" />{m['assistant.agent_question']()}</Badge
 				>{/if}
 		</Message.Header>
-		<Bubble.Root variant={outgoing ? 'muted' : 'outline'}>
+		{#if message.attachments?.length}
+			<MessageAttachments slug={slug} conversationId={message.attachments[0].conversation_id} attachments={message.attachments} />
+		{/if}
+		{#if message.body}<Bubble.Root variant={outgoing ? 'muted' : 'outline'}>
 			<Bubble.Content data-selectable={outgoing ? undefined : 'text'} class={cn('pe-9', question ? 'border-[var(--status-warning)]/40' : '')}>
 				<p class="break-words whitespace-pre-wrap">{message.body}</p>
 			</Bubble.Content>
 			<CopyMessageButton text={message.body} />
-		</Bubble.Root>
+		</Bubble.Root>{/if}
 		<Message.Footer class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 			<time datetime={message.created_at}
 				>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time

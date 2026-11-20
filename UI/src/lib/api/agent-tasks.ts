@@ -1,5 +1,6 @@
 import { api } from './client';
 import type { AgentProvider, AgentRun, DevMachineLogChunk, ModelServer, TerminalSessionLaunchResponse } from '$lib/types/dev-machine';
+import type { ConversationAttachment } from './conversations';
 export type TaskState =
 	| 'queued'
 	| 'preparing'
@@ -217,6 +218,7 @@ export interface TaskOptions {
 // creator ("user") or the orchestrator for them; the agent's own text
 // (from_agent) is untrusted and only ever shown as plain text.
 export interface AgentLiveMessage {
+	attachments?: ConversationAttachment[];
 	id: string;
 	task_id: string;
 	direction: 'to_agent' | 'from_agent';
@@ -368,10 +370,10 @@ export const agentTasks = {
 		api.get<{ messages: AgentLiveMessage[] }>(`${task(slug, id)}/live-messages`),
 	// Starting an iteration (mode "start") on an issue whose work was merged is
 	// refused with 409 MERGED_WORK until it is sent again with confirmMerged.
-	sendLiveMessage: (slug: string, id: string, body: string, mode?: LiveSendMode, confirmMerged = false) =>
+	sendLiveMessage: (slug: string, id: string, body: string, mode?: LiveSendMode, confirmMerged = false, attachments: string[] = []) =>
 		api.post<AgentLiveMessage>(
 			`${task(slug, id)}/live-messages`,
-			mode ? { body, mode, ...(confirmMerged ? { confirm_merged: true } : {}) } : { body }
+			{ body, ...(mode ? { mode } : {}), ...(confirmMerged ? { confirm_merged: true } : {}), ...(attachments.length ? { attachment_ids: attachments } : {}) }
 		),
 	// Opens a terminal on the task's machine running Claude Code on the task's
 	// own session, in its worktree; only for its creator, while it is stopped.

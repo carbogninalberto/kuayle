@@ -1,13 +1,10 @@
 <script lang="ts">
-	import { assistantDraftKey } from './chat-draft';
+	import ChatComposer from './ChatComposer.svelte';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
-	import { onMount, tick, untrack } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import {
-		ArrowUp,
-		Square,
-		Plus,
 		RefreshCw,
 		MessageCircle,
 		ArrowDown,
@@ -20,15 +17,13 @@
 		Pencil,
 		SquarePen,
 		FileDiff,
-		Workflow as WorkflowIcon,
-		X
+		Workflow as WorkflowIcon
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
 	import * as MessageScroller from '$lib/components/ui/message-scroller/index.js';
-	import * as InputGroup from '$lib/components/ui/input-group/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
 	import * as Resizable from '$lib/components/ui/resizable/index.js';
@@ -37,13 +32,7 @@
 	import { ConversationState } from './conversation-state.svelte';
 	import { conversationSubject, onScreenSubjects } from '$lib/features/notifications/on-screen-subjects';
 	import { TaskBoard } from './task-board.svelte';
-	import { ComposerAttachments } from './composer-attachments.svelte';
-	import ComposerAttachmentList from './ComposerAttachments.svelte';
-	import ComposerVoice from './ComposerVoice.svelte';
-	import ComposerContext from './ComposerContext.svelte';
-	import { appendTranscript } from '$lib/features/voice/voice-rules';
 	import MessageAttachments from './MessageAttachments.svelte';
-	import { ATTACHMENT_TYPES } from './attachment-rules';
 	import ToolCalls from './ToolCalls.svelte';
 	import AgentChatMessage from './AgentChatMessage.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
@@ -53,23 +42,11 @@
 	import LiveStatus from './LiveStatus.svelte';
 	import ScrollerHandle from './ScrollerHandle.svelte';
 	import TaskComposer from './TaskComposer.svelte';
-	import MentionList from '$lib/components/shared/mention/MentionList.svelte';
-	import type { MentionItem } from '$lib/components/shared/mention/mention.extension';
 	import WikiReferenceChip from '$lib/features/wiki/WikiReferenceChip.svelte';
-	import { searchWikiReferences } from '$lib/api/wiki';
-	import { wikiReferences } from '$lib/features/wiki/wiki-reference-store';
-	import {
-		chatReferenceParts,
-		chatReferenceToken,
-		isWikiPageDrag,
-		mentionQueryAt,
-		mentionQueryMayMatch,
-		wikiPageDragData,
-		type WikiReference
-	} from '$lib/features/wiki/wiki-references';
+	import { chatReferenceParts } from '$lib/features/wiki/wiki-references';
 	import TaskStep from './TaskStep.svelte';
 	import AgentThread from './AgentThread.svelte';
-	import AgentComposer from './AgentComposer.svelte';
+	import { sendOptions } from './agent-conversation';
 	import { indicatorDot } from './task-tone';
 	import { taskLabel } from './task-labels';
 	import AssistantSidebar from './AssistantSidebar.svelte';
@@ -81,7 +58,6 @@
 	import { PanelHost, type PanelContext, type PanelDefinition } from './panels/panel-host.svelte';
 	import {
 		conversationIndicator,
-		isMessageableTask,
 		placeByTime,
 		taskIndicator,
 		visibleHistory,
@@ -90,19 +66,19 @@
 	import { listProjects } from '$lib/api/projects';
 	import { readRecents, recentsKey, writeRecents } from './recents-cache';
 	import type { Project } from '$lib/types/project';
-	import { listQuery, newChatProject, resolveProjectFilter, type ProjectFilter } from './project-filter';
+	import { listQuery, resolveProjectFilter, type ProjectFilter } from './project-filter';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
-	import { appToast, getErrorMessage } from '$lib/features/toast/toast';
+	import { appToast } from '$lib/features/toast/toast';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import type { AgentLiveChatMessage, AgentTask } from '$lib/api/agent-tasks';
 	import { m } from '$lib/features/i18n/messages';
 
 	// The assistant page: a three-column shell. Left, the assistant's own
 	// sidebar (places, search, Recents with folders); centre, the conversation
-	// with the orchestrator assistant, its tool steps, approvals and coding
-	// task steps where they happened; right, a resizable side panel host
+	// with the orchestrator assistant, tool and task steps, and pending approvals
+	// above the composer; right, a resizable side panel host
 	// (details, the coding agents' threads, a diff, and future panels). Below
 	// the breakpoints the sidebars become drawers.
 	let { slug, conversationId }: { slug: string; conversationId: string | null } = $props();
@@ -112,10 +88,8 @@
 	// view: the notifier stays quiet for them (see on-screen-subjects.ts).
 	$effect(() => (conversationId ? onScreenSubjects.show(conversationSubject(conversationId)) : undefined));
 	const userKey = untrack(() => `${authState.user?.id}:${slug}`);
-	const draftKey = untrack(() => assistantDraftKey(authState.user?.id, slug, conversationId));
 	let status = $state<AssistantStatus>({ configured: false });
 	let initialized = $state(false);
-	let text = $state('');
 	// The list's project filter is remembered per person and workspace; a new
 	// chat started under a project filter belongs to that project.
 	const filterKey = untrack(() => `assistant-project-filter:${userKey}`);
@@ -315,8 +289,6 @@
 	function closeAgent() {
 		void goto(assistantHref, { reset: false });
 	}
-	// An agent's view has its own composer, which writes to that agent
-	// (AgentComposer); the page's composer belongs to the assistant's chat.
 	const requestedTask = untrack(() => page.url.searchParams.get('task'));
 	$effect(() => {
 		const wanted = page.url.searchParams.get('task') ?? requestedTask;
@@ -361,10 +333,9 @@
 		return result;
 	});
 
+	let composer = $state<ChatComposer>();
 	let sending = $state(false);
 	let error = $state('');
-	let notice = $state('');
-	let textarea = $state<HTMLTextAreaElement | null>(null);
 	let scroller = $state<ReturnType<typeof MessageScroller.useMessageScroller>>();
 	// Reloads after sending keep the transcript, header and task on screen, so
 	// the reader keeps their place; only the first load shows the loading state.
@@ -415,132 +386,20 @@
 	);
 
 	// ── Composer target: the assistant, or one of this chat's coding agents.
-	const messageable = $derived(
-		(board?.tasks ?? []).filter((task) => task.kind !== 'review' && isMessageableTask(task.state))
-	);
-	const targetTask = $derived(chat.composerTarget ? chat.liveTasks[chat.composerTarget] : undefined);
-	const toAgent = $derived(!!targetTask && isMessageableTask(targetTask.state));
-	$effect(() => {
-		// An agent that finished can no longer be written to: fall back.
-		if (chat.composerTarget && !toAgent) untrack(() => (chat.composerTarget = null));
-	});
+	const messageable = $derived((board?.tasks ?? []).filter(task => sendOptions(task, authState.user?.id).open));
+	const targetTask = $derived(agentView ? agentTask : chat.composerTarget ? chat.liveTasks[chat.composerTarget] : undefined);
+	function chooseTarget(id: string | null) {
+		chat.composerTarget = id;
+		if (agentView && id !== agentTask?.id) {
+			const task = id && chat.liveTasks[id];
+			if (task) openAgent(task);
+			else closeAgent();
+		}
+	}
 	const agentName = (task: AgentTask) => agentInfo(task.provider).name;
-	const targetLabel = $derived(
-		toAgent && targetTask
-			? m['assistant.target_agent']({ identifier: chat.issue?.identifier ?? '', agent: agentName(targetTask) })
-			: m['assistant.target_assistant']()
-	);
-	$effect(() => {
-		void chat.composerFocus;
-		if (!chat.composerFocus) return;
-		untrack(() => {
-			// On narrow screens the panel is a drawer over the composer.
-			if (!wide.current) host.close();
-			void tick().then(() => textarea?.focus());
-		});
-	});
 
 	function followLatest() {
 		scroller?.scrollToEnd({ behavior: 'auto' });
-	}
-	let draftLoaded = $state(false);
-	let pending: { id: string; content: string; attachments: string[]; conversation?: string } | null = null;
-	// A new chat is created when its first image is attached, so the image can
-	// be uploaded to it before the first message is sent.
-	let draftConversation: string | null = null;
-	let fileInput = $state<HTMLInputElement | null>(null);
-	let dragging = $state(false);
-
-	// Wiki page references. The composer is plain text, so a page chosen with
-	// "@" or dragged in from a wiki tree goes in as a token naming the page;
-	// sent messages show it as the usual reference chip.
-	let pageMention = $state<{ from: number; query: string } | null>(null);
-	let pageSuggestions = $state<WikiReference[]>([]);
-	let pageIndex = $state(0);
-	let pageMenu = $state({ x: 0, y: 0, height: 0 });
-	const pageItems = $derived<MentionItem[]>(
-		pageSuggestions.map((page) => ({ kind: 'wiki', id: page.id, title: page.title ?? '', scope: page.scope_name ?? '' }))
-	);
-	function trackPageMention() {
-		const found = textarea ? mentionQueryAt(textarea.value, textarea.selectionStart) : null;
-		if (found && textarea && !pageMention) {
-			const rect = textarea.getBoundingClientRect();
-			pageMenu = { x: rect.left, y: rect.bottom + 4, height: rect.height };
-		}
-		if (found?.query !== pageMention?.query) pageIndex = 0;
-		pageMention = found;
-	}
-	// Queries of the "@" being typed that found no page: text that continues
-	// one of them is ordinary prose after an "@", not a search.
-	let emptyPageQueries: { from: number; queries: string[] } | null = null;
-	$effect(() => {
-		const mention = pageMention;
-		if (!mention) {
-			pageSuggestions = [];
-			emptyPageQueries = null;
-			return;
-		}
-		if (emptyPageQueries?.from !== mention.from) emptyPageQueries = { from: mention.from, queries: [] };
-		const empty = emptyPageQueries.queries;
-		if (!mentionQueryMayMatch(mention.query.trim(), empty)) {
-			pageSuggestions = [];
-			return;
-		}
-		let stale = false;
-		const timer = setTimeout(
-			() =>
-				void searchWikiReferences(slug, mention.query)
-					.then((found) => {
-						if (found.length === 0) empty.push(mention.query.trim());
-						if (!stale) pageSuggestions = found;
-					})
-					.catch(() => {
-						if (!stale) pageSuggestions = [];
-					}),
-			mention.query ? 120 : 0
-		);
-		return () => {
-			stale = true;
-			clearTimeout(timer);
-		};
-	});
-	/** Puts a page reference in the draft, replacing [from, to) of it. */
-	function insertPageReference(reference: WikiReference, from: number, to: number) {
-		const token = chatReferenceToken(reference);
-		const before = text.slice(0, from);
-		const lead = before && !/\s$/.test(before) ? ' ' : '';
-		text = `${before}${lead}${token} ${text.slice(to).replace(/^ /, '')}`;
-		const caret = before.length + lead.length + token.length + 1;
-		pageMention = null;
-		void tick().then(() => {
-			textarea?.focus();
-			textarea?.setSelectionRange(caret, caret);
-		});
-	}
-	function choosePage(item: MentionItem | undefined) {
-		const reference = pageSuggestions.find((page) => page.id === item?.id);
-		if (!reference || !pageMention || !textarea) return;
-		insertPageReference(reference, pageMention.from, textarea.selectionStart);
-	}
-	async function dropPage(pageId: string) {
-		const reference = await wikiReferences.resolve(slug, pageId);
-		if (!reference.accessible) return;
-		const at = textarea?.selectionStart ?? text.length;
-		insertPageReference(reference, at, at);
-	}
-
-	async function ensureConversation(fallbackTitle = m['assistant.image_title']()) {
-		const existing = conversationId ?? pending?.conversation ?? draftConversation;
-		if (existing) return existing;
-		draftConversation = (
-			await conversations.create(slug, text.trim().slice(0, 100) || fallbackTitle, newChatProject(projectFilter))
-		).id;
-		return draftConversation;
-	}
-	const attachments = untrack(() => new ComposerAttachments(slug, () => ensureConversation()));
-	const sameIds = (a: string[], b: string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
-	function imageFiles(list: FileList | null | undefined) {
-		return Array.from(list ?? []).filter((file) => file.type.startsWith('image/'));
 	}
 	let retryRequest: { message: string; id: string } | null = null;
 	let disposed = false;
@@ -553,23 +412,6 @@
 				]
 			: [m['assistant.suggest_review'](), m['assistant.suggest_create'](), m['assistant.suggest_teams']()]
 	);
-	const agentTooLong = $derived(toAgent && text.length > 4000);
-	const canSend = $derived(
-		toAgent
-			? text.trim().length > 0 && !agentTooLong && !sending && !chat.unavailable
-			: initialized &&
-					status.configured &&
-					(text.trim().length > 0 || attachments.ids.length > 0) &&
-					new TextEncoder().encode(text).length <= 16384 &&
-					!attachments.uploading &&
-					!attachments.failed &&
-					!sending &&
-					!chat.busy &&
-					!chat.unavailable &&
-					!chat.loading &&
-					!chat.failed
-	);
-
 	// An issue chat's coding tasks load once its issue is known.
 	$effect(() => {
 		if (!chat.issue || board || chat.unavailable) return;
@@ -589,16 +431,6 @@
 				description: question.body.length > 140 ? `${question.body.slice(0, 140)}…` : question.body,
 				duration: 10000
 			});
-		try {
-			text = localStorage.getItem(draftKey) ?? '';
-			const saved = JSON.parse(localStorage.getItem(`${draftKey}:pending`) ?? 'null');
-			// Images are not restored after a reload, so only a text-only send resumes.
-			if (saved && typeof saved.id === 'string' && saved.content === text && !saved.attachments?.length)
-				pending = { ...saved, attachments: [] };
-		} catch {
-			/* Storage can be disabled. */
-		}
-		draftLoaded = true;
 		const saved = projectFilter;
 		void Promise.all([
 			conversations.list(slug, listQuery(saved)),
@@ -637,123 +469,6 @@
 			clearInterval(queueTimer);
 		};
 	});
-	// A view can ask for a message, such as a review request from an agent's
-	// view; the user still reads, edits and sends it — to the assistant. The
-	// composer takes focus once it is on screen again.
-	let draftFocus = $state(false);
-	$effect(() => {
-		const draft = chat.composerDraft;
-		if (draft === null) return;
-		untrack(() => {
-			chat.composerDraft = null;
-			chat.composerTarget = null;
-			text = draft;
-			if (!wide.current) host.close();
-			draftFocus = true;
-		});
-	});
-	$effect(() => {
-		if (!draftFocus || !textarea?.isConnected) return;
-		const target = textarea;
-		untrack(() => (draftFocus = false));
-		void tick().then(() => target.focus());
-	});
-	$effect(() => {
-		if (!draftLoaded) return;
-		try {
-			if (text) localStorage.setItem(draftKey, text);
-			else localStorage.removeItem(draftKey);
-		} catch {
-			/* Private browsing may deny storage. */
-		}
-	});
-
-	async function sendToAgent(task: AgentTask) {
-		const body = text.trim();
-		sending = true;
-		error = '';
-		notice = '';
-		try {
-			const message = await agentTasks.sendLiveMessage(slug, task.id, body);
-			chat.recordAgentSend(message);
-			if (disposed) return;
-			if (text.trim() === body) text = '';
-			notice = m['assistant.sent_to_agent']({ identifier: chat.issue?.identifier ?? '', agent: agentName(task) });
-			await tick();
-			textarea?.focus();
-		} catch (e) {
-			if (!disposed) error = getErrorMessage(e, m['tasks.live_send_error']());
-		} finally {
-			sending = false;
-		}
-	}
-
-	async function send(event?: SubmitEvent) {
-		event?.preventDefault();
-		if (!canSend) return;
-		if (toAgent && targetTask) return sendToAgent(targetTask);
-		sending = true;
-		error = '';
-		notice = '';
-		followLatest();
-		const ids = attachments.ids;
-		if (!pending || pending.content !== text || !sameIds(pending.attachments, ids))
-			pending = {
-				id: crypto.randomUUID(),
-				content: text,
-				attachments: ids,
-				conversation: pending?.conversation ?? draftConversation ?? undefined
-			};
-		try {
-			const id =
-				conversationId ??
-				pending.conversation ??
-				(
-					await conversations.create(
-						slug,
-						text.trim().slice(0, 100) || m['assistant.image_title'](),
-						newChatProject(projectFilter)
-					)
-				).id;
-			pending.conversation = id;
-			try {
-				localStorage.setItem(`${draftKey}:pending`, JSON.stringify(pending));
-			} catch {
-				/* Sending still works without storage. */
-			}
-			const submitted = pending.content;
-			const accepted = await conversations.send(slug, id, pending.id, submitted, pending.attachments);
-			if (disposed) return;
-			chat.accept(accepted);
-			if (text === submitted) text = '';
-			if (sameIds(attachments.ids, pending.attachments)) attachments.clear();
-			pending = null;
-			try {
-				if (!text) localStorage.removeItem(draftKey);
-				else if (!conversationId) localStorage.setItem(draftKey.replace(/:new$/, `:${id}`), text);
-				localStorage.removeItem(`${draftKey}:pending`);
-			} catch {
-				/* Storage is optional. */
-			}
-			if (!conversationId) await goto(`/${slug}/assistant?conversation=${encodeURIComponent(id)}`);
-			else await chat.load();
-			await tick();
-			textarea?.focus();
-		} catch {
-			if (!disposed) error = m['assistant.send_error']();
-		} finally {
-			sending = false;
-		}
-	}
-	async function stop() {
-		if (!conversationId) return;
-		try {
-			await conversations.cancel(slug, conversationId);
-			await chat.load();
-		} catch {
-			error = m['assistant.error']();
-		}
-	}
 	async function retry(message: string) {
 		if (!conversationId || sending) return;
 		sending = true;
@@ -1053,14 +768,8 @@
 						text={() => markdownToPlainText(message.content)}
 					/>{/if}
 			</Bubble.Root>
-			<!-- Approval requests always close the message, after its text. -->
-			<ToolCalls
-				calls={chat.tools[message.id] ?? []}
-				slug={chat.slug}
-				approvals={chat.approvals}
-				part="approvals"
-				onresolve={(approval, decision, choice) => chat.resolveApproval(approval, decision, choice)}
-			/>
+			<ToolCalls calls={chat.tools[message.id] ?? []} slug={chat.slug} approvals={chat.approvals} part="approvals" />
+			{#if message.status !== 'completed' || !(chat.tools[message.id] ?? []).some(call => chat.approvals[call.id]?.status === 'pending')}
 			<Message.Footer class="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
 				<time datetime={message.created_at}
 					>{new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time
@@ -1073,6 +782,7 @@
 					>
 				{/if}
 			</Message.Footer>
+			{/if}
 		</Message.Content>
 	</Message.Root>
 {/snippet}
@@ -1086,249 +796,6 @@
 				onretry={board ? () => board?.retry(item.task) : undefined}
 			/>{/if}
 	</MessageScroller.Item>
-{/snippet}
-
-{#snippet composer()}
-	<div class="shrink-0 px-3 pt-1 pb-3 md:px-6 md:pb-4">
-		<div class="mx-auto w-full max-w-3xl">
-			{#if error || chat.failed}<p role="alert" class="mb-2 text-sm text-destructive">
-					{error || m['assistant.error']()}
-				</p>{/if}
-			{#if initialized && !status.configured && !toAgent}<p class="mb-3 text-sm text-muted-foreground">
-					{m['assistant.configure']()} <a class="underline" href="/{slug}/settings/ai">{m['assistant.settings']()}</a>
-				</p>{/if}
-			{#if attachments.notice}<p role="alert" class="mb-2 text-sm text-destructive">{attachments.notice}</p>{/if}
-			{#if toAgent && targetTask}
-				<div
-					class="mb-1.5 flex min-w-0 items-center gap-2 rounded-lg border border-[var(--status-running)]/40 bg-[var(--status-running)]/5 px-3 py-1.5 text-xs"
-					role="status"
-				>
-					<Bot size={14} class="shrink-0 text-[var(--status-running)]" aria-hidden="true" />
-					<span class="min-w-0 flex-1 truncate"
-						>{m['assistant.target_agent_notice']({
-							identifier: chat.issue?.identifier ?? '',
-							agent: agentName(targetTask)
-						})}</span
-					>
-					<Button
-						variant="ghost"
-						size="sm"
-						class="h-6 shrink-0 px-2 text-xs"
-						onclick={() => (chat.composerTarget = null)}><X size={12} />{m['assistant.target_back']()}</Button
-					>
-				</div>
-			{/if}
-			<form
-				onsubmit={send}
-				aria-label={m['assistant.composer']()}
-				ondragover={(event) => {
-					if (isWikiPageDrag(event.dataTransfer) && !chat.unavailable) {
-						event.preventDefault();
-						dragging = true;
-						return;
-					}
-					if (toAgent || !status.configured || chat.unavailable || !event.dataTransfer?.types.includes('Files')) return;
-					event.preventDefault();
-					dragging = true;
-				}}
-				ondragleave={(event) => {
-					if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) dragging = false;
-				}}
-				ondrop={(event) => {
-					dragging = false;
-					const pageId = wikiPageDragData(event.dataTransfer);
-					if (pageId) {
-						event.preventDefault();
-						if (!chat.unavailable) void dropPage(pageId);
-						return;
-					}
-					if (toAgent) return;
-					const files = imageFiles(event.dataTransfer?.files);
-					if (!files.length) return;
-					event.preventDefault();
-					attachments.add(files);
-				}}
-			>
-				<input
-					bind:this={fileInput}
-					type="file"
-					accept={ATTACHMENT_TYPES.join(',')}
-					multiple
-					class="sr-only"
-					tabindex="-1"
-					aria-hidden="true"
-					onchange={(event) => {
-						const input = event.currentTarget as HTMLInputElement;
-						attachments.add(Array.from(input.files ?? []));
-						input.value = '';
-					}}
-				/>
-				<InputGroup.Root
-					class="rounded-2xl bg-background shadow-sm {dragging ? 'ring-2 ring-ring' : ''} {toAgent
-						? 'border-[var(--status-running)]/50'
-						: ''}"
-				>
-					{#if attachments.items.length && !toAgent}<InputGroup.Addon align="block-start"
-							><ComposerAttachmentList {attachments} /></InputGroup.Addon
-						>{/if}
-					<InputGroup.Textarea
-						bind:ref={textarea}
-						bind:value={text}
-						aria-label={toAgent ? m['tasks.live_composer']() : m['assistant.message']()}
-						aria-invalid={agentTooLong || undefined}
-						placeholder={toAgent && targetTask
-							? m['assistant.placeholder_agent']({
-									identifier: chat.issue?.identifier ?? '',
-									agent: agentName(targetTask)
-								})
-							: m['assistant.placeholder']()}
-						maxlength={16000}
-						disabled={!toAgent && (!initialized || !status.configured || chat.unavailable)}
-						class="max-h-48 min-h-11"
-						oninput={trackPageMention}
-						onclick={trackPageMention}
-						onkeyup={(event) => {
-							if (event.key.startsWith('Arrow') && !(pageMention && pageItems.length)) trackPageMention();
-						}}
-						onblur={() => (pageMention = null)}
-						onkeydown={(event) => {
-							// The page menu takes the keys the rich editor's mention menu takes.
-							if (pageMention && pageItems.length && !event.isComposing) {
-								if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-									event.preventDefault();
-									pageIndex = (pageIndex + (event.key === 'ArrowDown' ? 1 : pageItems.length - 1)) % pageItems.length;
-									return;
-								}
-								if (event.key === 'Enter' || event.key === 'Tab') {
-									event.preventDefault();
-									choosePage(pageItems[pageIndex]);
-									return;
-								}
-								if (event.key === 'Escape') {
-									event.preventDefault();
-									pageMention = null;
-									return;
-								}
-							}
-							if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-								event.preventDefault();
-								void send();
-							}
-						}}
-						onpaste={(event) => {
-							if (toAgent) return;
-							const files = imageFiles(event.clipboardData?.files);
-							if (!files.length) return;
-							event.preventDefault();
-							attachments.add(files);
-						}}
-					/>
-					<InputGroup.Addon align="block-end" class="justify-between gap-2">
-						<div class="flex min-w-0 items-center gap-1">
-							<InputGroup.Button
-								size="icon-sm"
-								aria-label={m['assistant.attach']()}
-								title={m['assistant.attach']()}
-								disabled={toAgent || !initialized || !status.configured || chat.unavailable}
-								onclick={() => fileInput?.click()}><Plus size={16} /></InputGroup.Button
-							>
-							{#if messageable.length}
-								<DropdownMenu.Root>
-									<DropdownMenu.Trigger>
-										{#snippet child({ props })}
-											<InputGroup.Button
-												{...props}
-												size="sm"
-												variant={toAgent ? 'secondary' : 'outline'}
-												class="h-7 max-w-56 min-w-0 gap-1 rounded-full px-2.5 text-xs"
-												aria-label={m['assistant.target_label']({ target: targetLabel })}
-												>{#if toAgent}<Bot size={13} />{:else}<MessageCircle size={13} />{/if}<span class="truncate"
-													>{targetLabel}</span
-												><ChevronDown size={12} class="shrink-0" /></InputGroup.Button
-											>
-										{/snippet}
-									</DropdownMenu.Trigger>
-									<DropdownMenu.Content align="start" class="w-64">
-										<DropdownMenu.Label class="text-xs font-normal text-muted-foreground"
-											>{m['assistant.target_heading']()}</DropdownMenu.Label
-										>
-										<DropdownMenu.CheckboxItem checked={!toAgent} onCheckedChange={() => (chat.composerTarget = null)}
-											>{m['assistant.target_assistant']()}</DropdownMenu.CheckboxItem
-										>
-										{#each messageable as task (task.id)}<DropdownMenu.CheckboxItem
-												checked={chat.composerTarget === task.id}
-												onCheckedChange={() => (chat.composerTarget = task.id)}
-												><span class="truncate"
-													>{m['assistant.target_agent']({
-														identifier: chat.issue?.identifier ?? '',
-														agent: agentName(task)
-													})}</span
-												></DropdownMenu.CheckboxItem
-											>{/each}
-									</DropdownMenu.Content>
-								</DropdownMenu.Root>
-							{:else}
-								<span class="flex h-7 items-center gap-1 rounded-full border px-2.5 text-xs text-muted-foreground"
-									><MessageCircle size={13} aria-hidden="true" />{m['assistant.target_assistant']()}</span
-								>
-							{/if}
-						</div>
-						<div class="flex shrink-0 items-center gap-1">
-							<ComposerContext {chat} />
-							<ComposerVoice
-								{slug}
-								ensureConversation={() => ensureConversation(m['voice.conversation_title']())}
-								disabled={!initialized || !status.configured || chat.unavailable}
-								ontranscript={(transcript) => {
-									text = appendTranscript(text, transcript);
-									textarea?.focus();
-								}}
-							/>
-							{#if chat.busy && !toAgent}<InputGroup.Button
-									size="icon-sm"
-									aria-label={m['assistant.stop']()}
-									onclick={() => void stop()}><Square size={14} /></InputGroup.Button
-								>
-							{:else}<InputGroup.Button
-									type="submit"
-									variant="default"
-									size="icon-sm"
-									class="rounded-full"
-									disabled={!canSend}
-									aria-label={toAgent ? m['tasks.live_send']() : m['assistant.send']()}
-									><ArrowUp size={16} /></InputGroup.Button
-								>{/if}
-						</div>
-					</InputGroup.Addon>
-				</InputGroup.Root>
-				<p class="mt-1.5 flex min-w-0 justify-center gap-1 text-center text-[11px] text-muted-foreground">
-					{#if notice}<span role="status" class="truncate">{notice}</span>{:else}
-						<span class="truncate">{toAgent ? '' : `${status.model ?? m['assistant.no_provider']()} · `}{sending
-								? m['assistant.sending']()
-								: attachments.uploading
-									? m['assistant.attachment_wait']()
-									: dragging
-										? m['assistant.attachment_drop']()
-										: toAgent
-											? targetTask?.state === 'running'
-												? m['tasks.live_hint_running']()
-												: m['tasks.live_hint_next']()
-											: m['assistant.hint']()}</span
-						>{/if}
-				</p>
-			</form>
-			{#if pageMention && pageItems.length}
-				<MentionList
-					items={pageItems}
-					selectedIndex={pageIndex}
-					position={pageMenu}
-					anchorHeight={pageMenu.height}
-					onselect={choosePage}
-					onclose={() => (pageMention = null)}
-				/>
-			{/if}
-		</div>
-	</div>
 {/snippet}
 
 {#snippet center()}
@@ -1404,11 +871,7 @@
 													size="sm"
 													class="max-w-full"
 													disabled={sending}
-													onclick={() => {
-														chat.composerTarget = null;
-														text = suggestion;
-														void send();
-													}}><span class="truncate">{suggestion}</span></Button
+													onclick={() => composer?.suggest(suggestion)}><span class="truncate">{suggestion}</span></Button
 												>
 											{/each}
 										</div>
@@ -1417,11 +880,14 @@
 							{/if}
 							{#each shown.shown as message (message.id)}
 								{#each timeline.before[message.id] ?? [] as item (item.id)}{@render timelineItem(item)}{/each}
+								{@const tools = chat.tools[message.id] ?? []}
+								{#if message.role === 'user' || message.content || message.status !== 'completed' || !tools.length || tools.some(call => chat.approvals[call.id]?.status !== 'pending')}
 								<MessageScroller.Item messageId={message.id}>
 									{#if message.role === 'user'}{@render userMessage(message)}{:else}{@render assistantMessage(
 											message
 										)}{/if}
 								</MessageScroller.Item>
+								{/if}
 							{/each}
 							{#each timeline.after as item (item.id)}{@render timelineItem(item)}{/each}
 						</MessageScroller.Content>
@@ -1433,10 +899,12 @@
 				</MessageScroller.Root>
 			</MessageScroller.Provider>
 		</div>
-		{#if !agentView}{@render composer()}{:else if agentTask}{#key agentTask.id}<AgentComposer
-					{chat}
-					task={agentTask}
-				/>{/key}{/if}
+		{#if !agentView || (agentTask && sendOptions(agentTask, authState.user?.id).open)}
+			<ChatComposer bind:this={composer} {chat} {conversationId} {projectFilter} {status} {initialized}
+				{targetTask} {messageable} {chooseTarget} {followLatest} bind:sending bind:error
+				reveal={() => { if (!wide.current) host.close(); }} />
+		{/if}
+
 	</section>
 {/snippet}
 

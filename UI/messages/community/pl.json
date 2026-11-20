@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Agent programistyczny będzie pracował nad {title} w izolowanym środowisku z tymi instrukcjami:",
 	"assistant.approval_repository": "Repozytorium: {repository} na {branch}, z ustawień: {source}",
 	"assistant.approval_approve": "Zatwierdź",
+	"assistant.approval_review_details": "Rozwiń szczegóły, aby zatwierdzić.",
 	"assistant.approval_deny": "Odrzuć",
 	"assistant.approval_approving": "Uruchamianie agenta programistycznego dla {identifier}",
 	"assistant.approval_approved": "Agent programistyczny uruchomiony dla {identifier}",

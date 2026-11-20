@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "A coding agent will work on {title} in an isolated environment with these instructions:",
 	"assistant.approval_repository": "Repository: {repository} on {branch}, from the {source} settings",
 	"assistant.approval_approve": "Approve",
+	"assistant.approval_review_details": "Expand the details to approve.",
 	"assistant.approval_deny": "Deny",
 	"assistant.approval_approving": "Starting coding agent on {identifier}",
 	"assistant.approval_approved": "Coding agent started on {identifier}",

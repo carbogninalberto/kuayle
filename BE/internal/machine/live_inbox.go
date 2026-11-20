@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,6 +104,23 @@ func (m *Manager) startLiveChannel(ctx context.Context, machine *domain.DevMachi
 	}
 }
 
+// Write the image bytes before the message that names them becomes visible.
+// Copy one bounded object at a time, including when replaying a prompt batch.
+func (m *Manager) writeLiveImage(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, image domain.ConversationAttachment) error {
+	writer, ok := m.runtime.(liveInboxRuntime)
+	if !ok || m.attachmentFiles == nil {
+		return errLiveInboxUnavailable
+	}
+	if _, ok := domain.ConversationAttachmentTypes[image.ContentType]; !ok || image.ID == uuid.Nil {
+		return fmt.Errorf("invalid live image")
+	}
+	data, err := m.readAttachment(ctx, image.StorageKey, image.Size)
+	if err != nil {
+		return err
+	}
+	return writer.WriteLiveInbox(ctx, machine, run, []domain.AgentLiveInboxFile{{Name: image.InboxName(), Data: data}})
+}
+
 // deliverLiveInbox writes the run's queued messages to its inbox, then marks
 // them delivered. A failed mark leaves them queued; rewriting the same
 // <seq>.json is harmless because the reader tracks sequence numbers.
@@ -119,6 +137,21 @@ func (m *Manager) deliverLiveInbox(ctx context.Context, machine *domain.DevMachi
 	files := make([]domain.AgentLiveInboxFile, 0, len(messages))
 	ids := make([]uuid.UUID, 0, len(messages))
 	for _, message := range messages {
+		var available []domain.ConversationAttachment
+		for _, image := range message.Attachments {
+			err := m.writeLiveImage(ctx, machine, run, image)
+			if errors.Is(err, errStoredAttachmentUnavailable) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			available = append(available, image)
+		}
+		if len(available) < len(message.Attachments) {
+			message.Attachments = available
+			message.Body = strings.TrimSpace(message.Body + "\n[One or more attached images are unavailable.]")
+		}
 		file, err := message.InboxFile()
 		if err != nil {
 			return err

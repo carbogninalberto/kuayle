@@ -30,8 +30,8 @@
 	const noted = $derived(isCustomChoice(value) || (value === DEFAULT_WORKFLOW && defaultMayBeCustom(list)));
 </script>
 
-<div class="space-y-1.5">
-	<Label for={id} class="text-xs font-medium text-muted-foreground">{m['workflows.choose_label']()}</Label>
+<div class="grid min-w-0 gap-1.5">
+	<Label for={id} class="text-xs leading-4 font-medium text-muted-foreground">{m['workflows.choose_label']()}</Label>
 	<SelectField
 		{id}
 		bind:value
@@ -40,5 +40,5 @@
 		aria-describedby={noted ? `${id}-note` : undefined}
 		data-testid="task-workflow"
 	/>
-	{#if noted}<p id="{id}-note" class="text-xs text-muted-foreground">{m['workflows.composer_note']()}</p>{/if}
 </div>
+{#if noted}<p id="{id}-note" class="order-last basis-full text-xs text-muted-foreground">{m['workflows.composer_note']()}</p>{/if}

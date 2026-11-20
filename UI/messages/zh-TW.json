@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "編碼代理將在隔離環境中依下列說明處理 {title}：",
 	"assistant.approval_repository": "儲存庫：{repository}（{branch} 分支），來自{source}設定",
 	"assistant.approval_approve": "核准",
+	"assistant.approval_review_details": "展開詳細資料後即可核准。",
 	"assistant.approval_deny": "拒絕",
 	"assistant.approval_approving": "正在 {identifier} 上啟動編碼代理",
 	"assistant.approval_approved": "已在 {identifier} 上啟動編碼代理",

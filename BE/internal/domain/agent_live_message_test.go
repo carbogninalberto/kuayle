@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,4 +67,21 @@ func TestLiveInboxFileHoldsOnlyTheMessage(t *testing.T) {
 
 	_, err = AgentLiveMessage{Sender: AgentLiveSenderUser, Body: "x"}.InboxFile()
 	require.Error(t, err, "only sequenced messages for the agent have inbox files")
+}
+
+func TestLiveInboxCarriesFullLengthBodyWithAllItsImages(t *testing.T) {
+	seq := int64(1)
+	message := AgentLiveMessage{Seq: &seq, Sender: AgentLiveSenderUser, Body: strings.Repeat("🌳", AgentMessageMaxRunes)}
+	for i := 0; i < ConversationAttachmentsPerMessage; i++ {
+		message.Attachments = append(message.Attachments, ConversationAttachment{ID: uuid.New(), ContentType: "image/webp", StorageKey: "internal-object-key"})
+	}
+	file, err := message.InboxFile()
+	require.NoError(t, err)
+	var delivered struct{ Body string }
+	require.NoError(t, json.Unmarshal(file.Data, &delivered))
+	require.Equal(t, message.DeliveryBody(), delivered.Body)
+	require.Contains(t, delivered.Body, message.Attachments[len(message.Attachments)-1].InboxName())
+	encoded, err := json.Marshal(message)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "internal-object-key")
 }

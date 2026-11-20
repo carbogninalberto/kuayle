@@ -23,8 +23,8 @@ var ConversationAttachmentTypes = map[string]string{
 	"image/gif":  ".gif",
 }
 
-// ConversationAttachment is an image on a user message. Before the message is
-// sent it is pending (MessageID nil) and visible only to its uploader.
+// ConversationAttachment is an image uploaded to a conversation. It can be claimed by
+// an assistant-chat message or a live agent message in that conversation.
 type ConversationAttachment struct {
 	ID             uuid.UUID  `json:"id" db:"id"`
 	WorkspaceID    uuid.UUID  `json:"-" db:"workspace_id"`

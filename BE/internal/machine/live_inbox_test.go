@@ -325,3 +325,57 @@ func TestRunningAttemptsReceiveLiveMessagesAndSendOutboxWhileRunning(t *testing.
 	defer store.mu.Unlock()
 	require.LessOrEqual(t, store.ticks, ticks+1, "the loop stops with the attempt")
 }
+
+type temporaryReadFailure struct{}
+
+func (temporaryReadFailure) Get(context.Context, string) (io.ReadCloser, error) {
+	return nil, context.DeadlineExceeded
+}
+
+func TestLiveImageBytesArriveBeforeTheirMessageAndFailureIsRetried(t *testing.T) {
+	machine, run := liveInboxFixture()
+	seq := int64(1)
+	image := domain.ConversationAttachment{ID: uuid.New(), StorageKey: "private-image", Filename: "../screen.png", Size: 3, ContentType: "image/png"}
+	message := domain.AgentLiveMessage{ID: uuid.New(), Seq: &seq, Sender: domain.AgentLiveSenderUser, Body: "Check this", Attachments: []domain.ConversationAttachment{image}}
+	store := &liveStoreFake{managerStoreFake: &managerStoreFake{agentRun: run}, pending: []domain.AgentLiveMessage{message}}
+	runtime := &liveRuntimeFake{}
+	manager := &Manager{store: store, runtime: runtime}
+	manager.SetAttachmentStorage(temporaryReadFailure{})
+	require.ErrorIs(t, manager.deliverLiveInbox(context.Background(), machine, run), context.DeadlineExceeded)
+	require.Empty(t, store.delivered)
+	require.Empty(t, runtime.written)
+	manager.SetAttachmentStorage(stagingFiles{image.StorageKey: []byte("png")})
+	require.NoError(t, manager.deliverLiveInbox(context.Background(), machine, run))
+	require.Len(t, runtime.written, 2)
+	require.Equal(t, domain.AgentLiveInboxFile{Name: image.ID.String() + ".png", Data: []byte("png")}, runtime.written[0])
+	require.Equal(t, "1.json", runtime.written[1].Name)
+	require.Contains(t, string(runtime.written[1].Data), domain.AgentLiveInboxPath+"/"+image.InboxName())
+	require.Equal(t, []uuid.UUID{message.ID}, store.delivered)
+}
+
+func TestUnavailableLiveImagesDoNotBlockLaterMessages(t *testing.T) {
+	machine, run := liveInboxFixture()
+	images := []domain.ConversationAttachment{}
+	for _, key := range []string{"missing", "changed", "intact"} {
+		images = append(images, domain.ConversationAttachment{ID: uuid.New(), StorageKey: key, Size: 3, ContentType: "image/png"})
+	}
+	first := domain.AgentLiveMessage{ID: uuid.New(), Seq: new(int64(1)), Sender: domain.AgentLiveSenderUser, Body: "Screenshots", Attachments: images}
+	next := domain.AgentLiveMessage{ID: uuid.New(), Seq: new(int64(2)), Sender: domain.AgentLiveSenderUser, Body: "Another message"}
+	store := &liveStoreFake{managerStoreFake: &managerStoreFake{agentRun: run}, pending: []domain.AgentLiveMessage{first, next}}
+	runtime := &liveRuntimeFake{}
+	manager := &Manager{store: store, runtime: runtime}
+	manager.SetAttachmentStorage(stagingFiles{"changed": []byte("longer"), "intact": []byte("png")})
+	require.NoError(t, manager.deliverLiveInbox(t.Context(), machine, run))
+	require.Len(t, runtime.written, 3)
+	require.Equal(t, images[2].InboxName(), runtime.written[0].Name)
+	require.Equal(t, "1.json", runtime.written[1].Name)
+	body := string(runtime.written[1].Data)
+	require.Contains(t, body, "Screenshots")
+	require.Contains(t, body, "unavailable")
+	require.Contains(t, body, images[2].InboxName())
+	require.NotContains(t, body, images[0].InboxName())
+	require.NotContains(t, body, images[1].InboxName())
+	require.Equal(t, "2.json", runtime.written[2].Name)
+	require.Contains(t, string(runtime.written[2].Data), next.Body)
+	require.Equal(t, []uuid.UUID{first.ID, next.ID}, store.delivered)
+}

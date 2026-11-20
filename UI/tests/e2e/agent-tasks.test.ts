@@ -1963,7 +1963,6 @@ test('the chat composer messages the running agent and its answers show live; th
 	await page.getByRole('menuitemcheckbox', { name: 'ENG-1 · Codex agent' }).click();
 	await expect(target).toHaveAccessibleName('Send to: ENG-1 · Codex agent');
 	await page.keyboard.press('Escape');
-	await expect(page.getByText('Messages go to the Codex agent of ENG-1, not to the assistant.')).toBeVisible();
 	const composer = page.getByRole('textbox', { name: 'Write to the agent' });
 	await composer.fill('Keep the old route');
 	await composer.press('Enter');
@@ -1971,7 +1970,8 @@ test('the chat composer messages the running agent and its answers show live; th
 	await expect(composer).toHaveValue('');
 	await expect(page.getByRole('article', { name: 'You', exact: true })).toContainText('Keep the old route');
 	// Nothing was sent to the assistant; switching back aims the composer at it again.
-	await page.getByRole('button', { name: 'Back to assistant' }).click();
+	await target.click();
+	await page.getByRole('menuitemcheckbox', { name: 'Assistant', exact: true }).click();
 	await expect(target).toHaveAccessibleName('Send to: Assistant');
 	await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible();
 
@@ -2275,9 +2275,9 @@ test('the top bar opens the agent thread as a readable session, linked by the UR
 	await expect(session.getByText('1 failing')).toBeVisible();
 	await page.screenshot({ path: testInfo.outputPath('agent-view-desktop.png'), fullPage: true });
 
-	// The agent's view has its own composer, which writes to this agent; the
+	// The shared composer targets this agent in its view. The
 	// message is shown in the session, waiting (KUA-132: no separate thread).
-	await expect(target).toHaveCount(0);
+	await expect(target).toHaveAccessibleName(/Send to: ENG-1 · .+ agent/);
 	const composer = page.getByRole('textbox', { name: 'Write to the agent' });
 	await composer.fill('Keep the old route');
 	await composer.press('Enter');
@@ -2620,7 +2620,7 @@ test('a question from the agent reads in the session and is answered in the comp
 	const question = thread.getByRole('article', { name: 'Agent' }).filter({ hasText: 'Keep the v1 route?' });
 	await expect(question.getByRole('img', { name: 'Question' })).toBeVisible();
 	await expect(thread.getByRole('region', { name: 'Live messages' })).toHaveCount(0);
-	await expect(page.getByRole('button', { name: /^Send to: / })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /^Send to: ENG-1 · .+ agent/ })).toBeVisible();
 	await expect(page.getByRole('textbox', { name: 'Write to the agent' })).toBeVisible();
 	for (const dark of [false, true]) {
 		await page.evaluate((d) => {

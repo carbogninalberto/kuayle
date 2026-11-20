@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "एक कोडिंग एजेंट {title} पर अलग एनवायरनमेंट में इन निर्देशों के साथ काम करेगा:",
 	"assistant.approval_repository": "रिपॉज़िटरी: {repository}, ब्रांच {branch}, {source} की सेटिंग से",
 	"assistant.approval_approve": "स्वीकृत करें",
+	"assistant.approval_review_details": "स्वीकृति देने के लिए विवरण खोलें।",
 	"assistant.approval_deny": "अस्वीकार करें",
 	"assistant.approval_approving": "{identifier} पर कोडिंग एजेंट शुरू हो रहा है",
 	"assistant.approval_approved": "{identifier} पर कोडिंग एजेंट शुरू हुआ",

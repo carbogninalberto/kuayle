@@ -220,19 +220,25 @@ the "N finished" row. Each task shows "Iteration N" with why it started (first
 run, review changes, CI follow-up, your follow-up, retry after failure),
 derived from its recorded transitions and follow-up signals.
 
+Pending approvals appear directly above the composer, oldest first by creation
+time and then by approval ID. Loading the latest history page includes pending
+decisions from earlier pages. Each card opens with its subject, requested
+action and decision buttons. Expand it for instructions, configuration and
+supporting evidence. Commands, migrations, merges (including ship), wiki
+deletions and custom tools require opening the details before approving.
+Deny is available immediately. Resolved outcomes appear with the originating tool call.
+
 **Agent view.** When an issue chat has coding tasks, the top bar offers
 "Agent · ENG-1" (a menu with status dots when there are several). It swaps
 the centre column to that task's agent thread, named in the URL
 (`?conversation=…&agent=<task id or issue identifier>`, an identifier picks the
 newest task), with a breadcrumb back to the assistant; the task's step in the
-transcript and its Background tasks row open the same view. It is a
-transcript and a composer. While it is open the page's composer gives way to
-the agent's own
-([AgentComposer.svelte](../../UI/src/lib/features/assistant/AgentComposer.svelte)),
-under the timeline: it writes straight to that task's agent through the
-[live channel](agent-tasks.md#live-channel), with no approval, and is shown
-only to the task's creator (nobody else, in any role, writes to another
-person's agent) while the task takes messages. Enter sends. One more action,
+transcript and its Background tasks row open the same view. The shared
+[chat composer](../../UI/src/lib/features/assistant/ChatComposer.svelte)
+targets that agent when the view opens. The target chip can switch recipients
+with the draft and uploaded images in place. Agent messages go through the
+[live channel](agent-tasks.md#live-channel), with no approval. The agent target is available
+only to the task's creator while the task takes messages. Enter sends. One more action,
 an icon beside Send, does it now; its shortcut, Ctrl/⌘+Enter, is shown in its
 tooltip and announced (`aria-keyshortcuts`). It is "Interrupt and send" while
 a Claude Code agent works, with or without a workflow (`mode: "interrupt"`,
@@ -242,8 +248,7 @@ task that is waiting on CI, an approval, a merge or a review abandons that
 wait and counts a visit and an iteration, so the button and the shortcut ask
 once first, naming what the task waits for. Codex and OpenCode are interrupted
 by any message, so they have Send alone. A completed or cancelled task has no
-composer. The composer has no helper text; a refused send is said above it and
-keeps the text. An agent's question has an "Answer the question" button under
+composer. A refused send keeps the draft and shows the reason above it. An agent's question has an "Answer the question" button under
 it: it moves the cursor to the composer and shows the question above the text
 as what the message answers (dismissable); the message is then sent as
 `In answer to your question "…":` followed by the answer, so the agent knows

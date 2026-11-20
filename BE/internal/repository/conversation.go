@@ -167,7 +167,7 @@ func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, 
 	if h.Tools, err = messageToolCalls(ctx, tx, h.Messages); err != nil {
 		return nil, err
 	}
-	if h.Approvals, err = toolApprovals(ctx, tx, h.Tools); err != nil {
+	if h.Approvals, err = toolApprovals(ctx, tx, id, h.Tools, before == 0); err != nil {
 		return nil, err
 	}
 	// Agent messages share the page's span of time: from its oldest message

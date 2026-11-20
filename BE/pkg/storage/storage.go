@@ -10,7 +10,8 @@ type Backend interface {
 	// Put stores the content read from r under the given key.
 	Put(ctx context.Context, key string, r io.Reader, contentType string) (int64, error)
 
-	// Get retrieves the content stored under the given key.
+	// Get retrieves the content stored under the given key. A missing object
+	// returns an error matching fs.ErrNotExist.
 	// The caller must close the returned ReadCloser.
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 

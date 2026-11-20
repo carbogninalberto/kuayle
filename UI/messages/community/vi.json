@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Một agent lập trình sẽ làm việc trên {title} trong môi trường cô lập với các hướng dẫn sau:",
 	"assistant.approval_repository": "Repository: {repository} trên {branch}, từ cài đặt {source}",
 	"assistant.approval_approve": "Phê duyệt",
+	"assistant.approval_review_details": "Mở rộng chi tiết để phê duyệt.",
 	"assistant.approval_deny": "Từ chối",
 	"assistant.approval_approving": "Đang bắt đầu agent lập trình cho {identifier}",
 	"assistant.approval_approved": "Đã bắt đầu agent lập trình cho {identifier}",

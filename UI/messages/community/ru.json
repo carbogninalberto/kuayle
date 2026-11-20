@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Агент кодинга будет работать над {title} в изолированной среде со следующими инструкциями:",
 	"assistant.approval_repository": "Репозиторий: {repository}, ветка {branch}, из настроек: {source}",
 	"assistant.approval_approve": "Одобрить",
+	"assistant.approval_review_details": "Разверните подробности, чтобы одобрить.",
 	"assistant.approval_deny": "Отклонить",
 	"assistant.approval_approving": "Запуск агента кодинга для {identifier}",
 	"assistant.approval_approved": "Агент кодинга запущен для {identifier}",

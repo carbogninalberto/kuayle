@@ -40,7 +40,7 @@
 	// that received it, at the moment it was delivered, with the agent's
 	// reply as the next item; one that waits while no step runs follows the
 	// last step, where the next iteration picks it up. It is written in the
-	// composer under the view (AgentComposer). A review of the task's pull
+	// composer under the view (the shared chat composer). A review of the task's pull
 	// request is asked for from its header and appears in the timeline.
 	let {
 		chat,

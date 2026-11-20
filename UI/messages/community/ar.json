@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "سيعمل وكيل برمجة على {title} في بيئة معزولة وفق هذه التعليمات:",
 	"assistant.approval_repository": "المستودع: {repository} على {branch}، من إعدادات {source}",
 	"assistant.approval_approve": "موافقة",
+	"assistant.approval_review_details": "اعرض التفاصيل للموافقة.",
 	"assistant.approval_deny": "رفض",
 	"assistant.approval_approving": "جارٍ بدء وكيل البرمجة على {identifier}",
 	"assistant.approval_approved": "تم بدء وكيل البرمجة على {identifier}",

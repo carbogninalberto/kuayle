@@ -26,6 +26,7 @@ const approval = (action: string, payload: Record<string, unknown>) => ({
 	id: 'approval-1',
 	conversation_id: 'chat-1',
 	tool_call_id: 'tool-call-1',
+	message_model: answer.model,
 	action,
 	actor_id: 'user-1',
 	issue_id: '00000000-0000-0000-0000-000000000000',
@@ -89,6 +90,7 @@ test('starting a temporary machine shows its size, lifetime, credentials and quo
 	]);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Start a temporary machine?', { exact: true })).toBeVisible();
 	await expect(
 		page.getByText('A 1 vCPU, 2 GB memory, 20 GB disk machine for this conversation, permanently deleted 30 minutes after it starts.')
@@ -108,6 +110,7 @@ test('a command shows exactly what runs and where, then its result names the mac
 	]);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 	await expect(page.getByText('Run a read-only command on tmp-1a2b3c4d?', { exact: true })).toBeVisible();
 	await expect(page.getByText(command, { exact: false })).toBeVisible();
 	expect(await page.evaluate(() => (window as any).evil)).toBeUndefined();
@@ -143,8 +146,8 @@ test('a command shows exactly what runs and where, then its result names the mac
 	expect(state.decisions).toEqual(['approve']);
 });
 
-test('a write command on the user own machine says it is reused and writable', async ({ page }) => {
-	await chat(page, [call('run_command_write', { command: 'echo hi > note.txt' })], [
+test('a write command must be shown before it can be approved', async ({ page }, testInfo) => {
+	const state = await chat(page, [call('run_command_write', { command: 'echo hi > note.txt' })], [
 		approval('run_command_write', {
 			...machine,
 			machine: 'laptop-box',
@@ -161,11 +164,22 @@ test('a write command on the user own machine says it is reused and writable', a
 		})
 	]);
 	await page.goto('/test/assistant?conversation=chat-1');
+	const card = page.getByTestId('approval-card');
+	const approve = card.getByRole('button', { name: 'Approve', exact: true });
+	await expect(approve).toBeDisabled();
+	await expect(card.getByRole('button', { name: 'Deny', exact: true })).toBeEnabled();
+	await card.getByRole('button', { expanded: false }).press('Enter');
+	await expect(card.getByText('echo hi > note.txt', { exact: true })).toBeVisible();
+	await expect(approve).toBeEnabled();
 	await expect(page.getByText('Run a command that can write files on laptop-box?', { exact: true })).toBeVisible();
 	await expect(page.getByText('laptop-box: 4 vCPU, 8 GB memory, 40 GB disk · your own machine, reused')).toBeVisible();
 	await expect(
 		page.getByText('Runs in /workspace/kuayle-assistant/chat-1; only this conversation folder is writable, the rest of /workspace stays read-only. No credentials; stopped after 60 seconds.')
 	).toBeVisible();
+	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('write-command.png') });
+	await approve.click();
+	await expect(card).toHaveCount(0);
+	expect(state.decisions).toEqual(['approve']);
 });
 
 for (const [result, hasLink] of [['published', true], ['published', false], ['empty', false]] as const) {
@@ -176,6 +190,7 @@ for (const [result, hasLink] of [['published', true], ['published', false], ['em
 			{ ...approval(action, payload), issue_id: 'issue-1' }
 		], 'approving');
 		await page.goto('/test/assistant?conversation=chat-1');
+		await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
 		await expect(page.getByText('Publish stopped task changes for ENG-1?')).toBeVisible();
 		await expect(page.getByText(/draft pull request marked “not validated”/)).toBeVisible();
 		expect(state.decisions).toEqual([]);

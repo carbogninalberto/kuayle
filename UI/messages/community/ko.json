@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "코딩 에이전트가 다음 지침에 따라 격리된 환경에서 {title} 작업을 수행합니다:",
 	"assistant.approval_repository": "저장소: {repository}의 {branch} 브랜치, {source} 설정 기준",
 	"assistant.approval_approve": "승인",
+	"assistant.approval_review_details": "승인하려면 세부 정보를 펼치세요.",
 	"assistant.approval_deny": "거부",
 	"assistant.approval_approving": "{identifier}에서 코딩 에이전트를 시작하는 중",
 	"assistant.approval_approved": "{identifier}에서 코딩 에이전트를 시작했습니다",

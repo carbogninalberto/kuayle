@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "コーディングエージェントが、次の指示に従って分離された環境で {title} に取り組みます:",
 	"assistant.approval_repository": "リポジトリ: {repository}({branch} ブランチ、{source}の設定より)",
 	"assistant.approval_approve": "承認",
+	"assistant.approval_review_details": "承認するには詳細を開いてください。",
 	"assistant.approval_deny": "拒否",
 	"assistant.approval_approving": "{identifier} でコーディングエージェントを開始中",
 	"assistant.approval_approved": "{identifier} でコーディングエージェントを開始しました",

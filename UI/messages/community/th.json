@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Coding Agent จะทำงานกับ {title} ในสภาพแวดล้อมแบบแยกตามคำสั่งเหล่านี้:",
 	"assistant.approval_repository": "รีโพสิทอรี: {repository} บน {branch} จากการตั้งค่า {source}",
 	"assistant.approval_approve": "อนุมัติ",
+	"assistant.approval_review_details": "ขยายรายละเอียดเพื่ออนุมัติ",
 	"assistant.approval_deny": "ปฏิเสธ",
 	"assistant.approval_approving": "กำลังเริ่ม Coding Agent บน {identifier}",
 	"assistant.approval_approved": "เริ่ม Coding Agent บน {identifier} แล้ว",

@@ -2,8 +2,10 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"strings"
 	"time"
 
@@ -197,6 +199,10 @@ func (b *S3Backend) Get(ctx context.Context, key string) (io.ReadCloser, error) 
 		Key:    aws.String(key),
 	})
 	if err != nil {
+		var missing *types.NoSuchKey
+		if errors.As(err, &missing) {
+			return nil, fmt.Errorf("s3 get: %w: %w", fs.ErrNotExist, err)
+		}
 		return nil, fmt.Errorf("s3 get: %w", err)
 	}
 	return out.Body, nil

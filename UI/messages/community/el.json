@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Ένας πράκτορας προγραμματισμού θα εργαστεί στο {title} σε απομονωμένο περιβάλλον με αυτές τις οδηγίες:",
 	"assistant.approval_repository": "Αποθετήριο: {repository} στο {branch}, από τις ρυθμίσεις: {source}",
 	"assistant.approval_approve": "Έγκριση",
+	"assistant.approval_review_details": "Αναπτύξτε τις λεπτομέρειες για έγκριση.",
 	"assistant.approval_deny": "Απόρριψη",
 	"assistant.approval_approving": "Έναρξη πράκτορα προγραμματισμού στο {identifier}",
 	"assistant.approval_approved": "Ο πράκτορας προγραμματισμού ξεκίνησε στο {identifier}",

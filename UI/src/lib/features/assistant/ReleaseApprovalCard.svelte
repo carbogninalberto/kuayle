@@ -17,7 +17,6 @@
 	}: { id: string; payload: ReleasePayload; notes?: string; disabled?: boolean } = $props();
 </script>
 
-<Item.Title>{m['assistant.release_title']({ tag: payload.tag, repository: payload.repository })}</Item.Title>
 <Item.Description class="line-clamp-none"
 	>{m['assistant.release_description']({
 		commit: payload.target_commit.slice(0, 7),

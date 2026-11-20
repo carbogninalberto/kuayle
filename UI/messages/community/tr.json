@@ -2258,6 +2258,7 @@
 	"assistant.approval_description": "Bir kodlama ajanı, {title} üzerinde izole bir ortamda şu talimatlarla çalışacak:",
 	"assistant.approval_repository": "Depo: {repository}, {branch} branch'inde, {source} ayarlarından",
 	"assistant.approval_approve": "Onayla",
+	"assistant.approval_review_details": "Onaylamak için ayrıntıları açın.",
 	"assistant.approval_deny": "Reddet",
 	"assistant.approval_approving": "{identifier} için kodlama ajanı başlatılıyor",
 	"assistant.approval_approved": "{identifier} için kodlama ajanı başlatıldı",

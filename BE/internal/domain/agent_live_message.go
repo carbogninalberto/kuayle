@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,14 +41,17 @@ const (
 	AgentLiveMessagesPerHour = 30
 	// AgentLiveInboxPath is where the agent container sees its inbox.
 	AgentLiveInboxPath = "/run/kuayle/inbox"
+	// AgentLiveImagePathBytes budgets a generated image path, including JSON delimiters.
+	AgentLiveImagePathBytes = 80
 )
 
 // AgentLiveMessage is one message of a task's live channel.
 type AgentLiveMessage struct {
-	ID          uuid.UUID `json:"id" db:"id"`
-	WorkspaceID uuid.UUID `json:"-" db:"workspace_id"`
-	TaskID      uuid.UUID `json:"task_id" db:"task_id"`
-	Direction   string    `json:"direction" db:"direction"`
+	Attachments []ConversationAttachment `json:"attachments,omitempty" db:"-"`
+	ID          uuid.UUID                `json:"id" db:"id"`
+	WorkspaceID uuid.UUID                `json:"-" db:"workspace_id"`
+	TaskID      uuid.UUID                `json:"task_id" db:"task_id"`
+	Direction   string                   `json:"direction" db:"direction"`
 	// Seq orders messages to the agent and names their inbox files.
 	Seq      *int64     `json:"seq" db:"seq"`
 	Sender   string     `json:"sender" db:"sender"`
@@ -73,6 +77,25 @@ type AgentLiveMessage struct {
 	Deliveries int `json:"deliveries" db:"deliveries"`
 	// WorkflowNode is the workflow step a message was delivered to.
 	WorkflowNode *string `json:"-" db:"workflow_node"`
+}
+
+// Inbox filenames use server-issued IDs and sniffed extensions. The original
+// upload name is display metadata and never becomes a filesystem path.
+func (a ConversationAttachment) InboxName() string {
+	return a.ID.String() + ConversationAttachmentTypes[a.ContentType]
+}
+
+func (m AgentLiveMessage) DeliveryBody() string {
+	if len(m.Attachments) == 0 {
+		return m.Body
+	}
+	var body strings.Builder
+	body.WriteString(m.Body)
+	body.WriteString("\nAttached images:")
+	for _, a := range m.Attachments {
+		body.WriteString("\n" + AgentLiveInboxPath + "/" + a.InboxName())
+	}
+	return strings.TrimSpace(body.String())
 }
 
 // AgentLiveInboxFile is one file of an attempt's inbox.
@@ -101,11 +124,11 @@ func (m AgentLiveMessage) InboxFile() (AgentLiveInboxFile, error) {
 		Kind   string `json:"kind"`
 		Body   string `json:"body"`
 		SentAt string `json:"sent_at"`
-	}{*m.Seq, m.Sender, kind, m.Body, m.CreatedAt.UTC().Format(time.RFC3339)}); err != nil {
+	}{*m.Seq, m.Sender, kind, m.DeliveryBody(), m.CreatedAt.UTC().Format(time.RFC3339)}); err != nil {
 		return AgentLiveInboxFile{}, err
 	}
 	data := bytes.TrimRight(buffer.Bytes(), "\n")
-	if len(data) > AgentOutboxFileMaxBytes {
+	if len(data) > AgentOutboxFileMaxBytes+len(m.Attachments)*AgentLiveImagePathBytes {
 		return AgentLiveInboxFile{}, errors.New("message file is too large")
 	}
 	return AgentLiveInboxFile{Name: strconv.FormatInt(*m.Seq, 10) + ".json", Data: data}, nil

@@ -248,3 +248,39 @@ func TestAgentQuestionsNotifyTheCreatorsTelegram(t *testing.T) {
 		})
 	}
 }
+
+func TestLiveImagesBelongToOneMessageInTheTasksConversation(t *testing.T) {
+	f := newMessageFixture(t)
+	repo := NewAgentTaskRepository(f.db)
+	uploads := NewConversationRepository(f.db)
+	image, err := uploads.CreateAttachment(f.ctx, f.workspace, *f.sender.ConversationID, domain.NewConversationAttachment{
+		StorageKey: uuid.NewString(), Filename: "screen.png", ContentType: "image/png", Width: 1, Height: 1, Size: 68,
+	})
+	require.NoError(t, err)
+	_, err = repo.SendLiveMessage(f.ctx, f.workspace, f.recipientTask.ID, "wrong conversation", "", false, image.ID)
+	require.ErrorIs(t, err, ErrAgentLiveMessageInvalid)
+	_, err = repo.SendLiveMessage(f.ctx, f.workspace, f.sender.ID, "", "", false, image.ID, uuid.New())
+	require.ErrorIs(t, err, ErrAgentLiveMessageInvalid)
+	_, err = repo.SendLiveMessage(f.ctx, f.workspace, f.sender.ID, " \n\t ", "", false)
+	require.ErrorIs(t, err, ErrAgentLiveMessageInvalid)
+	sent, err := repo.SendLiveMessage(f.ctx, f.workspace, f.sender.ID, " \n\t ", "", false, image.ID)
+	require.NoError(t, err)
+	require.Empty(t, sent.Body)
+	require.Len(t, sent.Attachments, 1)
+	require.Equal(t, image.ID, sent.Attachments[0].ID)
+	require.Error(t, uploads.RemovePendingAttachment(f.ctx, f.workspace, *f.sender.ConversationID, image.ID))
+	_, err = repo.SendLiveMessage(f.ctx, f.workspace, f.sender.ID, "reused", "", false, image.ID)
+	require.ErrorIs(t, err, ErrAgentLiveMessageInvalid)
+	messages, err := repo.LiveMessages(f.ctx, f.workspace, f.sender.ID, 10)
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	require.Equal(t, sent.Attachments, messages[0].Attachments)
+	claimed, err := repo.ClaimLiveMessages(f.ctx, *f.sender, 16000)
+	require.NoError(t, err)
+	require.Len(t, claimed, 1)
+	require.Contains(t, claimed[0].DeliveryBody(), domain.AgentLiveInboxPath+"/"+image.ID.String()+".png")
+	files, err := NewDevMachineRepository(f.db).PromptLiveImages(f.ctx, f.sender.RunID)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, image.StorageKey, files[0].StorageKey)
+}

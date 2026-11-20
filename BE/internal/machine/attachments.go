@@ -2,8 +2,10 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"regexp"
 
 	"github.com/google/uuid"
@@ -39,6 +41,7 @@ func (m *Manager) SetAttachmentStorage(files attachmentReader) {
 }
 
 var attachmentPath = regexp.MustCompile(`^\.kuayle/attachments/[A-Za-z0-9._-]{1,120}$`)
+var errStoredAttachmentUnavailable = errors.New("stored attachment is unavailable")
 
 // stageAttachments copies the run's recorded images. Failure never blocks the
 // run: the agent is told by path and can report a missing file.
@@ -71,22 +74,39 @@ func (m *Manager) readAttachments(ctx context.Context, items []domain.AgentTaskA
 	files := make([]AttachmentFile, 0, len(items))
 	var total int64
 	for _, item := range items {
-		if len(files) == domain.AgentTaskAttachmentsMax || !attachmentPath.MatchString(item.Path) || item.Size <= 0 || item.Size > domain.ConversationAttachmentMaxBytes || total+item.Size > domain.AgentTaskAttachmentsMaxBytes {
+		if len(files) == domain.AgentTaskAttachmentsMax || !attachmentPath.MatchString(item.Path) || total+item.Size > domain.AgentTaskAttachmentsMaxBytes {
 			return nil, fmt.Errorf("invalid task attachment")
 		}
-		rc, err := m.attachmentFiles.Get(ctx, item.StorageKey)
+		data, err := m.readAttachment(ctx, item.StorageKey, item.Size)
 		if err != nil {
-			return nil, fmt.Errorf("read task attachment: %w", err)
-		}
-		data, err := io.ReadAll(io.LimitReader(rc, item.Size+1))
-		rc.Close()
-		if err != nil || int64(len(data)) != item.Size {
-			return nil, fmt.Errorf("task attachment changed in storage")
+			return nil, err
 		}
 		total += item.Size
 		files = append(files, AttachmentFile{Path: item.Path, Data: data})
 	}
 	return files, nil
+}
+
+func (m *Manager) readAttachment(ctx context.Context, key string, size int64) ([]byte, error) {
+	if size <= 0 || size > domain.ConversationAttachmentMaxBytes {
+		return nil, fmt.Errorf("invalid attachment size")
+	}
+	reader, err := m.attachmentFiles.Get(ctx, key)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%w: %w", errStoredAttachmentUnavailable, err)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read attachment: %w", err)
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(io.LimitReader(reader, size+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) != size {
+		return nil, fmt.Errorf("%w: size changed", errStoredAttachmentUnavailable)
+	}
+	return data, nil
 }
 
 // stageAttachmentsScript replaces the worktree's .kuayle/attachments and
