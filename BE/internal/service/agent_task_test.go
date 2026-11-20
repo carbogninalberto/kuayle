@@ -79,6 +79,7 @@ type taskStoreFake struct {
 	failClass      domain.FailureClass
 	signInRequired bool
 	waiting        string
+	waitingForDisk bool
 	startedIssue   *domain.Issue
 	startErr       error
 	results        []bool
@@ -114,6 +115,10 @@ func (f *taskStoreFake) Revoke(context.Context, domain.AgentTask) error { f.revo
 func (f *taskStoreFake) NoteWaiting(_ context.Context, _ domain.AgentTask, reason string) error {
 	f.waiting = reason
 	return nil
+}
+
+func (f *taskStoreFake) WaitingForHostDisk(context.Context, domain.AgentTask) (bool, error) {
+	return f.waitingForDisk, nil
 }
 func (f *taskStoreFake) FinishCancellation(context.Context, domain.AgentTask, string) error {
 	f.finished = true
@@ -881,6 +886,51 @@ func TestPreparationExplainsAMachineWaitingForHostCapacity(t *testing.T) {
 	require.Equal(t, "Starting the dev machine", tasks.waiting)
 }
 
+func TestTaskWaitsForHostDiskAndContinuesTheSameAttempt(t *testing.T) {
+	for _, status := range []domain.DevMachineStatus{domain.DevMachineStatusQueued, domain.DevMachineStatusStopped, domain.DevMachineStatusFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			machineStore, runtime, task := reusedMachineFixture(status, domain.DevMachineStatusRunning)
+			code, reason := "host_disk_low", "Host disk below the Dev Machine floor (35.7 GB free, 10.2%, with floors of 50 GB and 15%). Tasks resume automatically when space is available."
+			action := domain.DevMachineOpStart
+			if status == domain.DevMachineStatusQueued {
+				action = domain.DevMachineOpSpawn
+			}
+			machineStore.queuedOperation = &domain.DevMachineOperation{Action: action, Status: domain.DevMachineOpStatusPending, ErrorCode: &code, ErrorMessage: &reason}
+			task.State = "preparing"
+			store := &taskStoreFake{task: task, waitingForDisk: true}
+			svc := &AgentTaskService{store: store, runtime: runtime}
+			svc.process(context.Background(), task)
+			require.Equal(t, "waiting_for_disk", store.task.State)
+			require.Equal(t, []string{reason}, store.reasons)
+			require.Equal(t, []bool{false}, store.results)
+			require.NoError(t, svc.step(context.Background(), store.task))
+			require.Equal(t, "waiting_for_disk", store.task.State)
+
+			// The manager has completed the start and the worker has reclaimed the task.
+			machineStore.queuedOperation.Status = domain.DevMachineOpStatusCompleted
+			machineStore.machine.Status = domain.DevMachineStatusRunning
+			store.waitingForDisk = false
+			require.NoError(t, svc.step(context.Background(), store.task))
+			require.Equal(t, "preparing", store.task.State)
+			svc.runtime = &taskRuntimeFake{ready: true, run: &domain.DevMachineAgentRun{Status: domain.DevMachineAgentRunStatusRunning}}
+			require.NoError(t, svc.step(context.Background(), store.task))
+			require.Equal(t, "running", store.task.State)
+			require.Equal(t, task.Generation, store.task.Generation)
+			require.Equal(t, task.RunID, store.task.RunID)
+		})
+	}
+}
+
+func TestDiskWaitStillRechecksTaskAccess(t *testing.T) {
+	store := &taskStoreFake{
+		task: domain.AgentTask{State: "waiting_for_disk"}, waitingForDisk: true, accessErr: repository.ErrConversationNotFound,
+	}
+	svc := &AgentTaskService{store: store}
+	require.NoError(t, svc.step(context.Background(), store.task))
+	require.True(t, store.revoked)
+	require.Empty(t, store.transitions)
+}
+
 // A task on its own unstarted task machine waits for a free slot on the
 // creator's full machine: the task says so, the machine it leaves is deleted,
 // and the wait does not count as a failure.
@@ -946,12 +996,11 @@ func TestPreparationExplainsARestartWaitingForHostCapacity(t *testing.T) {
 	require.NotNil(t, start)
 	code, message := "host_capacity_wait", "waiting for host CPU: this machine needs 4000 millicores and running machines already use 2000 of the 6000 available to machines"
 	start.ErrorCode, start.ErrorMessage = &code, &message
-	store.operationLookups = nil
 	ready, err = runtime.Prepare(context.Background(), &task)
 	require.False(t, ready)
 	require.ErrorIs(t, err, ErrHostCapacityWait)
 	require.ErrorContains(t, err, message)
-	require.Equal(t, []string{start.IdempotencyKey}, store.operationLookups, "the wait is read from the task's own start")
+	require.Same(t, start, store.queuedOperation, "the existing start remains queued")
 }
 
 func TestUpgradeContinuesTaskAlreadyWaitingToPublish(t *testing.T) {

@@ -44,6 +44,28 @@ func relabel(graph *domain.WorkflowGraph) {
 	}
 }
 
+func TestWorkflowSwitchFromPausedDiskWait(t *testing.T) {
+	f := newPauseFixture(t)
+	raw, err := json.Marshal(f.graph)
+	require.NoError(t, err)
+	destination, err := NewWorkflowRepository(f.db).CreateWorkflow(f.ctx, f.ws, f.task.CreatorID, "Recovery", "", raw, "created")
+	require.NoError(t, err)
+
+	f.exec(`UPDATE agent_tasks SET state='preparing' WHERE id=$1`, f.task.ID)
+	require.NoError(t, f.repo.Transition(f.ctx, *f.claimed, "waiting_for_disk", "Waiting for disk space"))
+	_, err = f.repo.PauseWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowPauseNow)
+	require.NoError(t, err)
+	target := domain.WorkflowSwitchTarget{WorkflowID: destination.ID.String(), Node: "implement"}
+	plan, _, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, target, false)
+	require.NoError(t, err)
+	require.Empty(t, plan.Refused)
+	_, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, target, true)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorkflowStatusEntering, *moved.WorkflowStatus)
+	require.Nil(t, moved.WorkflowPausedAt)
+	require.Equal(t, f.task.CheckoutID, moved.CheckoutID)
+}
+
 // A paused task moves to the newest version of its workflow on the step it
 // is on, keeping what it already did, and nothing else moves with it.
 func TestWorkflowSwitchMovesAPausedTaskToTheNewestVersion(t *testing.T) {

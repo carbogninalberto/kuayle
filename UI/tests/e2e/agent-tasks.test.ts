@@ -1638,6 +1638,57 @@ test('the task stays in view beside the chat while the conversation scrolls', as
 	await expect(page.getByRole('region', { name: 'Changes' })).toBeVisible();
 });
 
+const hostDiskReason =
+	'Host disk below the Dev Machine floor (35.7 GB free, 10.2%, with floors of 50 GB and 15%). Tasks resume automatically when space is available.';
+
+test('shows the host disk wait and follows automatic task recovery', async ({ page }, testInfo) => {
+	const { state, emit } = await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	const step = page.getByRole('group', { name: 'Agent task for ENG-1' });
+	state.task = { ...state.task, state: 'preparing', reason: 'Resolving repository and execution environment' };
+	emit('task.state_changed', state.task);
+	await expect(step).toContainText('Preparing');
+
+	state.task = { ...state.task, state: 'waiting_for_disk', reason: hostDiskReason };
+	emit('task.state_changed', state.task);
+	await expect(step).toContainText('Waiting for disk space');
+	await expect(step).toContainText(hostDiskReason);
+	await expect(step.getByRole('button', { name: 'Retry this task' })).toHaveCount(0);
+	const tasks = page.getByRole('region', { name: 'Coding tasks' });
+	await expect(tasks.getByText('Waiting for disk space', { exact: true })).toBeVisible();
+	const cardReason = tasks.getByText(hostDiskReason, { exact: true });
+	await expect(cardReason).toBeVisible();
+	await expect(cardReason).toHaveCSS('-webkit-line-clamp', 'none');
+	await page.screenshot({ path: testInfo.outputPath('task-waiting-for-disk.png') });
+
+	state.task = { ...state.task, state: 'preparing', reason: 'Resuming after the host disk recovered' };
+	emit('task.state_changed', state.task);
+	state.task = { ...state.task, state: 'running', reason: 'Native coding harness started' };
+	emit('task.state_changed', state.task);
+	await expect(step).toContainText('Running');
+	await expect(step).not.toContainText('Host disk below the Dev Machine floor');
+	expect(state.retries).toHaveLength(0);
+});
+
+test('shows the workspace admin host disk notice in the inbox', async ({ page }, testInfo) => {
+	await fixture(page);
+	const title = `Agent tasks waiting for disk space. ${hostDiskReason}`;
+	const notice = {
+		id: 'disk-notice',
+		type: 'host_disk_low',
+		title,
+		issue_id: null,
+		created_at: '2026-10-26T10:00:00Z',
+		read_at: '2026-10-26T10:01:00Z'
+	};
+	await page.route('**/api/notifications', (route) => route.fulfill({ json: { notifications: [notice], unread_count: 0 } }));
+	await page.goto('/test/inbox');
+	await expect(page.getByRole('button', { name: /Waiting for disk space/ })).toBeVisible();
+	await expect(page.getByText(title, { exact: true }).last()).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('host-disk-admin-inbox.png') });
+});
+
 test('a failed task stays in the transcript and the panel with its reason and a retry', async ({ page }) => {
 	const { state, emit } = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');

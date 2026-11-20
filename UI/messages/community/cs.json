@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Zkopírováno",
 	"tasks.state.queued": "Ve frontě",
 	"tasks.state.preparing": "Připravuje se",
+	"tasks.state.waiting_for_disk": "Čeká se na volné místo na disku",
 	"tasks.state.running": "Běží",
 	"tasks.state.waiting_input": "Čeká na vstup",
 	"tasks.state.validating": "Ověřuje se",

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,6 +65,7 @@ type commandRuntimeFake struct {
 	calls           int
 	image           string
 	migrationSecret string
+	duringRun       func(*AgentObserver)
 	stdout          string
 	block           bool
 	fail            error
@@ -80,6 +82,9 @@ func (f *commandRuntimeFake) RunCommand(ctx context.Context, _ *domain.DevMachin
 	if err := o.Started("command"); err != nil {
 		return nil, err
 	}
+	if f.duringRun != nil {
+		f.duringRun(o)
+	}
 	if f.block {
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -87,7 +92,7 @@ func (f *commandRuntimeFake) RunCommand(ctx context.Context, _ *domain.DevMachin
 	if f.fail != nil {
 		return nil, f.fail
 	}
-	line := "2026-11-15T01:00:00Z 1267650600228229401496703205376\n"
+	line := "1267650600228229401496703205376\n"
 	if f.stdout != "" {
 		line = f.stdout
 	}
@@ -104,7 +109,7 @@ func (f *commandRuntimeFake) RemoveCommand(_ context.Context, _ *domain.DevMachi
 func commandManager(t *testing.T) (*Manager, *commandStoreFake, *commandRuntimeFake, *domain.DevMachineOperation) {
 	t.Helper()
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture"}
-	run := &domain.CommandRun{ID: uuid.New(), Command: "python3 -c 'print(2**100)'", WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
+	run := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "python3 -c 'print(2**100)'", WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
 	store := &commandStoreFake{managerStoreFake: &managerStoreFake{machine: machine, services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, run: run}
 	runtime := &commandRuntimeFake{runtimeFake: &runtimeFake{}}
 	return &Manager{store: store, runtime: runtime}, store, runtime, &domain.DevMachineOperation{Action: domain.DevMachineOpRunCommand, IdempotencyKey: "command-run:" + run.ID.String()}
@@ -122,6 +127,31 @@ func TestCommandRunStoresTheResultAndRemovesItsContainer(t *testing.T) {
 	require.Equal(t, []uuid.UUID{store.run.ID}, runtime.removed)
 }
 
+func TestCommandProgressIsVisibleWhileTheCommandIsQuiet(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		manager, store, runtime, op := commandManager(t)
+		runtime.duringRun = func(o *AgentObserver) {
+			require.NoError(t, o.Output("stdout", []byte("starting\n")))
+			require.NoError(t, o.Output("stderr", []byte("running suite\n")))
+			time.Sleep(2 * time.Second)
+			synctest.Wait()
+			require.Equal(t, "starting\nrunning suite\n", store.output)
+		}
+		require.NoError(t, manager.processOperation(t.Context(), op))
+	})
+}
+
+func TestVerboseCommandKeepsItsFinalOutput(t *testing.T) {
+	manager, store, runtime, op := commandManager(t)
+	store.run.TimeoutSeconds = 600
+	tail := &tailCommandStore{commandStoreFake: store}
+	manager.store = tail
+	runtime.stdout = strings.Repeat("test passed\n", 8000) + strings.Repeat("x", domain.CommandOutputBytes) + "\nfinal summary\n"
+	require.NoError(t, manager.processOperation(t.Context(), op))
+	require.True(t, tail.truncated)
+	require.Equal(t, runtime.stdout[len(runtime.stdout)-domain.CommandOutputBytes:], tail.output)
+}
+
 func TestCommandRunIsRefusedForGoodWhenTheOwnerLostTheMachine(t *testing.T) {
 	manager, store, runtime, op := commandManager(t)
 	store.getErr = repository.ErrCommandMachineUnavailable
@@ -133,17 +163,33 @@ func TestCommandRunIsRefusedForGoodWhenTheOwnerLostTheMachine(t *testing.T) {
 }
 
 func TestCommandRunStopsAtItsTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		manager, store, runtime, op := commandManager(t)
+		runtime.block = true
+		store.run.TimeoutSeconds = 600
+		start := time.Now()
+		err := manager.processOperation(t.Context(), op)
+		require.Equal(t, 615*time.Second, time.Since(start))
+		var terminal *terminalOperationError
+		require.ErrorAs(t, err, &terminal)
+		require.Equal(t, "The command took too long and was stopped after 600 seconds", commandRunFailure(err))
+		require.Equal(t, []uuid.UUID{store.run.ID}, runtime.removed)
+		require.Nil(t, store.exit)
+	})
+}
+
+func TestInterruptedCommandIsNotQueuedAgain(t *testing.T) {
 	manager, store, runtime, op := commandManager(t)
+	manager.operationSlots = make(chan struct{}, 1)
+	manager.operationSlots <- struct{}{}
+	manager.operations.Add(1)
 	runtime.block = true
-	deadline := commandRunDeadline
-	commandRunDeadline = 50 * time.Millisecond
-	t.Cleanup(func() { commandRunDeadline = deadline })
-	err := manager.processOperation(context.Background(), op)
-	var terminal *terminalOperationError
-	require.True(t, errors.As(err, &terminal))
-	require.Equal(t, "The command took too long and was stopped after 60 seconds", commandRunFailure(err))
-	require.Equal(t, []uuid.UUID{store.run.ID}, runtime.removed, "the stopped container is removed")
-	require.Nil(t, store.exit)
+	ctx, cancel := context.WithCancelCause(t.Context())
+	cancel(errManagerShutdown)
+	manager.processLeasedOperation(ctx, *op)
+	require.Empty(t, store.deferredOperations())
+	require.Equal(t, []string{"The machine manager stopped before the command finished"}, store.failures)
+	require.Equal(t, []uuid.UUID{store.run.ID}, runtime.removed)
 }
 
 func TestCommandRunHidesInfrastructureErrors(t *testing.T) {
@@ -224,7 +270,7 @@ func TestCommandPrepContainerSharesTheMachineSlice(t *testing.T) {
 	machine := commandFixtureMachine()
 	machine.RoutingKey = "0123456789abcdef0123"
 	folder := domain.CommandFolder(uuid.New())
-	run := &domain.CommandRun{ID: uuid.New(), Command: "echo hi", Write: true, WorkingDirectory: folder}
+	run := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "echo hi", Write: true, WorkingDirectory: folder}
 	docker := &commandDockerFake{api: "1.52", shared: true}
 	require.NoError(t, docker.run(t, machine, run))
 
@@ -238,7 +284,7 @@ func TestCommandPrepContainerSharesTheMachineSlice(t *testing.T) {
 		require.Equal(t, resourceScopeMachine, input.Labels[resourceScopeLabel], name)
 	}
 
-	plainRun := &domain.CommandRun{ID: uuid.New(), Command: "echo hi", Write: true, WorkingDirectory: folder}
+	plainRun := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "echo hi", Write: true, WorkingDirectory: folder}
 	plain := &commandDockerFake{api: "1.52"}
 	require.NoError(t, plain.run(t, machine, plainRun))
 	require.Empty(t, plain.created[commandPrepName(machine, plainRun.ID)].HostConfig.CgroupParent, "without slices the prep container keeps its own limit")
@@ -251,12 +297,12 @@ func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
 	machine := commandFixtureMachine()
 	for _, write := range []bool{false, true} {
 		folder := domain.CommandFolder(uuid.New())
-		run := &domain.CommandRun{ID: uuid.New(), Command: hostileInput, Write: write, WorkingDirectory: folder}
+		run := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 600, Command: hostileInput, Write: write, WorkingDirectory: folder}
 		docker := &commandDockerFake{api: "1.52"}
 		require.NoError(t, docker.run(t, machine, run))
 		input := docker.created[commandContainerName(machine, run.ID)]
 		require.Equal(t, []string{"sh"}, input.Entrypoint)
-		require.Equal(t, []string{"-c", commandBootstrap, "kuayle-cmd", "60"}, input.Cmd)
+		require.Equal(t, []string{"-c", commandBootstrap, "kuayle-cmd", "600"}, input.Cmd)
 		for _, arg := range append(input.Entrypoint, input.Cmd...) {
 			require.NotContains(t, arg, "touch pwned", "the command never reaches the command line")
 		}
@@ -304,9 +350,9 @@ func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
 		require.Equal(t, run.ID.String(), prep.Labels["com.kuayle.command-run-id"], "RemoveCommand finds it")
 	}
 
-	_, err := (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", WorkingDirectory: "/workspace/../etc"}, "developer:fixture", "", &AgentObserver{})
+	_, err := (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "ls", WorkingDirectory: "/workspace/../etc"}, "developer:fixture", "", &AgentObserver{})
 	require.ErrorContains(t, err, "invalid command run")
-	_, err = (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", Write: true, WorkingDirectory: "/workspace"}, "developer:fixture", "", &AgentObserver{})
+	_, err = (&DockerRuntime{}).RunCommand(context.Background(), machine, &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "ls", Write: true, WorkingDirectory: "/workspace"}, "developer:fixture", "", &AgentObserver{})
 	require.ErrorContains(t, err, "invalid command run", "a write run is only ever in a conversation folder")
 }
 
@@ -315,7 +361,7 @@ func TestCommandContainerGetsTheCommandOnlyAsData(t *testing.T) {
 // environment for the migration tool to read.
 func TestMigrationRunContainerGetsTheSecretAsData(t *testing.T) {
 	machine := commandFixtureMachine()
-	run := &domain.CommandRun{ID: uuid.New(), Command: "kuayle-migrate up", Migration: true, ActionName: "migrate", WorkingDirectory: "/workspace"}
+	run := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "kuayle-migrate up", Migration: true, ActionName: "migrate", WorkingDirectory: "/workspace"}
 	docker := &commandDockerFake{api: "1.52", secret: "fixture-migration-secret"}
 	require.NoError(t, docker.run(t, machine, run))
 	input := docker.created[commandContainerName(machine, run.ID)]
@@ -377,7 +423,7 @@ func TestMigrationRunInjectsItsSecretAndRedactsTheStoredOutput(t *testing.T) {
 	encrypted, err := cryptoutil.Encrypt(secret, key)
 	require.NoError(t, err)
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture"}
-	run := &domain.CommandRun{ID: uuid.New(), Command: "kuayle-migrate up", Migration: true, ActionName: "migrate", WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
+	run := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "kuayle-migrate up", Migration: true, ActionName: "migrate", WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
 	store := &commandStoreFake{managerStoreFake: &managerStoreFake{machine: machine, migrationActionSecret: encrypted,
 		services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, run: run}
 	runtime := &commandRuntimeFake{runtimeFake: &runtimeFake{}, stdout: "2026-11-15T01:00:00Z connecting with " + secret + "\n"}
@@ -395,7 +441,7 @@ func TestMigrationRunInjectsItsSecretAndRedactsTheStoredOutput(t *testing.T) {
 // retried: the secret is gone, so the run can never start.
 func TestMigrationRunWithoutAnActionIsRefusedForGood(t *testing.T) {
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "fixture"}
-	run := &domain.CommandRun{ID: uuid.New(), Command: "kuayle-migrate up", Migration: true, ActionName: "gone", WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
+	run := &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "kuayle-migrate up", Migration: true, ActionName: "gone", WorkingDirectory: "/workspace", Status: "queued", CreatedAt: time.Now()}
 	store := &commandStoreFake{managerStoreFake: &managerStoreFake{machine: machine,
 		services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}, run: run}
 	runtime := &commandRuntimeFake{runtimeFake: &runtimeFake{}}
@@ -415,13 +461,13 @@ func TestMigrationRunWithoutAnActionIsRefusedForGood(t *testing.T) {
 func TestCommandWriteRunIsRefusedOnOldDocker(t *testing.T) {
 	machine := commandFixtureMachine()
 	docker := &commandDockerFake{api: "1.44"}
-	err := docker.run(t, machine, &domain.CommandRun{ID: uuid.New(), Command: "touch x", Write: true, WorkingDirectory: domain.CommandFolder(uuid.New())})
+	err := docker.run(t, machine, &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "touch x", Write: true, WorkingDirectory: domain.CommandFolder(uuid.New())})
 	var terminal *terminalOperationError
 	require.ErrorAs(t, err, &terminal)
 	require.Equal(t, "This machine's Docker is too old to confine writes to the conversation folder", commandRunFailure(err))
 	require.Empty(t, docker.created, "nothing is created")
 
-	require.NoError(t, docker.run(t, machine, &domain.CommandRun{ID: uuid.New(), Command: "ls", WorkingDirectory: "/workspace"}))
+	require.NoError(t, docker.run(t, machine, &domain.CommandRun{ID: uuid.New(), TimeoutSeconds: 60, Command: "ls", WorkingDirectory: "/workspace"}))
 	require.Len(t, docker.created, 1)
 }
 
@@ -444,7 +490,7 @@ func TestCommandBootstrapEntersTheWorkingDirectory(t *testing.T) {
 	folder := filepath.Join(root, "kuayle-assistant", "conversation")
 	machine := &domain.DevMachine{RoutingKey: "fixture"}
 	runIn := func(run *domain.CommandRun) (string, error) {
-		cmd := exec.Command("sh", commandArgv()...)
+		cmd := exec.Command("sh", commandArgv(60)...)
 		cmd.Dir = root
 		cmd.Env = append(append([]string{"PATH=" + os.Getenv("PATH")}, commandEnvironment(machine, run, "")...), "KUAYLE_COMMAND_CWD="+folder, "HOME="+root)
 		out, err := cmd.CombinedOutput()

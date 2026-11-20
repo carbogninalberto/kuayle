@@ -75,6 +75,7 @@ function liveStatus(state: string, agent: boolean, reviewing: boolean): StepStat
 		case 'completed':
 			return 'done';
 		case 'waiting_input':
+		case 'waiting_for_disk':
 		case 'blocked':
 			return 'waiting';
 		case 'awaiting_review':

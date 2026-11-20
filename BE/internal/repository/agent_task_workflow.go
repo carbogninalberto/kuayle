@@ -161,7 +161,7 @@ func transitionWorkflowTask(ctx context.Context, tx *sqlx.Tx, task *domain.Agent
 		return nil
 	}
 	entering := task.WorkflowStatus != nil && *task.WorkflowStatus == domain.WorkflowStatusEntering &&
-		to == "awaiting_review" && (task.State == "queued" || task.State == "preparing")
+		to == "awaiting_review" && (task.State == "queued" || task.State == "preparing" || task.State == "waiting_for_disk")
 	if (!entering && !domain.ValidWorkflowTaskTransition(task.State, to)) || strings.TrimSpace(reason) == "" {
 		return ErrAgentTaskConflict
 	}

@@ -18,8 +18,8 @@
 	}: { slug: string; tool: string; conversationId: string; approvalId: string } = $props();
 
 	const pollMs = 2000;
-	// A command stops after 60 seconds; polling gives up well after that.
-	const lookups = 60;
+	// A missing or unreadable run gets two minutes of retries.
+	const maxReadFailures = 60;
 	let run = $state<CommandRunResult | null>(null);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let stopped = false;
@@ -36,19 +36,20 @@
 					: m['assistant.custom_run_queued']({ tool })
 	);
 
-	async function tick(left: number) {
+	async function tick(failures = 0) {
 		if (stopped) return;
 		try {
 			run = await conversations.commandRun(slug, conversationId, approvalId);
+			failures = 0;
 		} catch {
-			// Not queued yet, or a failed read: try again on the next tick.
+			if (++failures >= maxReadFailures) return;
 		}
 		if (stopped || !commandRunPending(run?.status)) return;
-		if (left > 1) timer = setTimeout(() => void tick(left - 1), pollMs);
+		timer = setTimeout(() => void tick(failures), pollMs);
 	}
 
 	$effect(() => {
-		untrack(() => void tick(lookups));
+		untrack(() => void tick());
 		return () => clearTimeout(timer);
 	});
 	onDestroy(() => {
@@ -57,7 +58,7 @@
 	});
 </script>
 
-<div class="min-w-0 space-y-1.5 pl-6" data-testid="command-run-result">
+<div class="w-full! min-w-0 flex-col space-y-1.5 pl-6" data-testid="command-run-result">
 	<Trace.Line status={status === 'succeeded' ? 'success' : status === 'failed' ? 'error' : 'running'}>
 		<Trace.Icon
 			>{#if status === 'succeeded'}<CircleCheck />{:else if status === 'failed'}<CircleAlert />{:else}<LoaderCircle

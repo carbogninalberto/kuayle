@@ -779,6 +779,9 @@ versions validated on save, defaults per workspace, team and project, and a
 runner that drives each task's pinned version node by node under the worker's
 lease. Tasks without a pinned version run the built-in Standard workflow,
 which is the existing fixed flow.
+A paused task with a pinned workflow can [continue on a chosen step of
+another workflow](BE/docs/agent-tasks.md#continuing-on-a-chosen-workflow-step)
+with its existing checkout, branch and pull request (migration 199).
 A workflow's ship approval (an approval leading to `done` or a merge step, or,
 reached after CI passed, through agent steps to `done`) marks a draft pull
 request ready and brings a branch behind its base up to date when it is
@@ -825,6 +828,15 @@ within one manager process, which also counts machines admitted but not yet
 running; multiple manager replicas on one host are not coordinated. An unknown
 host size never blocks. No machine is stopped to make room; the workspace/user
 machine quotas below still apply.
+
+**Host disk floor.** In monitored mode the manager stops running machines when
+free space drops below either configured floor, in GB or percent, and defers
+spawn and start operations that tasks are waiting for. Those tasks show
+**Waiting for disk space** with the measured free space and both floor values.
+Workspace owners and admins receive an inbox notice for affected tasks, grouped
+by breach. The manager retries starts automatically once both floors are met.
+The Compose configurations mount the Docker data filesystem at the manager's
+`DEV_MACHINE_HOST_DISK_PATH` so it can measure recovery while machines are stopped.
 
 Machine sizes are aggregate admission profiles:
 
@@ -1086,7 +1098,7 @@ A task's creator can pause its running workflow and resume it from the same step
 - **State:** `agent_tasks.workflow_paused_at` marks a paused workflow and `workflow_pause_request` a pause that waits for the current step. `Claim` skips paused tasks and `applyWorkflowTx` refuses every move, so waiting steps do not advance and no step starts.
 - **Pause now on a working agent:** the attempt is stopped through the same cleanup a usage limit uses and the task ends in `blocked` ("Paused") with its machine, checkout, worktree and session kept. Resuming starts a new attempt of the same step with `resume_native_session=true`; visits and iterations are unchanged. A failed cleanup is retried by the worker until the task is paused. A paused task is not machine load.
 - **Otherwise:** a waiting or not yet started task pauses in place; a check, a publication or "after this step" pauses when the worker has the step's outcome (`ParkWorkflow`), before acting on it.
-- **Time:** the paused time is added to `workflow_budget_from` and to the step's `paused_seconds`, so neither the time budget nor the step's timeout counts it. The time budget counts working time only: `workflow_started_at` is set at the first `queued`→`preparing` move (migration `000173_workflow_clock`, KUA-171), and `agent_tasks.workflow_held_since` stops the clock at an approval, a merge or `waiting_input`, adding the held time to the budget start when the wait ends. A pause inside such a hold does not move the budget twice.
+- **Time:** the paused time is added to `workflow_budget_from` and to the step's `paused_seconds`, so neither the time budget nor the step's timeout counts it. The time budget counts working time only: `workflow_started_at` is set at the first `queued`→`preparing` move (migration `000173_workflow_clock`, KUA-171), and `agent_tasks.workflow_held_since` stops the clock during approval, merge, `waiting_input` and `waiting_for_disk` waits, adding the held time to the budget start when the wait ends. A pause inside such a hold does not move the budget twice.
 - **Audit:** `workflow_audit_events` records `pause_requested`, `paused`, `resumed` and `pause_withdrawn`; `GET /agent-tasks/:taskId/workflow` returns them as `pauses`.
 
 Details are in [BE/docs/agent-tasks.md](BE/docs/agent-tasks.md#pause-and-resume).
@@ -1648,7 +1660,7 @@ Required configuration when enabled:
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
 | `DEV_MACHINE_HOST_RESERVED_CPU_MILLIS`, `DEV_MACHINE_HOST_RESERVED_MEMORY_MB`, `DEV_MACHINE_CPU_OVERCOMMIT` | Host admission for spawning/starting machines (defaults 1000, 2048, 2): Docker host CPU/memory minus these reserves bounds the sum of live machines' requests; memory is never overcommitted, CPU up to the factor. Machines that do not fit wait in the queue without consuming retries |
 | `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS`, `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` | Agent CLI updates (defaults 6 and 48, each 0-720): how often the manager installs the latest npm-distributed agent CLIs into the shared read-only volume, and how long a version must have been published; a refresh interval of 0 turns updates off. See [Sudo in machines](#sudo-in-machines), "Agent CLI updates" |
-| `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` | How long a stopping machine manager lets operations other than agent runs and checks finish before it stops them and hands them to the next manager (default 90; 0 hands them over at once). Agent runs and checks are not bounded by it: they keep running and the next manager re-adopts them. Keep it at least 60 seconds below the manager's Compose `stop_grace_period` (150s), so cleanups finish. See [machine manager restarts](BE/docs/agent-tasks.md#machine-manager-restarts) |
+| `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` | How long a stopping machine manager lets operations other than agent runs and checks finish before stopping them (default 90 seconds, 0 stops immediately). Interrupted assistant commands are marked failed. Other operations are handed to the next manager. Agent runs and checks are not bounded by it: they keep running and the next manager re-adopts them. Keep it at least 60 seconds below the manager's Compose `stop_grace_period` (150s), so cleanups finish. See [machine manager restarts](BE/docs/agent-tasks.md#machine-manager-restarts) |
 | `DEV_MACHINE_SLICES`, `DEV_MACHINE_SWAP_PERCENT` | Shared machine resources (defaults `auto`, 50): with `auto`, new machines on hosts with Docker's systemd cgroup driver and cgroup v2 share their CPU and memory in one systemd slice, with a swap ceiling of the given percentage of the machine's memory (0-100); `off` keeps per-container shares. See [shared machine resources](#shared-machine-resources) |
 | `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Default commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`). A workspace can override it with a username and verified email in its coding-agent policy (migration 70), so GitHub attributes agent commits to that account. Pull requests are opened by the GitHub App installation. Control characters and angle brackets are rejected |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
@@ -2036,7 +2048,7 @@ through the Dev Machine egress proxy in `devmachine/egress`. The proxy builds
 from the `devmachine` context and uses a generated copy of the forge address
 check. After editing `BE/pkg/validate/public_ip.go`, run `go generate ./pkg/validate`
 from `BE` to update the copy. Backend tests verify that both files stay in sync.
-Command tools (KUA-153, migration 159) run one short shell command after
+Command tools (KUA-153, migration 159) run one shell command after
 approval: `run_command` read-only, `run_command_write` in the conversation's
 folder `/workspace/kuayle-assistant/<conversation>`, read with
 `get_command_run`. A command runs as a `run_command` machine operation (attempted
@@ -2045,8 +2057,9 @@ machine lock. The command is only in the environment and `/workspace` is
 always read-only: a write run gets only its conversation folder read-write (a
 volume subpath, created by a fixed-argv prep container; Docker API 1.45+, and
 write runs fail on older daemons), so packages go there too (`pip install
---target ./pkgs`, a venv or `npm install`). It is killed after 60 s, and 64 KiB
-of output is kept. It runs on a running machine the user owns: the given
+--target ./pkgs`, a venv or `npm install`). The per-command approval binds the timeout (60 s by default,
+1–600 s with `timeout_seconds`, migration 197). The transcript keeps the last
+64 KiB of output. It runs on a running machine the user owns: the given
 `machine_id`, the conversation's temporary machine, the user's own machine or
 their live temporary machine from another conversation (reused). `run_migration`
 (KUA-181, migration 181) runs a named migration action the same way, with the
@@ -2128,9 +2141,12 @@ volume read-only and pass the storage settings. See
 
 Completed assistant replies in the web chat may contain two extra fences. A
 `chart` fence holds only a JSON series spec (bar, line, area or pie; one to five
-series, at most 100 categories), which `ChatChart` draws on an echarts canvas
+series, at most 100 categories and, for a pie, at most 12 so slice colours do
+not repeat), which `ChatChart` draws on an echarts canvas
 with theme colours from `--chart-1..5` and a rich-text tooltip, so no model
-string becomes HTML. An `html` fence renders as `ChatHtmlWidget`: an iframe with
+string becomes HTML. Only web replies are told about the fences: the guidance
+message is added per channel, and Telegram, which would show them as raw code,
+never receives it. An `html` fence renders as `ChatHtmlWidget`: an iframe with
 `sandbox="allow-scripts"` only (never `allow-same-origin`) and a fixed 360px
 height. Its `srcdoc` document starts with a CSP of `default-src 'none'` that
 allows only inline scripts and styles and data images and fonts, and adds
@@ -2160,8 +2176,9 @@ parse-and-cap decision, so a fence refused by parsing or caps is copied as code;
 a fence that already rendered and then failed at runtime is still left out
 (known). Each Markdown segment renders on its own, so reference-style links and
 footnote definitions across a rich fence do not resolve (known).
-`BE/internal/service/conversation.go` adds the capability to the shared system
-prompt, so the model knows both fences (Telegram shows them as code).
+`BE/internal/service/conversation.go` resolves each reply's channel from its own
+queued delivery and appends `richBlocksPrompt` to the model request for
+web-channel replies only, so Telegram never learns the fences.
 
 ### Telegram assistant channel
 

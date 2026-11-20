@@ -64,7 +64,7 @@ func ComputeWorkflowPause(task domain.AgentTask, mode, run string) (string, erro
 		return "", ErrAgentTaskConflict
 	}
 	switch task.State {
-	case "queued", "awaiting_review":
+	case "queued", "waiting_for_disk", "awaiting_review":
 		return WorkflowPauseTakesEffect, nil
 	case "preparing", "running", "waiting_input":
 		switch run {

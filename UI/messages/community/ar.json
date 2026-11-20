@@ -2217,6 +2217,7 @@
 	"tasks.copied": "تم النسخ",
 	"tasks.state.queued": "في الطابور",
 	"tasks.state.preparing": "قيد التجهيز",
+	"tasks.state.waiting_for_disk": "بانتظار توفر مساحة على القرص",
 	"tasks.state.running": "قيد التشغيل",
 	"tasks.state.waiting_input": "بانتظار الإدخال",
 	"tasks.state.validating": "قيد التحقق",

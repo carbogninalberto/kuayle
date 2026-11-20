@@ -2217,6 +2217,7 @@
 	"tasks.copied": "복사됨",
 	"tasks.state.queued": "대기 중",
 	"tasks.state.preparing": "준비 중",
+	"tasks.state.waiting_for_disk": "디스크 여유 공간 대기 중",
 	"tasks.state.running": "실행 중",
 	"tasks.state.waiting_input": "입력 대기 중",
 	"tasks.state.validating": "검증 중",

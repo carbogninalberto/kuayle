@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Copiat",
 	"tasks.state.queued": "În coadă",
 	"tasks.state.preparing": "Se pregătește",
+	"tasks.state.waiting_for_disk": "În așteptarea spațiului liber pe disc",
 	"tasks.state.running": "Rulează",
 	"tasks.state.waiting_input": "Așteaptă răspuns",
 	"tasks.state.validating": "Se validează",

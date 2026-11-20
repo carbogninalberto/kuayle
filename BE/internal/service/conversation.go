@@ -93,18 +93,26 @@ func (s *ConversationService) clock() time.Time {
 	return time.Now()
 }
 
-// Rich fences the web chat renders directly. Telegram shares this prompt and
-// shows them as code, so the wording names the web chat.
-const richBlocksPrompt = "In the Kuayle web chat you may add a chart as a ```chart fenced block containing only JSON {\"type\":\"bar|line|area|pie\",\"title\":\"…\",\"unit\":\"…\",\"categories\":[…],\"series\":[{\"name\":\"…\",\"data\":[numbers]}]} (at most 5 series, 100 categories), or a small self-contained interactive widget as a ```html block (inline scripts and styles only; it runs sandboxed with no network, so embed all data). Use them only when a visual clearly helps, put the numbers you got from tools in them, never invent data, and keep text outside the block."
+// Rich fences the web chat renders directly. Telegram shows them as raw
+// code, so guidanceMessages adds this prompt to web replies only.
+const richBlocksPrompt = "In the Kuayle web chat you may add a chart as a ```chart fenced block containing only JSON {\"type\":\"bar|line|area|pie\",\"title\":\"…\",\"unit\":\"…\",\"categories\":[…],\"series\":[{\"name\":\"…\",\"data\":[numbers]}]} (at most 5 series, 100 categories, and for a pie at most 12 categories), or a small self-contained interactive widget as a ```html block (inline scripts and styles only; it runs sandboxed with no network, so embed all data). Use them only when a visual clearly helps, put the numbers you got from tools in them, never invent data, and keep text outside the block."
 
-// guidanceMessages are the extra system messages shared by web and Telegram
-// replies: attachment notes first, then the rich-block capability.
-func guidanceMessages(images bool) []chatCompletionMessage {
+// The attachment note guidanceMessages adds for every channel when the user
+// may attach images to their messages.
+const attachmentsPrompt = "Users can attach images; each is named in their message as [image attached: name, WxH, id=...]. When you cannot see an image's content, say so instead of guessing what it shows."
+
+// guidanceMessages are the extra system messages for a reply: the attachment
+// note shared by every channel, then the rich-block capability, which only the
+// web chat renders and therefore only web replies receive.
+func guidanceMessages(images bool, channel string) []chatCompletionMessage {
 	messages := make([]chatCompletionMessage, 0, 2)
 	if images {
-		messages = append(messages, chatCompletionMessage{Role: "system", Content: "Users can attach images; each is named in their message as [image attached: name, WxH, id=...]. When you cannot see an image's content, say so instead of guessing what it shows."})
+		messages = append(messages, chatCompletionMessage{Role: "system", Content: attachmentsPrompt})
 	}
-	return append(messages, chatCompletionMessage{Role: "system", Content: richBlocksPrompt})
+	if channel == domain.ConversationChannelWeb {
+		messages = append(messages, chatCompletionMessage{Role: "system", Content: richBlocksPrompt})
+	}
+	return messages
 }
 
 // assistantTimezone resolves the zone the assistant computes dates in: the
@@ -311,7 +319,13 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 	if customTools != "" {
 		messages = append(messages, chatCompletionMessage{Role: "system", Content: customTools})
 	}
-	messages = append(messages, guidanceMessages(s.images != nil)...)
+	// The channel decides whether the reply may carry rich fences: Telegram
+	// renders them as raw code, so its guidance omits the capability.
+	channel, err := s.Repo.MessageChannel(ctx, a)
+	if err != nil {
+		return
+	}
+	messages = append(messages, guidanceMessages(s.images != nil, channel)...)
 	messages = append(messages, s.modelMessages(ctx, history, settings.AssistantVision)...)
 	deltas := make(chan string, 16)
 	done := make(chan error, 1)

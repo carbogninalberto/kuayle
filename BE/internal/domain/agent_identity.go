@@ -56,7 +56,7 @@ type IssueAgentAssignee struct {
 // pull request, and a finished task has nothing left to stop.
 func AgentTaskWorking(state string) bool {
 	switch state {
-	case "queued", "preparing", "running", "waiting_input", "validating", "publishing", "blocked", "failed":
+	case "queued", "preparing", "waiting_for_disk", "running", "waiting_input", "validating", "publishing", "blocked", "failed":
 		return true
 	}
 	return false

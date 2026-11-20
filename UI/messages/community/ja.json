@@ -2217,6 +2217,7 @@
 	"tasks.copied": "コピーしました",
 	"tasks.state.queued": "待機中",
 	"tasks.state.preparing": "準備中",
+	"tasks.state.waiting_for_disk": "ディスクの空き容量を待機中",
 	"tasks.state.running": "実行中",
 	"tasks.state.waiting_input": "入力待ち",
 	"tasks.state.validating": "検証中",

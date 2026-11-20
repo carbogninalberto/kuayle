@@ -4,6 +4,7 @@
 export type TaskStateName =
 	| 'queued'
 	| 'preparing'
+	| 'waiting_for_disk'
 	| 'running'
 	| 'waiting_input'
 	| 'validating'
@@ -16,7 +17,7 @@ export type TaskStateName =
 	| 'cancelled';
 
 const activeStates = ['queued', 'preparing', 'running', 'validating', 'publishing', 'cancelling'];
-const waitingStates = ['waiting_input', 'awaiting_review', 'blocked'];
+const waitingStates = ['waiting_for_disk', 'waiting_input', 'awaiting_review', 'blocked'];
 // Only work that ended well, or was deliberately stopped, rolls up into the
 // "finished" row. A failure stays listed until the person deals with it.
 const finishedStates = ['completed', 'cancelled'];

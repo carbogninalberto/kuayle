@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Disalin",
 	"tasks.state.queued": "Diantrekan",
 	"tasks.state.preparing": "Menyiapkan",
+	"tasks.state.waiting_for_disk": "Menunggu ruang disk kosong",
 	"tasks.state.running": "Berjalan",
 	"tasks.state.waiting_input": "Menunggu input",
 	"tasks.state.validating": "Memvalidasi",

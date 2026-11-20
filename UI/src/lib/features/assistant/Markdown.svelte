@@ -2,6 +2,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { renderMarkdown } from '$lib/markdown';
 	import { m } from '$lib/features/i18n/messages';
+	import { Skeleton } from '$lib/components/ui/skeleton/index.js';
 	import ChatHtmlWidget from './ChatHtmlWidget.svelte';
 	import { richSegments, type RichSegment } from './rich-blocks';
 
@@ -28,9 +29,19 @@
 	const segments = $derived(richBlocks ? richSegments(source) : []);
 
 	// Key by content so changed text replaces a widget or chart instead of
-	// reusing it with a stale srcdoc/spec; the index keeps equal fences unique.
+	// reusing it with a stale srcdoc/spec. The content is hashed short — a
+	// fence may be up to 64 KB, which no rendered key should carry — and the
+	// index and kind keep equal-content segments distinct.
+	const hashOf = (text: string): string => {
+		let value = 0x811c9dc5;
+		for (let index = 0; index < text.length; index++) {
+			value ^= text.charCodeAt(index);
+			value = Math.imul(value, 0x01000193) >>> 0;
+		}
+		return value.toString(36);
+	};
 	const keyOf = (segment: RichSegment, index: number) =>
-		`${index}:${segment.kind}:${segment.kind === 'markdown' ? segment.source : segment.fence}`;
+		`${index}:${segment.kind}:${hashOf(segment.kind === 'markdown' ? segment.source : segment.fence)}`;
 
 	$effect(() => {
 		source;
@@ -60,12 +71,12 @@
 					<svelte:boundary onerror={() => failed.add(keyOf(segment, index))}>
 						{#await loadChart()}
 							<!-- Same height as ChatChart, so the lazy import does not shift the thread. -->
-							<div class="h-64 w-full"></div>
+							<Skeleton class="h-64 w-full" />
 						{:then { default: Chart }}
 							<Chart spec={segment.spec} onfail={() => failed.add(keyOf(segment, index))} />
 						{:catch}
 							<!-- chartLoadFailed already switched this segment to the code fallback. -->
-							<div class="h-64 w-full"></div>
+							<Skeleton class="h-64 w-full" />
 						{/await}
 					</svelte:boundary>
 				</div>

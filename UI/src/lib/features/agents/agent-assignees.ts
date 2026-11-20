@@ -27,7 +27,7 @@ export function toggleAgent(current: string[], id: string): string[] {
 
 // Mirrors domain.AgentTaskWorking: unassigning cancels a task in these
 // states; one awaiting review keeps its pull request.
-const WORKING = new Set(['queued', 'preparing', 'running', 'waiting_input', 'validating', 'publishing', 'blocked', 'failed']);
+const WORKING = new Set(['queued', 'preparing', 'waiting_for_disk', 'running', 'waiting_input', 'validating', 'publishing', 'blocked', 'failed']);
 
 /** Whether unassigning the agent cancels work in progress (ask first). */
 export function unassignCancelsTask(agent: AssignedAgent | undefined): boolean {

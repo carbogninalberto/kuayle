@@ -160,9 +160,8 @@ test('issue and comment tables survive editing and reloading', async ({ page }, 
 	const descriptionTable = page.getByRole('table').filter({ has: page.getByRole('columnheader', { name: 'Step' }) });
 	const result = descriptionTable.getByRole('cell', { name: 'Passed', exact: true });
 	await expect(result).toBeVisible();
-	await result.click();
-	await page.keyboard.press('End');
-	await page.keyboard.insertText(' on CI');
+	await result.getByText('Passed', { exact: true }).dblclick();
+	await page.keyboard.insertText('Passed on CI');
 	await expect.poll(() => issue.description).toContain('Passed on CI');
 
 	const mine = commentCard(page, 'Review checklist');
@@ -171,9 +170,8 @@ test('issue and comment tables survive editing and reloading', async ({ page }, 
 	await mine.getByRole('button', { name: 'Comment actions' }).click();
 	await page.getByRole('menuitem', { name: 'Edit' }).click();
 	const editor = mine.getByTestId('comment-editor');
-	await editor.getByRole('cell', { name: 'Mobile' }).click();
-	await page.keyboard.press('End');
-	await page.keyboard.insertText(' checked');
+	await editor.getByRole('cell', { name: 'Mobile' }).getByText('Mobile', { exact: true }).dblclick();
+	await page.keyboard.insertText('Mobile checked');
 	await page.screenshot({ path: testInfo.outputPath('issue-tables-editing.png') });
 	await editor.getByRole('button', { name: 'Save' }).click();
 	await expect.poll(() => state.bodies.at(-1)).toContain('Mobile checked');

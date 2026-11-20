@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Copiado",
 	"tasks.state.queued": "Na fila",
 	"tasks.state.preparing": "Preparando",
+	"tasks.state.waiting_for_disk": "Aguardando espaço em disco",
 	"tasks.state.running": "Em execução",
 	"tasks.state.waiting_input": "Aguardando entrada",
 	"tasks.state.validating": "Validando",

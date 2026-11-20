@@ -111,6 +111,7 @@ func TestWorkflowContinuationKeepsTheCheckoutAndPublishesToTheSamePullRequest(t 
  workflow_started_at=now()-interval '40 minutes',workflow_iterations=9,workflow_visits='{"implement":4}',
  workflow_budget_extensions=2 WHERE id=$1`, task.ID)
 	before := get()
+	refuse(domain.WorkflowSwitchTarget{WorkflowID: sourceID, Node: "implement"}, domain.WorkflowSwitchUnavailable)
 	refuse(domain.WorkflowSwitchTarget{WorkflowID: target.ID.String(), Node: "missing"}, domain.WorkflowSwitchStepMissing)
 	refuse(domain.WorkflowSwitchTarget{WorkflowID: target.ID.String(), Node: "start"}, domain.WorkflowSwitchStepInvalid)
 	refuse(domain.WorkflowSwitchTarget{WorkflowID: uuid.NewString(), Node: "implement"}, domain.WorkflowSwitchUnavailable)
@@ -197,10 +198,16 @@ func TestWorkflowContinuationKeepsTheCheckoutAndPublishesToTheSamePullRequest(t 
 	require.NoError(t, err)
 	native, err := f.repo.CreateWorkflow(f.ctx, f.ws, f.user, "Native delivery", "", nativeGraph, "created")
 	require.NoError(t, err)
+	approval, err := f.repo.CreateWorkflow(f.ctx, f.ws, f.user, "Human approval", "", nativeGraph, "created")
+	require.NoError(t, err)
 	exec(`UPDATE agent_tasks SET state='awaiting_review',workflow_status='waiting',run_id=gen_random_uuid() WHERE id=$1`, task.ID)
-	for _, node := range []string{"ci", "ship", "merge"} {
+	for _, target := range []domain.WorkflowSwitchTarget{
+		{WorkflowID: native.ID.String(), Node: "ci"},
+		{WorkflowID: approval.ID.String(), Node: "ship"},
+		{WorkflowID: native.ID.String(), Node: "merge"},
+	} {
 		current := get()
-		_, moved, err := f.tasks.SwitchWorkflow(f.ctx, f.ws, task.ID, domain.WorkflowSwitchTarget{WorkflowID: native.ID.String(), Node: node}, true)
+		_, moved, err := f.tasks.SwitchWorkflow(f.ctx, f.ws, task.ID, target, true)
 		require.NoError(t, err)
 		require.NotNil(t, moved)
 		require.NoError(t, f.tasks.Workflow().Evaluate(f.ctx, *claimEntry()))
@@ -210,7 +217,7 @@ func TestWorkflowContinuationKeepsTheCheckoutAndPublishesToTheSamePullRequest(t 
 		require.Equal(t, current.Generation, waiting.Generation)
 		step, err := repo.CurrentWorkflowStep(f.ctx, *waiting)
 		require.NoError(t, err)
-		require.Equal(t, node, step.NodeID)
+		require.Equal(t, target.Node, step.NodeID)
 		require.Equal(t, 1, step.Visit)
 		require.Nil(t, step.FinishedAt)
 		require.Nil(t, step.MergeWait())

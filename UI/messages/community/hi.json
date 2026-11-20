@@ -2217,6 +2217,7 @@
 	"tasks.copied": "कॉपी किया गया",
 	"tasks.state.queued": "कतार में",
 	"tasks.state.preparing": "तैयार हो रहा है",
+	"tasks.state.waiting_for_disk": "डिस्क पर खाली जगह की प्रतीक्षा",
 	"tasks.state.running": "चल रहा है",
 	"tasks.state.waiting_input": "इनपुट की प्रतीक्षा",
 	"tasks.state.validating": "सत्यापन हो रहा है",

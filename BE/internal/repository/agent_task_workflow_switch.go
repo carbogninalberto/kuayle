@@ -132,6 +132,10 @@ func continueWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, 
 		plan.Refused = domain.WorkflowSwitchArchived
 		return plan, nil, nil
 	}
+	if destination.ID == pinned.WorkflowID {
+		plan.Refused = domain.WorkflowSwitchUnavailable
+		return plan, nil, nil
+	}
 	version, err := publishedWorkflowVersion(ctx, tx, task.WorkspaceID, destination.ID, nil)
 	if err != nil {
 		return nil, nil, err
