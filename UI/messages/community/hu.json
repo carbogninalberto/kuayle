@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Másolva",
 	"tasks.state.queued": "Sorban áll",
 	"tasks.state.preparing": "Előkészítés",
+	"tasks.state.waiting_for_disk": "Várakozás szabad lemezterületre",
 	"tasks.state.running": "Fut",
 	"tasks.state.waiting_input": "Bemenetre vár",
 	"tasks.state.validating": "Ellenőrzés",

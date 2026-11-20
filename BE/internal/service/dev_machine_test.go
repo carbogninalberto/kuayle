@@ -1984,6 +1984,13 @@ func (f *devMachineStoreFake) CountActiveMachines(_ context.Context, _ uuid.UUID
 	return f.workspaceActiveCount, nil
 }
 
+func (f *devMachineStoreFake) GetMachineStartOperation(context.Context, uuid.UUID, uuid.UUID, int64) (*domain.DevMachineOperation, error) {
+	if op := f.queuedOperation; op != nil && (op.Action == domain.DevMachineOpStart || op.Action == domain.DevMachineOpSpawn) {
+		return op, nil
+	}
+	return nil, nil
+}
+
 func (f *devMachineStoreFake) GetOperationByIdempotency(_ context.Context, _ uuid.UUID, _ uuid.UUID, key string) (*domain.DevMachineOperation, error) {
 	f.operationLookups = append(f.operationLookups, key)
 	if f.queuedOperation != nil {

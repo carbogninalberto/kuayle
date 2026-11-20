@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Copiat",
 	"tasks.state.queued": "A la cua",
 	"tasks.state.preparing": "Preparant",
+	"tasks.state.waiting_for_disk": "S’està esperant espai al disc",
 	"tasks.state.running": "En execució",
 	"tasks.state.waiting_input": "Esperant entrada",
 	"tasks.state.validating": "Validant",

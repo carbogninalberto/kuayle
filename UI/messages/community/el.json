@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Αντιγράφηκε",
 	"tasks.state.queued": "Στην ουρά",
 	"tasks.state.preparing": "Προετοιμασία",
+	"tasks.state.waiting_for_disk": "Αναμονή για ελεύθερο χώρο στον δίσκο",
 	"tasks.state.running": "Εκτελείται",
 	"tasks.state.waiting_input": "Αναμονή εισόδου",
 	"tasks.state.validating": "Επικύρωση",

@@ -16,7 +16,7 @@ type PauseFields = Pick<
 	| 'usage_limit_message'
 >;
 
-const running = ['queued', 'preparing', 'running', 'waiting_input', 'validating', 'publishing', 'awaiting_review'];
+const running = ['queued', 'preparing', 'waiting_for_disk', 'running', 'waiting_input', 'validating', 'publishing', 'awaiting_review'];
 
 export function workflowPause(task: PauseFields): WorkflowPause {
 	if (!task.workflow_version_id || task.kind === 'review') return 'none';

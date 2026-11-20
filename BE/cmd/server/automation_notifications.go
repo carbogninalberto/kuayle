@@ -11,17 +11,17 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Each HTTP replica wakes its own clients when a worker commits an approval
+// Each HTTP replica wakes its own clients when a worker commits a
 // notice. Notification rows remain readable after downtime or a missed wake.
-func listenAutomationApprovals(ctx context.Context, databaseURL string, hub *realtime.Hub) {
+func listenWorkerNotifications(ctx context.Context, databaseURL string, hub *realtime.Hub) {
 	for ctx.Err() == nil {
-		err := receiveAutomationApprovals(ctx, databaseURL, hub)
+		err := receiveWorkerNotifications(ctx, databaseURL, hub)
 		if ctx.Err() != nil {
 			return
 		}
 		// Connection errors can include deployment-private connection details.
 		if err != nil {
-			log.Warn("Automation approval listener disconnected")
+			log.Warn("Worker notification listener disconnected")
 		}
 		select {
 		case <-ctx.Done():
@@ -31,13 +31,16 @@ func listenAutomationApprovals(ctx context.Context, databaseURL string, hub *rea
 	}
 }
 
-func receiveAutomationApprovals(ctx context.Context, databaseURL string, hub *realtime.Hub) error {
+func receiveWorkerNotifications(ctx context.Context, databaseURL string, hub *realtime.Hub) error {
 	conn, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
 		return err
 	}
 	defer conn.Close(context.Background())
 	if _, err = conn.Exec(ctx, `LISTEN agent_automation_approval`); err != nil {
+		return err
+	}
+	if _, err = conn.Exec(ctx, `LISTEN host_disk_low`); err != nil {
 		return err
 	}
 	for {
@@ -49,7 +52,7 @@ func receiveAutomationApprovals(ctx context.Context, databaseURL string, hub *re
 		ws, e1 := uuid.Parse(workspace)
 		user, e2 := uuid.Parse(owner)
 		if ok && e1 == nil && e2 == nil {
-			hub.BroadcastToUser(ws, user, realtime.Event{Type: "notification.created", Payload: map[string]string{"type": "agent_automation_approval"}})
+			hub.BroadcastToUser(ws, user, realtime.Event{Type: "notification.created", Payload: map[string]string{"type": notice.Channel}})
 		}
 	}
 }

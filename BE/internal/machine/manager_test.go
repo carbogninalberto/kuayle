@@ -348,6 +348,13 @@ func (f *managerStoreFake) ListTimedOutAgentRuns(context.Context, int) ([]domain
 func (f *managerStoreFake) ListRuntimeMachines(context.Context, int, int) ([]domain.DevMachine, error) {
 	return f.runtimeMachines, nil
 }
+func (f *managerStoreFake) RequeueHostDiskRefusals(context.Context, string) error {
+	return nil
+}
+
+func (f *managerStoreFake) HasTaskWaitingForMachine(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return true, nil
+}
 
 // ListSamplingMachines returns the running machines among runtimeMachines.
 func (f *managerStoreFake) ListSamplingMachines(_ context.Context, limit, offset int) ([]domain.DevMachine, error) {
@@ -1152,9 +1159,9 @@ func TestReconcileHostDiskFloorRetainsBreachWhenMeasurementFails(t *testing.T) {
 				err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
 					MachineID: machineID, WorkspaceID: workspaceID, Action: test.action, Generation: 3,
 				})
-				var terminalErr *terminalOperationError
-				require.ErrorAs(t, err, &terminalErr)
-				require.Equal(t, "host_disk_low", terminalErr.code)
+				var wait *hostDiskWaitError
+				require.ErrorAs(t, err, &wait)
+				require.Contains(t, wait.message, "20.0 GB free")
 				require.Zero(t, runtime.spawned)
 				require.Zero(t, runtime.started)
 			}
@@ -1188,7 +1195,7 @@ func TestReconcileHardModeNeverReadsHostDiskUsage(t *testing.T) {
 	require.Empty(t, store.actions)
 }
 
-func TestManagerRejectsSpawnAndStartDuringHostDiskFloorBreach(t *testing.T) {
+func TestManagerDefersSpawnAndStartDuringHostDiskFloorBreach(t *testing.T) {
 	tests := []struct {
 		name      string
 		status    domain.DevMachineStatus
@@ -1206,26 +1213,53 @@ func TestManagerRejectsSpawnAndStartDuringHostDiskFloorBreach(t *testing.T) {
 				ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
 				Status: test.status, DesiredStatus: domain.DevMachineStatusRunning, Generation: 3,
 			}}
-			runtime := &runtimeFake{}
+			const gib = int64(1024 * 1024 * 1024)
+			runtime := &runtimeFake{hostDiskUsage: HostDiskUsage{TotalBytes: 350 * gib, FreeBytes: 357 * gib / 10}}
 			manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test", DiskQuotaConfig{
-				Mode: "monitored", HostMinFreePercent: 15, HostMinFreeGB: 25,
+				Mode: "monitored", HostMinFreePercent: 15, HostMinFreeGB: 50,
 			})
-			manager.hostDiskBreached.Store(true)
+			ctx := context.Background()
+			require.True(t, manager.reconcileHostDiskFloor(ctx))
+			breach := manager.hostDiskWait.Load().breach
+			require.True(t, manager.reconcileHostDiskFloor(ctx))
+			require.Equal(t, breach, manager.hostDiskWait.Load().breach)
 
-			err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
-				MachineID: machineID, WorkspaceID: workspaceID, Action: test.action, Generation: 3,
-			})
+			operation := domain.DevMachineOperation{ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID, Action: test.action, Generation: 3}
+			manager.operationSlots <- struct{}{}
+			manager.operations.Add(1)
+			manager.processLeasedOperation(ctx, operation)
 
-			var terminalErr *terminalOperationError
-			require.ErrorAs(t, err, &terminalErr)
-			require.Equal(t, "host_disk_low", terminalErr.code)
-			require.Contains(t, terminalErr.message, "free disk space")
+			deferred := store.deferredOperations()
+			require.Len(t, deferred, 1)
+			require.Equal(t, operation.ID, deferred[0].ID)
+			require.Equal(t, "host_disk_low", deferred[0].Code)
+			require.Contains(t, deferred[0].Message, "Host disk below the Dev Machine floor (35.7 GB free, 10.2%, with floors of 50 GB and 15%)")
 			require.Equal(t, test.wantSpawn, runtime.spawned)
 			require.Equal(t, test.wantStart, runtime.started)
 			require.NotEqual(t, domain.DevMachineStatusSpawning, store.machine.Status)
 			require.True(t, store.failedOperationRetryable == nil)
+			manager.store = &manualStartStore{managerStoreFake: store}
+			var terminalErr *terminalOperationError
+			require.ErrorAs(t, manager.processOperation(ctx, &operation), &terminalErr)
+			require.Equal(t, "host_disk_low", terminalErr.code)
+			manager.store = store
+
+			low := runtime.hostDiskUsage.FreeBytes
+			runtime.hostDiskUsage.FreeBytes = 60 * gib
+			require.False(t, manager.reconcileHostDiskFloor(ctx))
+			require.NoError(t, manager.processOperation(ctx, &operation))
+			require.Equal(t, 1, runtime.spawned+runtime.started)
+			runtime.hostDiskUsage.FreeBytes = low
+			require.True(t, manager.reconcileHostDiskFloor(ctx))
+			require.NotEqual(t, breach, manager.hostDiskWait.Load().breach)
 		})
 	}
+}
+
+type manualStartStore struct{ *managerStoreFake }
+
+func (s *manualStartStore) HasTaskWaitingForMachine(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return false, nil
 }
 
 // A stopped or paused machine whose runtime was never completed (its first

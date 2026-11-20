@@ -232,6 +232,17 @@ func (r *AgentTaskRepository) Claim(ctx context.Context) (*domain.AgentTask, err
 	}
 	return &task, err
 }
+
+func (r *AgentTaskRepository) WaitingForHostDisk(ctx context.Context, task domain.AgentTask) (bool, error) {
+	var waiting bool
+	err := r.db.GetContext(ctx, &waiting, `SELECT EXISTS (
+		SELECT 1 FROM dev_machines m JOIN dev_machine_operations o
+		 ON o.machine_id=m.id AND o.workspace_id=m.workspace_id AND o.generation=m.generation
+		WHERE m.id=$1 AND m.workspace_id=$2 AND m.desired_status='running' AND m.status<>'running'
+		 AND o.action IN ('spawn','start') AND o.status IN ('pending','leased') AND o.error_code='host_disk_low')`,
+		task.MachineID, task.WorkspaceID)
+	return waiting, err
+}
 func fenceAgentTask(ctx context.Context, tx *sqlx.Tx, current, claimed domain.AgentTask) error {
 	if current.Generation != claimed.Generation || current.LeaseToken == nil || claimed.LeaseToken == nil || *current.LeaseToken != *claimed.LeaseToken {
 		return ErrAgentTaskConflict
@@ -356,15 +367,13 @@ func transitionAgentTask(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTas
 				return err
 			}
 		}
-		// A person's input stops the clock; leaving that state adds the time
-		// waited to the budget start (KUA-171). Workflow moves cannot enter
-		// waiting_input (see transitionWorkflowTask), so this is the only
-		// place that holds and releases that wait.
-		if to == "waiting_input" {
+		// Waiting for input or host disk space stops the clock. Leaving the
+		// wait adds the time waited to the budget start (KUA-171).
+		if to == "waiting_input" || to == "waiting_for_disk" {
 			if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_held_since=COALESCE(workflow_held_since,now()) WHERE id=$1 RETURNING *`, task.ID); err != nil {
 				return err
 			}
-		} else if from == "waiting_input" && task.WorkflowHeldSince != nil {
+		} else if (from == "waiting_input" || from == "waiting_for_disk") && task.WorkflowHeldSince != nil {
 			if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_budget_from=CASE WHEN COALESCE(workflow_budget_from,workflow_started_at) IS NULL THEN workflow_budget_from ELSE COALESCE(workflow_budget_from,workflow_started_at)+(now()-workflow_held_since) END,workflow_held_since=NULL WHERE id=$1 AND workflow_held_since IS NOT NULL RETURNING *`, task.ID); err != nil {
 				return err
 			}
@@ -621,7 +630,11 @@ func (r *AgentTaskRepository) FinishCancellation(ctx context.Context, claimed do
 	return tx.Commit()
 }
 func (r *AgentTaskRepository) Release(ctx context.Context, claimed domain.AgentTask) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE agent_tasks SET lease_token=NULL,lease_expires_at=NULL,next_poll_at=now()+make_interval(secs=>power(2,failure_count)::int) WHERE id=$1 AND lease_token=$2 AND generation=$3`, claimed.ID, claimed.LeaseToken, claimed.Generation)
+	// The manager retries disk waits every 30 seconds. Check less often here,
+	// while still rechecking the task's access and its operation during the wait.
+	result, err := r.db.ExecContext(ctx, `UPDATE agent_tasks SET lease_token=NULL,lease_expires_at=NULL,
+		next_poll_at=now()+make_interval(secs=>GREATEST(power(2,failure_count)::int,CASE WHEN state='waiting_for_disk' THEN 10 ELSE 1 END))
+		WHERE id=$1 AND lease_token=$2 AND generation=$3`, claimed.ID, claimed.LeaseToken, claimed.Generation)
 	if err != nil {
 		return err
 	}

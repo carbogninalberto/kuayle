@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Kopierat",
 	"tasks.state.queued": "Köad",
 	"tasks.state.preparing": "Förbereds",
+	"tasks.state.waiting_for_disk": "Väntar på ledigt diskutrymme",
 	"tasks.state.running": "Körs",
 	"tasks.state.waiting_input": "Väntar på indata",
 	"tasks.state.validating": "Valideras",

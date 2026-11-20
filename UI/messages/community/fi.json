@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Kopioitu",
 	"tasks.state.queued": "Jonossa",
 	"tasks.state.preparing": "Valmistellaan",
+	"tasks.state.waiting_for_disk": "Odotetaan vapaata levytilaa",
 	"tasks.state.running": "Käynnissä",
 	"tasks.state.waiting_input": "Odottaa syötettä",
 	"tasks.state.validating": "Validoidaan",

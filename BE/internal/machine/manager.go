@@ -70,6 +70,8 @@ type ManagerStore interface {
 	SetPackageIndexRefresh(context.Context, uuid.UUID, string, string, *int, *string) error
 	DeleteEnvironmentCheck(context.Context, uuid.UUID) error
 	DeferOperation(context.Context, uuid.UUID, string, string, string, time.Duration) error
+	HasTaskWaitingForMachine(context.Context, uuid.UUID, uuid.UUID) (bool, error)
+	RequeueHostDiskRefusals(context.Context, string) error
 	LastPublishedCommit(context.Context, uuid.UUID) (string, error)
 	GetPublication(context.Context, domain.DevMachineOperation) (*domain.AgentPublication, error)
 	StartPublication(context.Context, domain.DevMachineOperation) error
@@ -222,7 +224,8 @@ type Manager struct {
 	lastReconcileUnix   atomic.Int64
 	hostDiskFreeBytes   atomic.Int64
 	hostDiskTotalBytes  atomic.Int64
-	hostDiskBreached    atomic.Bool
+	hostDiskWait        atomic.Pointer[hostDiskWaitError]
+	hostDiskNotices     *repository.NotificationRepository
 	operationSlots      chan struct{}
 	operations          sync.WaitGroup
 	// detach closes when the manager stops: agent runs then keep running for
@@ -277,8 +280,19 @@ type terminalOperationError struct {
 	message string
 }
 
+type hostDiskWaitError struct {
+	breach  uuid.UUID
+	message string
+}
+
+func (e *hostDiskWaitError) Error() string { return e.message }
+
 func (e *terminalOperationError) Error() string {
 	return e.code + ": " + e.message
+}
+
+func (m *Manager) SetHostDiskNotifications(notices *repository.NotificationRepository) {
+	m.hostDiskNotices = notices
 }
 
 func NewManager(store ManagerStore, runtime Runtime, agents *agent.Registry, github githubAPI, encryptionKey, githubKey []byte, owner string, diskQuotas ...DiskQuotaConfig) *Manager {
@@ -352,6 +366,7 @@ func (m *Manager) drainOperations() bool {
 }
 
 func (m *Manager) Run(ctx context.Context) error {
+	m.reconcileHostDiskFloor(ctx)
 	// Leased operations run under work, which outlives the signal: a stopping
 	// manager lets them end their own way and hands them over.
 	work, stopWork := context.WithCancelCause(context.WithoutCancel(ctx))
@@ -440,7 +455,7 @@ func (m *Manager) Metrics() map[string]uint64 {
 		"resource_sample_inserts_failed_total": m.resourceSampleInsertFailed.Load(),
 		"host_disk_free_bytes":                 uint64(max(m.hostDiskFreeBytes.Load(), 0)),
 		"host_disk_total_bytes":                uint64(max(m.hostDiskTotalBytes.Load(), 0)),
-		"host_disk_floor_breached":             boolMetric(m.hostDiskBreached.Load()),
+		"host_disk_floor_breached":             boolMetric(m.hostDiskWait.Load() != nil),
 	}
 }
 
@@ -516,6 +531,17 @@ func (m *Manager) processLeasedOperation(ctx context.Context, operation domain.D
 			log.WithFields(fields).WithError(deferErr).Error("failed to hand the operation to the next machine manager")
 		} else {
 			log.WithFields(fields).Info("operation handed to the next machine manager")
+		}
+		return
+	}
+	var diskErr *hostDiskWaitError
+	if errors.As(err, &diskErr) {
+		if deferErr := m.store.DeferOperation(finalCtx, operation.ID, m.owner, "host_disk_low", diskErr.message, capacityRetryDelay); deferErr != nil {
+			log.WithFields(fields).WithError(deferErr).Error("failed to defer operation for host disk space")
+		} else if m.hostDiskNotices != nil {
+			if notifyErr := m.hostDiskNotices.NotifyHostDiskWait(finalCtx, operation.WorkspaceID, operation.MachineID, diskErr.breach, diskErr.message); notifyErr != nil {
+				log.WithFields(fields).WithError(notifyErr).Warn("could not notify workspace admins about the host disk floor")
+			}
 		}
 		return
 	}
@@ -673,7 +699,14 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		}
 	}
 	if operation.Action == domain.DevMachineOpSpawn || operation.Action == domain.DevMachineOpStart {
-		if m.diskQuota.monitored() && m.hostDiskBreached.Load() {
+		if wait := m.hostDiskWait.Load(); wait != nil {
+			hasTask, err := m.store.HasTaskWaitingForMachine(ctx, operation.WorkspaceID, operation.MachineID)
+			if err != nil {
+				return err
+			}
+			if hasTask {
+				return wait
+			}
 			return &terminalOperationError{
 				code: "host_disk_low",
 				message: "host free disk space is below the configured Dev Machine floor; " +
@@ -1926,6 +1959,13 @@ func (m *Manager) reconcile(ctx context.Context) error {
 	}
 
 	hostDiskFloorBreached := m.reconcileHostDiskFloor(ctx)
+	diskReason := ""
+	if wait := m.hostDiskWait.Load(); wait != nil {
+		diskReason = wait.message
+	}
+	if err = m.store.RequeueHostDiskRefusals(ctx, diskReason); err != nil {
+		log.WithError(err).Warn("could not requeue task machine starts refused by the host disk floor")
+	}
 	const runtimePageSize = 100
 	for offset := 0; ; offset += runtimePageSize {
 		machines, err := m.store.ListRuntimeMachines(ctx, runtimePageSize, offset)
@@ -2031,6 +2071,9 @@ func (m *Manager) reconcileMachine(ctx context.Context, machine *domain.DevMachi
 		}
 	}
 	if machine.DesiredStatus == domain.DevMachineStatusRunning {
+		if hostDiskFloorBreached {
+			return
+		}
 		inspection, inspectErr := m.runtime.Inspect(ctx, machine, services)
 		if inspectErr != nil {
 			log.WithField("machine_id", machine.ID).WithError(inspectErr).Warn("runtime inspection failed")
@@ -2100,14 +2143,27 @@ func (m *Manager) reconcileHostDiskFloor(ctx context.Context) bool {
 		if !errors.Is(err, ErrHostDiskUnknown) {
 			log.WithError(err).Warn("host disk usage unavailable")
 		}
-		return m.hostDiskBreached.Load()
+		return m.hostDiskWait.Load() != nil
 	}
 	m.hostDiskFreeBytes.Store(usage.FreeBytes)
 	m.hostDiskTotalBytes.Store(usage.TotalBytes)
 	minFreeBytes := int64(m.diskQuota.HostMinFreeGB) * 1024 * 1024 * 1024
 	breached := usage.FreeBytes < minFreeBytes ||
 		usage.TotalBytes > 0 && usage.FreeBytes*100/usage.TotalBytes < int64(m.diskQuota.HostMinFreePercent)
-	m.hostDiskBreached.Store(breached)
+	if breached {
+		id := uuid.New()
+		if previous := m.hostDiskWait.Load(); previous != nil {
+			id = previous.breach
+		}
+		free := fmt.Sprintf("%.1f GB free", float64(usage.FreeBytes)/(1024*1024*1024))
+		if usage.TotalBytes > 0 {
+			free += fmt.Sprintf(", %.1f%%", float64(usage.FreeBytes)*100/float64(usage.TotalBytes))
+		}
+		message := fmt.Sprintf("Host disk below the Dev Machine floor (%s, with floors of %d GB and %d%%). Tasks resume automatically when space is available.", free, m.diskQuota.HostMinFreeGB, m.diskQuota.HostMinFreePercent)
+		m.hostDiskWait.Store(&hostDiskWaitError{breach: id, message: message})
+	} else {
+		m.hostDiskWait.Store(nil)
+	}
 	return breached
 }
 

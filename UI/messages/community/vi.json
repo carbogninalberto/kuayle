@@ -2217,6 +2217,7 @@
 	"tasks.copied": "Đã sao chép",
 	"tasks.state.queued": "Đang xếp hàng",
 	"tasks.state.preparing": "Đang chuẩn bị",
+	"tasks.state.waiting_for_disk": "Đang chờ dung lượng đĩa trống",
 	"tasks.state.running": "Đang chạy",
 	"tasks.state.waiting_input": "Chờ nhập liệu",
 	"tasks.state.validating": "Đang xác thực",
