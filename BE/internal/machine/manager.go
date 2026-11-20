@@ -45,6 +45,10 @@ type ManagerStore interface {
 	AppendCommandRunOutput(context.Context, domain.DevMachineOperation, string, bool) error
 	CompleteCommandRun(context.Context, domain.DevMachineOperation, int) error
 	FailCommandRun(context.Context, domain.DevMachineOperation, string) error
+	AssistantProcessToStart(context.Context, domain.DevMachineOperation) (*domain.AssistantProcess, error)
+	MarkAssistantProcessRunning(context.Context, domain.DevMachineOperation) (bool, error)
+	AssistantProcessesToCheck(context.Context) ([]domain.AssistantProcess, error)
+	FinishAssistantProcess(context.Context, uuid.UUID, string) error
 	// MigrationActionSecret returns a migration action's encrypted secret;
 	// the manager decrypts it with the instance key when the run starts.
 	MigrationActionSecret(ctx context.Context, ws, machine uuid.UUID, name string) (string, error)
@@ -843,6 +847,8 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 		return m.refreshPackageIndex(ctx, machine, services)
 	case domain.DevMachineOpRunCommand:
 		return m.runCommand(ctx, machine, operation)
+	case domain.DevMachineOpStartProcess:
+		return m.startAssistantProcess(ctx, machine, services, operation)
 	case domain.DevMachineOpScanWorktree:
 		return m.runWorktreeScan(ctx, machine, operation)
 	case domain.DevMachineOpPublishAgent:
@@ -1836,6 +1842,9 @@ const machineReconcileTimeout = 2 * time.Minute
 func (m *Manager) reconcile(ctx context.Context) error {
 	now := time.Now().UTC()
 	m.lastReconcileUnix.Store(now.Unix())
+	if err := m.reconcileAssistantProcesses(ctx); err != nil {
+		log.WithError(err).Warn("assistant process listing failed")
+	}
 	if _, err := m.store.PurgeExpiredRuntimeCredentials(ctx, now); err != nil {
 		log.WithError(err).Warn("expired runtime credential purge failed")
 	}

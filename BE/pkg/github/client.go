@@ -37,7 +37,19 @@ type Client struct {
 // GetRepositoryInstallationToken creates a short-lived installation token
 // restricted to one repository and the permissions required by Dev Machines.
 func (c *Client) GetRepositoryInstallationToken(installationID int64, repository string) (string, time.Time, error) {
-	return c.repositoryInstallationToken(context.Background(), installationID, repository, repositoryWritePermissions())
+	return c.GetRepositoryInstallationTokenWithReadPermissions(installationID, repository)
+}
+
+// GetRepositoryInstallationTokenWithReadPermissions adds the caller's read
+// permissions to the standard repository token permissions.
+func (c *Client) GetRepositoryInstallationTokenWithReadPermissions(installationID int64, repository string, readPermissions ...string) (string, time.Time, error) {
+	permissions := repositoryWritePermissions()
+	for _, permission := range readPermissions {
+		if _, exists := permissions[permission]; !exists {
+			permissions[permission] = "read"
+		}
+	}
+	return c.repositoryInstallationToken(context.Background(), installationID, repository, permissions)
 }
 
 // PublicationToken is restricted to one repository. WorkflowsWrite records

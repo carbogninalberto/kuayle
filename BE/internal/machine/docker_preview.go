@@ -382,23 +382,28 @@ func (r *DockerRuntime) ScanPorts(ctx context.Context, machine *domain.DevMachin
 			scan.Docker = parsePortScan(output).Listening
 		}
 	}
-	scan.Preview = r.previewListening(ctx, machine)
+	scan.Preview = r.isolatedPortsListening(ctx, machine)
 	return scan, nil
 }
 
-// previewListening returns the ports of the machine's running preview
-// containers that listen. A preview is asked only about its own port, so its
-// process cannot report any other; a failed scan leaves a port unknown.
-func (r *DockerRuntime) previewListening(ctx context.Context, machine *domain.DevMachine) []int {
+// isolatedPortsListening scans the assigned port of each preview or chat
+// process container. A failed scan leaves the port unknown.
+func (r *DockerRuntime) isolatedPortsListening(ctx context.Context, machine *domain.DevMachine) []int {
 	if machine == nil {
 		return nil
 	}
-	previews, err := r.previewContainers(ctx, machine)
+	listed, err := r.client.ContainerList(ctx, client.ContainerListOptions{
+		Filters: make(client.Filters).Add("label", "com.kuayle.machine-id="+machine.ID.String(), "com.kuayle.service=agent"),
+	})
 	if err != nil {
 		return nil
 	}
 	listening := []int{}
-	for _, item := range previews {
+	for _, item := range listed.Items {
+		if !ownedByMachine(item.Labels, machine.ID) || item.Labels["com.kuayle.workspace-id"] != machine.WorkspaceID.String() ||
+			(!previewContainer(item) && item.Labels[processLabel] == "") {
+			continue
+		}
 		port, ok := domain.ParseAppPortNumber(item.Labels[previewPortLabel])
 		if !ok || item.State != container.StateRunning || len(listening) >= maxListeningPorts {
 			continue

@@ -65,12 +65,12 @@ func (s *GitHubService) InspectPullRequestHead(ctx context.Context, ws uuid.UUID
 	return result, nil
 }
 
-func (s *GitHubService) repositoryClient(ctx context.Context, ws uuid.UUID, repository string) (*gh.Client, string, string, string, error) {
+func (s *GitHubService) repositoryClient(ctx context.Context, ws uuid.UUID, repository string, readPermissions ...string) (*gh.Client, string, string, string, error) {
 	client, id, owner, name, err := s.repositoryInstallation(ctx, ws, repository)
 	if err != nil {
 		return nil, "", "", "", err
 	}
-	token, _, err := client.GetRepositoryInstallationToken(id, name)
+	token, _, err := client.GetRepositoryInstallationTokenWithReadPermissions(id, name, readPermissions...)
 	return client, token, owner, name, err
 }
 

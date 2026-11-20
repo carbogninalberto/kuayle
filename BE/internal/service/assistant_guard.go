@@ -57,6 +57,7 @@ var assistantActionPolicies = map[string]assistantActionPolicy{
 	"follow_up_task":                {machine: true},
 	"message_task":                  {machine: true},
 	"start_preview":                 {machine: true},
+	"start_process":                 {machine: true},
 	"expose_port":                   {machine: true},
 	getMachineUsageTool:             {machine: true, role: roleAdminOrCreator, refusal: "only workspace admins or the task's creator can read its machine usage"},
 	"run_check":                     {machine: true},
