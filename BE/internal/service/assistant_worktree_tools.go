@@ -330,27 +330,61 @@ func taskSourceRequested(arguments string) bool {
 	return json.Unmarshal([]byte(arguments), &probe) == nil && strings.EqualFold(strings.TrimSpace(probe.Source), "task")
 }
 
-// linkedRepositoryHint names up to ten linked repositories so the model can
-// retry a scan with a valid one. Only owners and admins may scan a repository
-// by name, so only they are shown the names.
-func (t *AssistantTools) linkedRepositoryHint(ctx context.Context, ws uuid.UUID, role string) string {
+// Members must resolve a visible issue; never list linked names for them.
+func (t *AssistantTools) scanRepositoryChoices(ctx context.Context, ws uuid.UUID, role string) ([]domain.GitHubRepoModel, error) {
 	if role != domain.RoleOwner && role != domain.RoleAdmin {
-		return ""
+		return nil, nil
 	}
 	lister, ok := t.scanRepos.(linkedRepositoryLister)
 	if !ok {
-		return ""
+		return nil, nil
 	}
-	repos, err := lister.ListLinkedRepositories(ctx, ws)
-	if err != nil || len(repos) == 0 {
+	return lister.ListLinkedRepositories(ctx, ws)
+}
+
+func linkedRepositoryHint(repos []domain.GitHubRepoModel) string {
+	if len(repos) == 0 {
 		return ""
 	}
 	names := make([]string, 0, min(len(repos), linkedRepositoryHints))
-	for _, repo := range repos {
-		if len(names) == linkedRepositoryHints {
-			break
-		}
+	for _, repo := range repos[:min(len(repos), linkedRepositoryHints)] {
 		names = append(names, repo.FullName)
 	}
 	return " Linked repositories: " + strings.Join(names, ", ") + "."
+}
+
+// Suggest a unique match for a wrong owner, a single typo, or a transposition.
+func nearbyScanRepository(name string, repos []domain.GitHubRepoModel) string {
+	owner, repo, ok := strings.Cut(strings.ToLower(name), "/")
+	if !ok || owner == "" || repo == "" {
+		return ""
+	}
+	match := ""
+	for _, r := range repos {
+		o, n, _ := strings.Cut(strings.ToLower(r.FullName), "/")
+		if repo != n && (owner != o || !oneRepositoryTypo(repo, n)) {
+			continue
+		}
+		if match != "" {
+			return ""
+		}
+		match = r.FullName
+	}
+	return match
+}
+
+func oneRepositoryTypo(a, b string) bool {
+	for len(a) > 0 && len(b) > 0 && a[0] == b[0] {
+		a, b = a[1:], b[1:]
+	}
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	if len(b) == len(a)+1 {
+		return a == b[1:]
+	}
+	if len(a) == 0 || len(a) != len(b) {
+		return false
+	}
+	return a[1:] == b[1:] || (len(a) > 1 && a[0] == b[1] && a[1] == b[0] && a[2:] == b[2:])
 }

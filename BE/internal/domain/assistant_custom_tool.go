@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/pkg/sanitize"
 )
 
 // AssistantCustomTool is a workspace-authored script the assistant can run on
@@ -201,6 +202,17 @@ func schemaError(format string, args ...any) error {
 	return &ErrToolSchema{Message: fmt.Sprintf(format, args...)}
 }
 
+var argumentName = regexp.MustCompile(`^[$a-zA-Z_][a-zA-Z0-9_-]{0,39}$`)
+
+// SafeToolArgumentName identifies a rejected field without copying arbitrary
+// text or credentials that a caller put in a JSON key.
+func SafeToolArgumentName(key string) string {
+	if !argumentName.MatchString(key) {
+		return "(unrecognized name)"
+	}
+	return sanitize.RedactCredentials(RedactSecrets(key))
+}
+
 // strictObject decodes one JSON object, rejecting duplicate keys, keys outside
 // allowed and trailing data.
 func strictObject(raw []byte, what string, allowed ...string) (map[string]json.RawMessage, []string, error) {
@@ -219,10 +231,10 @@ func strictObject(raw []byte, what string, allowed ...string) (map[string]json.R
 		}
 		key, _ := token.(string)
 		if _, seen := fields[key]; seen {
-			return nil, nil, schemaError("%s repeats %q", what, key)
+			return nil, nil, schemaError("%s repeats %q", what, SafeToolArgumentName(key))
 		}
 		if allowed != nil && !slices.Contains(allowed, key) {
-			return nil, nil, schemaError("%s does not support %q", what, key)
+			return nil, nil, schemaError("%s does not support %q", what, SafeToolArgumentName(key))
 		}
 		var value json.RawMessage
 		if err = decoder.Decode(&value); err != nil {
@@ -300,7 +312,7 @@ func ParseToolSchema(raw json.RawMessage) (*ToolSchema, json.RawMessage, error) 
 	schema := &ToolSchema{}
 	for _, name := range names {
 		if !customToolArgument.MatchString(name) {
-			return nil, nil, schemaError("parameter %q must be snake_case: lowercase letters, digits and underscores, starting with a letter, at most 40 characters", truncateText(name, 40))
+			return nil, nil, schemaError("parameter %q must be snake_case: lowercase letters, digits and underscores, starting with a letter, at most 40 characters", SafeToolArgumentName(name))
 		}
 		parameter, err := parseToolParameter(name, properties[name])
 		if err != nil {
@@ -312,12 +324,12 @@ func ParseToolSchema(raw json.RawMessage) (*ToolSchema, json.RawMessage, error) 
 	seen := map[string]bool{}
 	for _, name := range required {
 		if seen[name] {
-			return nil, nil, schemaError("required repeats %q", truncateText(name, 40))
+			return nil, nil, schemaError("required repeats %q", SafeToolArgumentName(name))
 		}
 		seen[name] = true
 		i := slices.IndexFunc(schema.Properties, func(p ToolParameter) bool { return p.Name == name })
 		if i < 0 {
-			return nil, nil, schemaError("required names %q, which is not a parameter", truncateText(name, 40))
+			return nil, nil, schemaError("required names %q, which is not a parameter", SafeToolArgumentName(name))
 		}
 		schema.Properties[i].Required = true
 	}
@@ -475,7 +487,7 @@ func (s *ToolSchema) ValidateInputs(raw json.RawMessage) (map[string]any, json.R
 	values := map[string]any{}
 	for key := range fields {
 		if !slices.ContainsFunc(s.Properties, func(p ToolParameter) bool { return p.Name == key }) {
-			return nil, nil, schemaError("unknown input %q", truncateText(key, 40))
+			return nil, nil, schemaError("unknown input %q", SafeToolArgumentName(key))
 		}
 	}
 	for _, p := range s.Properties {
@@ -524,8 +536,11 @@ func (s *ToolSchema) ValidateInputs(raw json.RawMessage) (map[string]any, json.R
 			if convErr != nil || math.IsInf(f, 0) || math.IsNaN(f) {
 				return nil, nil, schemaError("input %s must be a finite number", p.Name)
 			}
-			if (p.Minimum != nil && f < *p.Minimum) || (p.Maximum != nil && f > *p.Maximum) {
-				return nil, nil, schemaError("input %s is out of range", p.Name)
+			if p.Minimum != nil && f < *p.Minimum {
+				return nil, nil, schemaError("input %s is out of range; minimum %g", p.Name, *p.Minimum)
+			}
+			if p.Maximum != nil && f > *p.Maximum {
+				return nil, nil, schemaError("input %s is out of range; maximum %g", p.Name, *p.Maximum)
 			}
 			if p.Type == "integer" {
 				if f != math.Trunc(f) || math.Abs(f) > maxSafeInteger {
@@ -601,11 +616,4 @@ func DecodeToolInputs(raw json.RawMessage) (map[string]any, error) {
 		}
 	}
 	return values, nil
-}
-
-func truncateText(value string, limit int) string {
-	if utf8.RuneCountInString(value) <= limit {
-		return value
-	}
-	return string([]rune(value)[:limit])
 }

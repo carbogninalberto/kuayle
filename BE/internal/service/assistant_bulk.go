@@ -15,10 +15,16 @@ import (
 
 const bulkUpdateAction = "bulk_update_issues"
 
+const bulkRowParameters = `{"type":"object","properties":{"identifier":{"type":"string","minLength":1,"maxLength":32},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4},"assignee_id":{"type":"string"},"label_ids":{"type":"array","items":{"type":"string","format":"uuid"},"uniqueItems":true},"cycle_id":{"type":"string"},"project_id":{"type":"string"}},"required":["identifier"],"minProperties":2,"additionalProperties":false}`
+
+func bulkUpdateParameters(rowSchema string) string {
+	return `{"type":"object","properties":{"changes":{"type":"array","minItems":1,"maxItems":100,"items":` + rowSchema + `}},"required":["changes"],"additionalProperties":false}`
+}
+
 var bulkUpdateTool = assistantTool{
 	name: bulkUpdateAction, approval: true, write: true,
 	description: "When asked to change several issues, including closing them, propose all their changes in one call for one approval. Use done to close issues. label_ids replaces all labels; assignee_id replaces the assignment. Use [] for no labels and an empty string to clear the assignee, cycle or project. Report approval as pending until the user decides.",
-	parameters:  `{"type":"object","properties":{"changes":{"type":"array","minItems":1,"maxItems":100,"items":{"type":"object","properties":{"identifier":{"type":"string","minLength":1,"maxLength":32},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4},"assignee_id":{"type":"string"},"label_ids":{"type":"array","items":{"type":"string","format":"uuid"},"uniqueItems":true},"cycle_id":{"type":"string"},"project_id":{"type":"string"}},"required":["identifier"],"minProperties":2,"additionalProperties":false}}},"required":["changes"],"additionalProperties":false}`,
+	parameters:  bulkUpdateParameters(bulkRowParameters),
 }
 
 // Keep the proposed rows as submitted. Decode them independently so one bad
@@ -66,19 +72,11 @@ func (t *AssistantTools) applyBulkChange(ctx context.Context, ws, actor uuid.UUI
 		result.Error = message
 		return result
 	}
+	if schemaErr := validateAssistantArguments(bulkUpdateAction, assistantArgumentSchemas()["bulk-row"], string(raw)); schemaErr != nil {
+		return fail(toolErrorText(schemaErr))
+	}
 	if err != nil {
-		return fail(toolErrorText(err))
-	}
-	// JSON null is not a field value. In particular it cannot silently turn a
-	// requested assignment into a no-op alongside a valid status update.
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return fail("invalid arguments")
-	}
-	for key, value := range fields {
-		if key != strings.ToLower(key) || string(value) == "null" {
-			return fail("invalid arguments")
-		}
+		return fail(toolArgumentErrorText(bulkUpdateAction, assistantArgumentSchemas()["bulk-row"], err))
 	}
 	if result.Identifier == "" || len(input.Identifier) > 32 {
 		return fail("invalid issue identifier")

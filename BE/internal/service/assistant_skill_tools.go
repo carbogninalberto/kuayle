@@ -125,8 +125,11 @@ func (t *AssistantTools) loadSkill(ctx context.Context, a domain.ConversationAtt
 		return nil, "", err
 	}
 	input.Name, input.TeamKey = strings.TrimSpace(input.Name), strings.TrimSpace(input.TeamKey)
-	if input.Name == "" || utf8.RuneCountInString(input.Name) > assistantSkillNameRunes || utf8.RuneCountInString(input.TeamKey) > 16 {
-		return nil, "", toolFailure("invalid arguments")
+	if input.Name == "" || utf8.RuneCountInString(input.Name) > assistantSkillNameRunes {
+		return nil, "", toolFailure("load_skill requires name (1 to %d characters) from the system prompt. Accepted arguments: name, team_key", assistantSkillNameRunes)
+	}
+	if utf8.RuneCountInString(input.TeamKey) > 16 {
+		return nil, "", toolFailure("load_skill team_key allows at most 16 characters. Accepted arguments: name, team_key")
 	}
 	found, err := t.skills.LoadForAssistant(ctx, a.Conversation.WorkspaceID, a.Conversation.TeamID, input.Name, input.TeamKey)
 	if err != nil {

@@ -301,7 +301,10 @@ func TestSubagentsReserveTokensBeforeConcurrentCalls(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 		close(release)
 	}()
-	out, err := f.spawn(t, task("a"), task("b"))
+	a, b := task("a"), task("b")
+	// Keep the prompt bounded independently of changes to unrelated tool schemas.
+	a["tools"], b["tools"] = []string{"web_search"}, []string{"web_search"}
+	out, err := f.spawn(t, a, b)
 	require.NoError(t, err)
 	require.Equal(t, int32(1), started.Load(), "the second call never starts: its reservation does not fit")
 	statuses := []string{out.Subagents[0].Status, out.Subagents[1].Status}

@@ -496,6 +496,8 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 		runErr = toolFailure("%s", gap.Message)
 	} else if custom {
 		output, issueID, runErr = s.runCustomTool(ctx, a, record.ID, tool.name, call.Function.Arguments)
+	} else if runErr = tool.validateArguments(call.Function.Arguments); runErr != nil {
+		// Return the correction to the model before dispatch or approval.
 	} else if tool.write && *changes >= assistantMaxChangesPerReply {
 		runErr = toolFailure("at most %d issue changes can be made per reply", assistantMaxChangesPerReply)
 	} else {
@@ -521,7 +523,7 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 			// reaches only the model, a proposal's full text only the card.
 			output, modelContent, runErr = s.tools.runSkill(ctx, a, tool.name, call.Function.Arguments)
 		} else {
-			output, issueID, runErr = s.tools.run(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, tool.name, call.Function.Arguments)
+			output, issueID, runErr = s.tools.runValidated(ctx, a.Conversation.WorkspaceID, a.Conversation.CreatorID, tool, call.Function.Arguments)
 		}
 	}
 	var data []byte
@@ -532,7 +534,11 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 	}
 	errorText := ""
 	if runErr != nil {
-		errorText = toolErrorText(runErr)
+		if custom {
+			errorText = toolErrorText(runErr)
+		} else {
+			errorText = toolArgumentErrorText(tool.name, assistantArgumentSchemas()[tool.name], runErr)
+		}
 	}
 	if _, err = s.Repo.FinishToolCall(ctx, a, record.ID, data, errorText, issueID); err != nil {
 		return "", err
