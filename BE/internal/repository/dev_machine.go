@@ -66,6 +66,7 @@ type DevMachineStore interface {
 	CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error
 	ListEvents(context.Context, uuid.UUID, uuid.UUID, int64, int) ([]domain.DevMachineEvent, error)
 	ListLogs(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error)
+	RecentAgentLogs(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *uuid.UUID) ([]MachineLogChunk, bool, error)
 	CreateAccessTicket(context.Context, *domain.DevMachineAccessTicket) error
 	ListResourceSamples(context.Context, uuid.UUID, uuid.UUID, int) ([]domain.DevMachineResourceSample, error)
 	GetResourceUsage(ctx context.Context, workspaceID, machineID uuid.UUID) (*domain.DevMachineUsage, error)
