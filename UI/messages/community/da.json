@@ -4423,5 +4423,6 @@
 	"slack.scope": "Omfang",
 	"slack.channel": "Kanal",
 	"slack.connect": "Connect",
-	"slack.retry": "Prøv igen"
+	"slack.retry": "Prøv igen",
+	"slack.channel_delivery_pending": "Gemte kanaler modtager endnu ikke notifikationer."
 }

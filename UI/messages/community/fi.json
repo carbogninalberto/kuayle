@@ -4423,5 +4423,6 @@
 	"slack.scope": "Laajuus",
 	"slack.channel": "Kanava",
 	"slack.connect": "Connect",
-	"slack.retry": "Yritä uudelleen"
+	"slack.retry": "Yritä uudelleen",
+	"slack.channel_delivery_pending": "Tallennettuihin kanaviin ei vielä lähetetä ilmoituksia."
 }

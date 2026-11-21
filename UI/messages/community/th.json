@@ -4423,5 +4423,6 @@
 	"slack.scope": "ขอบเขต",
 	"slack.channel": "ช่องทาง",
 	"slack.connect": "Connect",
-	"slack.retry": "ลองอีกครั้ง"
+	"slack.retry": "ลองอีกครั้ง",
+	"slack.channel_delivery_pending": "ช่องที่บันทึกไว้จะยังไม่ได้รับการแจ้งเตือน"
 }

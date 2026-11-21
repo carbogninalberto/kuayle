@@ -4423,5 +4423,6 @@
 	"slack.scope": "Portée",
 	"slack.channel": "Canal",
 	"slack.connect": "Connect",
-	"slack.retry": "Réessayer"
+	"slack.retry": "Réessayer",
+	"slack.channel_delivery_pending": "Les canaux enregistrés ne reçoivent pas encore de notifications."
 }

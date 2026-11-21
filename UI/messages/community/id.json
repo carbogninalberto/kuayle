@@ -4423,5 +4423,6 @@
 	"slack.scope": "Cakupan",
 	"slack.channel": "Kanal",
 	"slack.connect": "Connect",
-	"slack.retry": "Coba lagi"
+	"slack.retry": "Coba lagi",
+	"slack.channel_delivery_pending": "Saluran yang disimpan belum menerima notifikasi."
 }

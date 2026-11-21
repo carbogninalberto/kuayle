@@ -4423,5 +4423,6 @@
 	"slack.scope": "Zakres",
 	"slack.channel": "Kanał",
 	"slack.connect": "Connect",
-	"slack.retry": "Ponów"
+	"slack.retry": "Ponów",
+	"slack.channel_delivery_pending": "Zapisane kanały nie otrzymują jeszcze powiadomień."
 }

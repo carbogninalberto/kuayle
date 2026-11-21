@@ -4423,5 +4423,6 @@
 	"slack.scope": "Rozsah",
 	"slack.channel": "Kanál",
 	"slack.connect": "Connect",
-	"slack.retry": "Zkusit znovu"
+	"slack.retry": "Zkusit znovu",
+	"slack.channel_delivery_pending": "Uložené kanály zatím nedostávají oznámení."
 }

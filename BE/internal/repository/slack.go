@@ -50,12 +50,21 @@ func lockSlackAdmin(ctx context.Context, tx *sql.Tx, ws, user uuid.UUID) error {
 	return err
 }
 
-func (r *SlackRepository) Install(ctx context.Context, i domain.SlackInstall, user uuid.UUID, slackUser string) error {
+func (r *SlackRepository) Install(ctx context.Context, user uuid.UUID, exchange func() (domain.SlackInstall, string, error)) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	// Exchanges may overlap. Cleanup must wait until every in-flight grant
+	// has either committed its team ID or released this lock.
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock_shared(hashtextextended('slack:oauth',0))"); err != nil {
+		return err
+	}
+	i, slackUser, err := exchange()
+	if err != nil {
+		return err
+	}
 	if err := lockSlackAdmin(ctx, tx, i.WorkspaceID, user); err != nil {
 		return err
 	}
@@ -77,6 +86,25 @@ func (r *SlackRepository) Install(ctx context.Context, i domain.SlackInstall, us
 		return err
 	}
 	return tx.Commit()
+}
+
+func (r *SlackRepository) UninstallIfUnclaimed(ctx context.Context, team string, uninstall func() error) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended('slack:oauth',0))"); err != nil {
+		return err
+	}
+	var claimed bool
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM slack_installs WHERE team_id=$1)", team).Scan(&claimed); err != nil {
+		return err
+	}
+	if claimed {
+		return nil
+	}
+	return uninstall()
 }
 
 func (r *SlackRepository) Remove(ctx context.Context, id uuid.UUID) error {

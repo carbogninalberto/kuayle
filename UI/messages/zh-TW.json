@@ -4423,5 +4423,6 @@
 	"slack.scope": "範圍",
 	"slack.channel": "管道",
 	"slack.connect": "Connect",
-	"slack.retry": "重試"
+	"slack.retry": "重試",
+	"slack.channel_delivery_pending": "已儲存的頻道目前不會收到通知。"
 }

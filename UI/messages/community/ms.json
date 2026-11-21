@@ -4423,5 +4423,6 @@
 	"slack.scope": "Skop",
 	"slack.channel": "Saluran",
 	"slack.connect": "Connect",
-	"slack.retry": "Cuba lagi"
+	"slack.retry": "Cuba lagi",
+	"slack.channel_delivery_pending": "Saluran yang disimpan belum menerima pemberitahuan."
 }

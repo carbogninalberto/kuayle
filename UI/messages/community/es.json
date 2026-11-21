@@ -4423,5 +4423,6 @@
 	"slack.scope": "Ámbito",
 	"slack.channel": "Canal",
 	"slack.connect": "Connect",
-	"slack.retry": "Reintentar"
+	"slack.retry": "Reintentar",
+	"slack.channel_delivery_pending": "Los canales guardados aún no reciben notificaciones."
 }

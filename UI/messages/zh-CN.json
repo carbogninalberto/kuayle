@@ -4423,5 +4423,6 @@
 	"slack.scope": "范围",
 	"slack.channel": "渠道",
 	"slack.connect": "Connect",
-	"slack.retry": "重试"
+	"slack.retry": "重试",
+	"slack.channel_delivery_pending": "已保存的频道暂时不会收到通知。"
 }

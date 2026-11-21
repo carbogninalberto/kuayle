@@ -4423,5 +4423,6 @@
 	"slack.scope": "Omfang",
 	"slack.channel": "Kanal",
 	"slack.connect": "Connect",
-	"slack.retry": "Prøv igjen"
+	"slack.retry": "Prøv igjen",
+	"slack.channel_delivery_pending": "Lagrede kanaler mottar ikke varsler ennå."
 }

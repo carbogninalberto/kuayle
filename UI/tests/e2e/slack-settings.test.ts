@@ -28,6 +28,8 @@ test('an admin selects and clears a project channel', async ({ page }) => {
 	});
 	await page.goto('/test/settings/slack');
 	const selector = page.getByRole('combobox', { name: 'Channel' });
+	await expect(page.getByText('Saved channels do not receive notifications yet.')).toBeVisible();
+	await expect(selector).toHaveAccessibleDescription('Saved channels do not receive notifications yet.');
 	await selector.focus();
 	await page.keyboard.press('Enter');
 	await page.getByRole('option', { name: '#releases' }).click();

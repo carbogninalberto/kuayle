@@ -4423,5 +4423,6 @@
 	"slack.scope": "दायरा",
 	"slack.channel": "चैनल",
 	"slack.connect": "Connect",
-	"slack.retry": "फिर कोशिश करें"
+	"slack.retry": "फिर कोशिश करें",
+	"slack.channel_delivery_pending": "सहेजे गए चैनलों को अभी सूचनाएँ नहीं मिलती हैं।"
 }

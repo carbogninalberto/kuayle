@@ -4423,5 +4423,6 @@
 	"slack.scope": "Scope",
 	"slack.channel": "Channel",
 	"slack.connect": "Connect",
-	"slack.retry": "Retry"
+	"slack.retry": "Retry",
+	"slack.channel_delivery_pending": "Saved channels do not receive notifications yet."
 }

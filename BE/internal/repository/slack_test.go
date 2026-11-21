@@ -3,8 +3,10 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -43,12 +45,15 @@ func TestSlackInstallationIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.ErrorIs(t, repo.ConsumeState(ctx, ws, user, nonce), sql.ErrNoRows)
 	install := domain.SlackInstall{ID: uuid.New(), WorkspaceID: ws, TeamID: uuid.NewString(), Name: "Test", Token: "ciphertext", Scope: "channels:read"}
-	require.NoError(t, repo.Install(ctx, install, user, "U1"))
+	save := func(i domain.SlackInstall, slackUser string) error {
+		return repo.Install(ctx, user, func() (domain.SlackInstall, string, error) { return i, slackUser, nil })
+	}
+	require.NoError(t, save(install, "U1"))
 	duplicate := install
 	duplicate.ID = uuid.New()
-	require.ErrorIs(t, repo.Install(ctx, duplicate, user, "U1"), ErrSlackConnected)
+	require.ErrorIs(t, save(duplicate, "U1"), ErrSlackConnected)
 	duplicate.WorkspaceID = other
-	require.ErrorIs(t, repo.Install(ctx, duplicate, user, "U2"), ErrSlackTeamInUse)
+	require.ErrorIs(t, save(duplicate, "U2"), ErrSlackTeamInUse)
 	_, err = repo.Get(ctx, other)
 	require.ErrorIs(t, err, sql.ErrNoRows)
 	saved, err := repo.Get(ctx, ws)
@@ -78,4 +83,43 @@ func TestSlackInstallationIsolation(t *testing.T) {
 	bindings, err = repo.Bindings(ctx, ws)
 	require.NoError(t, err)
 	require.Empty(t, bindings)
+
+	t.Run("cleanup waits for an in-flight claim from another workspace", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		started, finish := make(chan struct{}), make(chan struct{})
+		pending := domain.SlackInstall{ID: uuid.New(), WorkspaceID: other, TeamID: uuid.NewString(), Token: "ciphertext"}
+		installed := make(chan error, 1)
+		go func() {
+			installed <- repo.Install(ctx, user, func() (domain.SlackInstall, string, error) {
+				close(started)
+				select {
+				case <-finish:
+					return pending, "U2", nil
+				case <-ctx.Done():
+					return domain.SlackInstall{}, "", ctx.Err()
+				}
+			})
+		}()
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		cleaned := make(chan error, 1)
+		go func() {
+			cleaned <- repo.UninstallIfUnclaimed(ctx, pending.TeamID, func() error {
+				return errors.New("attempted to uninstall an in-flight grant")
+			})
+		}()
+		require.Eventually(t, func() bool {
+			var waiting bool
+			err := db.GetContext(ctx, &waiting, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+ WHERE wait_event='advisory' AND query LIKE '%pg_advisory_xact_lock(%slack:oauth%')`)
+			return err == nil && waiting
+		}, 3*time.Second, 10*time.Millisecond)
+		close(finish)
+		require.NoError(t, <-installed)
+		require.NoError(t, <-cleaned)
+	})
 }

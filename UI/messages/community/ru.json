@@ -4423,5 +4423,6 @@
 	"slack.scope": "Область",
 	"slack.channel": "Канал",
 	"slack.connect": "Connect",
-	"slack.retry": "Повторить"
+	"slack.retry": "Повторить",
+	"slack.channel_delivery_pending": "В сохранённые каналы пока не приходят уведомления."
 }

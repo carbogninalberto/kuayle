@@ -4423,5 +4423,6 @@
 	"slack.scope": "היקף",
 	"slack.channel": "ערוץ",
 	"slack.connect": "Connect",
-	"slack.retry": "ניסיון חוזר"
+	"slack.retry": "ניסיון חוזר",
+	"slack.channel_delivery_pending": "הערוצים שנשמרו עדיין לא מקבלים התראות."
 }

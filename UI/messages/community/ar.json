@@ -4423,5 +4423,6 @@
 	"slack.scope": "النطاق",
 	"slack.channel": "القناة",
 	"slack.connect": "Connect",
-	"slack.retry": "إعادة المحاولة"
+	"slack.retry": "إعادة المحاولة",
+	"slack.channel_delivery_pending": "لا تتلقى القنوات المحفوظة إشعارات حتى الآن."
 }

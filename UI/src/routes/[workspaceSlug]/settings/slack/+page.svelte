@@ -120,7 +120,8 @@
 				</div>
 				<div class="min-w-0 space-y-2 [&>button]:w-full [&_[data-slot=select-value]]:truncate">
 					<Label for="slack-channel">{m['slack.channel']()}</Label>
-					<SelectField id="slack-channel" options={channelOptions} bind:value={channel} disabled={busy} />
+					<SelectField id="slack-channel" aria-describedby="slack-channel-delivery" options={channelOptions} bind:value={channel} disabled={busy} />
+					<p id="slack-channel-delivery" class="text-sm text-muted-foreground">{m['slack.channel_delivery_pending']()}</p>
 				</div>
 			</div>
 			{#if !channels.length}<p class="text-sm text-muted-foreground">{m['slack.invite_channel']()}</p>{/if}

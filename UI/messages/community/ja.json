@@ -4423,5 +4423,6 @@
 	"slack.scope": "スコープ",
 	"slack.channel": "チャネル",
 	"slack.connect": "Connect",
-	"slack.retry": "再試行"
+	"slack.retry": "再試行",
+	"slack.channel_delivery_pending": "保存したチャンネルにはまだ通知は届きません。"
 }

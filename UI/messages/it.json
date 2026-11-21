@@ -4423,5 +4423,6 @@
 	"slack.scope": "Ambito",
 	"slack.channel": "Canale",
 	"slack.connect": "Connect",
-	"slack.retry": "Riprova"
+	"slack.retry": "Riprova",
+	"slack.channel_delivery_pending": "I canali salvati non ricevono ancora notifiche."
 }

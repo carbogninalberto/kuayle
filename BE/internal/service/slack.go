@@ -23,6 +23,7 @@ var ErrSlackDisabled = errors.New("Slack app credentials are not configured")
 var ErrSlackState = errors.New("Slack authorization expired or does not match this session")
 var ErrSlackInput = errors.New("invalid Slack request")
 var ErrSlackSignature = errors.New("invalid Slack signature")
+var ErrSlackCleanup = errors.New("could not confirm removal of the competing Slack installation")
 
 type SlackService struct {
 	repo   *repository.SlackRepository
@@ -83,15 +84,26 @@ func (s *SlackService) Connect(ctx context.Context, ws, user, state uuid.UUID, c
 		}
 		return err
 	}
-	auth, err := s.client.Exchange(ctx, code)
-	if err != nil {
-		return err
+	var team, token string
+	err := s.repo.Install(ctx, user, func() (domain.SlackInstall, string, error) {
+		auth, err := s.client.Exchange(ctx, code)
+		if err != nil {
+			return domain.SlackInstall{}, "", err
+		}
+		team, token = auth.Team.ID, auth.Token
+		ciphertext, err := crypto.Encrypt(token, s.key)
+		return domain.SlackInstall{ID: uuid.New(), WorkspaceID: ws, TeamID: team, Name: auth.Team.Name, Token: ciphertext, Scope: auth.Scope}, auth.User.ID, err
+	})
+	if errors.Is(err, repository.ErrSlackConnected) {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		cleanupErr := s.repo.UninstallIfUnclaimed(cleanupCtx, team, func() error { return s.client.Uninstall(cleanupCtx, token) })
+		if cleanupErr != nil && !slackAuthorizationGone(cleanupErr) {
+			log.WithField("team_id", team).Warn("Could not clean up a competing Slack installation; check the app in Slack")
+			return ErrSlackCleanup
+		}
 	}
-	ciphertext, err := crypto.Encrypt(auth.Token, s.key)
-	if err != nil {
-		return err
-	}
-	return s.repo.Install(ctx, domain.SlackInstall{ID: uuid.New(), WorkspaceID: ws, TeamID: auth.Team.ID, Name: auth.Team.Name, Token: ciphertext, Scope: auth.Scope}, user, auth.User.ID)
+	return err
 }
 
 func (s *SlackService) bot(ctx context.Context, ws uuid.UUID) (domain.SlackInstall, string, error) {

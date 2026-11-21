@@ -4423,5 +4423,6 @@
 	"slack.scope": "Εύρος",
 	"slack.channel": "Κανάλι",
 	"slack.connect": "Connect",
-	"slack.retry": "Επανάληψη"
+	"slack.retry": "Επανάληψη",
+	"slack.channel_delivery_pending": "Τα αποθηκευμένα κανάλια δεν λαμβάνουν ακόμη ειδοποιήσεις."
 }

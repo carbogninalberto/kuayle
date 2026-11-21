@@ -4423,5 +4423,6 @@
 	"slack.scope": "Àmbit",
 	"slack.channel": "Canal",
 	"slack.connect": "Connect",
-	"slack.retry": "Reintenta"
+	"slack.retry": "Reintenta",
+	"slack.channel_delivery_pending": "Els canals desats encara no reben notificacions."
 }

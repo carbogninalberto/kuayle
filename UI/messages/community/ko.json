@@ -4423,5 +4423,6 @@
 	"slack.scope": "범위",
 	"slack.channel": "채널",
 	"slack.connect": "Connect",
-	"slack.retry": "다시 시도"
+	"slack.retry": "다시 시도",
+	"slack.channel_delivery_pending": "저장된 채널에는 아직 알림이 전송되지 않습니다."
 }

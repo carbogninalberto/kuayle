@@ -4423,5 +4423,6 @@
 	"slack.scope": "Bereik",
 	"slack.channel": "Kanaal",
 	"slack.connect": "Connect",
-	"slack.retry": "Opnieuw proberen"
+	"slack.retry": "Opnieuw proberen",
+	"slack.channel_delivery_pending": "Opgeslagen kanalen ontvangen nog geen meldingen."
 }

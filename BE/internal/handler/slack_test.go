@@ -17,12 +17,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSlackTeamConflictResponse(t *testing.T) {
-	rec := httptest.NewRecorder()
-	c := echo.New().NewContext(httptest.NewRequest("POST", "/", nil), rec)
-	require.NoError(t, slackError(c, repository.ErrSlackTeamInUse))
-	require.Equal(t, 409, rec.Code)
-	require.JSONEq(t, `{"error":{"code":"SLACK_TEAM_IN_USE","message":"This Slack workspace is already connected to another Kuayle workspace."}}`, rec.Body.String())
+func TestSlackConflictResponse(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		body string
+	}{
+		{repository.ErrSlackTeamInUse, `{"error":{"code":"SLACK_TEAM_IN_USE","message":"This Slack workspace is already connected to another Kuayle workspace."}}`},
+		{service.ErrSlackCleanup, `{"error":{"code":"ALREADY_CONNECTED","message":"Another installation finished first. Check the app in the Slack workspace you just authorized and remove it if unused."}}`},
+	} {
+		rec := httptest.NewRecorder()
+		c := echo.New().NewContext(httptest.NewRequest("POST", "/", nil), rec)
+		require.NoError(t, slackError(c, tc.err))
+		require.Equal(t, 409, rec.Code)
+		require.JSONEq(t, tc.body, rec.Body.String())
+	}
 }
 
 func TestSlackEventSignatureAndChallenge(t *testing.T) {

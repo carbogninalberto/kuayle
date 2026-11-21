@@ -163,7 +163,7 @@ func TestSlackUnusableInstallation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			install := domain.SlackInstall{ID: uuid.New(), WorkspaceID: f.ws, TeamID: uuid.NewString(), Token: tc.ciphertext}
-			require.NoError(t, repo.Install(ctx, install, f.owner, "U1"))
+			require.NoError(t, repo.Install(ctx, f.owner, func() (domain.SlackInstall, string, error) { return install, "U1", nil }))
 			t.Cleanup(func() { require.NoError(t, repo.Remove(ctx, install.ID)) })
 			svc := NewSlackService(repo, tc.app, key, "")
 			if tc.ciphertext != validToken {
@@ -180,6 +180,86 @@ func TestSlackUnusableInstallation(t *testing.T) {
 			require.NoError(t, svc.Disconnect(ctx, f.ws))
 			_, err := NewSlackService(repo, app, key, "").Start(ctx, f.ws, f.owner)
 			require.NoError(t, err, "admin can reinstall once configuration is available")
+		})
+	}
+}
+
+func TestSlackCompetingOAuthCallbacks(t *testing.T) {
+	ctx := t.Context()
+	f := newForgeFixture(t)
+	other := newForgeFixture(t)
+	for _, workspace := range []*forgeFixture{f, other} {
+		_, err := f.db.Exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')", workspace.ws, workspace.owner)
+		require.NoError(t, err)
+	}
+	_, err := f.db.Exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')", f.ws, other.owner)
+	require.NoError(t, err)
+
+	// Each test code names the Slack team that authorized the bot.
+	var uninstalls atomic.Int32
+	var unavailable atomic.Bool
+	winner, owned, unused := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/oauth.v2.access":
+			code := r.FormValue("code")
+			_, _ = fmt.Fprintf(w, `{"ok":true,"team":{"id":%q,"name":"Test"},"authed_user":{"id":"U1"},"token_type":"bot","access_token":%q}`, code, code)
+		case "/api/apps.uninstall":
+			if r.Header.Get("Authorization") != "Bearer "+unused {
+				t.Error("attempted to uninstall a claimed Slack team")
+			}
+			uninstalls.Add(1)
+			if unavailable.Load() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+			_, _ = fmt.Fprint(w, `{"ok":true}`)
+		default:
+			t.Errorf("unexpected Slack method %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+	target, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	original := http.DefaultTransport
+	http.DefaultTransport = webhookTestTransport{target: target, base: original}
+	defer func() { http.DefaultTransport = original }()
+
+	repo := repository.NewSlackRepository(f.db)
+	app := config.SlackConfig{ClientID: "fixture", ClientSecret: "fixture", SigningSecret: "fixture"}
+	svc := NewSlackService(repo, app, crypto.DeriveKey("slack test"), "")
+	start := func(t *testing.T, ws, user uuid.UUID) uuid.UUID {
+		t.Helper()
+		installURL, err := svc.Start(ctx, ws, user)
+		require.NoError(t, err)
+		u, err := url.Parse(installURL)
+		require.NoError(t, err)
+		return uuid.MustParse(u.Query().Get("state"))
+	}
+	require.NoError(t, svc.Connect(ctx, other.ws, other.owner, start(t, other.ws, other.owner), owned))
+	for _, tc := range []struct {
+		name, team string
+		uninstalls int32
+		wantErr    error
+	}{
+		{"winning team", winner, 0, repository.ErrSlackConnected},
+		{"team owned by another workspace", owned, 0, repository.ErrSlackConnected},
+		{"unclaimed team", unused, 1, repository.ErrSlackConnected},
+		{"cleanup unavailable", unused, 1, ErrSlackCleanup},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := start(t, f.ws, f.owner)
+			second := start(t, f.ws, other.owner)
+			require.NoError(t, svc.Connect(ctx, f.ws, f.owner, first, winner))
+			before := uninstalls.Load()
+			unavailable.Store(tc.wantErr == ErrSlackCleanup)
+			require.ErrorIs(t, svc.Connect(ctx, f.ws, other.owner, second, tc.team), tc.wantErr)
+			require.Equal(t, tc.uninstalls, uninstalls.Load()-before)
+			install, err := repo.Get(ctx, f.ws)
+			require.NoError(t, err)
+			require.Equal(t, winner, install.TeamID)
+			require.NoError(t, repo.Remove(ctx, install.ID))
 		})
 	}
 }

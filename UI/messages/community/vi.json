@@ -4423,5 +4423,6 @@
 	"slack.scope": "Phạm vi",
 	"slack.channel": "Kênh",
 	"slack.connect": "Connect",
-	"slack.retry": "Thử lại"
+	"slack.retry": "Thử lại",
+	"slack.channel_delivery_pending": "Các kênh đã lưu chưa nhận được thông báo."
 }

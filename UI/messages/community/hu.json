@@ -4423,5 +4423,6 @@
 	"slack.scope": "Hatókör",
 	"slack.channel": "Csatorna",
 	"slack.connect": "Connect",
-	"slack.retry": "Újra"
+	"slack.retry": "Újra",
+	"slack.channel_delivery_pending": "A mentett csatornák egyelőre nem kapnak értesítéseket."
 }

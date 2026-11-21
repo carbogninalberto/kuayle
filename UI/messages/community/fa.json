@@ -4423,5 +4423,6 @@
 	"slack.scope": "دامنه",
 	"slack.channel": "کانال",
 	"slack.connect": "Connect",
-	"slack.retry": "تلاش دوباره"
+	"slack.retry": "تلاش دوباره",
+	"slack.channel_delivery_pending": "کانال‌های ذخیره‌شده هنوز اعلان دریافت نمی‌کنند."
 }

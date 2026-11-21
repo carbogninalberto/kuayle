@@ -4423,5 +4423,6 @@
 	"slack.scope": "Domeniu",
 	"slack.channel": "Canal",
 	"slack.connect": "Connect",
-	"slack.retry": "Încearcă din nou"
+	"slack.retry": "Încearcă din nou",
+	"slack.channel_delivery_pending": "Canalele salvate nu primesc încă notificări."
 }

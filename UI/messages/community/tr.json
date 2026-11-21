@@ -4423,5 +4423,6 @@
 	"slack.scope": "Kapsam",
 	"slack.channel": "Kanal",
 	"slack.connect": "Connect",
-	"slack.retry": "Tekrar dene"
+	"slack.retry": "Tekrar dene",
+	"slack.channel_delivery_pending": "Kaydedilen kanallara henüz bildirim gönderilmiyor."
 }
