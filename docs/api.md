@@ -72,6 +72,30 @@ and `comments:read`, and the workspace needs one team. Set `KUAYLE_WORKSPACE`
 (slug) and `KUAYLE_TEAM` (key) to choose where the issue is created. The script
 writes real data, so point it at a development instance.
 
+## Recurring issue templates
+
+`POST /api/workspaces/{slug}/issue-templates` and `PATCH` on a template accept a
+`recurrence_rule` object with a five-field `cron` expression and an IANA
+`timezone`, which defaults to `UTC`. For example,
+`{"cron":"30 9 * * *","timezone":"America/New_York"}` schedules a run at 9:30 a.m.
+local time each day. A `PATCH` with `recurrence_rule: null` removes the schedule.
+
+Each API instance runs the scheduler. A scheduled issue uses the template
+creator's current access and requires a team. It uses the default issue title
+when set, otherwise the template title, followed by the scheduled date in the
+configured timezone. At a forward clock change, slots in the gap run together
+when the clock resumes. A repeated local time runs at its first occurrence.
+
+Template responses report `next_run_at`, `last_run_at`, and `last_error`.
+After downtime, the worker processes the stored due slot and resumes at the
+next future run. A creation failure records a reason and advances the schedule.
+A rule the worker cannot interpret leaves `next_run_at` empty until the schedule
+is edited. Workspace settings show the next run in the browser's timezone and
+the last failure reason.
+
+Rolling back migration `000200` removes the scheduler's run history. Generated
+issues and the templates' next run times remain in the database.
+
 ## Known limits
 
 - Webhooks deliver `issue.created`, `issue.updated`, `issue.deleted`,

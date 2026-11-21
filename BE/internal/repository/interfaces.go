@@ -326,7 +326,7 @@ type IssueTemplateRepo interface {
 	Create(ctx context.Context, tmpl *domain.IssueTemplate) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.IssueTemplate, error)
 	ListByWorkspace(ctx context.Context, workspaceID uuid.UUID) ([]domain.IssueTemplate, error)
-	Update(ctx context.Context, tmpl *domain.IssueTemplate) error
+	Update(ctx context.Context, tmpl *domain.IssueTemplate, resetSchedule bool) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	ListDueForRecurrence(ctx context.Context) ([]domain.IssueTemplate, error)
 }

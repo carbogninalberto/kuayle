@@ -37,8 +37,8 @@ func (m *mockIssueTemplateRepo) ListByWorkspace(ctx context.Context, workspaceID
 	return args.Get(0).([]domain.IssueTemplate), args.Error(1)
 }
 
-func (m *mockIssueTemplateRepo) Update(ctx context.Context, tmpl *domain.IssueTemplate) error {
-	args := m.Called(ctx, tmpl)
+func (m *mockIssueTemplateRepo) Update(ctx context.Context, tmpl *domain.IssueTemplate, resetSchedule bool) error {
+	args := m.Called(ctx, tmpl, resetSchedule)
 	return args.Error(0)
 }
 
@@ -112,6 +112,19 @@ func TestIssueTemplateService_CreateNormalizesDefaultIssueTitle(t *testing.T) {
 	}
 }
 
+func TestIssueTemplateService_RejectsInvalidSchedule(t *testing.T) {
+	svc := NewIssueTemplateService(new(mockIssueTemplateRepo))
+	for _, rule := range []json.RawMessage{
+		json.RawMessage(`{"cron":"0 9 * * *","timezone":"Missing/Zone"}`),
+		json.RawMessage(`{"cron":"0 9 30 2 *","timezone":"UTC"}`),
+	} {
+		_, err := svc.Create(context.Background(), uuid.New(), uuid.New(), dto.CreateIssueTemplateRequest{
+			Title: "Invalid schedule", RecurrenceRule: rule,
+		})
+		assert.ErrorIs(t, err, domain.ErrInvalidIssueTemplateSchedule)
+	}
+}
+
 func TestIssueTemplateService_ListByWorkspace(t *testing.T) {
 	repo := new(mockIssueTemplateRepo)
 	svc := NewIssueTemplateService(repo)
@@ -144,7 +157,7 @@ func TestIssueTemplateService_Update(t *testing.T) {
 	}
 
 	repo.On("GetByID", ctx, tmplID).Return(existing, nil)
-	repo.On("Update", ctx, mock.AnythingOfType("*domain.IssueTemplate")).Return(nil)
+	repo.On("Update", ctx, mock.AnythingOfType("*domain.IssueTemplate"), false).Return(nil)
 
 	newTitle := "New Title"
 	result, err := svc.Update(ctx, tmplID, dto.UpdateIssueTemplateRequest{
@@ -177,7 +190,7 @@ func TestIssueTemplateService_Update_ClearsOptionalFields(t *testing.T) {
 	}
 
 	repo.On("GetByID", ctx, tmplID).Return(existing, nil)
-	repo.On("Update", ctx, existing).Return(nil)
+	repo.On("Update", ctx, existing, false).Return(nil)
 
 	result, err := svc.Update(ctx, tmplID, dto.UpdateIssueTemplateRequest{
 		DefaultIssueTitle: dto.OptionalString{Set: true},
@@ -312,7 +325,7 @@ func TestIssueTemplateService_UpdateSanitizesDescription(t *testing.T) {
 	existing := &domain.IssueTemplate{ID: id, Title: "Bug Report", Description: strPtr("<p>Old</p>")}
 	repo.On("GetByID", ctx, id).Return(existing, nil)
 	var stored *domain.IssueTemplate
-	repo.On("Update", ctx, mock.AnythingOfType("*domain.IssueTemplate")).
+	repo.On("Update", ctx, mock.AnythingOfType("*domain.IssueTemplate"), false).
 		Run(func(args mock.Arguments) { stored = args.Get(1).(*domain.IssueTemplate) }).
 		Return(nil)
 

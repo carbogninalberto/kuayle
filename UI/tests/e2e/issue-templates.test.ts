@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+test.use({ timezoneId: 'America/New_York' });
+
 const workspace = {
 	id: 'workspace-1',
 	slug: 'test',
@@ -55,8 +57,9 @@ type Template = {
 	priority: number | null;
 	label_ids: string[];
 	assignee_id: string | null;
-	recurrence_rule: null;
-	next_run_at: null;
+	recurrence_rule: { cron: string; timezone: string } | null;
+	next_run_at: string | null;
+	last_error: string | null;
 	is_active: boolean;
 	created_by: string;
 	created_at: string;
@@ -77,6 +80,7 @@ function template(overrides: Partial<Template> = {}): Template {
 		assignee_id: null,
 		recurrence_rule: null,
 		next_run_at: null,
+		last_error: null,
 		is_active: true,
 		created_by: user.id,
 		created_at: '2026-01-01T00:00:00Z',
@@ -219,6 +223,29 @@ async function selectEditorText(editor: Locator, matcher: string | RegExp = '') 
 			selection.addRange(range);
 		});
 }
+
+test('shows a recurring template’s next run and latest failure', async ({ page }) => {
+	const nextRun = '2026-11-23T14:30:00Z';
+	await mockTemplateApi(page, {
+		initialTemplate: template({
+			title: 'Daily release image scan',
+			team_id: team.id,
+			recurrence_rule: { cron: '30 9 * * *', timezone: 'America/New_York' },
+			next_run_at: nextRun,
+			last_error: 'The template creator no longer has access to its team.'
+		})
+	});
+	await page.goto('/test/settings/templates');
+
+	const next = page.locator(`time[datetime="${nextRun}"]`);
+	const error = page.getByText('Last error: The template creator no longer has access to its team.');
+	await expect(next).toHaveText(/Next run: Nov 23, 2026, 9:30\sAM/);
+	await expect(error).toBeVisible();
+
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(next).toBeVisible();
+	await expect(error).toBeVisible();
+});
 
 test('creates and edits a rich-text issue template', async ({ page }) => {
 	const calls = await mockTemplateApi(page);

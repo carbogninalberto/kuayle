@@ -37,15 +37,18 @@ func (r *IssueRepository) Create(ctx context.Context, tx *sqlx.Tx, issue *domain
 }
 
 func (r *IssueRepository) NextNumber(ctx context.Context, tx *sqlx.Tx, teamID uuid.UUID) (int, error) {
-	// Advisory lock per team to guarantee sequential numbering
 	var num int
-	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text))`, teamID)
-	if err != nil {
+	if err := lockIssueNumber(ctx, tx, teamID); err != nil {
 		return 0, err
 	}
 	// Deleted issues keep their numbers (and identifiers) until purged.
-	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM issue_records WHERE team_id = $1`, teamID).Scan(&num)
+	err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(number), 0) + 1 FROM issue_records WHERE team_id = $1`, teamID).Scan(&num)
 	return num, err
+}
+
+func lockIssueNumber(ctx context.Context, tx *sqlx.Tx, teamID uuid.UUID) error {
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1::text))`, teamID)
+	return err
 }
 
 // TeamKey reads the team's current key inside the transaction. Call it after
@@ -519,18 +522,55 @@ func (r *IssueRepository) SetLabels(ctx context.Context, issueID uuid.UUID, labe
 		return err
 	}
 
-	// Labels from another workspace, or scoped to another project, are ignored
-	// rather than attached.
-	for _, labelID := range labelIDs {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO issue_labels (issue_id, label_id) SELECT $1, $2 WHERE EXISTS (
-			SELECT 1 FROM issues label_issue JOIN labels l ON l.workspace_id = label_issue.workspace_id
-			WHERE label_issue.id = $1 AND l.id = $2 AND l.deleted_at IS NULL
-			AND (l.project_id IS NULL OR l.project_id = label_issue.project_id))`, issueID, labelID); err != nil {
+	if err := insertIssueLabels(ctx, tx, issueID, labelIDs, false); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+var ErrTemplateIssueLabelUnavailable = errors.New("a template label is unavailable for this issue")
+var ErrTemplateIssueAssigneeUnavailable = errors.New("the template assignee is no longer a workspace member")
+
+// SetRecurringIssueDefaults attaches defaults to a newly inserted issue in
+// the same transaction as the issue and its recurrence record.
+func (r *IssueRepository) SetRecurringIssueDefaults(ctx context.Context, tx *sqlx.Tx, issue *domain.Issue, labelIDs []uuid.UUID) error {
+	if err := insertIssueLabels(ctx, tx, issue.ID, labelIDs, true); err != nil {
+		return err
+	}
+	if issue.AssigneeID != nil {
+		assigned, err := insertIssueAssignee(ctx, tx, issue.ID, *issue.AssigneeID)
+		if err != nil {
 			return err
 		}
+		if !assigned {
+			return ErrTemplateIssueAssigneeUnavailable
+		}
 	}
+	return nil
+}
 
-	return tx.Commit()
+func insertIssueLabels(ctx context.Context, tx *sqlx.Tx, issueID uuid.UUID, labelIDs []uuid.UUID, requireAll bool) error {
+	// Labels from another workspace, or scoped to another project, are ignored
+	// when editing. Recurring templates record a failure for missing defaults.
+	for _, labelID := range labelIDs {
+		result, err := tx.ExecContext(ctx, `INSERT INTO issue_labels (issue_id, label_id) SELECT $1, $2 WHERE EXISTS (
+			SELECT 1 FROM issues label_issue JOIN labels l ON l.workspace_id = label_issue.workspace_id
+			WHERE label_issue.id = $1 AND l.id = $2 AND l.deleted_at IS NULL
+			AND (l.project_id IS NULL OR l.project_id = label_issue.project_id))`, issueID, labelID)
+		if err != nil {
+			return err
+		}
+		if requireAll {
+			count, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if count == 0 {
+				return ErrTemplateIssueLabelUnavailable
+			}
+		}
+	}
+	return nil
 }
 
 func (r *IssueRepository) GetLabels(ctx context.Context, issueID uuid.UUID) ([]domain.Label, error) {
@@ -787,13 +827,11 @@ func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, u
 	// Users who are not members of the issue's workspace are ignored.
 	assigned := make([]uuid.UUID, 0, len(userIDs))
 	for _, uid := range userIDs {
-		result, err := tx.ExecContext(ctx, `INSERT INTO issue_assignees (issue_id, user_id) SELECT $1, $2 WHERE EXISTS (
-			SELECT 1 FROM issues assignee_issue JOIN workspace_members am ON am.workspace_id = assignee_issue.workspace_id
-			WHERE assignee_issue.id = $1 AND am.user_id = $2)`, issueID, uid)
+		added, err := insertIssueAssignee(ctx, tx, issueID, uid)
 		if err != nil {
 			return err
 		}
-		if n, _ := result.RowsAffected(); n > 0 {
+		if added {
 			assigned = append(assigned, uid)
 		}
 	}
@@ -809,6 +847,17 @@ func (r *IssueRepository) SetAssignees(ctx context.Context, issueID uuid.UUID, u
 	}
 
 	return tx.Commit()
+}
+
+func insertIssueAssignee(ctx context.Context, tx *sqlx.Tx, issueID, userID uuid.UUID) (bool, error) {
+	result, err := tx.ExecContext(ctx, `INSERT INTO issue_assignees (issue_id, user_id) SELECT $1, $2 WHERE EXISTS (
+		SELECT 1 FROM issues assignee_issue JOIN workspace_members am ON am.workspace_id = assignee_issue.workspace_id
+		WHERE assignee_issue.id = $1 AND am.user_id = $2)`, issueID, userID)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count > 0, err
 }
 
 func (r *IssueRepository) GetAssignees(ctx context.Context, issueID uuid.UUID) ([]uuid.UUID, error) {

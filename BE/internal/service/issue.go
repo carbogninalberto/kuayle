@@ -95,131 +95,18 @@ func NewIssueService(issueRepo repository.IssueRepo, teamRepo repository.TeamRep
 }
 
 func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest) (*domain.Issue, error) {
-	teamID, err := uuid.Parse(req.TeamID)
+	issue, team, err := s.newIssue(ctx, workspaceID, creatorID, req)
 	if err != nil {
-		return nil, fmt.Errorf("invalid team_id")
+		return nil, err
 	}
-
-	team, err := s.teamRepo.GetByID(ctx, teamID)
-	if err != nil || team == nil {
-		return nil, fmt.Errorf("team not found")
-	}
-
-	if len(req.LabelIDs) > 0 {
-		var projectID *uuid.UUID
-		if req.ProjectID != nil {
-			if pid, err := uuid.Parse(*req.ProjectID); err == nil {
-				projectID = &pid
-			}
-		}
-		if err := s.validateLabelScope(ctx, projectID, req.LabelIDs); err != nil {
-			return nil, err
-		}
-	}
-
-	// The new issue's status: status_id when it is one of the team's, else
-	// the status the caller names, else the team's backlog.
-	var chosenStatus *domain.TeamStatus
-	if req.StatusID != nil {
-		if sid, err := uuid.Parse(*req.StatusID); err == nil {
-			if ts, _ := s.teamStatusRepo.GetByID(ctx, sid); ts != nil && ts.TeamID == teamID {
-				chosenStatus = ts
-			}
-		}
-	}
-	if chosenStatus == nil && strings.TrimSpace(req.Status) != "" {
-		if chosenStatus, err = s.statusByName(ctx, teamID, req.Status); err != nil {
-			return nil, err
-		}
-	}
-
 	tx, err := s.issueRepo.BeginTx(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-
-	number, err := s.issueRepo.NextNumber(ctx, tx, teamID)
-	if err != nil {
+	if err := s.insertIssue(ctx, tx, issue, team.Key); err != nil {
 		return nil, err
 	}
-
-	// A rename of the team key waits for the lock NextNumber holds, so read the
-	// key again now: the one read before the transaction may be out of date.
-	teamKey := team.Key
-	if keyed, ok := s.issueRepo.(interface {
-		TeamKey(context.Context, *sqlx.Tx, uuid.UUID) (string, error)
-	}); ok {
-		if teamKey, err = keyed.TeamKey(ctx, tx, teamID); err != nil {
-			return nil, err
-		}
-	}
-	identifier := fmt.Sprintf("%s-%d", teamKey, number)
-
-	priority := domain.IssuePriority(0)
-	if req.Priority != nil {
-		priority = domain.IssuePriority(*req.Priority)
-	}
-
-	// Sanitize user input
-	req.Title = sanitize.PlainText(req.Title)
-	if req.Description != nil {
-		clean := sanitize.SanitizeEditorContent(*req.Description)
-		req.Description = &clean
-	}
-
-	issue := &domain.Issue{
-		ID:          uuid.New(),
-		WorkspaceID: workspaceID,
-		TeamID:      teamID,
-		Number:      number,
-		Identifier:  identifier,
-		Title:       req.Title,
-		Description: req.Description,
-		Status:      domain.IssueStatusBacklog,
-		Priority:    priority,
-		CreatorID:   creatorID,
-		SortOrder:   -float64(number) * 1000,
-		Triaged:     !team.TriageEnabled,
-	}
-
-	if req.ProjectID != nil {
-		pid, _ := uuid.Parse(*req.ProjectID)
-		issue.ProjectID = &pid
-	}
-	if req.AssigneeID != nil {
-		aid, _ := uuid.Parse(*req.AssigneeID)
-		issue.AssigneeID = &aid
-	}
-	if req.CycleID != nil {
-		cid, _ := uuid.Parse(*req.CycleID)
-		issue.CycleID = &cid
-	}
-	if req.ParentID != nil {
-		pid, _, err := s.validateParentID(ctx, workspaceID, uuid.Nil, *req.ParentID)
-		if err != nil {
-			return nil, err
-		}
-		issue.ParentID = pid
-	}
-	if req.DueDate != nil && *req.DueDate != "" {
-		t, err := time.Parse("2006-01-02", *req.DueDate)
-		if err == nil {
-			issue.DueDate = &t
-		}
-	}
-
-	if chosenStatus != nil {
-		issue.StatusID = &chosenStatus.ID
-		issue.Status = domain.IssueStatus(chosenStatus.Slug)
-	} else if ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, teamID, string(issue.Status)); err == nil && ts != nil {
-		issue.StatusID = &ts.ID
-	}
-
-	if err := s.issueRepo.Create(ctx, tx, issue); err != nil {
-		return nil, err
-	}
-
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
@@ -251,17 +138,135 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		}
 	}
 
-	// Publish real-time event
-	s.hub.Broadcast(workspaceID, realtime.Event{
-		Type:    "issue.created",
-		Payload: issue,
-	})
-	s.emitWebhook(ctx, workspaceID, WebhookEventIssueCreated, issue, creatorID)
-
-	// Notify assignees (except the creator)
-	s.notifyAssignees(ctx, issue, creatorID, workspaceID)
-
+	s.publishCreatedIssue(ctx, issue)
 	return issue, nil
+}
+
+func (s *IssueService) newIssue(ctx context.Context, workspaceID, creatorID uuid.UUID, req dto.CreateIssueRequest) (*domain.Issue, *domain.Team, error) {
+	teamID, err := uuid.Parse(req.TeamID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid team_id")
+	}
+
+	team, err := s.teamRepo.GetByID(ctx, teamID)
+	if err != nil || team == nil {
+		return nil, nil, fmt.Errorf("team not found")
+	}
+
+	if len(req.LabelIDs) > 0 {
+		var projectID *uuid.UUID
+		if req.ProjectID != nil {
+			if pid, err := uuid.Parse(*req.ProjectID); err == nil {
+				projectID = &pid
+			}
+		}
+		if err := s.validateLabelScope(ctx, projectID, req.LabelIDs); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	// The new issue's status: status_id when it is one of the team's, else
+	// the status the caller names, else the team's backlog.
+	var chosenStatus *domain.TeamStatus
+	if req.StatusID != nil {
+		if sid, err := uuid.Parse(*req.StatusID); err == nil {
+			if ts, _ := s.teamStatusRepo.GetByID(ctx, sid); ts != nil && ts.TeamID == teamID {
+				chosenStatus = ts
+			}
+		}
+	}
+	if chosenStatus == nil && strings.TrimSpace(req.Status) != "" {
+		if chosenStatus, err = s.statusByName(ctx, teamID, req.Status); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	priority := domain.IssuePriority(0)
+	if req.Priority != nil {
+		priority = domain.IssuePriority(*req.Priority)
+	}
+
+	// Sanitize user input
+	req.Title = sanitize.PlainText(req.Title)
+	if req.Description != nil {
+		clean := sanitize.SanitizeEditorContent(*req.Description)
+		req.Description = &clean
+	}
+
+	issue := &domain.Issue{
+		ID:          uuid.New(),
+		WorkspaceID: workspaceID,
+		TeamID:      teamID,
+		Title:       req.Title,
+		Description: req.Description,
+		Status:      domain.IssueStatusBacklog,
+		Priority:    priority,
+		CreatorID:   creatorID,
+		Triaged:     !team.TriageEnabled,
+	}
+
+	if req.ProjectID != nil {
+		pid, _ := uuid.Parse(*req.ProjectID)
+		issue.ProjectID = &pid
+	}
+	if req.AssigneeID != nil {
+		aid, _ := uuid.Parse(*req.AssigneeID)
+		issue.AssigneeID = &aid
+	}
+	if req.CycleID != nil {
+		cid, _ := uuid.Parse(*req.CycleID)
+		issue.CycleID = &cid
+	}
+	if req.ParentID != nil {
+		pid, _, err := s.validateParentID(ctx, workspaceID, uuid.Nil, *req.ParentID)
+		if err != nil {
+			return nil, nil, err
+		}
+		issue.ParentID = pid
+	}
+	if req.DueDate != nil && *req.DueDate != "" {
+		t, err := time.Parse("2006-01-02", *req.DueDate)
+		if err == nil {
+			issue.DueDate = &t
+		}
+	}
+
+	if chosenStatus != nil {
+		issue.StatusID = &chosenStatus.ID
+		issue.Status = domain.IssueStatus(chosenStatus.Slug)
+	} else if ts, err := s.teamStatusRepo.GetByTeamAndSlug(ctx, teamID, string(issue.Status)); err == nil && ts != nil {
+		issue.StatusID = &ts.ID
+	}
+
+	return issue, team, nil
+}
+
+func (s *IssueService) insertIssue(ctx context.Context, tx *sqlx.Tx, issue *domain.Issue, teamKey string) error {
+	number, err := s.issueRepo.NextNumber(ctx, tx, issue.TeamID)
+	if err != nil {
+		return err
+	}
+	// A rename of the team key waits for the lock NextNumber holds, so read the
+	// key again now: the one read before the transaction may be out of date.
+	if keyed, ok := s.issueRepo.(interface {
+		TeamKey(context.Context, *sqlx.Tx, uuid.UUID) (string, error)
+	}); ok {
+		if teamKey, err = keyed.TeamKey(ctx, tx, issue.TeamID); err != nil {
+			return err
+		}
+	}
+	issue.Number = number
+	issue.Identifier = fmt.Sprintf("%s-%d", teamKey, number)
+	issue.SortOrder = -float64(number) * 1000
+	return s.issueRepo.Create(ctx, tx, issue)
+}
+
+func (s *IssueService) publishCreatedIssue(ctx context.Context, issue *domain.Issue) {
+	if s.hub != nil {
+		s.hub.Broadcast(issue.WorkspaceID, realtime.Event{Type: "issue.created", Payload: issue})
+	}
+	s.emitWebhook(ctx, issue.WorkspaceID, WebhookEventIssueCreated, issue, issue.CreatorID)
+	s.notifyAssignees(ctx, issue, issue.CreatorID, issue.WorkspaceID)
 }
 
 func (s *IssueService) CreateSubIssue(ctx context.Context, workspaceID, creatorID uuid.UUID, parentIdentifier string, req dto.CreateSubIssueRequest) (*domain.Issue, error) {

@@ -62,6 +62,8 @@ type IssueTemplateResponse struct {
 	LabelIDs          json.RawMessage `json:"label_ids"`
 	RecurrenceRule    json.RawMessage `json:"recurrence_rule"`
 	NextRunAt         *time.Time      `json:"next_run_at"`
+	LastRunAt         *time.Time      `json:"last_run_at"`
+	LastError         *string         `json:"last_error"`
 	IsActive          bool            `json:"is_active"`
 	CreatedBy         string          `json:"created_by"`
 	CreatedAt         time.Time       `json:"created_at"`

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -40,6 +41,9 @@ func (h *IssueTemplateHandler) Create(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
 
 	tmpl, err := h.templateSvc.Create(c.Request().Context(), ws.ID, userID, req)
+	if errors.Is(err, domain.ErrInvalidIssueTemplateSchedule) {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+	}
 	if err != nil {
 		log.WithError(err).Error("Failed to create issue template")
 		return response.InternalError(c)
@@ -134,6 +138,8 @@ func toIssueTemplateResponse(tmpl *domain.IssueTemplate) dto.IssueTemplateRespon
 		LabelIDs:          tmpl.LabelIDs,
 		RecurrenceRule:    recurrence,
 		NextRunAt:         tmpl.NextRunAt,
+		LastRunAt:         tmpl.LastRunAt,
+		LastError:         tmpl.LastError,
 		IsActive:          tmpl.IsActive,
 		CreatedBy:         tmpl.CreatedBy.String(),
 		CreatedAt:         tmpl.CreatedAt,

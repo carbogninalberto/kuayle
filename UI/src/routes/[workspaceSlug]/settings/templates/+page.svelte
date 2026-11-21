@@ -21,7 +21,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { appToast } from '$lib/features/toast/toast';
-	import { m } from '$lib/features/i18n/messages';
+	import { getLocale, m } from '$lib/features/i18n/messages';
 	import { Plus, Trash2, FileText, Pencil } from '@lucide/svelte';
 	import IssueTemplateDialog from './IssueTemplateDialog.svelte';
 
@@ -108,7 +108,7 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
+<div class="mx-auto max-w-2xl px-4 py-10 sm:px-8">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">
 			{m['settings.templates.title']()}
@@ -135,11 +135,11 @@
 				{#each templates as template, index (template.id)}
 					{@const templateGroup = templateTeam(template)}
 					<div
-						class="group flex items-center gap-4 px-5 py-3.5 {index > 0 ? 'border-t border-[var(--app-border)]' : ''}"
+						class="group flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3.5 sm:flex-nowrap sm:gap-x-4 sm:px-5 {index > 0 ? 'border-t border-[var(--app-border)]' : ''}"
 					>
 						<FileText size={16} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="min-w-0 flex-1">
-							<div class="text-sm font-medium text-[var(--color-text-primary)]">
+							<div class="break-words text-sm font-medium text-[var(--color-text-primary)]">
 								{template.title || m['settings.templates.untitled']()}
 							</div>
 							{#if template.default_issue_title}
@@ -147,15 +147,34 @@
 									{m['settings.templates.issue_title_field']()}: {template.default_issue_title}
 								</div>
 							{/if}
+							{#if template.is_active && template.next_run_at}
+								<time datetime={template.next_run_at} class="mt-0.5 block text-xs text-muted-foreground">
+									{m['settings.backups.next_run']({
+										time: new Date(template.next_run_at).toLocaleString(getLocale(), {
+											dateStyle: 'medium',
+											timeStyle: 'short'
+										})
+									})}
+								</time>
+							{/if}
+							{#if template.last_error}
+								<p class="mt-0.5 break-words text-xs text-[var(--color-error)]">
+									{m['settings.webhooks.last_error']({ error: template.last_error })}
+								</p>
+							{/if}
 						</div>
-						{#if templateGroup}
-							<Badge variant="outline" class="text-[10px]">{templateGroup.key}</Badge>
-						{/if}
-						{#if template.status}
-							<Badge variant="outline" class="text-[10px]">{statusLabel(template.status)}</Badge>
-						{/if}
-						{#if template.priority != null}
-							<Badge variant="outline" class="text-[10px]">{priorityLabel(template.priority)}</Badge>
+						{#if templateGroup || template.status || template.priority != null}
+							<div class="order-last flex w-full flex-wrap items-center gap-2 pl-7 sm:contents">
+								{#if templateGroup}
+									<Badge variant="outline" class="text-[10px]">{templateGroup.key}</Badge>
+								{/if}
+								{#if template.status}
+									<Badge variant="outline" class="text-[10px]">{statusLabel(template.status)}</Badge>
+								{/if}
+								{#if template.priority != null}
+									<Badge variant="outline" class="text-[10px]">{priorityLabel(template.priority)}</Badge>
+								{/if}
+							</div>
 						{/if}
 						<Button
 							aria-label={m['settings.templates.edit_action']({

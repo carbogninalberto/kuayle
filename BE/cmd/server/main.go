@@ -590,6 +590,7 @@ func main() {
 	go agentTaskSvc.RunNotifications(conversationCtx)
 	go pushSvc.Run(conversationCtx)
 	go wikiSvc.RunOverviewSchedules(conversationCtx)
+	go service.NewIssueTemplateRecurrenceWorker(templateRepo, issueRepo, issueSvc).Run(conversationCtx)
 	go backupSvc.Run(conversationCtx)
 	go importSvc.Run(conversationCtx)
 	go agentMessageSvc.Run(conversationCtx, 10*time.Second)

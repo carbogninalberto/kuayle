@@ -99,5 +99,5 @@ func TestCrossWorkspaceReferencesRejectedPostgres(t *testing.T) {
 	template.ID, template.AssigneeID = uuid.New(), &member
 	require.NoError(t, NewIssueTemplateRepository(db).Create(ctx, template))
 	template.AssigneeID = &foreigner
-	require.Error(t, NewIssueTemplateRepository(db).Update(ctx, template))
+	require.Error(t, NewIssueTemplateRepository(db).Update(ctx, template, false))
 }
