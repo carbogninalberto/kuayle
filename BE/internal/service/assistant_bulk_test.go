@@ -74,16 +74,18 @@ func TestAssistantBulkValidatesBatchAndIndividualRows(t *testing.T) {
 	require.Error(t, err)
 	tools := &AssistantTools{members: memberFake{domain.RoleMember}}
 	for raw, reason := range map[string]string{
-		`{"identifier":"ENG-1","title":"outside batch scope"}`:   "invalid arguments",
-		`{"identifier":"ENG-1","priority":"urgent"}`:             "invalid arguments",
-		`{"identifier":"ENG-1","priority":1,"assignee_id":null}`: "invalid arguments",
+		`{"identifier":"ENG-1","title":"outside batch scope"}`:   "unknown argument title",
+		`{"identifier":"ENG-1","priority":"urgent"}`:             "priority must be integer",
+		`{"identifier":"ENG-1","priority":1,"assignee_id":null}`: "assignee_id must be string",
 		`{"identifier":"ENG-1","assignee_id":"abc"}`:             "invalid assignee ID",
-		`{"identifier":"ENG-1","label_ids":["abc"]}`:             "invalid label ID",
+		`{"identifier":"ENG-1","label_ids":["abc"]}`:             "label_ids.0 must be a valid uuid",
 		`{"identifier":"ENG-1","cycle_id":"abc"}`:                "invalid cycle or project ID",
-		`{"identifier":"ENG-1"}`:                                 "no changes requested",
+		`{"identifier":"ENG-1"}`:                                 "at least 2 fields",
 	} {
 		result := tools.applyBulkChange(t.Context(), uuid.New(), uuid.New(), json.RawMessage(raw))
-		require.Equal(t, bulkIssueResult{Identifier: "ENG-1", Error: reason}, result)
+		require.Equal(t, "ENG-1", result.Identifier)
+		require.False(t, result.Success)
+		require.Contains(t, result.Error, reason)
 	}
 	tools.members = memberFake{domain.RoleGuest}
 	result := tools.applyBulkChange(t.Context(), uuid.New(), uuid.New(), json.RawMessage(`{"identifier":"ENG-1","status":"done"}`))
@@ -119,7 +121,9 @@ func TestAssistantBulkReportsPartialFailure(t *testing.T) {
 	require.Equal(t, "2 of 4 issue updates failed", *result.Error)
 	var payload bulkUpdatePayload
 	require.NoError(t, json.Unmarshal(result.Payload, &payload))
-	require.Equal(t, []bulkIssueResult{{Identifier: "ENG-1", Success: true}, {Identifier: "ENG-404", Error: "issue not found"}, {Identifier: "ENG-2", Error: "priority must be 0 to 4"}, {Identifier: "ENG-3", Success: true}}, payload.Results)
+	require.Len(t, payload.Results, 4)
+	require.Contains(t, payload.Results[2].Error, "priority must be at most 4")
+	require.Equal(t, []bulkIssueResult{{Identifier: "ENG-1", Success: true}, {Identifier: "ENG-404", Error: "issue not found"}, {Identifier: "ENG-2", Error: payload.Results[2].Error}, {Identifier: "ENG-3", Success: true}}, payload.Results)
 	var updated int
 	require.NoError(t, f.db.Get(&updated, `SELECT count(*) FROM issues i JOIN issue_labels il ON il.issue_id=i.id
  WHERE i.workspace_id=$1 AND i.identifier_text='ENG-3' AND i.project_id=$2 AND i.cycle_id=$3 AND il.label_id=$4 AND i.assignee_id=$5`, f.ws, project, cycle, label, f.user))

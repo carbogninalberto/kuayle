@@ -547,7 +547,16 @@ the HTTP routes. Arguments are strict JSON: unknown fields such as a creator ID
 are rejected, and the issue is always created with the user's own identity.
 Teams are resolved by key among the teams the user can see.
 
-`get_agent_work` reads one visible issue's latest tasks. `list_agent_work` lists
+When a tool call fails argument validation, the model receives the field, its
+constraint and the accepted arguments so it can correct the call. Custom tools
+validate their `inputs` against the active tool version. Bulk updates report
+invalid fields per row.
+
+When a task has yet to publish a pull request, the PR tools return an error
+with its latest state, reason and next step. An issue with no task can be delegated.
+
+`get_agent_work(identifier)` reads one visible issue's latest tasks. Passing
+`identifier` to `list_agent_work` points the model to `get_agent_work`. `list_agent_work` lists
 the workspace's 50 most recently updated tasks (optionally one state) on issues
 the user can see, newest first: issue identifier and title, state and reason,
 agent, attempt, recorded pull request and latest trusted review decision. Like
@@ -1910,7 +1919,10 @@ sources. Result:
 and active in the workspace's GitHub installation; owners and admins only, since
 the scan token can read a repository the caller cannot see on GitHub) or
 `identifier` (an issue the user can see; its development repository and base
-branch). The Dev Machine policy's repository allowlist applies to every scan, and optionally `ref`
+branch). Owners and admins may omit both when the workspace has exactly one
+linked repository. A misspelled name can suggest a linked repository for a
+retry. Every checkout still requires an exact linked name and passes the Dev
+Machine allowlist. Scans optionally take `ref`
 (branch, tag or full SHA; default: the default branch). The API server mints a
 token restricted to that repository with only `contents: read` and `metadata:
 read`, pins the ref to a commit and downloads that commit's tarball (the
@@ -1932,14 +1944,16 @@ kept 15 minutes, at most 8 at once, deleted when they expire, on shutdown
 the next start. Failed downloads are not cached. GitHub's 404, 401/403 and
 outages become tool errors naming the next step. Each result starts with
 `repository`, `ref`, `commit` (and `checkout_truncated` when set) and reports
-the path or pattern used:
+the path or pattern used. On GitHub and live task scans, `repo_grep` accepts a
+literal `path` in place of `glob`, and `repo_glob` accepts it in place of
+`pattern`. A file selects only that file. A directory includes its descendants.
 
 ```jsonc
 // repo_list_files(path?, limit 1-500 = 200)
 {"repository":"acme/app","ref":"main","commit":"<sha>","path":"BE","files":[{"path":"BE/main.go","size":120,"binary":false,"omitted":"too_large"}],"matched":12,"total_files":340,"truncated":false,"omitted":{"ignored":3,"links":1,"too_large":2,"unsafe":0}}
-// repo_glob(pattern, limit 1-500 = 200)
+// repo_glob(pattern or path, limit 1-500 = 200)
 {"repository":"…","ref":"…","commit":"…","pattern":"**/*_test.go","files":[{"path":"…","size":0}],"matched":4,"truncated":false}
-// repo_grep(pattern, glob?, fixed?, case_insensitive?, limit 1-100 = 50)
+// repo_grep(pattern, glob or path?, fixed?, case_insensitive?, limit 1-100 = 50)
 {"repository":"…","ref":"…","commit":"…","pattern":"Serve\\(","glob":"BE/**","fixed":false,"case_insensitive":false,"matches":[{"path":"BE/main.go","line":5,"text":"\tServe()"}],"files_searched":10,"files_matched":2,"truncated":false,"timed_out":true,"note":"…"}
 // repo_read_file(path, start_line?, end_line?)
 {"repository":"…","ref":"…","commit":"…","path":"BE/main.go","start_line":1,"end_line":400,"total_lines":812,"content":"…","truncated":true}
@@ -1977,9 +1991,9 @@ modifications in each worktree. The result starts with `source: "task"`,
 the same 16 KB and read caps as the GitHub scans:
 
 ```jsonc
-// repo_grep(source "task", pattern, glob?, fixed?, case_insensitive?, limit 1-100 = 50)
+// repo_grep(source "task", pattern, glob or path?, fixed?, case_insensitive?, limit 1-100 = 50)
 {"source":"task","machine":"dev-1","repository":"acme/app","branch":"kua-141-fix","commit":"<sha>","dirty":true,"path":"/workspace/tasks/ENG-141","matches":[{"path":"BE/main.go","line":5,"text":"\tServe()"}],"truncated":false}
-// repo_glob(source "task", pattern, limit 1-500 = 200)
+// repo_glob(source "task", pattern or path, limit 1-500 = 200)
 {"source":"task","machine":"…","repository":"…","branch":"…","commit":"…","dirty":true,"path":"…","files":["BE/main.go"],"truncated":false}
 // repo_read_file(source "task", path, start_line?, end_line?)
 {"source":"task","machine":"…","repository":"…","branch":"…","commit":"…","dirty":false,"path":"…","file":"BE/main.go","start_line":1,"end_line":400,"total_lines":812,"content":"…","truncated":true}

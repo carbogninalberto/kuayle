@@ -56,6 +56,8 @@ characters), applies migrations with `go run ./cmd/server migrate up`, then runs
 Some migration tests need permission to create isolated databases. Do not source
 an arbitrary `.env` and assume its database is safe to modify.
 
+Work from narrow to wide: compile and type-check first, then the single test closest to your change, and widen to the package or spec file only if that passes. Leave the full suites to CI.
+
 Use nearby service/handler unit tests for business and HTTP contracts. Run real
 repository/migration tests for SQL, persistence and authorization races. For a
 focused Go regression, use `go test ./internal/service -run '<TestName>' -count=1`

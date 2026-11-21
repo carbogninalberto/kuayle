@@ -242,14 +242,14 @@ func TestAssistantUpdatesIssuesWithTheUsersPermissions(t *testing.T) {
 	require.Contains(t, history[len(history)-1].(map[string]any)["content"], `"untrusted_data"`)
 
 	for arguments, message := range map[string]string{
-		`{"identifier":"ENG-1","status":"shipped"}`: "invalid status",
+		`{"identifier":"ENG-1","status":"shipped"}`: "status must be one of",
 		`{"identifier":"ENG-1"}`:                    "no changes requested",
-		`{"identifier":"ENG-1","creator_id":"x"}`:   "invalid arguments",
+		`{"identifier":"ENG-1","creator_id":"x"}`:   "unknown argument creator_id",
 		`{"identifier":"ENG-404","title":"Nope"}`:   "issue not found",
 		`{"identifier":"ENG-1","title":"   "}`:      "invalid issue fields",
 	} {
 		_, _, err := f.service.tools.run(f.ctx, f.ws, f.user, "update_issue", arguments)
-		require.EqualError(t, err, message, arguments)
+		require.ErrorContains(t, err, message, arguments)
 	}
 	_, err = f.db.Exec(`UPDATE workspace_members SET role='guest' WHERE workspace_id=$1 AND user_id=$2`, f.ws, f.user)
 	require.NoError(t, err)

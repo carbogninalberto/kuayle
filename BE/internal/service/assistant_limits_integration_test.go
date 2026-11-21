@@ -91,12 +91,12 @@ func TestAssistantListAgentWorkReportsWorkspaceTasksWithTheUsersAccess(t *testin
 	require.NoError(t, err)
 	require.Equal(t, "/50", work.asked[1], "the default lists the 50 most recent tasks")
 	for arguments, message := range map[string]string{
-		`{"state":"sleeping"}`: "invalid state",
-		`{"limit":51}`:         "limit must be 1 to 50",
-		`{"creator_id":"x"}`:   "invalid arguments",
+		`{"state":"sleeping"}`: "state must be one of",
+		`{"limit":51}`:         "limit must be at most 50",
+		`{"creator_id":"x"}`:   "unknown argument creator_id",
 	} {
 		_, _, err = f.service.tools.run(f.ctx, f.ws, f.user, "list_agent_work", arguments)
-		require.EqualError(t, err, message, arguments)
+		require.ErrorContains(t, err, message, arguments)
 	}
 
 	many := make([]repository.AgentWorkItem, 50)
@@ -174,11 +174,11 @@ func TestAssistantLinkRepositoryUsesTheDevelopmentSettingRules(t *testing.T) {
 		`{"identifier":"ENG-1","repository":"acme/app","base_branch":"../x"}`: "invalid base branch",
 		`{"identifier":"ENG-404","repository":"acme/app"}`:                    "issue not found",
 		`{"identifier":"ENG-1","repository":"acme/app","scope":"project"}`:    "only workspace owners and admins can set a project's repository",
-		`{"identifier":"ENG-1","repository":"acme/app","scope":"team"}`:       "invalid arguments",
-		`{"identifier":"ENG-1","repository":"acme/app","github_repo_id":"x"}`: "invalid arguments",
+		`{"identifier":"ENG-1","repository":"acme/app","scope":"team"}`:       "scope must be one of issue, project",
+		`{"identifier":"ENG-1","repository":"acme/app","github_repo_id":"x"}`: "unknown argument github_repo_id",
 	} {
 		_, _, err := link(arguments)
-		require.EqualError(t, err, message, arguments)
+		require.ErrorContains(t, err, message, arguments)
 	}
 
 	_, err = f.db.Exec(`UPDATE workspace_members SET role='admin' WHERE workspace_id=$1 AND user_id=$2`, f.ws, f.user)

@@ -201,16 +201,13 @@ func TestTaskSourceIsRefusedWhenTheWorktreeSwitchIsOff(t *testing.T) {
 	require.Zero(t, f.store.creates)
 }
 
-func TestTaskLimitsAreClampedLikeTheGitHubScans(t *testing.T) {
+func TestTaskScanLimitsReportTheirBounds(t *testing.T) {
 	f := newWorktreeFixture(t)
-	f.store.createScan = completedWorktreeScan(t, domain.WorktreeScanResult{Files: []string{"BE/main.go"}})
 	_, err := f.run(t, "repo_glob", `{"identifier":"ENG-1","source":"task","pattern":"**/*.go","limit":600}`)
-	require.NoError(t, err)
-	require.Equal(t, domain.WorktreeScanMaxFiles, f.store.request.Limit)
-
+	require.ErrorContains(t, err, "limit must be at most 500")
 	_, err = f.run(t, "repo_grep", `{"identifier":"ENG-1","source":"task","pattern":"x","limit":600}`)
-	require.NoError(t, err)
-	require.Equal(t, domain.WorktreeScanMaxMatches, f.store.request.Limit)
+	require.ErrorContains(t, err, "limit must be at most 100")
+	require.Zero(t, f.store.creates)
 }
 
 func TestTrimWorktreeContentCutsAtALineBoundary(t *testing.T) {
@@ -409,7 +406,7 @@ func TestScanTargetErrorsListTheLinkedRepositories(t *testing.T) {
 	require.Contains(t, toolErrorText(err), "acme/other")
 	require.Contains(t, toolErrorText(err), "identifier")
 
-	_, _, err = f.tools.run(context.Background(), f.ws, f.admin, "repo_list_files", `{"repository":"evil/other"}`)
+	_, _, err = f.tools.run(context.Background(), f.ws, f.admin, "repo_list_files", `{"repository":"evil/unrelated"}`)
 	require.Error(t, err)
 	require.Contains(t, toolErrorText(err), "acme/app")
 	require.Contains(t, toolErrorText(err), "acme/other")

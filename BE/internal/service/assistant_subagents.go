@@ -429,7 +429,7 @@ func (s *ConversationService) subagentTool(ctx context.Context, ws, creator uuid
 	}
 	output, _, err := s.tools.run(ctx, ws, creator, tool.name, call.Function.Arguments)
 	if err != nil {
-		return fail(toolErrorText(err))
+		return fail(toolArgumentErrorText(tool.name, assistantArgumentSchemas()[tool.name], err))
 	}
 	data, err := json.Marshal(output)
 	if err != nil || len(data) > assistantToolOutputBytes {
