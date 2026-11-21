@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Pannelli laterali",
 	"assistant.placeholder_agent": "Scrivi all'agente {agent} di {identifier}…",
 	"assistant.places": "Sezioni dell'assistente",
+	"assistant.folders": "Cartelle",
 	"assistant.recents": "Recenti",
 	"assistant.recents_empty": "Ancora nessuna conversazione.",
 	"assistant.recents_loading": "Caricamento conversazioni…",

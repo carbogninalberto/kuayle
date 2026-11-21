@@ -3346,6 +3346,7 @@
 	"assistant.panels": "پنل‌های کناری",
 	"assistant.placeholder_agent": "پیام به عامل {agent} برای {identifier}…",
 	"assistant.places": "بخش‌های دستیار",
+	"assistant.folders": "پوشه‌ها",
 	"assistant.recents": "اخیر",
 	"assistant.recents_empty": "هنوز گفتگویی نیست.",
 	"assistant.recents_loading": "در حال بارگیری گفتگوها…",

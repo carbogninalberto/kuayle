@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Sidopaneler",
 	"assistant.placeholder_agent": "Skriv till {agent}-agenten för {identifier}…",
 	"assistant.places": "Assistentens platser",
+	"assistant.folders": "Mappar",
 	"assistant.recents": "Senaste",
 	"assistant.recents_empty": "Inga konversationer ännu.",
 	"assistant.recents_loading": "Laddar konversationer…",

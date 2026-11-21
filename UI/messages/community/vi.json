@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Bảng bên",
 	"assistant.placeholder_agent": "Nhắn cho agent {agent} của {identifier}…",
 	"assistant.places": "Các mục của trợ lý",
+	"assistant.folders": "Thư mục",
 	"assistant.recents": "Gần đây",
 	"assistant.recents_empty": "Chưa có cuộc trò chuyện nào.",
 	"assistant.recents_loading": "Đang tải cuộc trò chuyện…",

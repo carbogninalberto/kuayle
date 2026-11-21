@@ -3346,6 +3346,7 @@
 	"assistant.panels": "แผงด้านข้าง",
 	"assistant.placeholder_agent": "ส่งข้อความถึง Agent {agent} ของ {identifier}…",
 	"assistant.places": "ส่วนต่าง ๆ ของผู้ช่วย",
+	"assistant.folders": "โฟลเดอร์",
 	"assistant.recents": "ล่าสุด",
 	"assistant.recents_empty": "ยังไม่มีการสนทนา",
 	"assistant.recents_loading": "กำลังโหลดการสนทนา…",

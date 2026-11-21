@@ -146,7 +146,22 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 	request("PATCH", "/conversations/"+tagged.ID.String(), fmt.Sprintf(`{"project_id":%q}`, project.String()), tokenFor(other), 404, nil)
 	request("PATCH", "/conversations/"+tagged.ID.String(), `{"project_id":"not-a-uuid"}`, token, 400, nil)
 	request("PATCH", "/conversations/"+tagged.ID.String(), fmt.Sprintf(`{"project_id":%q}`, uuid.NewString()), token, 404, nil)
+	// Equal update times must still page through both rows exactly once.
+	_, err = db.Exec(`UPDATE conversations SET updated_at=now() WHERE id IN ($1,$2)`, conversation.ID, tagged.ID)
+	require.NoError(t, err)
 	var listed []domain.Conversation
+	request("GET", "/conversations?limit=1", "", token, 200, &listed)
+	require.Len(t, listed, 1)
+	firstChat := listed[0]
+	request("GET", "/conversations?limit=1&before="+firstChat.UpdatedAt.UTC().Format(time.RFC3339Nano)+"&before_id="+firstChat.ID.String(), "", token, 200, &listed)
+	require.Len(t, listed, 1)
+	require.NotEqual(t, firstChat.ID, listed[0].ID)
+	request("GET", "/conversations?q=ADMA&limit=1", "", token, 200, &listed)
+	require.Len(t, listed, 1)
+	require.Equal(t, tagged.ID, listed[0].ID)
+	for _, query := range []string{"limit=0", "limit=101", "before=invalid", "before_id=" + firstChat.ID.String(), "folder_id=invalid"} {
+		request("GET", "/conversations?"+query, "", token, 400, nil)
+	}
 	request("GET", "/conversations?project_id="+project.String(), "", token, 200, &listed)
 	require.Len(t, listed, 1)
 	require.Equal(t, tagged.ID, listed[0].ID)

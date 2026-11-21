@@ -21,7 +21,6 @@
 	import { m } from '$lib/features/i18n/messages';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import type { ConversationState } from './conversation-state.svelte';
-	import { newChatProject, type ProjectFilter } from './project-filter';
 	import { assistantDraftKey } from './chat-draft';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import * as InputGroup from '$lib/components/ui/input-group/index.js';
@@ -54,7 +53,6 @@
 	let {
 		chat,
 		conversationId,
-		projectFilter,
 		status,
 		initialized,
 		targetTask,
@@ -67,7 +65,6 @@
 	}: {
 		chat: ConversationState;
 		conversationId: string | null;
-		projectFilter: ProjectFilter;
 		status: AssistantStatus;
 		initialized: boolean;
 		targetTask?: AgentTask;
@@ -204,7 +201,7 @@
 		const existing = conversationId ?? pending?.conversation ?? draftConversation;
 		if (existing) return existing;
 		creating ??= conversations
-			.create(slug, text.trim().slice(0, 100) || fallbackTitle, newChatProject(projectFilter))
+			.create(slug, text.trim().slice(0, 100) || fallbackTitle)
 			.then((chat) => (draftConversation = chat.id))
 			.finally(() => {
 				creating = null;

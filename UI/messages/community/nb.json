@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Sidepaneler",
 	"assistant.placeholder_agent": "Send melding til {agent}-agenten for {identifier}…",
 	"assistant.places": "Assistentsteder",
+	"assistant.folders": "Mapper",
 	"assistant.recents": "Nylige",
 	"assistant.recents_empty": "Ingen samtaler ennå.",
 	"assistant.recents_loading": "Laster inn samtaler…",

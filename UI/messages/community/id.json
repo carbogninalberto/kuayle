@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Panel samping",
 	"assistant.placeholder_agent": "Kirim pesan ke agen {agent} untuk {identifier}…",
 	"assistant.places": "Tempat asisten",
+	"assistant.folders": "Folder",
 	"assistant.recents": "Terbaru",
 	"assistant.recents_empty": "Belum ada percakapan.",
 	"assistant.recents_loading": "Memuat percakapan…",

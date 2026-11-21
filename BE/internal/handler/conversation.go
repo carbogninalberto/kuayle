@@ -101,6 +101,29 @@ func (h *ConversationHandler) List(c *echo.Context) error {
 		}
 		filter.ProjectID = &project
 	}
+	filter.Search = c.QueryParam("q")
+	if raw := c.QueryParam("folder_id"); raw != "" {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return conversationError(c, repository.ErrConversationInvalid)
+		}
+		filter.FolderID = &id
+	}
+	if raw := c.QueryParam("limit"); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil || limit < 1 || limit > 100 {
+			return conversationError(c, repository.ErrConversationInvalid)
+		}
+		filter.Limit = limit
+	}
+	if before, id := c.QueryParam("before"), c.QueryParam("before_id"); before != "" || id != "" {
+		stamp, err := time.Parse(time.RFC3339Nano, before)
+		key, idErr := uuid.Parse(id)
+		if err != nil || idErr != nil {
+			return conversationError(c, repository.ErrConversationInvalid)
+		}
+		filter.Before, filter.BeforeID = &stamp, key
+	}
 	result, err := h.svc.Repo.ListFiltered(c.Request().Context(), middleware.GetWorkspace(c).ID, filter)
 	if err != nil {
 		return conversationError(c, err)

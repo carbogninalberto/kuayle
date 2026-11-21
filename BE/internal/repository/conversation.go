@@ -112,8 +112,7 @@ func (r *ConversationRepository) List(ctx context.Context, ws uuid.UUID) ([]doma
 	return r.ListFiltered(ctx, ws, domain.ConversationFilter{})
 }
 
-// ListFiltered lists the actor's own latest 100 conversations, optionally
-// narrowed to one visible project or to chats without a visible project.
+// ListFiltered pages the actor's conversations in stable recency order.
 func (r *ConversationRepository) ListFiltered(ctx context.Context, ws uuid.UUID, filter domain.ConversationFilter) ([]domain.Conversation, error) {
 	user, err := conversationActor(ctx, ws)
 	if err != nil {
@@ -128,11 +127,18 @@ func (r *ConversationRepository) ListFiltered(ctx context.Context, ws uuid.UUID,
 		return nil, err
 	}
 	result := []domain.Conversation{}
-	args := []any{ws, user}
+	limit := filter.Limit
+	if limit == 0 {
+		limit = 100
+	}
+	args := []any{ws, user, filter.Search, filter.FolderID, filter.Before, filter.BeforeID, limit}
 	if filter.ProjectID != nil {
 		args = append(args, *filter.ProjectID)
 	}
-	err = tx.SelectContext(ctx, &result, `SELECT c.* FROM conversations c WHERE workspace_id=$1 AND creator_id=$2 AND `+conversationScopePredicate("c")+conversationFilterSQL(ctx, filter, "c", "$3")+` ORDER BY updated_at DESC,id LIMIT 100`, args...)
+	err = tx.SelectContext(ctx, &result, `SELECT c.* FROM conversations c WHERE workspace_id=$1 AND creator_id=$2 AND `+conversationScopePredicate("c")+conversationFilterSQL(ctx, filter, "c", "$8")+`
+ AND strpos(lower(c.title),lower($3)) > 0 AND ($4::uuid IS NULL OR c.folder_id=$4)
+ AND ($5::timestamptz IS NULL OR c.updated_at < $5 OR (c.updated_at=$5 AND c.id > $6))
+ ORDER BY c.updated_at DESC,c.id LIMIT $7`, args...)
 	if err != nil {
 		return nil, err
 	}

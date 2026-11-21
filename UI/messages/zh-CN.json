@@ -3346,6 +3346,7 @@
 	"assistant.panels": "侧边面板",
 	"assistant.placeholder_agent": "给 {identifier} 的 {agent} 代理发消息…",
 	"assistant.places": "助手入口",
+	"assistant.folders": "文件夹",
 	"assistant.recents": "最近",
 	"assistant.recents_empty": "暂无对话。",
 	"assistant.recents_loading": "正在加载对话…",

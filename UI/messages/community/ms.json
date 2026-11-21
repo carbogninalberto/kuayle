@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Panel sisi",
 	"assistant.placeholder_agent": "Mesej ejen {agent} bagi {identifier}…",
 	"assistant.places": "Tempat pembantu",
+	"assistant.folders": "Folder",
 	"assistant.recents": "Terkini",
 	"assistant.recents_empty": "Belum ada perbualan.",
 	"assistant.recents_loading": "Memuatkan perbualan…",

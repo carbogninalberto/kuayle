@@ -3346,6 +3346,7 @@
 	"assistant.panels": "اللوحات الجانبية",
 	"assistant.placeholder_agent": "راسل وكيل {agent} الخاص بـ {identifier}…",
 	"assistant.places": "أماكن المساعد",
+	"assistant.folders": "المجلدات",
 	"assistant.recents": "الأخيرة",
 	"assistant.recents_empty": "لا توجد محادثات بعد.",
 	"assistant.recents_loading": "جارٍ تحميل المحادثات…",

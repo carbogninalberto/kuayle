@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Sivupaneelit",
 	"assistant.placeholder_agent": "Viesti agentille {agent} (kohde {identifier})…",
 	"assistant.places": "Avustajan paikat",
+	"assistant.folders": "Kansiot",
 	"assistant.recents": "Viimeaikaiset",
 	"assistant.recents_empty": "Ei vielä keskusteluja.",
 	"assistant.recents_loading": "Ladataan keskusteluja…",

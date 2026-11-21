@@ -118,11 +118,11 @@ the caller at read time. A project the caller can no longer see (for example
 after leaving its private team) is reported as `null` and never disclosed: the
 chat appears under `project_id=none`, not under that project's filter.
 
-The UI's conversation list has a project filter (all, no project, or one
-project), remembered per person and workspace in browser storage. Rows show
-their project when all projects are listed, the row menu offers **Move to
-project** (disabled for issue chats), and a new chat started under a project
-filter is created in that project.
+The Assistant sidebar shows recent conversations across visible projects and keeps
+their project tags. The list endpoint accepts a `limit` of 1–100 (default 100),
+a literal case-insensitive title search (`q`), and an optional `folder_id`.
+For the next page, pass the last displayed row’s `updated_at` and `id` as
+`before` and `before_id`. Rows sort by descending update time, then ascending ID.
 
 ## Execution and recovery
 
@@ -198,8 +198,8 @@ per-user/conversation drafts, send, stop and explicit retry. All strings use the
 four existing Paraglide catalogs.
 
 The page is a three-column shell ([AssistantChat](../../UI/src/lib/features/assistant/AssistantChat.svelte)):
-the assistant's own sidebar (places, conversation search, project filter, a
-collapsible Recents list with folders, the signed-in person) is fixed from
+the assistant's own sidebar (actions, conversation search, collapsible folders
+and on-demand conversation pages) is fixed from
 1024 px and a drawer below; the centre holds the conversation (user turns as
 compact right-aligned bubbles, assistant turns as plain Markdown, tool calls as
 one-line step chips with the overflow behind "+N more steps", coding tasks as
@@ -213,8 +213,10 @@ names render through the generic step chip; [tool-chips.ts](../../UI/src/lib/fea
 registers per-tool labels, icons or renderers. The one composer sends to the
 assistant or, when aimed at a running task, to its agent through the live
 channel, and says which. Earlier messages can be folded behind "Show N earlier
-messages" (remembered per person). Conversations move between folders by drag
-and drop or the row menu. Failed tasks stay listed in the transcript, the
+messages" (remembered per person). Selecting a folder filters the recent
+conversations underneath it. Selecting it again or folding the section shows
+all recents. Conversations move between folders by drag and drop or the row
+menu, opened with right-click, long press, the Menu key or Shift+F10. Failed tasks stay listed in the transcript, the
 Agents panel and Background tasks; only completed or cancelled ones fold into
 the "N finished" row. Each task shows "Iteration N" with why it started (first
 run, review changes, CI follow-up, your follow-up, retry after failure),

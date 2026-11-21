@@ -35,6 +35,11 @@ type ConversationProject struct {
 type ConversationFilter struct {
 	ProjectID *uuid.UUID
 	NoProject bool
+	FolderID  *uuid.UUID
+	Search    string
+	Limit     int
+	Before    *time.Time
+	BeforeID  uuid.UUID
 }
 
 // ConversationFolder groups its owner's conversations; it is never shared.
@@ -42,6 +47,7 @@ type ConversationFolder struct {
 	ID          uuid.UUID `json:"id" db:"id"`
 	WorkspaceID uuid.UUID `json:"workspace_id" db:"workspace_id"`
 	OwnerID     uuid.UUID `json:"-" db:"owner_id"`
+	Count       int       `json:"count" db:"count"`
 	Name        string    `json:"name" db:"name"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`

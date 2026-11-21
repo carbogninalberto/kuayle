@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Боковые панели",
 	"assistant.placeholder_agent": "Сообщение агенту {agent} для {identifier}…",
 	"assistant.places": "Разделы ассистента",
+	"assistant.folders": "Папки",
 	"assistant.recents": "Недавние",
 	"assistant.recents_empty": "Диалогов пока нет.",
 	"assistant.recents_loading": "Загрузка диалогов…",

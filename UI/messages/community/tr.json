@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Yan paneller",
 	"assistant.placeholder_agent": "{identifier} issue'sunun {agent} ajanına mesaj yazın…",
 	"assistant.places": "Asistan konumları",
+	"assistant.folders": "Klasörler",
 	"assistant.recents": "Son kullanılanlar",
 	"assistant.recents_empty": "Henüz sohbet yok.",
 	"assistant.recents_loading": "Sohbetler yükleniyor…",
