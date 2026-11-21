@@ -137,11 +137,16 @@ test('attaches images by button, paste and drop, uploads them and sends their ID
 	await page.goto('/test/assistant?conversation=chat-1');
 	const composer = page.getByRole('textbox', { name: 'Message' });
 	const send = page.getByRole('button', { name: 'Send message' });
-	await expect(page.getByRole('button', { name: 'Attach images' })).toBeEnabled();
+	const attach = page.getByRole('button', { name: 'Attach images' });
+	await expect(attach).toBeEnabled();
 
 	let release!: () => void;
 	state.uploadGate = new Promise((resolve) => (release = resolve));
-	await page.locator('input[type="file"]').setInputFiles([file('first.png')]);
+	await composer.focus();
+	await page.keyboard.press('Tab');
+	await expect(attach).toBeFocused();
+	const [chooser] = await Promise.all([page.waitForEvent('filechooser'), attach.press('Enter')]);
+	await chooser.setFiles([file('first.png')]);
 	const attached = page.getByRole('list', { name: 'Attached images' });
 	await expect(attached.getByText('first.png')).toBeVisible();
 	await expect(attached.getByRole('progressbar', { name: 'Uploading first.png' })).toBeVisible();

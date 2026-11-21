@@ -528,13 +528,15 @@
 				/>
 				<InputGroup.Addon align="block-end" class="justify-between gap-2">
 					<div class="flex min-w-0 items-center gap-1">
-						<InputGroup.Button
-							size="icon-sm"
-							aria-label={m['assistant.attach']()}
-							title={m['assistant.attach']()}
-							disabled={composerDisabled}
-							onclick={() => fileInput?.click()}><Plus size={16} /></InputGroup.Button
-						>
+						<div class="attachment-actions">
+							<InputGroup.Button
+								size="icon-sm"
+								aria-label={m['assistant.attach']()}
+								title={m['assistant.attach']()}
+								disabled={composerDisabled}
+								onclick={() => fileInput?.click()}><Plus size={16} /></InputGroup.Button
+							>
+						</div>
 						{#if messageable.length || toAgent}
 							<DropdownMenu.Root>
 								<DropdownMenu.Trigger>

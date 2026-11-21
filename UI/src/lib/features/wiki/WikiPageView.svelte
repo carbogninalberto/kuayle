@@ -209,8 +209,8 @@
 	}
 </script>
 
-<div class="min-h-0 flex-1 overflow-y-auto md:flex md:overflow-hidden">
-	<div class="min-w-0 md:min-h-0 md:flex-1 md:overflow-y-auto">
+<div class="min-h-0 flex-1 overflow-y-auto scroll-pb-12 md:flex md:overflow-hidden">
+	<div class="min-w-0 md:min-h-0 md:flex-1 md:overflow-y-auto md:scroll-pb-12">
 		<div class="mx-auto max-w-[840px] px-4 py-5 sm:px-10 sm:py-6">
 			{#if conflict}
 				<Alert.Root variant="destructive" class="mb-4" data-testid="wiki-conflict">
