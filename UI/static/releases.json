@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.2.52",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.52",
+    "body": "## What's changed\n\n### New\n\n- **Recurring issue templates create their issues.** A template with a schedule now creates a dated issue on time, with the template's defaults. Template settings show the next run and the last failure, if any. Combined with automation rules, this lets agents run scheduled work such as a daily security scan. (#349, KUA-247)\n- **Assistant sidebar.** Folders and recent conversations are separate, and older history loads on demand. (#346, KUA-249)\n\n### Improvements\n\n- **Clearer assistant tool errors.** When the assistant passes a wrong argument, the error names it and lists the accepted ones. Repository search tools accept a file or folder `path`. Owners and admins can leave out the repository when only one is linked, and a misspelled name gets a \"did you mean\" suggestion. Pull request tools explain what the task is doing when no pull request exists yet. (#348, KUA-251)\n- **Attach buttons stay in reach.** The image and file buttons sit in a footer at the lower left of the editor, so they no longer scroll away in long descriptions, comments and replies. (#347, KUA-250)\n\n### Upgrade notes\n\n- **Migration 200** adds the scheduling state for recurring issue templates. There are no new configuration settings.\n",
+    "published_at": "2026-11-21T10:12:33Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.52",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.2.51",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.2.51",
     "body": "v0.2.51 includes everything from v0.2.50, whose dev machine images were not published.\n\n## What's changed\n\n### New\n\n- **Move a paused task to another workflow.** The task's creator can continue a paused task on a different workflow, from a chosen step. The checkout and the pull request are kept. (#339, KUA-174)\n- **Approvals stack above the chat.** Pending approvals no longer get lost in the transcript. They show a compact summary with details you can expand, and high-risk actions must be expanded before they can be approved. Assistant and agent chats now share one composer, which accepts images. (#335, KUA-245)\n- **Resize table columns** in issue descriptions and comments. Widths are saved, survive reloads and edits, and show in read-only views. (#341, KUA-244)\n- **Assistant terminal:**\n  - Ad-hoc commands can run for up to 10 minutes per approved run, instead of 60 seconds. Their output stays readable while they run and after you reopen the conversation. (#344, KUA-179)\n  - The new `get_machine_logs` tool lists a machine's containers and reads their logs, or an agent run's output. It requires access to the machine and the task. (#343, KUA-182)\n  - Keep an ad-hoc server running on your own dev machine, with a signed-in preview you control from the conversation. (#340, KUA-184)\n\n### Fixes\n\n- **Low host disk is explained.** A task waiting on low disk shows the free space and the configured thresholds, instead of sitting in \"Preparing\" with no reason. Workspace owners and admins get an Inbox notice, and the task resumes by itself once there is room. (#338, KUA-224)\n- **Disk-full detection** only reacts to the harness's own error lines, keeps the harness's message, and lets a usage-limit error take precedence. (#336, KUA-191)\n- **GitHub CI reads** request the Checks, Commit statuses and Actions read access they need. Before, some CI status could fail to load. (#337, KUA-242)\n- **Telegram** no longer gets raw chart or widget code blocks in assistant replies. (#342, KUA-186)\n\n### Security\n\n- **CVE-2026-95839** (containerd: a malformed image digest could crash the daemon): the Buildx and Compose plugins in the dev machine images now use containerd v2.4.2. (#345, KUA-246)\n\n### Upgrade notes\n\n- **Migrations 195–199:** attachments on live messages, assistant processes, command timeouts, the disk wait for tasks, and workflow continuation. There are no new configuration settings.\n",
@@ -1086,17 +1097,6 @@
     "force_upgrade": false,
     "minimum_supported_version": null,
     "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.4",
-    "upgrade_message": null
-  },
-  {
-    "tag_name": "v0.0.3",
-    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.3",
-    "body": "**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.2...v0.0.3",
-    "published_at": "2026-07-03T01:36:21Z",
-    "prerelease": false,
-    "force_upgrade": false,
-    "minimum_supported_version": null,
-    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.3",
     "upgrade_message": null
   }
 ]
