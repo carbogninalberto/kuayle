@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Koppla från Slack och ta bort kanalkopplingarna?",
+	"slack.invite_channel": "Bjud in botten till en Slack-kanal för att välja den här.",
+	"slack.empty_targets": "Skapa ett team eller projekt för att välja en kanal."
 }

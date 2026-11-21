@@ -70,6 +70,8 @@ current allowlist plus verified Kuayle-account binding, atomic update receipts a
 conversation writes, owner-only encrypted credentials, and fresh outbound permission
 checks. Never log Telegram request URLs, which contain the bot token.
 
+For Slack changes, preserve the [workspace installation contract](../../../BE/docs/slack.md), including session-bound OAuth state, scoped channel mappings, and replay-safe removal.
+
 For sign-in and session work, follow the [passkey contract](../../../BE/docs/passkeys.md):
 every sign-in path issues its session through `AuthService.issueSession`, ceremony
 challenges are consumed before verification, and a session minted by a passkey ends

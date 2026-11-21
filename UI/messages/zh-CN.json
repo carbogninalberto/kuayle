@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "你已订阅的设备数：{count}",
 	"settings.push.test": "发送测试通知",
 	"settings.push.result": "已发送：{sent}。失败：{failed}。",
-	"settings.push.failed": "无法完成网页推送请求。"
+	"settings.push.failed": "无法完成网页推送请求。",
+	"slack.disconnect_confirm": "断开 Slack 并移除频道映射？",
+	"slack.invite_channel": "邀请机器人加入 Slack 频道，即可在此选择该频道。",
+	"slack.empty_targets": "创建团队或项目后即可选择频道。"
 }

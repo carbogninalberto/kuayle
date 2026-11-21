@@ -170,6 +170,7 @@ authentication.
 | GET | `/api/scim/v2/:slug/Users/:id` | SCIM bearer only | workspace provisioning token |
 | PATCH | `/api/scim/v2/:slug/Users/:id` | SCIM bearer only | workspace provisioning token |
 | PUT | `/api/scim/v2/:slug/Users/:id` | SCIM bearer only | workspace provisioning token |
+| POST | `/api/slack/events` | public |  |
 | POST | `/api/system/backups/run` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | GET | `/api/system/backups/runs` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | POST | `/api/system/backups/runs/:id/verify` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
@@ -512,6 +513,12 @@ authentication.
 | POST | `/api/workspaces/:slug/shared-links` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
 | DELETE | `/api/workspaces/:slug/shared-links/:id` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
 | PATCH | `/api/workspaces/:slug/shared-links/:id` | session only | Shared links publish workspace data publicly and stay an interactive decision. |
+| DELETE | `/api/workspaces/:slug/slack` | session only | Only interactive workspace owners and admins may authorize a Slack installation and manage its channel mappings. |
+| GET | `/api/workspaces/:slug/slack` | session only | Only interactive workspace owners and admins may authorize a Slack installation and manage its channel mappings. |
+| PUT | `/api/workspaces/:slug/slack/bindings` | session only | Only interactive workspace owners and admins may authorize a Slack installation and manage its channel mappings. |
+| POST | `/api/workspaces/:slug/slack/callback` | session only | Only interactive workspace owners and admins may authorize a Slack installation and manage its channel mappings. |
+| GET | `/api/workspaces/:slug/slack/channels` | session only | Only interactive workspace owners and admins may authorize a Slack installation and manage its channel mappings. |
+| POST | `/api/workspaces/:slug/slack/install` | session only | Only interactive workspace owners and admins may authorize a Slack installation and manage its channel mappings. |
 | DELETE | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |
 | GET | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |
 | PUT | `/api/workspaces/:slug/sso` | session only | An SSO client secret is write-only and points the workspace at an identity provider; only an interactive owner or admin may change it. |

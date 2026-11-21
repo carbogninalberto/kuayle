@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Slack को डिस्कनेक्ट करके उसके चैनल मैपिंग हटाएँ?",
+	"slack.invite_channel": "यहाँ चैनल चुनने के लिए बॉट को किसी Slack चैनल में आमंत्रित करें।",
+	"slack.empty_targets": "चैनल चुनने के लिए टीम या प्रोजेक्ट बनाएँ।"
 }

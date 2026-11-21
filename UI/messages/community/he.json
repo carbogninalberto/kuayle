@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "לנתק את Slack ולהסיר את שיוכי הערוצים?",
+	"slack.invite_channel": "יש להזמין את הבוט לערוץ Slack כדי לבחור אותו כאן.",
+	"slack.empty_targets": "יש ליצור צוות או פרויקט כדי לבחור ערוץ."
 }

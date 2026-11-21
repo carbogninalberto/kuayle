@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Putuskan Slack dan hapus pemetaan kanalnya?",
+	"slack.invite_channel": "Undang bot ke kanal Slack untuk memilih kanal tersebut di sini.",
+	"slack.empty_targets": "Buat tim atau proyek untuk memilih kanal."
 }

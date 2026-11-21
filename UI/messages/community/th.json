@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "ยกเลิกการเชื่อมต่อ Slack และลบการเชื่อมโยงช่องหรือไม่",
+	"slack.invite_channel": "เชิญบอตเข้าช่อง Slack เพื่อเลือกช่องนั้นที่นี่",
+	"slack.empty_targets": "สร้างทีมหรือโครงการเพื่อเลือกช่อง"
 }

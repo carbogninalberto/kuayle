@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Slack bağlantısı kesilsin ve kanal eşlemeleri kaldırılsın mı?",
+	"slack.invite_channel": "Burada seçebilmek için botu bir Slack kanalına davet edin.",
+	"slack.empty_targets": "Kanal seçmek için bir takım veya proje oluşturun."
 }
