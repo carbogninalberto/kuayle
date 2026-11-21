@@ -38,7 +38,7 @@
 - [TECHNICAL.md](../TECHNICAL.md): Dev Machines specification and system reference.
 - Backend references in [BE/docs](../BE/docs): [assistant conversations](../BE/docs/conversations.md),
   [agent tasks](../BE/docs/agent-tasks.md), [GitHub integration](../BE/docs/github-integration.md),
-  [forge integrations](../BE/docs/forge-integrations.md), [Web Push](../BE/docs/web-push.md), [Telegram](../BE/docs/telegram.md)
+  [forge integrations](../BE/docs/forge-integrations.md), [Web Push](../BE/docs/web-push.md), [Telegram](../BE/docs/telegram.md), [Slack](../BE/docs/slack.md)
   and [passkeys](../BE/docs/passkeys.md) (endpoints,
   relying party configuration, threat model).
 

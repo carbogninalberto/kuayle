@@ -473,6 +473,7 @@ func main() {
 	githubBotSvc.SetAppSlug(githubSvc.AppSlug)
 	githubSvc.SetMentionReviews(service.NewGitHubMentionReviews(repository.NewAgentTaskRepository(db), conversationSvc.Repo, agentTaskSvc))
 	githubH := handler.NewGitHubHandler(githubSvc)
+	slackSvc := service.NewSlackService(repository.NewSlackRepository(db), cfg.Slack, crypto.DeriveKey(cfg.JWTSecret+":slack"), cfg.FrontendURL)
 	forgeRepo := repository.NewForgeRepository(db)
 	forgeSvc := service.NewForgeService(
 		forgeRepo, githubRepo, issueRepo, teamRepo, teamStatusRepo, historyRepo,
@@ -566,6 +567,7 @@ func main() {
 		github:            githubH,
 		githubBot:         handler.NewGitHubBotHandler(githubBotSvc),
 		forge:             forgeH,
+		slack:             handler.NewSlackHandler(slackSvc),
 		wiki:              handler.NewWikiHandler(wikiSvc, aiSettingsSvc),
 		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
 		openapi:           handler.NewOpenAPIHandler(buildinfo.Version),
@@ -611,6 +613,7 @@ func main() {
 	go forgeSvc.RunWebhookDeliveryCleanup(conversationCtx, time.Hour)
 	go githubSvc.RunReviewComments(conversationCtx, 15*time.Second)
 	go telegramSvc.Run(conversationCtx)
+	go slackSvc.Run(conversationCtx)
 	// Removes expired scan checkouts (and roots a crashed process left), and
 	// every checkout when the server stops.
 	go repositoryCheckouts.Run(conversationCtx)

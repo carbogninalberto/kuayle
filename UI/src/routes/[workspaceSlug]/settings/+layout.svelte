@@ -126,6 +126,7 @@
 						]
 					: []),
 				{ label: m['settings.nav.github'](), href: `/${slug}/settings/github`, icon: GithubLogoIcon },
+				...(canAdministerWorkspace ? [{ label: "Slack", href: `/${slug}/settings/slack`, icon: MessagesSquare }] : []),
 				...(canManageWorkspace
 					? [{ label: m['settings.nav.forges'](), href: `/${slug}/settings/forges`, icon: GitBranch }]
 					: []),

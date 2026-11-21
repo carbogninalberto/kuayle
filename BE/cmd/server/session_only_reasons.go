@@ -36,6 +36,7 @@ const reasonSCIMConfig = "Only an interactive workspace owner or admin may manag
 var sessionOnlyReasons = []sessionOnlyReason{
 	{PathPrefix: "/api/push/subscriptions", Reason: "Push subscriptions bind a browser to a user and require an interactive session."},
 	{PathPrefix: "/api/workspaces/:slug/scim", Reason: reasonSCIMConfig},
+	{PathPrefix: "/api/workspaces/:slug/slack", Reason: "Only interactive workspace owners and admins may authorize a Slack installation and manage its channel mappings."},
 	{PathPrefix: "/api/tokens", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/cli-links", Reason: reasonTokenManagement},
 	{PathPrefix: "/api/auth/passkey", Reason: reasonSignInSecrets},
