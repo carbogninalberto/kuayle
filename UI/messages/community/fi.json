@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Katkaistaanko Slack-yhteys ja poistetaanko kanavien määritykset?",
+	"slack.invite_channel": "Kutsu botti Slack-kanavalle, jotta voit valita kanavan tässä.",
+	"slack.empty_targets": "Luo tiimi tai projekti valitaksesi kanavan."
 }

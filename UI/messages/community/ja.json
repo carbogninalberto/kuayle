@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Slack の接続を解除してチャンネルの割り当てを削除しますか？",
+	"slack.invite_channel": "Slack チャンネルにボットを招待すると、ここで選択できます。",
+	"slack.empty_targets": "チャンネルを選ぶにはチームまたはプロジェクトを作成してください。"
 }

@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Slack trennen und die Kanalzuordnungen entfernen?",
+	"slack.invite_channel": "Lade den Bot in einen Slack-Kanal ein, um ihn hier auszuwählen.",
+	"slack.empty_targets": "Erstelle ein Team oder Projekt, um einen Kanal auszuwählen."
 }

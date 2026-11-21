@@ -103,6 +103,7 @@ type appHandlers struct {
 	github            *handler.GitHubHandler
 	githubBot         *handler.GitHubBotHandler
 	forge             *handler.ForgeHandler
+	slack             *handler.SlackHandler
 	wiki              *handler.WikiHandler
 	wikiPublish       *handler.WikiPublishHandler
 	openapi           *handler.OpenAPIHandler
@@ -558,6 +559,13 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	ownerOnly(ws, http.MethodPut, "/voice", h.voice.Select)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/transcriptions", h.voice.Transcribe)
 
+	public(e, http.MethodPost, "/api/slack/events", h.slack.Events)
+	sessionOnly(ws, http.MethodGet, "/slack", h.slack.Status, mw.RequireWorkspaceAdmin())
+	sessionOnly(ws, http.MethodPost, "/slack/install", h.slack.Start, mw.RequireWorkspaceAdmin())
+	sessionOnly(ws, http.MethodPost, "/slack/callback", h.slack.Connect, mw.RequireWorkspaceAdmin())
+	sessionOnly(ws, http.MethodDelete, "/slack", h.slack.Disconnect, mw.RequireWorkspaceAdmin())
+	sessionOnly(ws, http.MethodGet, "/slack/channels", h.slack.Channels, mw.RequireWorkspaceAdmin())
+	sessionOnly(ws, http.MethodPut, "/slack/bindings", h.slack.SetBinding, mw.RequireWorkspaceAdmin())
 	if h.telegram != nil {
 		sessionOnly(ws, http.MethodGet, "/telegram", h.telegram.Status)
 		sessionOnly(ws, http.MethodPatch, "/telegram", h.telegram.Save)

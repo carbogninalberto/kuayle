@@ -384,6 +384,7 @@ func setProductionLoadEnv(t *testing.T) {
 		"SYSTEM_UPDATER_URL", "SYSTEM_UPDATER_TOKEN", "VOICE_URL", "VOICE_INTERNAL_TOKEN",
 		"DEV_MACHINE_ENCRYPTION_KEY", "SMTP_PASSWORD", "S3_SECRET_KEY", "WEB_SEARCH_SEARXNG_URL",
 		"GITHUB_APP_CLIENT_SECRET", "GITHUB_APP_WEBHOOK_SECRET", "SYSADMINS",
+		"SLACK_CLIENT_ID", "SLACK_CLIENT_SECRET", "SLACK_SIGNING_SECRET",
 		"SSO_OIDC_WORKSPACE_SLUG", "SSO_OIDC_ISSUER", "SSO_OIDC_CLIENT_ID", "SSO_OIDC_CLIENT_SECRET",
 		"SSO_OIDC_ALLOWED_DOMAINS", "SSO_OIDC_DEFAULT_ROLE",
 	} {
@@ -435,6 +436,7 @@ func TestLoadRejectsPlaceholderSecretsOutsideDevelopment(t *testing.T) {
 		{"development encryption key default", "DEV_MACHINE_ENCRYPTION_KEY", development["DEV_MACHINE_ENCRYPTION_KEY"], "DEV_MACHINE_ENCRYPTION_KEY"},
 		{"development voice token default", "VOICE_INTERNAL_TOKEN", development["VOICE_INTERNAL_TOKEN"], "VOICE_INTERNAL_TOKEN"},
 		{"documentation angle-bracket placeholder", "JWT_SECRET", "<" + strings.Repeat("random-string-", 3) + ">", "JWT_SECRET"},
+		{"placeholder Slack signing secret", "SLACK_SIGNING_SECRET", "CHANGE_ME", "SLACK_SIGNING_SECRET"},
 		{"placeholder SMTP password", "SMTP_PASSWORD", "CHANGE_ME", "SMTP_PASSWORD"},
 		{"placeholder S3 secret", "S3_SECRET_KEY", "change_me_later", "S3_SECRET_KEY"},
 	}

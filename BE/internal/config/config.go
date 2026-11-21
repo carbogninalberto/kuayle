@@ -34,6 +34,16 @@ func (g GitHubAppConfig) IsConfigured() bool {
 	return g.AppID != 0 && g.PrivateKey != "" && g.WebhookSecret != ""
 }
 
+type SlackConfig struct {
+	ClientID      string `envconfig:"SLACK_CLIENT_ID"`
+	ClientSecret  string `envconfig:"SLACK_CLIENT_SECRET"`
+	SigningSecret string `envconfig:"SLACK_SIGNING_SECRET"`
+}
+
+func (s SlackConfig) Configured() bool {
+	return s.ClientID != "" && s.ClientSecret != "" && s.SigningSecret != ""
+}
+
 type Config struct {
 	AutomationWorkerExternal bool `envconfig:"AUTOMATION_WORKER_EXTERNAL" default:"false"`
 
@@ -143,6 +153,7 @@ type Config struct {
 
 	// Global GitHub App (SaaS mode — shared across all workspaces)
 	GitHubApp GitHubAppConfig
+	Slack     SlackConfig
 
 	// Dev machine configuration
 	DevMachine DevMachineConfig
@@ -655,6 +666,8 @@ func (c *Config) rejectPlaceholderSecrets() error {
 		{"SMTP_PASSWORD", c.SMTP.Password},
 		{"S3_SECRET_KEY", c.Storage.S3SecretKey},
 		{"GITHUB_APP_CLIENT_SECRET", c.GitHubApp.ClientSecret},
+		{"SLACK_CLIENT_SECRET", c.Slack.ClientSecret},
+		{"SLACK_SIGNING_SECRET", c.Slack.SigningSecret},
 		{"GITHUB_APP_WEBHOOK_SECRET", c.GitHubApp.WebhookSecret},
 		{"SSO_OIDC_CLIENT_SECRET", c.SSOInstanceClientSecret},
 	} {

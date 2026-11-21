@@ -898,6 +898,7 @@ const routes: Route[] = [
 		'members',
 		'preferences',
 		'profile',
+		'slack',
 		'sso',
 		'telegram',
 		'templates',

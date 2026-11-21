@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Leválasztja a Slacket és eltávolítja a csatornatársításokat?",
+	"slack.invite_channel": "Hívja meg a botot egy Slack-csatornába, hogy itt kiválaszthassa.",
+	"slack.empty_targets": "Hozzon létre csapatot vagy projektet a csatorna kiválasztásához."
 }

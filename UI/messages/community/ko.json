@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Slack 연결을 해제하고 채널 매핑을 삭제할까요?",
+	"slack.invite_channel": "여기에서 선택하려면 Slack 채널에 봇을 초대하세요.",
+	"slack.empty_targets": "채널을 선택하려면 팀이나 프로젝트를 만드세요."
 }

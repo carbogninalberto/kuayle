@@ -494,3 +494,34 @@ func TestCommentEditAndDeleteRoutePermissions(t *testing.T) {
 	require.False(t, domain.HasPermission(domain.RoleMember, domain.PermIssueDelete), "members cannot delete comments")
 	require.True(t, domain.HasPermission(domain.RoleAdmin, domain.PermIssueDelete))
 }
+
+func TestSlackSettingsRequireInteractiveWorkspaceAdmin(t *testing.T) {
+	for _, tc := range []struct {
+		role string
+		pat  bool
+		name string
+	}{
+		{domain.RoleMember, false, "member"}, {domain.RoleGuest, false, "guest"}, {domain.RoleOwner, true, "owner PAT"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := echo.New()
+			membership := func(next echo.HandlerFunc) echo.HandlerFunc {
+				return func(c *echo.Context) error {
+					c.Set("workspace_role", tc.role)
+					if tc.pat {
+						c.Set(mw.TokenScopesKey, []string{"workspace:manage"})
+					}
+					return next(c)
+				}
+			}
+			registerRoutes(e, &appHandlers{}, testMiddleware(membership))
+			for _, route := range []struct{ method, path string }{
+				{"GET", ""}, {"DELETE", ""}, {"POST", "/install"}, {"POST", "/callback"}, {"GET", "/channels"}, {"PUT", "/bindings"},
+			} {
+				rec := httptest.NewRecorder()
+				e.ServeHTTP(rec, httptest.NewRequest(route.method, "/api/workspaces/test/slack"+route.path, nil))
+				require.Equal(t, http.StatusForbidden, rec.Code, route)
+			}
+		})
+	}
+}

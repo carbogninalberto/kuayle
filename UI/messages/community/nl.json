@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Slack loskoppelen en de kanaaltoewijzingen verwijderen?",
+	"slack.invite_channel": "Nodig de bot uit in een Slack-kanaal om het hier te selecteren.",
+	"slack.empty_targets": "Maak een team of project om een kanaal te kiezen."
 }

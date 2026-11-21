@@ -4406,5 +4406,8 @@
 	"settings.push.devices": "Your subscribed devices: {count}",
 	"settings.push.test": "Send test notification",
 	"settings.push.result": "Sent: {sent}. Failed: {failed}.",
-	"settings.push.failed": "Could not complete the Web Push request."
+	"settings.push.failed": "Could not complete the Web Push request.",
+	"slack.disconnect_confirm": "Ngắt kết nối Slack và xóa các liên kết kênh?",
+	"slack.invite_channel": "Mời bot vào một kênh Slack để chọn kênh đó tại đây.",
+	"slack.empty_targets": "Tạo nhóm hoặc dự án để chọn kênh."
 }
