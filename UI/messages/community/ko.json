@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Slack 연결을 해제하고 채널 매핑을 삭제할까요?",
 	"slack.invite_channel": "여기에서 선택하려면 Slack 채널에 봇을 초대하세요.",
-	"slack.empty_targets": "채널을 선택하려면 팀이나 프로젝트를 만드세요."
+	"slack.empty_targets": "채널을 선택하려면 팀이나 프로젝트를 만드세요.",
+	"slack.none": "없음",
+	"slack.team": "팀",
+	"slack.project": "프로젝트",
+	"slack.connection_failed": "연결 실패",
+	"slack.error": "문제가 발생했습니다. 다시 시도해 주세요.",
+	"slack.saved": "저장됨",
+	"slack.no_access": "접근 불가",
+	"slack.unavailable": "이 서버에서 사용할 수 없음",
+	"slack.connected": "연결됨",
+	"slack.disconnect": "연결 해제",
+	"slack.scope": "범위",
+	"slack.channel": "채널",
+	"slack.connect": "Connect",
+	"slack.retry": "다시 시도"
 }

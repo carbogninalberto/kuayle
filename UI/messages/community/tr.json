@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Slack bağlantısı kesilsin ve kanal eşlemeleri kaldırılsın mı?",
 	"slack.invite_channel": "Burada seçebilmek için botu bir Slack kanalına davet edin.",
-	"slack.empty_targets": "Kanal seçmek için bir takım veya proje oluşturun."
+	"slack.empty_targets": "Kanal seçmek için bir takım veya proje oluşturun.",
+	"slack.none": "Yok",
+	"slack.team": "Takım",
+	"slack.project": "Proje",
+	"slack.connection_failed": "Bağlantı başarısız",
+	"slack.error": "Bir şeyler ters gitti. Lütfen tekrar deneyin.",
+	"slack.saved": "Kaydedildi",
+	"slack.no_access": "Erişim yok",
+	"slack.unavailable": "Bu sunucuda kullanılamıyor",
+	"slack.connected": "Bağlı",
+	"slack.disconnect": "Bağlantıyı kes",
+	"slack.scope": "Kapsam",
+	"slack.channel": "Kanal",
+	"slack.connect": "Connect",
+	"slack.retry": "Tekrar dene"
 }

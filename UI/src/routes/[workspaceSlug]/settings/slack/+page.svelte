@@ -8,6 +8,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
+	import ConfirmDialog from '$lib/components/shared/ConfirmDialog.svelte';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { m } from '$lib/features/i18n/messages';
 	import { appToast } from '$lib/features/toast/toast';
@@ -20,13 +21,14 @@
 	let existing = $derived(status?.bindings.find((b) => b.team_id === target || b.project_id === target));
 	let channel = $derived(existing?.channel_id || 'none');
 	let channelOptions = $derived([
-		{ value: 'none', label: m['issue.history.none']() },
+		{ value: 'none', label: m['slack.none']() },
 		...(existing && !channels.some((c) => c.id === existing?.channel_id)
 			? [{ value: existing.channel_id, label: existing.channel_id, disabled: true }] : []),
 		...channels.map((c) => ({ value: c.id, label: '#' + c.name }))
 	]);
 	let teams = new Set<string>();
 	let busy = $state(true);
+	let confirmingDisconnect = $state(false);
 	let denied = $state(false);
 	let failed = $state(false);
 
@@ -43,8 +45,8 @@
 			channels = available;
 			teams = new Set(teamList.map((t) => t.id));
 			targets = [
-				...teamList.map((t) => ({ value: t.id, label: m['prefs.team']() + ' · ' + t.name })),
-				...projects.map((p) => ({ value: p.id, label: m['prefs.project']() + ' · ' + p.name }))
+				...teamList.map((t) => ({ value: t.id, label: m['slack.team']() + ' · ' + t.name })),
+				...projects.map((p) => ({ value: p.id, label: m['slack.project']() + ' · ' + p.name }))
 			];
 			target = targets[0]?.value ?? '';
 		} catch {
@@ -64,18 +66,18 @@
 			sessionStorage.setItem(slackInstallKey, JSON.stringify({ slug, state: destination.searchParams.get('state') }));
 			window.location.assign(destination.href);
 		} catch (err) {
-			appToast.apiError(err, m['settings.backups.connection_failed']());
+			appToast.apiError(err, m['slack.connection_failed']());
 			busy = false;
 		}
 	}
 	async function disconnect() {
-		if (!confirm(m['slack.disconnect_confirm']())) return;
+		confirmingDisconnect = false;
 		busy = true;
 		try {
 			await slack.disconnect(slug);
 			await load();
 		} catch (err) {
-			appToast.apiError(err, m['assistant.error']());
+			appToast.apiError(err, m['slack.error']());
 		} finally {
 			busy = false;
 		}
@@ -91,9 +93,9 @@
 			await slack.setBinding(slug, binding);
 			status.bindings = status.bindings.filter((b) => b.team_id !== target && b.project_id !== target);
 			if (binding.channel_id) status.bindings.push(binding);
-			appToast.success(m['wiki.save_state.saved']());
+			appToast.success(m['slack.saved']());
 		} catch (err) {
-			appToast.apiError(err, m['assistant.error']());
+			appToast.apiError(err, m['slack.error']());
 		} finally {
 			busy = false;
 		}
@@ -104,37 +106,48 @@
 <div class="mx-auto max-w-3xl space-y-6 p-6">
 	<h2 class="text-lg font-semibold">Slack</h2>
 	{#if denied}
-		<p>{m['settings.tokens.access_none']()}</p>
-	{:else if status && !status.configured}
-		<p>{m['assistant_settings.unavailable']()}</p>
+		<p>{m['slack.no_access']()}</p>
 	{:else if status?.install}
 		<div class="flex flex-wrap items-center justify-between gap-3">
-			<p class="min-w-0 break-words text-sm"><span class="text-muted-foreground">{m['settings.version.status_connected']()}</span> · {status.install.name}</p>
-			<Button variant="outline" size="sm" disabled={busy} onclick={disconnect}>{m['settings.github.disconnect']()}</Button>
+			<p class="min-w-0 break-words text-sm"><span class="text-muted-foreground">{m['slack.connected']()}</span> · {status.install.name}</p>
+			<Button variant="outline" size="sm" disabled={busy} onclick={() => (confirmingDisconnect = true)}>{m['slack.disconnect']()}</Button>
 		</div>
-		{#if !failed && target}
+		{#if status.configured && !failed && target}
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="min-w-0 space-y-2 [&>button]:w-full [&_[data-slot=select-value]]:truncate">
-					<Label for="slack-target">{m['settings.labels.scope']()}</Label>
+					<Label for="slack-target">{m['slack.scope']()}</Label>
 					<SelectField id="slack-target" options={targets} bind:value={() => target, (next) => { target = next; channel = existing?.channel_id || 'none'; }} disabled={busy} />
 				</div>
 				<div class="min-w-0 space-y-2 [&>button]:w-full [&_[data-slot=select-value]]:truncate">
-					<Label for="slack-channel">{m['agent_messages.filter_channel']()}</Label>
+					<Label for="slack-channel">{m['slack.channel']()}</Label>
 					<SelectField id="slack-channel" options={channelOptions} bind:value={channel} disabled={busy} />
 				</div>
 			</div>
 			{#if !channels.length}<p class="text-sm text-muted-foreground">{m['slack.invite_channel']()}</p>{/if}
 			<Button size="sm" disabled={busy || channel === (existing?.channel_id || 'none')} onclick={save}>{m['common.save']()}</Button>
-		{:else if !busy && !failed}
+		{:else if status.configured && !busy && !failed}
 			<p class="text-sm text-muted-foreground">{m['slack.empty_targets']()}</p>
 		{/if}
-	{:else if status}
-		<Button disabled={busy} onclick={connect}>{m['settings.import.connect_action']()}</Button>
+	{:else if status?.configured}
+		<Button disabled={busy} onclick={connect}>{m['slack.connect']()}</Button>
 	{:else if busy}
 		<p role="status">{m['common.loading']()}</p>
 	{/if}
+	{#if !denied && status && !status.configured}
+		<p>{m['slack.unavailable']()}</p>
+	{/if}
 	{#if failed}
-		<p role="alert">{m['assistant.error']()}</p>
-		<Button variant="outline" size="sm" disabled={busy} onclick={load}>{m['settings.tokens.retry']()}</Button>
+		<p role="alert">{m['slack.error']()}</p>
+		<Button variant="outline" size="sm" disabled={busy} onclick={load}>{m['slack.retry']()}</Button>
 	{/if}
 </div>
+
+{#if confirmingDisconnect}
+	<ConfirmDialog
+		title={m['slack.disconnect']()}
+		message={m['slack.disconnect_confirm']()}
+		confirmLabel={m['slack.disconnect']()}
+		oncancel={() => (confirmingDisconnect = false)}
+		onconfirm={disconnect}
+	/>
+{/if}

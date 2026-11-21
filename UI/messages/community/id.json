@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Putuskan Slack dan hapus pemetaan kanalnya?",
 	"slack.invite_channel": "Undang bot ke kanal Slack untuk memilih kanal tersebut di sini.",
-	"slack.empty_targets": "Buat tim atau proyek untuk memilih kanal."
+	"slack.empty_targets": "Buat tim atau proyek untuk memilih kanal.",
+	"slack.none": "Tidak ada",
+	"slack.team": "Tim",
+	"slack.project": "Proyek",
+	"slack.connection_failed": "Koneksi gagal",
+	"slack.error": "Terjadi kesalahan. Silakan coba lagi.",
+	"slack.saved": "Tersimpan",
+	"slack.no_access": "Tanpa akses",
+	"slack.unavailable": "Tidak tersedia di server ini",
+	"slack.connected": "Terhubung",
+	"slack.disconnect": "Putuskan",
+	"slack.scope": "Cakupan",
+	"slack.channel": "Kanal",
+	"slack.connect": "Connect",
+	"slack.retry": "Coba lagi"
 }

@@ -28,15 +28,6 @@ CREATE TABLE slack_bindings (
     UNIQUE NULLS NOT DISTINCT (workspace_id, team_id, project_id)
 );
 
-CREATE TABLE slack_threads (
-    workspace_id uuid NOT NULL REFERENCES slack_installs(workspace_id) ON DELETE CASCADE,
-    channel_id text NOT NULL,
-    thread_ts text NOT NULL,
-    issue_id uuid NOT NULL,
-    PRIMARY KEY (workspace_id, channel_id, thread_ts),
-    FOREIGN KEY (workspace_id, issue_id) REFERENCES issue_records(workspace_id, id) ON DELETE CASCADE
-);
-
 CREATE TABLE slack_identities (
     workspace_id uuid NOT NULL REFERENCES slack_installs(workspace_id) ON DELETE CASCADE,
     slack_user_id text NOT NULL,

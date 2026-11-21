@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Odpojit Slack a odebrat přiřazení kanálů?",
 	"slack.invite_channel": "Pozvěte bota do kanálu Slacku, abyste jej zde mohli vybrat.",
-	"slack.empty_targets": "Pro výběr kanálu vytvořte tým nebo projekt."
+	"slack.empty_targets": "Pro výběr kanálu vytvořte tým nebo projekt.",
+	"slack.none": "Žádné",
+	"slack.team": "Tým",
+	"slack.project": "Projekt",
+	"slack.connection_failed": "Připojení selhalo",
+	"slack.error": "Něco se pokazilo. Zkuste to prosím znovu.",
+	"slack.saved": "Uloženo",
+	"slack.no_access": "Bez přístupu",
+	"slack.unavailable": "Na tomto serveru není dostupné",
+	"slack.connected": "Připojeno",
+	"slack.disconnect": "Odpojit",
+	"slack.scope": "Rozsah",
+	"slack.channel": "Kanál",
+	"slack.connect": "Connect",
+	"slack.retry": "Zkusit znovu"
 }

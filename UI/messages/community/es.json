@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "¿Desconectar Slack y eliminar las asociaciones de canales?",
 	"slack.invite_channel": "Invita al bot a un canal de Slack para seleccionarlo aquí.",
-	"slack.empty_targets": "Crea un equipo o proyecto para elegir un canal."
+	"slack.empty_targets": "Crea un equipo o proyecto para elegir un canal.",
+	"slack.none": "Ninguno",
+	"slack.team": "Equipo",
+	"slack.project": "Proyecto",
+	"slack.connection_failed": "La conexión falló",
+	"slack.error": "Algo salió mal. Inténtalo de nuevo.",
+	"slack.saved": "Guardado",
+	"slack.no_access": "Sin acceso",
+	"slack.unavailable": "No disponible en este servidor",
+	"slack.connected": "Conectado",
+	"slack.disconnect": "Desconectar",
+	"slack.scope": "Ámbito",
+	"slack.channel": "Canal",
+	"slack.connect": "Connect",
+	"slack.retry": "Reintentar"
 }

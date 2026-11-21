@@ -104,21 +104,24 @@ func (s *SlackService) bot(ctx context.Context, ws uuid.UUID) (domain.SlackInsta
 }
 
 func (s *SlackService) Disconnect(ctx context.Context, ws uuid.UUID) error {
-	if !s.app.Configured() {
-		return ErrSlackDisabled
-	}
-	i, token, err := s.bot(ctx, ws)
+	i, err := s.repo.Get(ctx, ws)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	err = s.client.Uninstall(ctx, token)
-	if err != nil && !errors.Is(err, slack.ErrRevoked) {
+	token, err := crypto.Decrypt(i.Token, s.key)
+	if err != nil || !s.app.Configured() {
+		log.WithField("install_id", i.ID).Warn("Slack credentials unavailable during disconnect; remove the app in Slack if still installed")
+	} else if err = s.client.Uninstall(ctx, token); err != nil && !slackAuthorizationGone(err) {
 		return err
 	}
 	return s.repo.Remove(ctx, i.ID)
+}
+
+func slackAuthorizationGone(err error) bool {
+	return errors.Is(err, slack.ErrRevoked) || errors.Is(err, slack.ErrInvalidAuth)
 }
 
 func (s *SlackService) Channels(ctx context.Context, ws uuid.UUID) ([]slack.Channel, error) {
@@ -216,12 +219,13 @@ func (s *SlackService) processUninstall(ctx context.Context) error {
 	}
 	token, err := crypto.Decrypt(e.Install.Token, s.key)
 	if err != nil {
-		return err
+		log.WithField("install_id", e.Install.ID).Warn("Cannot read Slack token to verify uninstall; retaining installation for admin recovery")
+		return s.repo.FinishUninstall(ctx, e, false)
 	}
 	// Slack can redeliver an old uninstall after a new install for the same
 	// team. Verify that this exact installation has lost its bot authorization.
 	err = s.client.CheckToken(ctx, token)
-	revoked := errors.Is(err, slack.ErrRevoked) || errors.Is(err, slack.ErrInvalidAuth)
+	revoked := slackAuthorizationGone(err)
 	if err != nil && !revoked {
 		return err
 	}

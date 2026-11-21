@@ -13,6 +13,7 @@ import (
 
 var ErrSlackAdminRequired = errors.New("Slack settings require a workspace owner or admin")
 var ErrSlackConnected = errors.New("workspace already connected to Slack")
+var ErrSlackTeamInUse = errors.New("another Kuayle workspace already uses this Slack workspace")
 
 type SlackRepository struct{ db *sqlx.DB }
 
@@ -60,9 +61,13 @@ func (r *SlackRepository) Install(ctx context.Context, i domain.SlackInstall, us
 	}
 	err = tx.QueryRowContext(ctx, `INSERT INTO slack_installs(id,workspace_id,team_id,name,bot_token,scope,installer_id)
  VALUES($1,$2,$3,$4,$5,$6,$7)
- ON CONFLICT DO NOTHING RETURNING id`, i.ID, i.WorkspaceID, i.TeamID, i.Name, i.Token, i.Scope, user).Scan(&i.ID)
+ ON CONFLICT (workspace_id) DO NOTHING RETURNING id`, i.ID, i.WorkspaceID, i.TeamID, i.Name, i.Token, i.Scope, user).Scan(&i.ID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrSlackConnected
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "slack_installs_team_id_key" {
+		return ErrSlackTeamInUse
 	}
 	if err != nil {
 		return err

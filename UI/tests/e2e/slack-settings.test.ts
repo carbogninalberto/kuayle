@@ -80,3 +80,49 @@ test('the install returns to the initiating workspace after consent', async ({ p
 	await expect(page).toHaveURL(/\/test\/settings\/slack$/);
 	await expect(page.getByText(/Product Engineering/)).toBeVisible();
 });
+
+test('an admin can disconnect after Slack configuration is removed', async ({ page }) => {
+	await workspace(page, 'admin');
+	let installed = true;
+	let channelRequests = 0;
+	await page.route('**/test/slack', (r) => {
+		if (r.request().method() === 'DELETE') {
+			installed = false;
+			return r.fulfill({ status: 204 });
+		}
+		return r.fulfill({ json: { configured: false, install: installed ? { name: 'Product Engineering' } : null, bindings: [] } });
+	});
+	await page.route('**/slack/channels', (r) => { channelRequests++; return r.fulfill({ json: [] }); });
+	await page.goto('/test/settings/slack');
+	const disconnect = page.getByRole('button', { name: 'Disconnect', exact: true });
+	await disconnect.focus();
+	await page.keyboard.press('Enter');
+	const dialog = page.getByRole('alertdialog');
+	await expect(dialog).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+	await page.keyboard.press('Enter');
+	await expect(dialog).toHaveCount(0);
+	await expect(disconnect).toBeFocused();
+	expect(installed).toBe(true);
+	await disconnect.click();
+	await dialog.getByRole('button', { name: 'Disconnect' }).click();
+	await expect(disconnect).toHaveCount(0);
+	await expect(page.getByText('Not available on this server')).toBeVisible();
+	expect(installed).toBe(false);
+	expect(channelRequests).toBe(0);
+});
+
+test('a conflicting Slack install explains which workspace is in use', async ({ page }) => {
+	await workspace(page, 'admin');
+	await page.addInitScript(() => {
+		sessionStorage.setItem('kuayle.slack.install', JSON.stringify({ slug: 'test', state: 'pending' }));
+	});
+	const message = 'This Slack workspace is already connected to another Kuayle workspace.';
+	await page.route('**/api/**/slack/callback', (r) => r.fulfill({
+		status: 409, json: { error: { code: 'SLACK_TEAM_IN_USE', message } }
+	}));
+	await page.goto('/integrations/slack/callback?state=pending&code=test');
+	await expect(page.locator('p[role="alert"]')).toHaveText(message);
+	await expect(page.getByRole('link', { name: 'Back' })).toHaveAttribute('href', '/test/settings/slack');
+});

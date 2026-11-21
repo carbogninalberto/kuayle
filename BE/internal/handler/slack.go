@@ -33,6 +33,8 @@ func slackError(c *echo.Context, err error) error {
 		return response.Forbidden(c)
 	case errors.Is(err, repository.ErrSlackConnected):
 		return response.Error(c, 409, "ALREADY_CONNECTED", "A workspace is already connected. Disconnect it before installing again.")
+	case errors.Is(err, repository.ErrSlackTeamInUse):
+		return response.Error(c, 409, "SLACK_TEAM_IN_USE", "This Slack workspace is already connected to another Kuayle workspace.")
 	case errors.Is(err, service.ErrSlackDisabled):
 		return response.Error(c, 503, "SLACK_DISABLED", err.Error())
 	case errors.Is(err, slack.ErrRateLimited):

@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "無法完成網頁推播要求。",
 	"slack.disconnect_confirm": "中斷 Slack 連線並移除頻道對應？",
 	"slack.invite_channel": "邀請機器人加入 Slack 頻道，即可在此選取該頻道。",
-	"slack.empty_targets": "建立團隊或專案後即可選取頻道。"
+	"slack.empty_targets": "建立團隊或專案後即可選取頻道。",
+	"slack.none": "無",
+	"slack.team": "團隊",
+	"slack.project": "專案",
+	"slack.connection_failed": "連線失敗",
+	"slack.error": "發生錯誤，請重試。",
+	"slack.saved": "已儲存",
+	"slack.no_access": "無權限",
+	"slack.unavailable": "此伺服器上無法使用",
+	"slack.connected": "已連接",
+	"slack.disconnect": "中斷連接",
+	"slack.scope": "範圍",
+	"slack.channel": "管道",
+	"slack.connect": "Connect",
+	"slack.retry": "重試"
 }

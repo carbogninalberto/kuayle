@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Від’єднати Slack і видалити прив’язки каналів?",
 	"slack.invite_channel": "Запросіть бота до каналу Slack, щоб вибрати його тут.",
-	"slack.empty_targets": "Створіть команду або проєкт, щоб вибрати канал."
+	"slack.empty_targets": "Створіть команду або проєкт, щоб вибрати канал.",
+	"slack.none": "Немає",
+	"slack.team": "Команда",
+	"slack.project": "Проєкт",
+	"slack.connection_failed": "Не вдалося з’єднатися",
+	"slack.error": "Щось пішло не так. Спробуйте ще раз.",
+	"slack.saved": "Збережено",
+	"slack.no_access": "Без доступу",
+	"slack.unavailable": "Недоступно на цьому сервері",
+	"slack.connected": "Підключено",
+	"slack.disconnect": "Відключити",
+	"slack.scope": "Область",
+	"slack.channel": "Канал",
+	"slack.connect": "Connect",
+	"slack.retry": "Повторити"
 }

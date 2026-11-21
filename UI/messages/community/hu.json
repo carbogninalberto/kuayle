@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Leválasztja a Slacket és eltávolítja a csatornatársításokat?",
 	"slack.invite_channel": "Hívja meg a botot egy Slack-csatornába, hogy itt kiválaszthassa.",
-	"slack.empty_targets": "Hozzon létre csapatot vagy projektet a csatorna kiválasztásához."
+	"slack.empty_targets": "Hozzon létre csapatot vagy projektet a csatorna kiválasztásához.",
+	"slack.none": "Nincs",
+	"slack.team": "Csapat",
+	"slack.project": "Projekt",
+	"slack.connection_failed": "A kapcsolat sikertelen",
+	"slack.error": "Valami hiba történt. Próbáld újra.",
+	"slack.saved": "Elmentve",
+	"slack.no_access": "Nincs hozzáférés",
+	"slack.unavailable": "Ezen a szerveren nem elérhető",
+	"slack.connected": "Csatlakoztatva",
+	"slack.disconnect": "Leválasztás",
+	"slack.scope": "Hatókör",
+	"slack.channel": "Csatorna",
+	"slack.connect": "Connect",
+	"slack.retry": "Újra"
 }

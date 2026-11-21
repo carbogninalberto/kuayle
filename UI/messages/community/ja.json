@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Slack の接続を解除してチャンネルの割り当てを削除しますか？",
 	"slack.invite_channel": "Slack チャンネルにボットを招待すると、ここで選択できます。",
-	"slack.empty_targets": "チャンネルを選ぶにはチームまたはプロジェクトを作成してください。"
+	"slack.empty_targets": "チャンネルを選ぶにはチームまたはプロジェクトを作成してください。",
+	"slack.none": "なし",
+	"slack.team": "チーム",
+	"slack.project": "プロジェクト",
+	"slack.connection_failed": "接続に失敗しました",
+	"slack.error": "問題が発生しました。もう一度お試しください。",
+	"slack.saved": "保存済み",
+	"slack.no_access": "アクセスなし",
+	"slack.unavailable": "このサーバーでは利用できません",
+	"slack.connected": "接続済み",
+	"slack.disconnect": "接続を解除",
+	"slack.scope": "スコープ",
+	"slack.channel": "チャネル",
+	"slack.connect": "Connect",
+	"slack.retry": "再試行"
 }

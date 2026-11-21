@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Ngắt kết nối Slack và xóa các liên kết kênh?",
 	"slack.invite_channel": "Mời bot vào một kênh Slack để chọn kênh đó tại đây.",
-	"slack.empty_targets": "Tạo nhóm hoặc dự án để chọn kênh."
+	"slack.empty_targets": "Tạo nhóm hoặc dự án để chọn kênh.",
+	"slack.none": "Không",
+	"slack.team": "Team",
+	"slack.project": "Dự án",
+	"slack.connection_failed": "Kết nối thất bại",
+	"slack.error": "Đã xảy ra lỗi. Vui lòng thử lại.",
+	"slack.saved": "Đã lưu",
+	"slack.no_access": "Không có quyền",
+	"slack.unavailable": "Không khả dụng trên máy chủ này",
+	"slack.connected": "Đã kết nối",
+	"slack.disconnect": "Ngắt kết nối",
+	"slack.scope": "Phạm vi",
+	"slack.channel": "Kênh",
+	"slack.connect": "Connect",
+	"slack.retry": "Thử lại"
 }

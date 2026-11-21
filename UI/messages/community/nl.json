@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Slack loskoppelen en de kanaaltoewijzingen verwijderen?",
 	"slack.invite_channel": "Nodig de bot uit in een Slack-kanaal om het hier te selecteren.",
-	"slack.empty_targets": "Maak een team of project om een kanaal te kiezen."
+	"slack.empty_targets": "Maak een team of project om een kanaal te kiezen.",
+	"slack.none": "Geen",
+	"slack.team": "Team",
+	"slack.project": "Project",
+	"slack.connection_failed": "Verbinding mislukt",
+	"slack.error": "Er is iets misgegaan. Probeer het opnieuw.",
+	"slack.saved": "Opgeslagen",
+	"slack.no_access": "Geen toegang",
+	"slack.unavailable": "Niet beschikbaar op deze server",
+	"slack.connected": "Verbonden",
+	"slack.disconnect": "Ontkoppelen",
+	"slack.scope": "Bereik",
+	"slack.channel": "Kanaal",
+	"slack.connect": "Connect",
+	"slack.retry": "Opnieuw proberen"
 }

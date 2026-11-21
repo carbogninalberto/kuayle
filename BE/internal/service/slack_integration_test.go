@@ -43,6 +43,10 @@ func TestSlackOAuthAndUninstallPostgres(t *testing.T) {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
+			if removed.Load() {
+				_, _ = fmt.Fprint(w, `{"ok":false,"error":"invalid_auth"}`)
+				return
+			}
 			fmt.Fprint(w, `{"ok":true}`)
 		case "/api/auth.test":
 			switch {
@@ -121,17 +125,61 @@ func TestSlackOAuthAndUninstallPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, bindings)
 
-	installURL, err = svc.Start(ctx, f.ws, f.owner)
+	for _, alreadyRemoved := range []bool{false, true} {
+		removed.Store(alreadyRemoved)
+		installURL, err = svc.Start(ctx, f.ws, f.owner)
+		require.NoError(t, err)
+		u, err = url.Parse(installURL)
+		require.NoError(t, err)
+		require.NoError(t, svc.Connect(ctx, f.ws, f.owner, uuid.MustParse(u.Query().Get("state")), "new-code"))
+		unavailable.Store(true)
+		require.Error(t, svc.Disconnect(ctx, f.ws))
+		_, err = repo.Get(ctx, f.ws)
+		require.NoError(t, err, "a failed uninstall must remain retryable")
+		unavailable.Store(false)
+		require.NoError(t, svc.Disconnect(ctx, f.ws))
+		_, err = repo.Get(ctx, f.ws)
+		require.ErrorIs(t, err, sql.ErrNoRows)
+	}
+}
+
+func TestSlackUnusableInstallation(t *testing.T) {
+	f := newForgeFixture(t)
+	ctx := t.Context()
+	_, err := f.db.Exec("INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')", f.ws, f.owner)
 	require.NoError(t, err)
-	u, err = url.Parse(installURL)
+	repo := repository.NewSlackRepository(f.db)
+	app := config.SlackConfig{ClientID: "fixture", ClientSecret: "fixture", SigningSecret: "fixture"}
+	key := crypto.DeriveKey("slack test")
+	validToken, err := crypto.Encrypt("fixture-bot", key)
 	require.NoError(t, err)
-	require.NoError(t, svc.Connect(ctx, f.ws, f.owner, uuid.MustParse(u.Query().Get("state")), "new-code"))
-	unavailable.Store(true)
-	require.Error(t, svc.Disconnect(ctx, f.ws))
-	_, err = repo.Get(ctx, f.ws)
-	require.NoError(t, err, "a failed uninstall must remain retryable")
-	unavailable.Store(false)
-	require.NoError(t, svc.Disconnect(ctx, f.ws))
-	_, err = repo.Get(ctx, f.ws)
-	require.ErrorIs(t, err, sql.ErrNoRows)
+	for _, tc := range []struct {
+		name       string
+		app        config.SlackConfig
+		ciphertext string
+	}{
+		{"missing settings", config.SlackConfig{}, validToken},
+		{"unreadable token", app, "corrupted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			install := domain.SlackInstall{ID: uuid.New(), WorkspaceID: f.ws, TeamID: uuid.NewString(), Token: tc.ciphertext}
+			require.NoError(t, repo.Install(ctx, install, f.owner, "U1"))
+			t.Cleanup(func() { require.NoError(t, repo.Remove(ctx, install.ID)) })
+			svc := NewSlackService(repo, tc.app, key, "")
+			if tc.ciphertext != validToken {
+				eventID := uuid.NewString()
+				require.NoError(t, repo.EnqueueUninstall(ctx, install.TeamID, eventID))
+				require.NoError(t, svc.processUninstall(ctx))
+				var finished bool
+				require.NoError(t, f.db.Get(&finished, "SELECT next_attempt IS NULL FROM slack_uninstall_events WHERE event_id=$1", eventID))
+				require.True(t, finished)
+				_, err := repo.Get(ctx, f.ws)
+				require.NoError(t, err, "unverified uninstall must preserve the installation")
+			}
+			require.NoError(t, svc.Disconnect(ctx, f.ws))
+			require.NoError(t, svc.Disconnect(ctx, f.ws))
+			_, err := NewSlackService(repo, app, key, "").Start(ctx, f.ws, f.owner)
+			require.NoError(t, err, "admin can reinstall once configuration is available")
+		})
+	}
 }

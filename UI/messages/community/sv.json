@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Koppla från Slack och ta bort kanalkopplingarna?",
 	"slack.invite_channel": "Bjud in botten till en Slack-kanal för att välja den här.",
-	"slack.empty_targets": "Skapa ett team eller projekt för att välja en kanal."
+	"slack.empty_targets": "Skapa ett team eller projekt för att välja en kanal.",
+	"slack.none": "Ingen",
+	"slack.team": "Team",
+	"slack.project": "Projekt",
+	"slack.connection_failed": "Anslutningen misslyckades",
+	"slack.error": "Något gick fel. Försök igen.",
+	"slack.saved": "Sparad",
+	"slack.no_access": "Ingen åtkomst",
+	"slack.unavailable": "Inte tillgängligt på den här servern",
+	"slack.connected": "Ansluten",
+	"slack.disconnect": "Koppla från",
+	"slack.scope": "Omfång",
+	"slack.channel": "Kanal",
+	"slack.connect": "Connect",
+	"slack.retry": "Försök igen"
 }

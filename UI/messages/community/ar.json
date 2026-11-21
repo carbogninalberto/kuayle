@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "هل تريد فصل Slack وإزالة ارتباطات القنوات؟",
 	"slack.invite_channel": "ادعُ الروبوت إلى قناة Slack لتحديدها هنا.",
-	"slack.empty_targets": "أنشئ فريقًا أو مشروعًا لاختيار قناة."
+	"slack.empty_targets": "أنشئ فريقًا أو مشروعًا لاختيار قناة.",
+	"slack.none": "بلا",
+	"slack.team": "الفريق",
+	"slack.project": "المشروع",
+	"slack.connection_failed": "فشل الاتصال",
+	"slack.error": "حدث خطأ ما. يرجى المحاولة مرة أخرى.",
+	"slack.saved": "محفوظ",
+	"slack.no_access": "بلا وصول",
+	"slack.unavailable": "غير متاحة على هذا الخادم",
+	"slack.connected": "متصل",
+	"slack.disconnect": "قطع الاتصال",
+	"slack.scope": "النطاق",
+	"slack.channel": "القناة",
+	"slack.connect": "Connect",
+	"slack.retry": "إعادة المحاولة"
 }

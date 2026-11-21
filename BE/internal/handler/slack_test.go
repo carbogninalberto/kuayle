@@ -11,10 +11,19 @@ import (
 	"time"
 
 	"github.com/kuayle/kuayle-backend/internal/config"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSlackTeamConflictResponse(t *testing.T) {
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(httptest.NewRequest("POST", "/", nil), rec)
+	require.NoError(t, slackError(c, repository.ErrSlackTeamInUse))
+	require.Equal(t, 409, rec.Code)
+	require.JSONEq(t, `{"error":{"code":"SLACK_TEAM_IN_USE","message":"This Slack workspace is already connected to another Kuayle workspace."}}`, rec.Body.String())
+}
 
 func TestSlackEventSignatureAndChallenge(t *testing.T) {
 	secret := "test signing key"

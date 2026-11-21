@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Disconnect Slack and remove its channel mappings?",
 	"slack.invite_channel": "Invite the bot to a Slack channel to select it here.",
-	"slack.empty_targets": "Create a team or project to choose a channel."
+	"slack.empty_targets": "Create a team or project to choose a channel.",
+	"slack.none": "None",
+	"slack.team": "Team",
+	"slack.project": "Project",
+	"slack.connection_failed": "Connection failed",
+	"slack.error": "Something went wrong. Please try again.",
+	"slack.saved": "Saved",
+	"slack.no_access": "No access",
+	"slack.unavailable": "Not available on this server",
+	"slack.connected": "Connected",
+	"slack.disconnect": "Disconnect",
+	"slack.scope": "Scope",
+	"slack.channel": "Channel",
+	"slack.connect": "Connect",
+	"slack.retry": "Retry"
 }

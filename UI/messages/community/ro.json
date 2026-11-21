@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Deconectați Slack și eliminați asocierile canalelor?",
 	"slack.invite_channel": "Invitați botul într-un canal Slack pentru a-l selecta aici.",
-	"slack.empty_targets": "Creați o echipă sau un proiect pentru a alege un canal."
+	"slack.empty_targets": "Creați o echipă sau un proiect pentru a alege un canal.",
+	"slack.none": "Niciunul",
+	"slack.team": "Echipă",
+	"slack.project": "Proiect",
+	"slack.connection_failed": "Conexiune eșuată",
+	"slack.error": "Ceva nu a mers bine. Încearcă din nou.",
+	"slack.saved": "Salvat",
+	"slack.no_access": "Fără acces",
+	"slack.unavailable": "Indisponibil pe acest server",
+	"slack.connected": "Conectat",
+	"slack.disconnect": "Deconectează",
+	"slack.scope": "Domeniu",
+	"slack.channel": "Canal",
+	"slack.connect": "Connect",
+	"slack.retry": "Încearcă din nou"
 }

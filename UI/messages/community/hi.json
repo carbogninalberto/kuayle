@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "Slack को डिस्कनेक्ट करके उसके चैनल मैपिंग हटाएँ?",
 	"slack.invite_channel": "यहाँ चैनल चुनने के लिए बॉट को किसी Slack चैनल में आमंत्रित करें।",
-	"slack.empty_targets": "चैनल चुनने के लिए टीम या प्रोजेक्ट बनाएँ।"
+	"slack.empty_targets": "चैनल चुनने के लिए टीम या प्रोजेक्ट बनाएँ।",
+	"slack.none": "कोई नहीं",
+	"slack.team": "टीम",
+	"slack.project": "प्रोजेक्ट",
+	"slack.connection_failed": "कनेक्शन विफल",
+	"slack.error": "कुछ गड़बड़ हो गई। कृपया फिर से प्रयास करें।",
+	"slack.saved": "सहेजा गया",
+	"slack.no_access": "कोई एक्सेस नहीं",
+	"slack.unavailable": "इस सर्वर पर उपलब्ध नहीं",
+	"slack.connected": "कनेक्ट है",
+	"slack.disconnect": "डिस्कनेक्ट करें",
+	"slack.scope": "दायरा",
+	"slack.channel": "चैनल",
+	"slack.connect": "Connect",
+	"slack.retry": "फिर कोशिश करें"
 }

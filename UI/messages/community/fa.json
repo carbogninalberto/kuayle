@@ -4409,5 +4409,19 @@
 	"settings.push.failed": "Could not complete the Web Push request.",
 	"slack.disconnect_confirm": "اتصال Slack قطع و ارتباط کانال‌ها حذف شود؟",
 	"slack.invite_channel": "ربات را به یک کانال Slack دعوت کنید تا بتوانید آن را اینجا انتخاب کنید.",
-	"slack.empty_targets": "برای انتخاب کانال، تیم یا پروژه‌ای بسازید."
+	"slack.empty_targets": "برای انتخاب کانال، تیم یا پروژه‌ای بسازید.",
+	"slack.none": "هیچ",
+	"slack.team": "تیم",
+	"slack.project": "پروژه",
+	"slack.connection_failed": "اتصال ناموفق بود",
+	"slack.error": "مشکلی پیش آمد. لطفاً دوباره تلاش کنید.",
+	"slack.saved": "ذخیره شد",
+	"slack.no_access": "بدون دسترسی",
+	"slack.unavailable": "روی این سرور در دسترس نیست",
+	"slack.connected": "متصل",
+	"slack.disconnect": "قطع اتصال",
+	"slack.scope": "دامنه",
+	"slack.channel": "کانال",
+	"slack.connect": "Connect",
+	"slack.retry": "تلاش دوباره"
 }

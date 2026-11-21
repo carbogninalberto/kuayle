@@ -45,9 +45,15 @@ func TestSlackInstallationIsolation(t *testing.T) {
 	install := domain.SlackInstall{ID: uuid.New(), WorkspaceID: ws, TeamID: uuid.NewString(), Name: "Test", Token: "ciphertext", Scope: "channels:read"}
 	require.NoError(t, repo.Install(ctx, install, user, "U1"))
 	duplicate := install
-	duplicate.WorkspaceID = other
 	duplicate.ID = uuid.New()
 	require.ErrorIs(t, repo.Install(ctx, duplicate, user, "U1"), ErrSlackConnected)
+	duplicate.WorkspaceID = other
+	require.ErrorIs(t, repo.Install(ctx, duplicate, user, "U2"), ErrSlackTeamInUse)
+	_, err = repo.Get(ctx, other)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+	saved, err := repo.Get(ctx, ws)
+	require.NoError(t, err)
+	require.Equal(t, install, saved)
 	var mapped uuid.UUID
 	require.NoError(t, db.Get(&mapped, "SELECT user_id FROM slack_identities WHERE workspace_id=$1 AND slack_user_id='U1'", ws))
 	require.Equal(t, user, mapped)
