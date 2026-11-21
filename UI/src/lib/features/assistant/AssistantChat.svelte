@@ -63,10 +63,7 @@
 		visibleHistory,
 		type TaskIndicator
 	} from './shell-rules';
-	import { listProjects } from '$lib/api/projects';
 	import { readRecents, recentsKey, writeRecents } from './recents-cache';
-	import type { Project } from '$lib/types/project';
-	import { listQuery, resolveProjectFilter, type ProjectFilter } from './project-filter';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
@@ -76,7 +73,7 @@
 	import { m } from '$lib/features/i18n/messages';
 
 	// The assistant page: a three-column shell. Left, the assistant's own
-	// sidebar (places, search, Recents with folders); centre, the conversation
+	// sidebar (places, search, folders and recents); centre, the conversation
 	// with the orchestrator assistant, tool and task steps, and pending approvals
 	// above the composer; right, a resizable side panel host
 	// (details, the coding agents' threads, a diff, and future panels). Below
@@ -90,81 +87,60 @@
 	const userKey = untrack(() => `${authState.user?.id}:${slug}`);
 	let status = $state<AssistantStatus>({ configured: false });
 	let initialized = $state(false);
-	// The list's project filter is remembered per person and workspace; a new
-	// chat started under a project filter belongs to that project.
-	const filterKey = untrack(() => `assistant-project-filter:${userKey}`);
-	let projects = $state<Project[]>([]);
-	let projectFilter = $state<ProjectFilter>(
-		untrack(() => {
-			try {
-				return (localStorage.getItem(filterKey) as ProjectFilter | null) ?? 'all';
-			} catch {
-				return 'all';
-			}
-		})
-	);
-	// Remounting for a conversation switch restarts this component, so seed the
-	// sidebar's Recents from the cache while the fresh list loads.
-	const initialHistoryKey = untrack(() => recentsKey(authState.user?.id, slug, projectFilter));
-	const seededHistory = untrack(() => readRecents(initialHistoryKey));
-	let history = $state<Conversation[]>(seededHistory ?? []);
-	let historyLoaded = $state(seededHistory !== undefined);
-	// A list taken from the cache is not written back: that would only reorder
-	// the cache's eviction without changing its content.
-	let historyFromCache = seededHistory !== undefined;
-	let historyFailed = $state(false);
-	$effect(() => {
-		const key = recentsKey(authState.user?.id, slug, projectFilter);
-		// Never let the empty initial list overwrite a good cache before a real
-		// list has loaded.
-		if (!key || !historyLoaded) return;
-		// Read the list before skipping, so the effect keeps tracking it and
-		// writes the fresh list when it arrives.
-		const snapshot = $state.snapshot(history);
-		if (historyFromCache) {
-			historyFromCache = false;
-			return;
-		}
-		writeRecents(key, snapshot);
-	});
-	const projectOptions = $derived([
-		{ value: 'all', label: m['assistant.all_projects']() },
-		{ value: 'none', label: m['assistant.no_project']() },
-		...projects.map((project) => ({ value: project.id, label: project.name }))
-	]);
-	function loadHistory(filter: ProjectFilter) {
-		return conversations.list(slug, listQuery(filter)).then((items) => {
-			if (!disposed && projectFilter === filter) {
-				history = items;
-				historyLoaded = true;
-				historyFailed = false;
-			}
-		});
+	const pageSize = 30;
+	const cacheKey = untrack(() => recentsKey(authState.user?.id, slug));
+	let history = $state<Conversation[]>(untrack(() => readRecents(cacheKey) ?? []));
+	let matches = $state<Conversation[]>([]);
+	let search = $state('');
+	let folder = $state<string | null>(null);
+	const listQuery = $derived({ search, folder });
+	const filtered = $derived(!!search || !!folder);
+	const listed = $derived(filtered ? matches : history);
+	let loadingList = $state(true);
+	let listFailed = $state(false);
+	let nextPage = $state<Conversation>();
+	function updateHistory(update: (items: Conversation[]) => Conversation[]) {
+		history = update(history);
+		matches = update(matches).filter((c) =>
+			(!folder || c.folder_id === folder) && c.title.toLocaleLowerCase().includes(search.toLocaleLowerCase())
+		);
+		writeRecents(cacheKey, history.slice(0, pageSize));
 	}
-	function chooseProject(next: string) {
-		if (next === projectFilter) return;
-		projectFilter = next;
-		historyFailed = false;
+
+	async function loadList(query: typeof listQuery, before?: Conversation) {
+		loadingList = true;
+		listFailed = false;
 		try {
-			if (next === 'all') localStorage.removeItem(filterKey);
-			else localStorage.setItem(filterKey, next);
+			const items = await conversations.list(slug, pageSize + 1, query.search, query.folder, before);
+			if (disposed || query !== listQuery) return;
+			const page = items.slice(0, pageSize);
+			let itemsToShow = page;
+			if (before) {
+				const seen = new Set(listed.map((item) => item.id));
+				itemsToShow = [...listed, ...page.filter((item) => !seen.has(item.id))];
+			}
+			if (filtered) matches = itemsToShow;
+			else {
+				history = itemsToShow;
+				writeRecents(cacheKey, history.slice(0, pageSize));
+			}
+			nextPage = items.length > pageSize ? page.at(-1) : undefined;
 		} catch {
-			/* The filter still applies without storage. */
+			if (!disposed && query === listQuery) listFailed = true;
+		} finally {
+			if (!disposed && query === listQuery) loadingList = false;
 		}
-		const cached = readRecents(recentsKey(authState.user?.id, slug, next));
-		if (cached) {
-			history = cached;
-			historyLoaded = true;
-			historyFromCache = true;
-		} else {
-			// Keep the current rows visible, flagged as loading, until the filtered list arrives.
-			historyLoaded = false;
-		}
-		void loadHistory(next).catch((error) => {
-			historyFailed = true;
-			appToast.apiError(error, m['assistant.error']());
-		});
 	}
+
+	$effect(() => {
+		const query = listQuery;
+		nextPage = undefined;
+		matches = [];
+		loadingList = true;
+		listFailed = false;
+		const timer = setTimeout(() => void loadList(query), query.search ? 150 : 0);
+		return () => clearTimeout(timer);
+	});
 
 	// ── Layout: fixed sidebar from lg, inline side panel from xl, drawers below.
 	const large = new MediaQuery('min-width: 1024px');
@@ -328,7 +304,7 @@
 	});
 	const indicators = $derived.by(() => {
 		const result: Record<string, TaskIndicator | undefined> = {};
-		for (const conversation of history) result[conversation.id] = conversationIndicator(conversation.id, queueItems);
+		for (const conversation of listed) result[conversation.id] = conversationIndicator(conversation.id, queueItems);
 		if (conversationId && chat.busy && !result[conversationId]) result[conversationId] = 'running';
 		return result;
 	});
@@ -431,33 +407,14 @@
 				description: question.body.length > 140 ? `${question.body.slice(0, 140)}…` : question.body,
 				duration: 10000
 			});
-		const saved = projectFilter;
-		void Promise.all([
-			conversations.list(slug, listQuery(saved)),
-			conversations.status(slug),
-			listProjects(slug).catch(() => [])
-		])
-			.then(([items, provider, visible]) => {
-				if (disposed) return;
-				// A filter change while the first list was loading owns the list now.
-				if (projectFilter === saved) {
-					history = items;
-					historyLoaded = true;
-					historyFailed = false;
-				}
-				status = provider;
-				projects = visible;
-				initialized = true;
-				// A remembered project that is no longer visible falls back to all.
-				const resolved = resolveProjectFilter(saved, visible);
-				if (resolved !== saved) chooseProject(resolved);
-			})
-			.catch(() => {
+		void conversations.status(slug)
+			.then((provider) => {
 				if (!disposed) {
-					error = m['assistant.error']();
-					historyFailed = true;
+					status = provider;
+					initialized = true;
 				}
-			});
+			})
+			.catch(() => { if (!disposed) error = m['assistant.error'](); });
 		if (conversationId) void chat.load();
 		else chat.loading = false;
 		void loadQueue();
@@ -520,7 +477,7 @@
 		savingTitle = true;
 		try {
 			const updated = await conversations.rename(slug, conversationId, next);
-			history = history.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c));
+			updateHistory((items) => items.map((c) => (c.id === updated.id ? { ...c, title: updated.title } : c)));
 			renamed(updated);
 			renaming = null;
 		} catch (e) {
@@ -551,12 +508,13 @@
 	const sidebarProps = $derived({
 		slug,
 		conversationId,
-		projects,
-		projectFilter,
-		projectOptions,
-		loading: !historyLoaded && !historyFailed,
+		history: listed,
+		onchange: updateHistory,
+		loading: loadingList,
+		failed: listFailed,
+		hasMore: !!nextPage,
+		onmore: () => { if (!loadingList) void loadList(listQuery, nextPage); },
 		indicators,
-		onproject: chooseProject,
 		onrenamed: renamed
 	});
 </script>
@@ -900,7 +858,7 @@
 			</MessageScroller.Provider>
 		</div>
 		{#if !agentView || (agentTask && sendOptions(agentTask, authState.user?.id).open)}
-			<ChatComposer bind:this={composer} {chat} {conversationId} {projectFilter} {status} {initialized}
+			<ChatComposer bind:this={composer} {chat} {conversationId} {status} {initialized}
 				{targetTask} {messageable} {chooseTarget} {followLatest} bind:sending bind:error
 				reveal={() => { if (!wide.current) host.close(); }} />
 		{/if}
@@ -913,7 +871,8 @@
 		<div class="w-[272px] shrink-0 border-r" data-testid="assistant-sidebar">
 			<AssistantSidebar
 				{...sidebarProps}
-				bind:history
+				bind:search
+				bind:folder
 				collapseLabel={m['assistant.hide_sidebar']()}
 				oncollapse={() => setSidebarCollapsed(true)}
 			/>
@@ -927,7 +886,8 @@
 				</Sheet.Header>
 				<AssistantSidebar
 					{...sidebarProps}
-					bind:history
+					bind:search
+					bind:folder
 					collapseLabel={m['assistant.hide_sidebar']()}
 					oncollapse={() => (sidebarDrawer = false)}
 				/>

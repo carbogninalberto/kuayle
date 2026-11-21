@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Бічні панелі",
 	"assistant.placeholder_agent": "Повідомлення агенту {agent} для {identifier}…",
 	"assistant.places": "Розділи асистента",
+	"assistant.folders": "Папки",
 	"assistant.recents": "Нещодавні",
 	"assistant.recents_empty": "Розмов ще немає.",
 	"assistant.recents_loading": "Завантаження розмов…",

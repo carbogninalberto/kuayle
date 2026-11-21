@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Panneaux latéraux",
 	"assistant.placeholder_agent": "Écrire à l'agent {agent} de {identifier}…",
 	"assistant.places": "Espaces de l'assistant",
+	"assistant.folders": "Dossiers",
 	"assistant.recents": "Récentes",
 	"assistant.recents_empty": "Aucune conversation pour l'instant.",
 	"assistant.recents_loading": "Chargement des conversations…",

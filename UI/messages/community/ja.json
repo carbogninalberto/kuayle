@@ -3346,6 +3346,7 @@
 	"assistant.panels": "サイドパネル",
 	"assistant.placeholder_agent": "{identifier} の {agent} エージェントにメッセージ…",
 	"assistant.places": "アシスタントの場所",
+	"assistant.folders": "フォルダー",
 	"assistant.recents": "最近",
 	"assistant.recents_empty": "会話はまだありません。",
 	"assistant.recents_loading": "会話を読み込み中…",

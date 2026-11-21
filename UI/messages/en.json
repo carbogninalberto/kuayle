@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Side panels",
 	"assistant.placeholder_agent": "Message the {agent} agent of {identifier}…",
 	"assistant.places": "Assistant places",
+	"assistant.folders": "Folders",
 	"assistant.recents": "Recents",
 	"assistant.recents_empty": "No conversations yet.",
 	"assistant.recents_loading": "Loading conversations…",

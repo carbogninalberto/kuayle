@@ -3346,6 +3346,7 @@
 	"assistant.panels": "לוחות צד",
 	"assistant.placeholder_agent": "הודעה לסוכן {agent} של {identifier}…",
 	"assistant.places": "מקומות העוזר",
+	"assistant.folders": "תיקיות",
 	"assistant.recents": "אחרונות",
 	"assistant.recents_empty": "עדיין אין שיחות.",
 	"assistant.recents_loading": "טוען שיחות…",

@@ -3346,6 +3346,7 @@
 	"assistant.panels": "Πλευρικοί πίνακες",
 	"assistant.placeholder_agent": "Μήνυμα προς τον πράκτορα {agent} του {identifier}…",
 	"assistant.places": "Σημεία του βοηθού",
+	"assistant.folders": "Φάκελοι",
 	"assistant.recents": "Πρόσφατα",
 	"assistant.recents_empty": "Δεν υπάρχουν συνομιλίες ακόμη.",
 	"assistant.recents_loading": "Φόρτωση συνομιλιών…",
