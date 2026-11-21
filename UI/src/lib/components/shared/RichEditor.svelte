@@ -1181,14 +1181,6 @@
 			<Button variant="plain" type="button" onclick={toggleCodeBlock} class={btnClass(editor?.isActive('codeBlock') ?? false)} title={m['sharedComponents.rich_editor.code_block']()}>
 				<Code2 size={14} />
 			</Button>
-			{#if uploadUrl}
-				<Button variant="plain" type="button" onclick={() => chooseFiles(true)} class={btnClass(false)} title={m['sharedComponents.rich_editor.upload_image']()}>
-					<ImagePlus size={14} />
-				</Button>
-				<Button variant="plain" type="button" onclick={() => chooseFiles()} class={btnClass(false)} title={m['sharedComponents.rich_editor.attach_files']()}>
-					<Paperclip size={14} />
-				</Button>
-			{/if}
 
 			<div class="flex-1"></div>
 
@@ -1197,16 +1189,6 @@
 			</Button>
 			<Button variant="plain" type="button" onclick={redo} class={btnClass(false)} title={m['sharedComponents.rich_editor.redo']()}>
 				<Redo2 size={14} />
-			</Button>
-		</div>
-	{/if}
-	{#if editable && uploadUrl && bubbleMenu && !hideUploadButtons}
-		<div class="flex items-center justify-end gap-0.5 px-1 py-0.5">
-			<Button variant="plain" type="button" onclick={() => chooseFiles(true)} class={btnClass(false)} title={m['sharedComponents.rich_editor.upload_image']()} aria-label={m['sharedComponents.rich_editor.upload_image']()}>
-				<ImagePlus size={14} />
-			</Button>
-			<Button variant="plain" type="button" onclick={() => chooseFiles()} class={btnClass(false)} title={m['sharedComponents.rich_editor.attach_files']()} aria-label={m['sharedComponents.rich_editor.attach_files']()}>
-				<Paperclip size={14} />
 			</Button>
 		</div>
 	{/if}
@@ -1225,6 +1207,19 @@
 					<span>{m['sharedComponents.rich_editor.reworking_selection']()}</span>
 				</div>
 			{/if}
+		</div>
+	{/if}
+
+	{#if uploadUrl && (showStaticToolbar || (editable && bubbleMenu && !hideUploadButtons))}
+		<div class="sticky bottom-0 z-1 py-1 backdrop-blur-md">
+			<div class="attachment-actions text-[var(--color-text-secondary)]">
+				<Button variant="ghost" size="icon-sm" onclick={() => chooseFiles(true)} title={m['sharedComponents.rich_editor.upload_image']()} aria-label={m['sharedComponents.rich_editor.upload_image']()}>
+					<ImagePlus class="size-3.5" />
+				</Button>
+				<Button variant="ghost" size="icon-sm" onclick={() => chooseFiles()} title={m['sharedComponents.rich_editor.attach_files']()} aria-label={m['sharedComponents.rich_editor.attach_files']()}>
+					<Paperclip class="size-3.5" />
+				</Button>
+			</div>
 		</div>
 	{/if}
 
