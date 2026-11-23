@@ -2,12 +2,12 @@ package repository
 
 import (
 	"context"
-	"github.com/lib/pq"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/lib/pq"
 )
 
 // These predicates accept only developer-owned column expressions. UUID literals

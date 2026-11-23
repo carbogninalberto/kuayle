@@ -1521,10 +1521,17 @@ has chosen how to resolve the conflict.
 `team_role_overrides` stores explicit exceptions. The legacy `role` column
 gives custom memberships and memberships with team exceptions guest privileges
 in features that still check role names. The API reads the current permission
-set on each request. Team routes bind access to the routed team, issue routes
-resolve the stored team, and issue collection queries check each selected row.
-Operations spanning several teams without a row-level permission check require
-the permission in the workspace and in every override.
+set on each request. Permission checks under `/teams/:teamId`, including
+cycle operations, use that team's role. Routes under `/issues/:identifier`
+use the issue's stored team, and issue collection queries check each selected
+row.
+
+Resource routes such as `PATCH /projects/:id` and `GET /views` neither
+resolve a team nor check grants per row. They require the permission in
+the workspace role and every team override. For example, a workspace Guest
+with an Admin override in a team they belong to can manage that team's cycles.
+They cannot update a project there because their workspace role lacks
+`project:manage`.
 
 In Settings → Members, owners can manage role definitions, see member and team assignment counts, and set team overrides. Member listings return the assigned key and its display name. A workspace detail response includes `can_manage_members` for the current caller.
 
@@ -1555,7 +1562,9 @@ legacy features without a matching grant. This applies workspace-wide, even
 if other teams inherit the member's ordinary role. All workspace routes guarded by
 `RequireSession` reject these memberships. This includes assistant status
 and capabilities, AI writing, workflow editing, agent profiles and task
-controls, memory lessons, and assistant skills and tools. Permission-scoped
+controls, memory lessons, and assistant skills and tools. A workspace admin
+with a team override also loses access to import jobs, SSO configuration,
+and SCIM token and group-mapping settings across the workspace. Permission-scoped
 workflow and agent-task reads still use their respective read grants.
 Background workers for the conversation queue, Telegram deliveries, agent
 messages and agent signals also skip these members. Clearing the last
