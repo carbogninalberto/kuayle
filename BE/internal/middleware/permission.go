@@ -35,18 +35,13 @@ func RequirePermission(permission string) echo.MiddlewareFunc {
 // (JWT) only. Routes without a permission annotation get this instead, so
 // personal access tokens are denied by default.
 func RequireSession() echo.MiddlewareFunc {
-	return requireSession(response.Forbidden, false)
-}
-
-// RequireMemberSession admits any current membership for self-service actions.
-func RequireMemberSession() echo.MiddlewareFunc {
-	return requireSession(response.Forbidden, true)
+	return requireSession(response.Forbidden)
 }
 
 func RequireSessionWithRefusal(code, reason string) echo.MiddlewareFunc {
 	return requireSession(func(c *echo.Context) error {
 		return response.Error(c, http.StatusForbidden, code, reason)
-	}, false)
+	})
 }
 
 func UsesDelegatedRole(c *echo.Context) bool {
@@ -54,13 +49,9 @@ func UsesDelegatedRole(c *echo.Context) bool {
 	return access != nil && (!domain.BuiltinRole(access.Role) || len(access.Teams) > 0)
 }
 
-func requireSession(refuse echo.HandlerFunc, allowDelegated bool) echo.MiddlewareFunc {
+func requireSession(refuse echo.HandlerFunc) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if !allowDelegated && UsesDelegatedRole(c) {
-				// Session-only routes have no permission code for delegated access.
-				return response.Forbidden(c)
-			}
 			if c.Get(TokenScopesKey) != nil {
 				return refuse(c)
 			}

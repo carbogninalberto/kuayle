@@ -79,6 +79,7 @@
 		{:else if !teams.length}<p>{m['agents.identity.no_teams']()}</p>
 		{:else}
 			<div class="min-h-0 space-y-3 overflow-y-auto p-1">
+				<p class="text-sm text-muted-foreground">{m['settings.roles.override_limits']()}</p>
 				<p class="text-sm text-muted-foreground">{m['settings.roles.session_limits']()}</p>
 				{#each teams as team (team.id)}
 					<div

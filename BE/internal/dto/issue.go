@@ -45,6 +45,7 @@ type DuplicateIssueRequest struct {
 }
 
 type UpdateIssueRequest struct {
+	TeamID      *string  `json:"team_id,omitempty" validate:"omitempty,uuid"`
 	Title       *string  `json:"title" validate:"omitempty,min=1,max=500"`
 	Description *string  `json:"description"`
 	Status      *string  `json:"status" validate:"omitempty,max=100"` // a team status name or slug; see IssueService.statusByName

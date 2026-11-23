@@ -67,6 +67,8 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	commentService := service.NewCommentService(repository.NewCommentRepository(db), issues, hub, notifications)
 	relationService := service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issues)
 	handlers := &appHandlers{notif: handler.NewNotificationHandler(notifications), workspace: handler.NewWorkspaceHandler(service.NewWorkspaceService(workspaces, users, hub)), team: handler.NewTeamHandler(teamService), issue: handler.NewIssueHandler(issueService, commentService, users, statuses, projects, cycles, relationService)}
+	handlers.github = handler.NewGitHubHandler(service.NewGitHubService(repository.NewGitHubRepository(db), issues, teams, statuses, nil, nil, hub, "", "", nil))
+	handlers.workflow = handler.NewWorkflowHandler(service.NewWorkflowService(repository.NewWorkflowRepository(db), nil, nil))
 	secret := "private-team-http-test-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
 	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
@@ -196,6 +198,12 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	request(ownerJWT, "GET", publicTeam, "", http.StatusOK)
 	request(ownerJWT, "DELETE", adminOverride+envelope.ID, "", http.StatusNoContent)
 	memberOverride := base + "/members/" + member.String() + "/team-roles/" + teamID.String()
+	request(ownerJWT, "PUT", memberOverride, `{"role":"guest"}`, http.StatusNoContent)
+	t.Run("member with a Guest override can use guest session routes", func(t *testing.T) {
+		doRequest(t, memberJWT, "GET", base+"/github/status", "", http.StatusOK)
+		doRequest(t, memberPAT, "GET", base+"/github/status", "", http.StatusForbidden)
+		doRequest(t, memberJWT, "GET", base+"/imports", "", http.StatusForbidden)
+	})
 	request(ownerJWT, "PUT", memberOverride, `{"role":"admin"}`, http.StatusNoContent)
 	request(memberJWT, "GET", teamPath, "", http.StatusNotFound)
 	request(ownerJWT, "DELETE", memberOverride, "", http.StatusNoContent)
@@ -238,6 +246,9 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	rolePath := rolesPath + "/" + role.Key
 	assignment := `{"role":"` + role.Key + `"}`
 	request(ownerJWT, "PATCH", memberPath, assignment, http.StatusOK)
+	request(guestJWT, "GET", base+"/github/status", "", http.StatusOK)
+	require.Contains(t, string(request(guestJWT, "GET", base+"/workflows", "", http.StatusOK)), `"can_manage":false`)
+	request(guestJWT, "POST", base+"/workflows", `{}`, http.StatusForbidden)
 	var roster []struct {
 		UserID   uuid.UUID `json:"user_id"`
 		RoleName string    `json:"role_name"`
@@ -266,6 +277,11 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	require.True(t, found)
 	request(ownerJWT, "PUT", rolePath, `{"name":"Review","permissions":["issues:read","member:invite"]}`, http.StatusOK)
 	request(guestWritePAT, "GET", issuePath, "", http.StatusOK)
+	request(guestJWT, "GET", base+"/workflows", "", http.StatusForbidden)
+	request(guestJWT, "POST", issuePath+"/prompt-assets", `{}`, http.StatusForbidden)
+	ports := base + "/dev-machines/" + uuid.NewString() + "/ports"
+	request(guestJWT, "GET", ports, "", http.StatusForbidden)
+	request(guestJWT, "POST", ports, `{}`, http.StatusForbidden)
 	require.NotContains(t, string(request(userPAT, "GET", "/api/notifications", "", http.StatusOK)), "Role notification")
 	list := string(request(userPAT, "GET", "/api/workspaces", "", http.StatusOK))
 	require.NotContains(t, list, ws.String())
@@ -281,7 +297,7 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	request(ownerJWT, "PATCH", memberPath, `{"role":"member"}`, http.StatusOK)
 	request(ownerJWT, "DELETE", rolePath, "", http.StatusConflict)
 	request(guestWritePAT, "PATCH", issuePath, `{"title":"Denied by team override"}`, http.StatusForbidden)
-	request(guestWritePAT, "PATCH", base+"/issues/PUB-1", `{"title":"Workspace grant"}`, http.StatusOK)
+	request(guestWritePAT, "PATCH", base+"/issues/PUB-1", `{"team_id":"`+envelope.ID+`","title":"Workspace grant"}`, http.StatusOK)
 	// PATCH cannot transfer an issue (or partially edit it while ignoring the move).
 	request(guestWritePAT, "PATCH", base+"/issues/PUB-1", `{"team_id":"`+teamID.String()+`","title":"Moved issue"}`, http.StatusBadRequest)
 	var afterMove struct {

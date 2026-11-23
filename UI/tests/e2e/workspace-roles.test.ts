@@ -106,7 +106,7 @@ for (const width of [390, 1280]) {
 		await expect(roles.getByRole('row', { name: /Owner/ }).getByRole('button')).toHaveCount(0);
 		await page.getByRole('button', { name: 'Create role' }).click();
 		const dialog = page.getByRole('dialog');
-		await expect(dialog.getByText(/Custom roles and team overrides.*workflow editing.*skills and tools/)).toBeVisible();
+		await expect(dialog.getByText(/treat this member as a Guest/)).toBeVisible();
 		await dialog.getByLabel('Name', { exact: true }).fill('Triage');
 		await dialog.getByLabel('Template').click();
 		await page.getByRole('option', { name: 'Guest', exact: true }).click();
@@ -139,7 +139,9 @@ for (const width of [390, 1280]) {
 		await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 		await expect(assignment).toHaveText('Triage lead');
 		await page.getByRole('button', { name: 'Team roles Ann Rivera' }).click();
-		await expect(dialog.getByText(/assistant.*Telegram/)).toBeVisible();
+		await expect(
+			dialog.getByText(/A Guest override can block project, label, view and wiki edits in other teams/)
+		).toBeVisible();
 		const team = dialog.getByRole('combobox', { name: 'Engineering' });
 		await team.click();
 		await page.getByRole('option', { name: 'Guest', exact: true }).click();
@@ -208,7 +210,9 @@ test('team role dialog keeps its controls reachable after retry and with long te
 	const teams = Array.from({ length: 12 }, (_, i) => ({ id: 'team-' + i, name: 'Engineering'.repeat(8) + i }));
 	await page.route(teamsPath, (route) => route.fulfill({ json: teams }));
 	await trigger.press('Enter');
-	await expect(dialog.getByText(/assistant.*Telegram/)).toBeInViewport();
+	await expect(
+		dialog.getByText(/A Guest override can block project, label, view and wiki edits in other teams/)
+	).toBeInViewport();
 	const lastTeam = dialog.getByRole('combobox').last();
 	await lastTeam.focus();
 	await expect(lastTeam).toBeInViewport();

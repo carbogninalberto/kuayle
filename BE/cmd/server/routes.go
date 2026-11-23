@@ -326,7 +326,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/teams/:teamId/members", h.team.Members, "members:read", mw.RequirePermission("teams:read"))
 	scoped(ws, http.MethodPost, "/teams/:teamId/members", h.team.AddMember, "team:manage")
 	scoped(ws, http.MethodDelete, "/teams/:teamId/members/:userId", h.team.RemoveMember, "team:manage")
-	addNamedRoute(ws, http.MethodPost, "/teams/:teamId/leave", h.team.Leave, "session", mw.RequireMemberSession())
+	sessionOnly(ws, http.MethodPost, "/teams/:teamId/leave", h.team.Leave)
 
 	// Team Statuses
 	scoped(ws, http.MethodGet, "/teams/:teamId/statuses", h.teamStatus.List, "teams:read")
@@ -746,11 +746,11 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/environment-status", h.devMachine.EnvironmentStatus, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/environment-status/package-index/refresh", h.devMachine.RefreshPackageIndex, "dev_machine:manage")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/services/:service/launch", h.devMachine.LaunchService, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
-	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/ports", h.devMachine.ListPorts)
-	sessionOnly(dm, http.MethodPost, "/dev-machines/:machineId/ports", h.devMachine.CreatePort)
-	sessionOnly(dm, http.MethodPatch, "/dev-machines/:machineId/ports/:portId", h.devMachine.UpdatePort)
-	sessionOnly(dm, http.MethodDelete, "/dev-machines/:machineId/ports/:portId", h.devMachine.DeletePort)
-	sessionOnly(dm, http.MethodPost, "/dev-machines/:machineId/ports/:portId/launch", h.devMachine.LaunchPort)
+	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/ports", h.devMachine.ListPorts, mw.RequireTokenPermission(domain.PermDevMachineRead))
+	sessionOnly(dm, http.MethodPost, "/dev-machines/:machineId/ports", h.devMachine.CreatePort, mw.RequireTokenPermission(domain.PermDevMachineManage))
+	sessionOnly(dm, http.MethodPatch, "/dev-machines/:machineId/ports/:portId", h.devMachine.UpdatePort, mw.RequireTokenPermission(domain.PermDevMachineManage))
+	sessionOnly(dm, http.MethodDelete, "/dev-machines/:machineId/ports/:portId", h.devMachine.DeletePort, mw.RequireTokenPermission(domain.PermDevMachineManage))
+	sessionOnly(dm, http.MethodPost, "/dev-machines/:machineId/ports/:portId/launch", h.devMachine.LaunchPort, mw.RequireTokenPermission(domain.PermDevMachineManage))
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/migration-actions", h.devMachine.ListMigrationActions, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/migration-actions", h.devMachine.CreateMigrationAction, "dev_machine:manage")
 	scoped(dm, http.MethodPut, "/dev-machines/:machineId/migration-actions/:actionId", h.devMachine.UpdateMigrationAction, "dev_machine:manage")
@@ -773,7 +773,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// Uploads
 	scoped(ws, http.MethodPost, "/upload", h.upload.Upload, "issue:create")
 	scoped(ws, http.MethodGet, "/assets/:assetId", h.upload.GetAsset, "assets:read")
-	sessionOnly(ws, http.MethodPost, "/issues/:identifier/prompt-assets", h.upload.SignIssuePromptAssets)
+	sessionOnly(ws, http.MethodPost, "/issues/:identifier/prompt-assets", h.upload.SignIssuePromptAssets, mw.RequirePermission(domain.PermIssuesRead), mw.RequirePermission(domain.PermAssetsRead))
 
 	// WebSocket
 	sessionOnly(ws, http.MethodGet, "/ws", h.ws.Handle)

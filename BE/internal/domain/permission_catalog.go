@@ -61,7 +61,7 @@ var PermissionGroups = []PermissionGroup{
 	}},
 	{"settings", []PermissionInfo{
 		{PermWorkspacesRead, "Read workspace details."},
-		{PermWorkspaceManage, "Manage workspace integrations and settings."},
+		{PermWorkspaceManage, "Manage workspace settings, webhooks and GitHub connections with the same integration controls as the workspace owner."},
 		{PermWorkspaceTransfer, "Export workspace data."},
 		{PermAccountRead, "Read your account and preferences."},
 		{PermAccountWrite, "Change your own account state."},

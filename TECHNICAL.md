@@ -1547,25 +1547,23 @@ member's current permissions in the workspace and in each team, including
 any PAT scope limits. Assigning a new role checks its grants against the
 caller's workspace role and every team override. For example, an admin with
 a Member override can invite a Member, but a Guest override limits the
-invitation to grants available to a Guest.
+invitation to grants available to a Guest. Invite links support Member and Guest.
+Use a direct invitation or assign the role after joining to give a member a custom role.
 
 Administrators retain implicit access to private teams where
 their effective role is still administrative. A team override alone cannot
 give a non-administrator implicit access to a private team. Members with an
 override or custom role can leave an explicit team membership in an interactive
 session. Leaving the last membership in a public team preserves the team if the
-delegated role lacks `team:manage`. Issue PATCH rejects `team_id` because an
-issue's team is fixed at creation.
+delegated role lacks `team:manage`. Issue PATCH accepts the issue’s current `team_id` and rejects a
+different team before applying any edits.
 
 Custom roles and members with any team override use guest-level checks in
 legacy features without a matching grant. This applies workspace-wide, even
-if other teams inherit the member's ordinary role. All workspace routes guarded by
-`RequireSession` reject these memberships. This includes assistant status
-and capabilities, AI writing, workflow editing, agent profiles and task
-controls, memory lessons, and assistant skills and tools. A workspace admin
-with a team override also loses access to import jobs, SSO configuration,
-and SCIM token and group-mapping settings across the workspace. Permission-scoped
-workflow and agent-task reads still use their respective read grants.
+if other teams inherit the member's ordinary role. Interactive sessions can use
+routes open to Guests. Routes that require a built-in admin role, including
+import jobs, SSO configuration and SCIM administration, still enforce that check.
+Workflow and agent-task reads use their respective permission codes.
 Background workers for the conversation queue, Telegram deliveries, agent
 messages and agent signals also skip these members. Clearing the last
 override restores the built-in role's usual access.

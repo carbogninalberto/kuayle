@@ -141,6 +141,13 @@ func (r *SSORepository) ProvisionIdentity(ctx context.Context, params SSOProvisi
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// Serialize first sign-ins for one identity so the identity and email lookups
+	// cannot straddle another provisioner's commit.
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`,
+		"sso-provision:"+params.WorkspaceID.String()+":"+params.Issuer+":"+params.Subject); err != nil {
+		return nil, err
+	}
+
 	// A concurrent request may have committed this exact identity between the
 	// service's lookup and this transaction. That is a returning identity, not
 	// an existing account being claimed.

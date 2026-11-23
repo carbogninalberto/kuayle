@@ -2354,6 +2354,13 @@
 							"null"
 						]
 					},
+					"team_id": {
+						"format": "uuid",
+						"type": [
+							"string",
+							"null"
+						]
+					},
 					"title": {
 						"maxLength": 500,
 						"minLength": 1,
@@ -4844,7 +4851,7 @@
 				"x-kuayle-stability": "stable"
 			},
 			"patch": {
-				"description": "Changes the fields that are present.\n\nRequired scope: `issue:update`.",
+				"description": "Changes the fields that are present. If supplied, team_id must match the current team.\n\nRequired scope: `issue:update`.",
 				"operationId": "updateIssue",
 				"parameters": [
 					{
