@@ -142,6 +142,7 @@ for (const width of [390, 1280]) {
 		await expect(
 			dialog.getByText(/A Guest override can block project, label, view and wiki edits in other teams/)
 		).toBeVisible();
+		await expect(dialog.getByText(/assign agents.*imports, SSO or SCIM/)).toBeVisible();
 		const team = dialog.getByRole('combobox', { name: 'Engineering' });
 		await team.click();
 		await page.getByRole('option', { name: 'Guest', exact: true }).click();

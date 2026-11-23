@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Edytuj rolę",
 	"settings.roles.team": "Role zespołu",
 	"settings.roles.inherit": "Użyj roli obszaru roboczego",
-	"settings.roles.session_limits": "Funkcje sprawdzające wbudowane role traktują tego użytkownika jako gościa. Zadania w tle dla rozmów, Telegrama, wiadomości i sygnałów agentów pomijają go.",
+	"settings.roles.session_limits": "Funkcje sprawdzające wbudowane role traktują tego użytkownika jako gościa. Zadania w tle dla rozmów, Telegrama, wiadomości i sygnałów agentów pomijają go. W całym obszarze roboczym ten członek nie może korzystać z czatu z asystentem, przypisywać agentów ani zarządzać importem, SSO lub SCIM.",
 	"settings.roles.override_limits": "Działania w całym obszarze roboczym wymagają uprawnienia w roli obszaru oraz w każdej nadpisanej roli zespołu. Rola gościa w jednym zespole może uniemożliwić edycję projektów, etykiet, widoków i wiki w innych zespołach.",
 	"settings.roles.custom": "Rola niestandardowa",
 	"settings.roles.load_failed": "Nie udało się wczytać ról.",

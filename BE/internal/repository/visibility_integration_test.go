@@ -14,6 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTeamVisibilityRejectsUnknownScope(t *testing.T) {
+	ctx := domain.WithAccess(context.Background(), domain.Access{
+		UserID: uuid.New(), WorkspaceID: uuid.New(), TeamPermission: "issues:retired",
+	})
+	require.Equal(t, "FALSE", teamVisible(ctx, "issues.team_id"))
+}
+
 // Exercises real SQL, including visibility before count and LIMIT. The ordinary
 // CI database job supplies DATABASE_URL and applies all migrations first.
 func TestPrivateTeamVisibilityPostgres(t *testing.T) {
@@ -170,8 +177,20 @@ func TestPrivateTeamVisibilityPostgres(t *testing.T) {
 		comment := &domain.Comment{ID: uuid.New(), IssueID: issueIDs[privateA], UserID: member, Body: "allowed"}
 		require.NoError(t, NewCommentRepository(db).Create(request, comment))
 	})
+	t.Run("membership changes require an actor in this workspace", func(t *testing.T) {
+		repo := NewWorkspaceRepository(db)
+		for _, request := range []context.Context{ctx, domain.WithAccess(ctx, domain.Access{UserID: owner, WorkspaceID: otherWorkspace})} {
+			_, err := repo.UpdateMemberRole(request, workspace, guest, domain.RoleMember)
+			require.ErrorIs(t, err, ErrRoleGrant)
+			require.ErrorIs(t, repo.RemoveMember(request, workspace, guest), ErrRoleGrant)
+			unchanged, err := repo.GetMember(ctx, workspace, guest)
+			require.NoError(t, err)
+			require.NotNil(t, unchanged)
+			require.Equal(t, domain.RoleGuest, unchanged.Role)
+		}
+	})
 	t.Run("workspace removal cannot revive private grants on reinvite", func(t *testing.T) {
-		require.NoError(t, NewWorkspaceRepository(db).RemoveMember(ctx, workspace, guest))
+		require.NoError(t, NewWorkspaceRepository(db).RemoveMember(domain.WithAccess(ctx, domain.Access{UserID: owner, WorkspaceID: workspace}), workspace, guest))
 		_, err := db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'guest')`, workspace, guest)
 		require.NoError(t, err)
 		present, safe, err := NewWorkspaceRepository(db).RealtimeAccess(ctx, workspace, guest)

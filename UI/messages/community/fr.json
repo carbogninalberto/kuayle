@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Modifier le rôle",
 	"settings.roles.team": "Rôles d’équipe",
 	"settings.roles.inherit": "Utiliser le rôle de l’espace de travail",
-	"settings.roles.session_limits": "Les fonctionnalités qui vérifient les rôles intégrés considèrent ce membre comme un invité. Les tâches de fond des conversations, de Telegram, des messages et des signaux des agents l’ignorent.",
+	"settings.roles.session_limits": "Les fonctionnalités qui vérifient les rôles intégrés considèrent ce membre comme un invité. Les tâches de fond des conversations, de Telegram, des messages et des signaux des agents l’ignorent. Dans tout l’espace de travail, ce membre ne peut ni discuter avec l’assistant, ni affecter des agents, ni administrer les imports, le SSO ou SCIM.",
 	"settings.roles.override_limits": "Les actions à l’échelle de l’espace nécessitent la permission dans le rôle de l’espace et dans chaque rôle spécifique à une équipe. Un rôle Invité dans une équipe peut empêcher la modification des projets, étiquettes, vues et wikis dans d’autres équipes.",
 	"settings.roles.custom": "Rôle personnalisé",
 	"settings.roles.load_failed": "Impossible de charger les rôles.",

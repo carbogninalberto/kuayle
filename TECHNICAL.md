@@ -1535,6 +1535,10 @@ They cannot update a project there because their workspace role lacks
 
 In Settings → Members, owners can manage role definitions, see member and team assignment counts, and set team overrides. Member listings return the assigned key and its display name. A workspace detail response includes `can_manage_members` for the current caller.
 
+Custom roles with `workspace:manage` can configure webhooks and GitHub integrations.
+The separate `workspace:transfer` grant permits downloading a workspace archive,
+including attachments. Managing roles and deleting the workspace still require the owner.
+
 The interactive owner manages definitions at `/api/workspaces/:slug/roles`.
 Within that workspace, `GET /roles/permissions` returns grouped codes and hints.
 A create request takes a name, description and either a permission list or a
@@ -1563,6 +1567,7 @@ legacy features without a matching grant. This applies workspace-wide, even
 if other teams inherit the member's ordinary role. Interactive sessions can use
 routes open to Guests. Routes that require a built-in admin role, including
 import jobs, SSO configuration and SCIM administration, still enforce that check.
+Assistant chat and assigning agents to issues also require a non-Guest membership.
 Workflow and agent-task reads use their respective permission codes.
 Background workers for the conversation queue, Telegram deliveries, agent
 messages and agent signals also skip these members. Clearing the last

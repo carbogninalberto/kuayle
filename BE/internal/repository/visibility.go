@@ -46,6 +46,9 @@ func teamVisible(ctx context.Context, teamColumn string) string {
 	// The function takes a fresh snapshot after any statement-level lock wait.
 	visible := "kuayle_team_access(" + teamColumn + "," + actor + "," + scope + ")"
 	if access.TeamPermission != "" {
+		if !domain.IsValidScope(access.TeamPermission) {
+			return "FALSE"
+		}
 		// sqlx.Named interprets colons even within SQL string literals.
 		area, action, _ := strings.Cut(access.TeamPermission, ":")
 		permission := pq.QuoteLiteral(area) + " || chr(58) || " + pq.QuoteLiteral(action)

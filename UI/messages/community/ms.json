@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Edit peranan",
 	"settings.roles.team": "Peranan pasukan",
 	"settings.roles.inherit": "Gunakan peranan ruang kerja",
-	"settings.roles.session_limits": "Ciri yang menyemak peranan terbina dalam menganggap ahli ini sebagai tetamu. Tugas latar untuk perbualan, Telegram, mesej dan isyarat ejen melangkau ahli ini.",
+	"settings.roles.session_limits": "Ciri yang menyemak peranan terbina dalam menganggap ahli ini sebagai tetamu. Tugas latar untuk perbualan, Telegram, mesej dan isyarat ejen melangkau ahli ini. Di seluruh ruang kerja, ahli ini tidak boleh menggunakan sembang pembantu, menugaskan ejen atau mentadbir import, SSO atau SCIM.",
 	"settings.roles.override_limits": "Tindakan seluruh ruang kerja memerlukan kebenaran dalam peranan ruang kerja dan setiap peranan ganti pasukan. Peranan Tetamu dalam satu pasukan boleh menyekat suntingan projek, label, paparan dan wiki dalam pasukan lain.",
 	"settings.roles.custom": "Peranan tersuai",
 	"settings.roles.load_failed": "Gagal memuatkan peranan.",

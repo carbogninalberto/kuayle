@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Edit peran",
 	"settings.roles.team": "Peran tim",
 	"settings.roles.inherit": "Gunakan peran ruang kerja",
-	"settings.roles.session_limits": "Fitur yang memeriksa peran bawaan memperlakukan anggota ini sebagai tamu. Tugas latar untuk percakapan, Telegram, pesan agen, dan sinyal melewati anggota ini.",
+	"settings.roles.session_limits": "Fitur yang memeriksa peran bawaan memperlakukan anggota ini sebagai tamu. Tugas latar untuk percakapan, Telegram, pesan agen, dan sinyal melewati anggota ini. Di seluruh ruang kerja, anggota ini tidak dapat menggunakan obrolan asisten, menugaskan agen, atau mengelola impor, SSO, maupun SCIM.",
 	"settings.roles.override_limits": "Tindakan di seluruh ruang kerja memerlukan izin pada peran ruang kerja dan setiap peran pengganti di tim. Peran Tamu di satu tim dapat memblokir pengeditan proyek, label, tampilan, dan wiki di tim lain.",
 	"settings.roles.custom": "Peran khusus",
 	"settings.roles.load_failed": "Gagal memuat peran.",

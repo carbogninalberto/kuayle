@@ -159,13 +159,14 @@ func authorizeRoleGrant(ctx context.Context, tx *sqlx.Tx, ws, user uuid.UUID, ro
 	return err
 }
 
+func memberChangeActor(ctx context.Context, workspaceID uuid.UUID) (domain.Access, bool) {
+	actor, ok := domain.AccessFromContext(ctx)
+	return actor, ok && actor.UserID != uuid.Nil && actor.WorkspaceID == workspaceID
+}
+
 // The caller holds the role-change lock and the target membership row. Check
 // both members' effective grants wherever either has an exception.
-func authorizeMemberChange(ctx context.Context, tx *sqlx.Tx, ws, target uuid.UUID, current string) error {
-	actor, ok := domain.AccessFromContext(ctx)
-	if !ok {
-		return nil
-	}
+func authorizeMemberChange(ctx context.Context, tx *sqlx.Tx, ws, target uuid.UUID, current string, actor domain.Access) error {
 	var allowed bool
 	err := tx.GetContext(ctx, &allowed, `WITH teams(team) AS (
 		SELECT NULL::uuid UNION SELECT team_id FROM team_role_overrides

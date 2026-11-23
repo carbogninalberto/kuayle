@@ -142,7 +142,7 @@ func (r *SCIMTransaction) deactivate(ctx context.Context, userID uuid.UUID, wasA
 	if owner || role == domain.RoleOwner {
 		return ErrSCIMOwner
 	}
-	if err := removeWorkspaceMember(ctx, r.tx, r.workspaceID, userID); err != nil {
+	if err := deleteWorkspaceMemberships(ctx, r.tx, r.workspaceID, userID); err != nil {
 		return err
 	}
 	if _, err := r.tx.ExecContext(ctx, `WITH removed AS (

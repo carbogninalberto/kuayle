@@ -221,21 +221,23 @@ func (r *WorkspaceRepository) ListMembers(ctx context.Context, workspaceID uuid.
 }
 
 func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) (string, error) {
+	actor, ok := memberChangeActor(ctx, workspaceID)
+	if !ok {
+		return "", ErrRoleGrant
+	}
 	tx, err := beginRoleChange(ctx, r.db, workspaceID)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if a, ok := domain.AccessFromContext(ctx); ok {
-		if err := authorizeRoleGrant(ctx, tx, workspaceID, a.UserID, role, a.TokenScopes); err != nil {
-			return "", err
-		}
+	if err := authorizeRoleGrant(ctx, tx, workspaceID, actor.UserID, role, actor.TokenScopes); err != nil {
+		return "", err
 	}
 	var previous string
 	if err := tx.GetContext(ctx, &previous, `SELECT role_key FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID); err != nil {
 		return "", err
 	}
-	if err := authorizeMemberChange(ctx, tx, workspaceID, userID, previous); err != nil {
+	if err := authorizeMemberChange(ctx, tx, workspaceID, userID, previous, actor); err != nil {
 		return "", err
 	}
 	err = tx.QueryRowContext(ctx, `UPDATE workspace_members SET
@@ -254,36 +256,40 @@ func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID,
 }
 
 func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
+	actor, ok := memberChangeActor(ctx, workspaceID)
+	if !ok {
+		return ErrRoleGrant
+	}
 	tx, err := beginRoleChange(ctx, r.db, workspaceID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := removeWorkspaceMember(ctx, tx, workspaceID, userID); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func removeWorkspaceMember(ctx context.Context, tx *sqlx.Tx, workspaceID, userID uuid.UUID) error {
 	// Match authorized readers' workspace -> team membership lock order.
 	// Take the privacy barrier before any row lock, as the DELETE statements do.
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`); err != nil {
 		return err
 	}
 	var current string
-	err := tx.GetContext(ctx, &current, `SELECT role_key FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID)
+	err = tx.GetContext(ctx, &current, `SELECT role_key FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	if err == nil {
-		if current == domain.RoleOwner {
-			return ErrRoleProtected
-		}
-		if err := authorizeMemberChange(ctx, tx, workspaceID, userID, current); err != nil {
-			return err
-		}
+	if current == domain.RoleOwner {
+		return ErrRoleProtected
 	}
+	if err := authorizeMemberChange(ctx, tx, workspaceID, userID, current, actor); err != nil {
+		return err
+	}
+	if err := deleteWorkspaceMemberships(ctx, tx, workspaceID, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Member management and SCIM deprovisioning authorize removal and lock the
+// membership before calling this cleanup.
+func deleteWorkspaceMemberships(ctx context.Context, tx *sqlx.Tx, workspaceID, userID uuid.UUID) error {
 	// A later workspace invitation must not revive old private-team grants or
 	// subscriptions. Remove all three memberships atomically.
 	// The removed user's invite links are revoked with them, after the membership

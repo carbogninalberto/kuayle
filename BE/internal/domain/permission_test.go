@@ -13,6 +13,13 @@ func TestPermissionCatalogCoversEveryOwnerPermission(t *testing.T) {
 		require.NotEmpty(t, group.Area)
 		for _, permission := range group.Permissions {
 			require.NotEmpty(t, strings.TrimSpace(permission.Hint), permission.Code)
+			switch permission.Code {
+			case PermWorkspaceManage:
+				require.Contains(t, permission.Hint, "workspace owner")
+			case PermWorkspaceTransfer:
+				require.Contains(t, permission.Hint, "archive")
+				require.Contains(t, permission.Hint, "attachments")
+			}
 			codes = append(codes, permission.Code)
 		}
 	}

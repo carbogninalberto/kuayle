@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Muokkaa roolia",
 	"settings.roles.team": "Tiimiroolit",
 	"settings.roles.inherit": "Käytä työtilan roolia",
-	"settings.roles.session_limits": "Sisäisiä rooleja tarkistavat toiminnot kohtelevat tätä jäsentä vieraana. Keskustelujen, Telegramin sekä agenttien viestien ja signaalien taustatehtävät ohittavat jäsenen.",
+	"settings.roles.session_limits": "Sisäisiä rooleja tarkistavat toiminnot kohtelevat tätä jäsentä vieraana. Keskustelujen, Telegramin sekä agenttien viestien ja signaalien taustatehtävät ohittavat jäsenen. Jäsen ei voi käyttää avustajan keskustelua, osoittaa agentteja tehtäviin eikä hallita tuonteja, SSO:ta tai SCIM:iä missään työtilan osassa.",
 	"settings.roles.override_limits": "Koko työtilan toiminnot edellyttävät oikeutta sekä työtilan roolissa että kaikissa tiimikohtaisissa poikkeuksissa. Vierasrooli yhdessä tiimissä voi estää projektien, tunnisteiden, näkymien ja wikin muokkauksen muissa tiimeissä.",
 	"settings.roles.custom": "Mukautettu rooli",
 	"settings.roles.load_failed": "Roolien lataaminen epäonnistui.",

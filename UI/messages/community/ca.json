@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Edita el rol",
 	"settings.roles.team": "Rols d’equip",
 	"settings.roles.inherit": "Utilitza el rol de l’espai de treball",
-	"settings.roles.session_limits": "Les funcions que comproven els rols integrats tracten aquest membre com a convidat. Les tasques en segon pla de converses, Telegram, missatges i senyals dels agents l’ometen.",
+	"settings.roles.session_limits": "Les funcions que comproven els rols integrats tracten aquest membre com a convidat. Les tasques en segon pla de converses, Telegram, missatges i senyals dels agents l’ometen. Aquest membre no pot utilitzar el xat amb l’assistent, assignar agents ni administrar importacions, SSO o SCIM en cap equip de l’espai de treball.",
 	"settings.roles.override_limits": "Les accions de tot l’espai requereixen el permís al rol de l’espai i a cada rol específic d’equip. Assignar el rol de convidat en un equip pot impedir editar projectes, etiquetes, vistes i la wiki en altres equips.",
 	"settings.roles.custom": "Rol personalitzat",
 	"settings.roles.load_failed": "No s’han pogut carregar els rols.",

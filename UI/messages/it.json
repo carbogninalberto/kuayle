@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Modifica ruolo",
 	"settings.roles.team": "Ruoli del team",
 	"settings.roles.inherit": "Usa il ruolo dello spazio di lavoro",
-	"settings.roles.session_limits": "Le funzionalità che verificano i ruoli predefiniti trattano questo membro come ospite. I processi in background per conversazioni, Telegram, messaggi e segnali degli agenti lo escludono.",
+	"settings.roles.session_limits": "Le funzionalità che verificano i ruoli predefiniti trattano questo membro come ospite. I processi in background per conversazioni, Telegram, messaggi e segnali degli agenti lo escludono. In tutto lo spazio di lavoro, il membro non può usare la chat con l’assistente, assegnare agenti o amministrare importazioni, SSO o SCIM.",
 	"settings.roles.override_limits": "Le azioni sull’intero spazio di lavoro richiedono il permesso nel ruolo dello spazio e in ogni ruolo assegnato ai team. Il ruolo Ospite in un team può impedire modifiche a progetti, etichette, viste e wiki negli altri team.",
 	"settings.roles.custom": "Ruolo personalizzato",
 	"settings.roles.load_failed": "Impossibile caricare i ruoli.",

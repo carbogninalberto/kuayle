@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Szerepkör szerkesztése",
 	"settings.roles.team": "Csapatszerepkörök",
 	"settings.roles.inherit": "Munkaterületi szerepkör használata",
-	"settings.roles.session_limits": "A beépített szerepköröket ellenőrző funkciók ezt a tagot vendégként kezelik. A beszélgetések, a Telegram, az ügynöküzenetek és a jelzések háttérfeladatai kihagyják.",
+	"settings.roles.session_limits": "A beépített szerepköröket ellenőrző funkciók ezt a tagot vendégként kezelik. A beszélgetések, a Telegram, az ügynöküzenetek és a jelzések háttérfeladatai kihagyják. A tag a munkaterület egészén nem használhatja az asszisztens csevegését, nem rendelhet hozzá ügynököket, és nem kezelheti az importálást, az SSO-t vagy a SCIM-et.",
 	"settings.roles.override_limits": "A teljes munkaterületet érintő műveletekhez a munkaterületi szerepkörben és minden csapatszintű felülbírálásban is szükséges a jogosultság. Egy csapat vendégszerepköre más csapatokban is megakadályozhatja a projektek, címkék, nézetek és wikik szerkesztését.",
 	"settings.roles.custom": "Egyéni szerepkör",
 	"settings.roles.load_failed": "A szerepkörök betöltése sikertelen.",

@@ -136,7 +136,7 @@ func TestIssueConversationsRecheckScopeAcrossChannels(t *testing.T) {
 		defer held.Rollback()
 		// The scoped authorization has already taken both membership locks. Remove
 		// membership must queue at the workspace parent before touching team rows.
-		timeout, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		timeout, stop := context.WithTimeout(domain.WithAccess(ctx, domain.Access{UserID: owner, WorkspaceID: ws}), 5*time.Second)
 		defer stop()
 		removed := make(chan error, 1)
 		go func() { removed <- NewWorkspaceRepository(db).RemoveMember(timeout, ws, user) }()

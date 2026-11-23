@@ -68,6 +68,9 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	relationService := service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issues)
 	handlers := &appHandlers{notif: handler.NewNotificationHandler(notifications), workspace: handler.NewWorkspaceHandler(service.NewWorkspaceService(workspaces, users, hub)), team: handler.NewTeamHandler(teamService), issue: handler.NewIssueHandler(issueService, commentService, users, statuses, projects, cycles, relationService)}
 	handlers.github = handler.NewGitHubHandler(service.NewGitHubService(repository.NewGitHubRepository(db), issues, teams, statuses, nil, nil, hub, "", "", nil))
+	handlers.conversation = handler.NewConversationHandler(service.NewConversationService(repository.NewConversationRepository(db),
+		service.NewAISettingsService(repository.NewAISettingsRepository(db), workspaces, issues, nil)), "")
+	handlers.workspaceTransfer = handler.NewWorkspaceTransferHandler(service.NewWorkspaceTransferService(repository.NewWorkspaceTransferRepository(db), nil))
 	handlers.workflow = handler.NewWorkflowHandler(service.NewWorkflowService(repository.NewWorkflowRepository(db), nil, nil))
 	secret := "private-team-http-test-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
@@ -203,6 +206,9 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 		doRequest(t, memberJWT, "GET", base+"/github/status", "", http.StatusOK)
 		doRequest(t, memberPAT, "GET", base+"/github/status", "", http.StatusForbidden)
 		doRequest(t, memberJWT, "GET", base+"/imports", "", http.StatusForbidden)
+		// Assistant chat excludes Guests at its own membership check.
+		guestStatus := doRequest(t, guestJWT, "GET", base+"/assistant/status", "", http.StatusNotFound)
+		require.JSONEq(t, string(guestStatus), string(doRequest(t, memberJWT, "GET", base+"/assistant/status", "", http.StatusNotFound)))
 	})
 	request(ownerJWT, "PUT", memberOverride, `{"role":"admin"}`, http.StatusNoContent)
 	request(memberJWT, "GET", teamPath, "", http.StatusNotFound)
@@ -330,6 +336,18 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 		"member.team_role_changed", "role.deleted", "member.removed",
 	}, changes)
 
+	t.Run("integration and export grants do not grant ownership", func(t *testing.T) {
+		workspace := "/api/workspaces/" + other.String()
+		roles := workspace + "/roles"
+		var delegated domain.WorkspaceRole
+		payload := `{"name":"Integrations and exports","permissions":["workspace:manage","workspace:transfer"]}`
+		require.NoError(t, json.Unmarshal(doRequest(t, ownerJWT, "POST", roles, payload, http.StatusCreated), &delegated))
+		doRequest(t, ownerJWT, "PATCH", workspace+"/members/"+guest.String(), `{"role":"`+delegated.Key+`"}`, http.StatusOK)
+		doRequest(t, guestJWT, "GET", workspace+"/github/app-setup", "", http.StatusOK)
+		doRequest(t, guestJWT, "GET", workspace+"/export", "", http.StatusOK)
+		doRequest(t, guestJWT, "POST", roles, payload, http.StatusForbidden)
+		doRequest(t, guestJWT, "DELETE", workspace, "", http.StatusForbidden)
+	})
 	t.Run("membership changes respect the target's current grants", func(t *testing.T) {
 		payload, err := json.Marshal(map[string]any{"name": "Recruiter", "permissions": append(
 			[]string{domain.PermMemberInvite}, domain.RolePermissions[domain.RoleGuest]...,
