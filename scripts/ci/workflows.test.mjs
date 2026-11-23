@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { planForPaths } from './impact.mjs';
@@ -8,6 +9,28 @@ import { planForPaths } from './impact.mjs';
 // fail visibly if those conventions change instead of silently dropping coverage.
 const workflows = { tests: 'test', security: 'security', build: 'build', readiness: 'release-readiness' };
 const plan = planForPaths(['.github/workflows/ci-impact.yml']);
+
+test('Docker lifecycle builds the six local amd64 images with the native build cache scopes', () => {
+  const { target } = JSON.parse(execFileSync('docker', [
+    'buildx', 'bake', '-f', 'docker-compose.yml', '-f', 'scripts/ci/runtime-integration.hcl',
+    '--set', '*.args.SECURITY_REFRESH=2000-01-01', '--print', 'runtime-integration'
+  ], { cwd: new URL('../../', import.meta.url), encoding: 'utf8' }));
+  const images = ['agent-claude', 'browser', 'collector', 'egress', 'headless', 'ide'];
+  assert.deepEqual(Object.keys(target).sort(), images.map(id => `integration-${id}`));
+  for (const id of images) {
+    const image = target[`integration-${id}`];
+    assert.equal(image.context, 'devmachine');
+    assert.equal(image.dockerfile, (id === 'agent-claude' ? 'agent' : id) + '/Dockerfile');
+    assert.deepEqual(image.tags, [`kuayle/dev-machine-${id}:0.1.0`]);
+    assert.deepEqual(image.platforms, ['linux/amd64']);
+    assert.equal(image.args.SECURITY_REFRESH, '2000-01-01');
+    assert.equal(image['cache-from'].length, 1);
+    assert.equal(image['cache-from'][0].type, 'gha');
+    assert.equal(image['cache-from'][0].scope, `dev-machine-${id}-amd64`);
+  }
+  assert.equal(target['integration-agent-claude'].args.PROVIDER, 'claude-code');
+});
+
 for (const [scope, file] of Object.entries(workflows)) {
   test(`${scope} workflow and result gate cover the complete planner catalog`, () => {
     const text = readFileSync(new URL(`../../.github/workflows/${file}.yml`, import.meta.url), 'utf8');

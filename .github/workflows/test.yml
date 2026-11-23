@@ -117,7 +117,8 @@ jobs:
     if: ${{ fromJSON(needs.changes.outputs.plan).runtime }}
     name: Docker Runtime Integration
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Allow a cold runtime build when the Ubuntu package mirrors are slow.
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: ./BE
@@ -173,16 +174,26 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.2.0
+        with:
+          buildkitd-config-inline: |
+            [worker.oci]
+              max-parallelism = 2
+
+      - name: Set image security refresh date
+        id: security-refresh
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
       - name: Build integration runtime images
-        working-directory: .
-        run: |
-          docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-ide --tag kuayle/dev-machine-ide:0.1.0 --file devmachine/ide/Dockerfile devmachine
-          docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-headless --tag kuayle/dev-machine-headless:0.1.0 --file devmachine/headless/Dockerfile devmachine
-          docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-browser --tag kuayle/dev-machine-browser:0.1.0 --file devmachine/browser/Dockerfile devmachine
-          docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-collector --tag kuayle/dev-machine-collector:0.1.0 --file devmachine/collector/Dockerfile devmachine
-          docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-egress --tag kuayle/dev-machine-egress:0.1.0 --file devmachine/egress/Dockerfile devmachine
-          docker buildx build --pull --load --platform linux/amd64 --cache-from type=gha,scope=dev-machine-agent-claude --build-arg PROVIDER=claude-code --tag kuayle/dev-machine-agent-claude:0.1.0 --file devmachine/agent/Dockerfile devmachine
+        uses: docker/bake-action@v7.5.0
+        with:
+          source: .
+          files: |
+            docker-compose.yml
+            scripts/ci/runtime-integration.hcl
+          targets: runtime-integration
+          set: "*.args.SECURITY_REFRESH=${{ steps.security-refresh.outputs.day }}"
+          pull: true
+          load: true
 
       - name: Smoke test headless runtime
         working-directory: .

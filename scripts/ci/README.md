@@ -82,9 +82,11 @@ Go test files and README files do not enter the built application.
   reported or its `review_by` date has passed, so exceptions are removed or
   re-reviewed. Only add an advisory with no available fix that is outside the
   shipped app; its tests are in [npm-audit.test.mjs](npm-audit.test.mjs).
-- Docker lifecycle still builds the runtime set it needs on its quota-capable host.
-  Those images are inputs to a distinct integration environment, not redundant
-  substitutes for architecture scans.
+- Docker lifecycle uses [Buildx Bake](runtime-integration.hcl) to load six
+  amd64 images from the checked-out Compose definitions on the quota-capable
+  runner. It reads the native image builds' cache scopes and uses the same UTC
+  security refresh date. The job allows 90 minutes for cold builds and keeps
+  the Go lifecycle test's five-minute timeout.
 
 Pushes to main, security tag/schedule runs and releases keep their existing
 full job/image coverage. On a release, `release-source` commits the version bump
@@ -200,7 +202,9 @@ for job conditions, diff limits and skipped workflow behavior.
 
 ## Maintain and verify
 
-Run from the root with Node 22 and the repository's Go toolchain:
+Run from the root with Node 22, the repository's Go toolchain, jq and Docker
+Buildx. The runtime image contract uses `docker buildx bake --print`, which
+can resolve the targets without a Docker daemon.
 
 ```sh
 node --test scripts/ci/*.test.mjs
