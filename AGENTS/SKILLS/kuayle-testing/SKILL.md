@@ -53,7 +53,9 @@ at disposable test databases and prepare the required fixtures as needed.
 CI uses PostgreSQL 16, Redis 7, `REDIS_URL` and a test `JWT_SECRET` (at least 32
 characters), applies migrations with `go run ./cmd/server migrate up`, then runs
 `go test ./... -race -coverprofile=coverage.out -covermode=atomic -count=1 -timeout=30m`.
-Some migration tests need permission to create isolated databases. Do not source
+The repository isolation fixture migrates a pristine database once per test
+process and clones it for each test. It and some migration tests require
+permission to create databases. Do not source
 an arbitrary `.env` and assume its database is safe to modify.
 
 Work from narrow to wide: compile and type-check first, then the single test closest to your change, and widen to the package or spec file only if that passes. Leave the full suites to CI.
