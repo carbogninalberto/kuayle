@@ -61,7 +61,7 @@ func beginRoleChange(ctx context.Context, db *sqlx.DB, ws uuid.UUID) (*sqlx.Tx, 
 		return nil, err
 	}
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,202))`, ws); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return nil, err
 	}
 	return tx, nil
@@ -86,7 +86,7 @@ func (r *WorkspaceRepository) SaveRole(ctx context.Context, ws uuid.UUID, role *
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	query := `UPDATE workspace_roles AS r SET name=$3,description=$4,permissions=$5 WHERE workspace_id=$1 AND key=$2`
 	if create {
 		query = `INSERT INTO workspace_roles AS r(workspace_id,key,name,description,permissions) VALUES ($1,$2,$3,$4,$5)`
@@ -115,7 +115,7 @@ func (r *WorkspaceRepository) DeleteRole(ctx context.Context, ws uuid.UUID, key 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	err = tx.QueryRowContext(ctx, `DELETE FROM workspace_roles WHERE workspace_id=$1 AND key=$2 RETURNING key`, ws, key).Scan(&key)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
@@ -167,7 +167,7 @@ func (r *WorkspaceRepository) SetTeamRole(ctx context.Context, ws, user, team uu
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var current string
 	err = tx.GetContext(ctx, &current, `SELECT m.role_key FROM workspace_members m JOIN teams t ON t.workspace_id=m.workspace_id
 		WHERE m.workspace_id=$1 AND m.user_id=$2 AND t.id=$3 FOR UPDATE OF m`, ws, user, team)

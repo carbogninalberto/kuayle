@@ -27,7 +27,7 @@ func (r *WorkspaceInviteLinkRepository) Create(ctx context.Context, link *domain
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	a, _ := domain.AccessFromContext(ctx)
 	if err := authorizeRoleGrant(ctx, tx, link.WorkspaceID, link.CreatedBy, link.Role, a.TokenScopes); err != nil {
 		return err

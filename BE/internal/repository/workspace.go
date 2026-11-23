@@ -187,7 +187,7 @@ func (r *WorkspaceRepository) AddMember(ctx context.Context, member *domain.Work
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if a, ok := domain.AccessFromContext(ctx); ok {
 		if err := authorizeRoleGrant(ctx, tx, member.WorkspaceID, a.UserID, member.Role, a.TokenScopes); err != nil {
 			return err

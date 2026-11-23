@@ -21,19 +21,26 @@ func TestWorkspaceRolesMigration(t *testing.T) {
 	}
 	admin, err := sql.Open("pgx", url)
 	require.NoError(t, err)
-	defer admin.Close()
+	t.Cleanup(func() { require.NoError(t, admin.Close()) })
 	name := "roles_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	_, err = admin.Exec("CREATE DATABASE " + name)
 	require.NoError(t, err)
-	defer admin.ExecContext(context.Background(), "DROP DATABASE "+name+" WITH (FORCE)")
+	t.Cleanup(func() {
+		_, err := admin.ExecContext(context.Background(), "DROP DATABASE "+name+" WITH (FORCE)")
+		require.NoError(t, err)
+	})
 	target := databaseURLWithName(t, url, name)
 	m, err := migrate.New("file://.", target)
 	require.NoError(t, err)
-	defer m.Close()
+	t.Cleanup(func() {
+		sourceErr, dbErr := m.Close()
+		require.NoError(t, sourceErr)
+		require.NoError(t, dbErr)
+	})
 	require.NoError(t, m.Migrate(201))
 	db, err := sql.Open("pgx", target)
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	fixture := insertBaseMigrationFixture(t, db)
 	users := map[string]uuid.UUID{domain.RoleOwner: fixture.userA}
 	for _, role := range []string{domain.RoleAdmin, domain.RoleMember, domain.RoleGuest} {
