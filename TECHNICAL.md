@@ -1506,6 +1506,30 @@ has or had a private team is refused with 403
 predicate as emitting; the settings page explains why from the workspace's
 `privacy_enabled`.
 
+## Workspace roles
+
+Migration 202 seeds the four built-in role definitions for every workspace.
+`workspace_members.role_key` identifies the assigned role and
+`team_role_overrides` stores explicit exceptions. The legacy `role` column
+gives custom memberships and memberships with team exceptions guest privileges
+in features that still check role names. The API reads the current permission
+set on each request. Team routes bind access to the routed team, issue routes
+resolve the stored team, and issue collection queries check each selected row.
+Operations spanning several teams without a row-level permission check require
+the permission in the workspace and in every override.
+
+The interactive owner manages definitions at `/api/workspaces/:slug/roles`.
+Within that workspace, `GET /roles/permissions` returns grouped codes and hints.
+A create request takes a name, description and either a permission list or a
+built-in template key. Change a membership through `PATCH /members/:userId`.
+List its exceptions at `GET /members/:userId/team-roles`. Use `PUT` with a
+role key or `DELETE` on `/members/:userId/team-roles/:teamId` to set or clear
+an exception. A team override preserves private-team visibility checks.
+
+After applying migration 202, rerun the machine gateway database provisioner
+so it can read `dev_machine_role_access`. To downgrade, move members to built-in
+roles, clear team overrides and delete custom definitions first.
+
 ## MCP server
 
 `POST /mcp` is a stateless Streamable HTTP [MCP server](docs/mcp.md) in

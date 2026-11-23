@@ -58,11 +58,11 @@ type WorkspaceResponse struct {
 
 type InviteMemberRequest struct {
 	Email string `json:"email" validate:"required,email"`
-	Role  string `json:"role" validate:"required,oneof=admin member guest"`
+	Role  string `json:"role" validate:"required,max=36,ne=owner"`
 }
 
 type UpdateMemberRoleRequest struct {
-	Role string `json:"role" validate:"required,oneof=owner admin member guest"`
+	Role string `json:"role" validate:"required,max=36"`
 }
 
 type WorkspaceMemberResponse struct {
@@ -72,4 +72,11 @@ type WorkspaceMemberResponse struct {
 	AvatarURL *string   `json:"avatar_url"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type SaveWorkspaceRoleRequest struct {
+	Name        string   `json:"name" validate:"required,max=100"`
+	Description string   `json:"description" validate:"max=2000"`
+	Permissions []string `json:"permissions"`
+	Template    string   `json:"template"`
 }

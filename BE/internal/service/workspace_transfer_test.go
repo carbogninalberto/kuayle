@@ -206,6 +206,16 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO teams(id,workspace_id,name,key) VALUES($1,$2,'Engineering','ENG')`, teamID, workspaceID)
 	require.NoError(t, err)
+	memberID, roleKey := uuid.New(), uuid.NewString()
+	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Role member','unusable')`, memberID, memberID.String()+"@example.test")
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, memberID) })
+	_, err = db.Exec(`INSERT INTO workspace_roles(workspace_id,key,name,permissions) VALUES($1,$2,'Reader','{issues:read}')`, workspaceID, roleKey)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role,assigned_role) VALUES($1,$2,'guest',$3)`, workspaceID, memberID, roleKey)
+	require.NoError(t, err)
+	_, err = db.Exec(`INSERT INTO team_role_overrides(workspace_id,team_id,user_id,role_key) VALUES($1,$2,$3,'member')`, workspaceID, teamID, memberID)
+	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO team_statuses(id,team_id,name,slug,category,position,is_default) VALUES($1,$2,'Backlog','backlog','backlog',0,true)`, statusID, teamID)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO labels(id,workspace_id,name,color) VALUES($1,$2,'Portable','#123456')`, labelID, workspaceID)
@@ -324,6 +334,16 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 
 	var targetWorkspaceID uuid.UUID
 	require.NoError(t, db.Get(&targetWorkspaceID, `SELECT id FROM workspaces WHERE slug=$1`, targetSlug))
+	importedAccess, err := repository.NewWorkspaceRepository(db).MemberAccess(ctx, targetWorkspaceID, memberID)
+	require.NoError(t, err)
+	require.NotNil(t, importedAccess)
+	require.Equal(t, roleKey, importedAccess.Role)
+	require.ElementsMatch(t, []string{domain.PermIssuesRead}, importedAccess.Permissions)
+	require.Len(t, importedAccess.Teams, 1)
+	for importedTeam, permissions := range importedAccess.Teams {
+		require.NotEqual(t, teamID, importedTeam)
+		require.ElementsMatch(t, domain.RolePermissions[domain.RoleMember], permissions)
+	}
 	var importedDescription string
 	require.NoError(t, db.Get(&importedDescription, `SELECT description FROM issues WHERE workspace_id=$1 AND identifier_text='ENG-1'`, targetWorkspaceID))
 	require.Contains(t, importedDescription, "/api/workspaces/"+targetSlug+"/assets/")

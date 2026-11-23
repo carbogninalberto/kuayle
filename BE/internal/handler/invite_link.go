@@ -8,6 +8,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
@@ -41,6 +42,9 @@ func (h *InviteLinkHandler) Create(c *echo.Context) error {
 	userID := middleware.GetUserID(c)
 
 	link, rawToken, err := h.inviteLinkSvc.Create(c.Request().Context(), ws.ID, userID, req)
+	if errors.Is(err, repository.ErrRoleGrant) {
+		return response.Forbidden(c)
+	}
 	if err != nil {
 		return response.InternalError(c)
 	}

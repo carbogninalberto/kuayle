@@ -14,6 +14,8 @@ func (r *WorkspaceRepository) RealtimeAccess(ctx context.Context, workspaceID, u
 	}
 	err := r.db.GetContext(ctx, &policy, `SELECT
  EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id=$1 AND user_id=$2) AS member,
- EXISTS(SELECT 1 FROM workspace_privacy WHERE workspace_id=$1) AS private`, workspaceID, userID)
+ (EXISTS(SELECT 1 FROM workspace_privacy WHERE workspace_id=$1) OR
+ EXISTS(SELECT 1 FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 AND assigned_role IS NOT NULL) OR
+ EXISTS(SELECT 1 FROM team_role_overrides WHERE workspace_id=$1 AND user_id=$2)) AS private`, workspaceID, userID)
 	return policy.Member, policy.Private, err
 }

@@ -25,7 +25,7 @@ func TestDebugTraceReadsEverySourceAndFollowsTaskAccess(t *testing.T) {
 	require.NoError(t, err)
 
 	rows, err := repo.DebugTrace(ctx, task.WorkspaceID, task.ID, TraceLimits{Rows: 100, Transitions: 100})
-	require.NoError(t, err)
+	require.NoError(t, err, "the workspace owner who created the task")
 	require.Equal(t, task.ID, rows.Task.ID)
 	require.Equal(t, task.WorkspaceID, rows.Task.WorkspaceID)
 	require.NotEmpty(t, rows.Transitions)
@@ -37,10 +37,6 @@ func TestDebugTraceReadsEverySourceAndFollowsTaskAccess(t *testing.T) {
 	admin := workspaceUser(t, db, task.WorkspaceID, "Ada Admin", "admin")
 	_, err = repo.DebugTrace(admin, task.WorkspaceID, task.ID, TraceLimits{Rows: 100, Transitions: 100})
 	require.NoError(t, err, "a workspace admin who can see the issue")
-	owner := workspaceUser(t, db, task.WorkspaceID, "Owen Owner", "owner")
-	_, err = repo.DebugTrace(owner, task.WorkspaceID, task.ID, TraceLimits{Rows: 100, Transitions: 100})
-	require.NoError(t, err, "a workspace owner who can see the issue")
-
 	member := workspaceUser(t, db, task.WorkspaceID, "Mona Member", "member")
 	_, err = repo.DebugTrace(member, task.WorkspaceID, task.ID, TraceLimits{Rows: 100, Transitions: 100})
 	require.ErrorIs(t, err, ErrConversationNotFound, "an ordinary member is not the creator")

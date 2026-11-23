@@ -457,6 +457,9 @@ func validateWorkspaceArchive(parsed *parsedWorkspaceArchive) error {
 	for _, spec := range repository.WorkspaceTransferTableSpecs() {
 		expected[spec.Name] = spec
 		if _, ok := parsed.data.Tables[spec.Name]; !ok {
+			if parsed.manifest.SourceSchemaVersion < 202 && (spec.Name == "workspace_roles" || spec.Name == "team_role_overrides") && parsed.manifest.Counts[spec.Name] == 0 {
+				continue
+			}
 			return invalidArchive("workspace data is missing table "+spec.Name, nil)
 		}
 	}
@@ -694,7 +697,7 @@ func (s *WorkspaceTransferService) Import(ctx context.Context, path, name, slug 
 		}
 		for _, sourceRow := range parsed.data.Tables[spec.Name] {
 			row := remapTransferValue(cloneTransferRow(sourceRow), idMap, parsed.manifest.SourceWorkspaceSlug, slug, assetIDMap).(dto.WorkspaceTransferRow)
-			if spec.Name == "workspace_members" && transferString(row["user_id"]) == importerID.String() {
+			if (spec.Name == "workspace_members" || spec.Name == "team_role_overrides") && transferString(row["user_id"]) == importerID.String() {
 				continue
 			}
 			prepareImportedRow(spec.Name, row)

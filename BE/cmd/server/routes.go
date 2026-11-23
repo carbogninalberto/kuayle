@@ -23,6 +23,10 @@ func scoped(g *echo.Group, method, path string, h echo.HandlerFunc, perm string,
 	addNamedRoute(g, method, path, h, "perm:"+perm, middleware...)
 }
 
+func teamResources(g *echo.Group, method, path string, h echo.HandlerFunc, perm string) {
+	addNamedRoute(g, method, path, h, "perm:"+perm, mw.RequireTeamResourcePermission(perm))
+}
+
 func sessionOnly(g *echo.Group, method, path string, h echo.HandlerFunc, extra ...echo.MiddlewareFunc) {
 	middlewares := append([]echo.MiddlewareFunc{mw.RequireSession()}, extra...)
 	addNamedRoute(g, method, path, h, "session", middlewares...)
@@ -272,6 +276,15 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodPatch, "/members/:userId", h.workspace.UpdateMemberRole, "member:invite")
 	scoped(ws, http.MethodDelete, "/members/:userId", h.workspace.RemoveMember, "member:invite")
 
+	ownerOnly(ws, http.MethodGet, "/roles", h.workspace.ListRoles)
+	ownerOnly(ws, http.MethodGet, "/roles/permissions", h.workspace.RolePermissions)
+	ownerOnly(ws, http.MethodGet, "/members/:userId/team-roles", h.workspace.TeamRoles)
+	ownerOnly(ws, http.MethodPost, "/roles", h.workspace.SaveRole)
+	ownerOnly(ws, http.MethodPut, "/roles/:roleKey", h.workspace.SaveRole)
+	ownerOnly(ws, http.MethodDelete, "/roles/:roleKey", h.workspace.DeleteRole)
+	ownerOnly(ws, http.MethodPut, "/members/:userId/team-roles/:teamId", h.workspace.SetTeamRole)
+	ownerOnly(ws, http.MethodDelete, "/members/:userId/team-roles/:teamId", h.workspace.SetTeamRole)
+
 	// Foreign imports are interactive and admin-only. A personal access token
 	// must never be able to read or use stored tracker credentials, and an SSO
 	// session scoped to another workspace must not import here.
@@ -332,13 +345,13 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodDelete, "/teams/:teamId/cycles/:cycleId", h.cycle.Delete, "cycle:manage")
 
 	// Issues
-	scoped(ws, http.MethodGet, "/issues", h.issue.List, "issues:read")
-	scoped(ws, http.MethodPost, "/issues", h.issue.Create, "issue:create")
+	teamResources(ws, http.MethodGet, "/issues", h.issue.List, "issues:read")
+	teamResources(ws, http.MethodPost, "/issues", h.issue.Create, "issue:create")
 	scoped(ws, http.MethodPost, "/issues/expand-description", h.aiSettings.ExpandDraftIssueDescription, "issue:create")
-	scoped(ws, http.MethodPatch, "/issues/bulk", h.issue.BulkUpdate, "issue:update")
-	scoped(ws, http.MethodDelete, "/issues/bulk", h.issue.BulkDelete, "issue:delete_own")
-	scoped(ws, http.MethodPost, "/issues/bulk/undo", h.issue.BulkUndo, "issue:update")
-	scoped(ws, http.MethodPost, "/issues/bulk/restore", h.issue.BulkRestore, "issue:delete_own")
+	teamResources(ws, http.MethodPatch, "/issues/bulk", h.issue.BulkUpdate, "issue:update")
+	teamResources(ws, http.MethodDelete, "/issues/bulk", h.issue.BulkDelete, "issue:delete_own")
+	teamResources(ws, http.MethodPost, "/issues/bulk/undo", h.issue.BulkUndo, "issue:update")
+	teamResources(ws, http.MethodPost, "/issues/bulk/restore", h.issue.BulkRestore, "issue:delete_own")
 	scoped(ws, http.MethodGet, "/issues/:identifier", h.issue.Get, "issues:read")
 	scoped(ws, http.MethodPatch, "/issues/:identifier", h.issue.Update, "issue:update")
 	scoped(ws, http.MethodDelete, "/issues/:identifier", h.issue.Delete, "issue:delete_own")

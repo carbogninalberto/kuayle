@@ -130,11 +130,7 @@ func (s *InviteLinkService) Validate(ctx context.Context, token string) (*domain
 // role may invite. Join repeats this check inside its transaction; this copy
 // only keeps the preview and the signup pre-check consistent with it.
 func (s *InviteLinkService) creatorCanInvite(ctx context.Context, link *domain.WorkspaceInviteLink) (bool, error) {
-	member, err := s.workspaceRepo.GetMember(ctx, link.WorkspaceID, link.CreatedBy)
-	if err != nil {
-		return false, err
-	}
-	return member != nil && domain.HasPermission(member.Role, domain.PermMemberInvite), nil
+	return s.workspaceRepo.CanGrantRole(ctx, link.WorkspaceID, link.CreatedBy, link.Role)
 }
 
 // Preview returns public metadata about an invite token. Unknown tokens yield

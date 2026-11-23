@@ -23,9 +23,21 @@ func NewWorkspaceInviteLinkRepository(db *sqlx.DB) *WorkspaceInviteLinkRepositor
 func (r *WorkspaceInviteLinkRepository) Create(ctx context.Context, link *domain.WorkspaceInviteLink) error {
 	query := `INSERT INTO workspace_invite_links (id, workspace_id, token_hash, role, created_by, expires_at, max_uses)
 		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING use_count, created_at`
-	return r.db.QueryRowContext(ctx, query,
+	tx, err := beginRoleChange(ctx, r.db, link.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	a, _ := domain.AccessFromContext(ctx)
+	if err := authorizeRoleGrant(ctx, tx, link.WorkspaceID, link.CreatedBy, link.Role, a.TokenScopes); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, query,
 		link.ID, link.WorkspaceID, link.TokenHash, link.Role, link.CreatedBy, link.ExpiresAt, link.MaxUses,
-	).Scan(&link.UseCount, &link.CreatedAt)
+	).Scan(&link.UseCount, &link.CreatedAt); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *WorkspaceInviteLinkRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.WorkspaceInviteLink, error) {
@@ -96,7 +108,7 @@ func (r *WorkspaceInviteLinkRepository) Join(ctx context.Context, id, userID uui
 	}
 
 	var role string
-	err = tx.GetContext(ctx, &role, `SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, link.WorkspaceID, userID)
+	err = tx.GetContext(ctx, &role, `SELECT role_key FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, link.WorkspaceID, userID)
 	if err == nil {
 		return role, tx.Commit()
 	}
@@ -122,12 +134,11 @@ func (r *WorkspaceInviteLinkRepository) Join(ctx context.Context, id, userID uui
 	// revoke the creator's links under this row lock; this check also covers
 	// links that predate that revocation. The membership row is read without a
 	// lock because those writers lock it before the link.
-	var creatorRole string
-	err = tx.GetContext(ctx, &creatorRole, `SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, link.WorkspaceID, link.CreatedBy)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	allowed, err := canGrantRole(ctx, tx, link.WorkspaceID, link.CreatedBy, link.Role, nil, false)
+	if err != nil {
 		return "", err
 	}
-	if err != nil || !domain.HasPermission(creatorRole, domain.PermMemberInvite) {
+	if !allowed {
 		return "", ErrInviteLinkRevoked
 	}
 
@@ -156,7 +167,7 @@ func (r *WorkspaceInviteLinkRepository) Join(ctx context.Context, id, userID uui
 		return "", err
 	}
 	if inserted == 0 {
-		if err := tx.GetContext(ctx, &role, `SELECT role FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, link.WorkspaceID, userID); err != nil {
+		if err := tx.GetContext(ctx, &role, `SELECT role_key FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, link.WorkspaceID, userID); err != nil {
 			return "", err
 		}
 	} else {

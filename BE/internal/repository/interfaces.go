@@ -75,7 +75,17 @@ type PersonalAccessTokenRepo interface {
 	UpdateLastUsed(ctx context.Context, id uuid.UUID) error
 }
 
+type WorkspaceRoleRepo interface {
+	TeamRoles(context.Context, uuid.UUID, uuid.UUID) ([]domain.TeamRole, error)
+	CanGrantRole(context.Context, uuid.UUID, uuid.UUID, string) (bool, error)
+	ListRoles(context.Context, uuid.UUID) ([]domain.WorkspaceRole, error)
+	SaveRole(context.Context, uuid.UUID, *domain.WorkspaceRole, bool) error
+	DeleteRole(context.Context, uuid.UUID, string) error
+	SetTeamRole(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, string) error
+}
+
 type WorkspaceRepo interface {
+	WorkspaceRoleRepo
 	Create(ctx context.Context, ws *domain.Workspace) error
 	CreateWithMemberAndLabels(ctx context.Context, ws *domain.Workspace, member *domain.WorkspaceMember, labels []domain.Label) error
 	GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error)
@@ -89,7 +99,7 @@ type WorkspaceRepo interface {
 	GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error)
 	ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMember, error)
 	ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error)
-	UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error
+	UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) (string, error)
 	RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error
 	CountMembersByRole(ctx context.Context, workspaceID uuid.UUID, role string) (int, error)
 }

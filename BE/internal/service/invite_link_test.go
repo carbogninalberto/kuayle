@@ -196,7 +196,7 @@ func TestInviteLinkService_Preview_Valid(t *testing.T) {
 
 	linkRepo.On("GetByTokenHash", ctx, hashInviteToken("tok")).Return(link, nil)
 	wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
-	wsRepo.On("GetMember", ctx, wsID, link.CreatedBy).Return(&domain.WorkspaceMember{Role: domain.RoleAdmin}, nil)
+	wsRepo.On("CanGrantRole", ctx, wsID, link.CreatedBy, link.Role).Return(true, nil)
 
 	preview, err := svc.Preview(ctx, "tok")
 
@@ -247,7 +247,7 @@ func TestInviteLinkService_Preview_Statuses(t *testing.T) {
 			tc.mutate(link)
 			linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
 			wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
-			wsRepo.On("GetMember", ctx, wsID, link.CreatedBy).Return(&domain.WorkspaceMember{Role: domain.RoleOwner}, nil).Maybe()
+			wsRepo.On("CanGrantRole", ctx, wsID, link.CreatedBy, link.Role).Return(true, nil).Maybe()
 
 			preview, err := svc.Preview(ctx, "tok")
 
@@ -279,7 +279,7 @@ func TestInviteLinkService_CreatorWithoutInvitePermission(t *testing.T) {
 			link := validInviteLink(wsID)
 			linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
 			wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
-			wsRepo.On("GetMember", ctx, wsID, link.CreatedBy).Return(tc.member, nil)
+			wsRepo.On("CanGrantRole", ctx, wsID, link.CreatedBy, link.Role).Return(false, nil)
 
 			preview, err := svc.Preview(ctx, "tok")
 			assert.NoError(t, err)

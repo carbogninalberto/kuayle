@@ -18,14 +18,6 @@ type fakeWorkspaceRepo struct {
 	member    *domain.WorkspaceMember
 }
 
-func (r *fakeWorkspaceRepo) Create(ctx context.Context, ws *domain.Workspace) error {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) CreateWithMemberAndLabels(ctx context.Context, ws *domain.Workspace, member *domain.WorkspaceMember, labels []domain.Label) error {
-	panic("not implemented")
-}
-
 func (r *fakeWorkspaceRepo) GetBySlug(ctx context.Context, slug string) (*domain.Workspace, error) {
 	if r.workspace != nil && r.workspace.Slug == slug {
 		return r.workspace, nil
@@ -33,48 +25,15 @@ func (r *fakeWorkspaceRepo) GetBySlug(ctx context.Context, slug string) (*domain
 	return nil, nil
 }
 
-func (r *fakeWorkspaceRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Workspace, error) {
-	panic("not implemented")
+func (r *fakeWorkspaceRepo) MemberAccess(ctx context.Context, ws, user uuid.UUID) (*domain.RoleAccess, error) {
+	if r.member == nil {
+		return nil, nil
+	}
+	return &domain.RoleAccess{Role: r.member.Role, Permissions: domain.RolePermissions[r.member.Role]}, nil
 }
 
-func (r *fakeWorkspaceRepo) Update(ctx context.Context, ws *domain.Workspace) error {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) Delete(ctx context.Context, id uuid.UUID) ([]domain.TeamIconImage, error) {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) AddMember(ctx context.Context, member *domain.WorkspaceMember) error {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error) {
-	return r.member, nil
-}
-
-func (r *fakeWorkspaceRepo) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMember, error) {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
-	panic("not implemented")
-}
-
-func (r *fakeWorkspaceRepo) CountMembersByRole(ctx context.Context, workspaceID uuid.UUID, role string) (int, error) {
-	panic("not implemented")
+func (r *fakeWorkspaceRepo) IssueTeam(context.Context, uuid.UUID, string) (uuid.UUID, error) {
+	panic("unexpected issue lookup")
 }
 
 func runMembership(t *testing.T, repo *fakeWorkspaceRepo, userID uuid.UUID, tokenWorkspaces []string, markPAT bool) int {

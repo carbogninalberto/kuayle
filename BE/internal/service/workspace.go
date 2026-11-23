@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -318,8 +319,9 @@ func (s *WorkspaceService) InviteMember(ctx context.Context, workspaceID uuid.UU
 		return err
 	}
 
-	audit.Log("member.invited", user.ID, map[string]interface{}{
-		"workspace_id": workspaceID, "role": req.Role, "email": req.Email,
+	actor, _ := domain.AccessFromContext(ctx)
+	audit.Log("member.invited", actor.UserID, map[string]interface{}{
+		"workspace_id": workspaceID, "user_id": user.ID, "role": req.Role, "email": req.Email,
 	})
 	return nil
 }
@@ -337,11 +339,6 @@ func (s *WorkspaceService) UpdateMemberRole(ctx context.Context, workspaceID, us
 		return ErrWorkspaceNotFound
 	}
 
-	member, err := s.workspaceRepo.GetMember(ctx, workspaceID, userID)
-	if err != nil || member == nil {
-		return fmt.Errorf("member not found")
-	}
-
 	if userID == ws.OwnerID && role != domain.RoleOwner {
 		return fmt.Errorf("workspace owner cannot be demoted")
 	}
@@ -349,13 +346,18 @@ func (s *WorkspaceService) UpdateMemberRole(ctx context.Context, workspaceID, us
 		return fmt.Errorf("ownership transfer is not supported")
 	}
 
-	if err := s.workspaceRepo.UpdateMemberRole(ctx, workspaceID, userID, role); err != nil {
+	previous, err := s.workspaceRepo.UpdateMemberRole(ctx, workspaceID, userID, role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("member not found")
+	}
+	if err != nil {
 		return err
 	}
 
 	s.refreshAccess(workspaceID)
-	audit.Log("member.role_changed", userID, map[string]interface{}{
-		"workspace_id": workspaceID, "new_role": role, "old_role": member.Role,
+	actor, _ := domain.AccessFromContext(ctx)
+	audit.Log("member.role_changed", actor.UserID, map[string]interface{}{
+		"workspace_id": workspaceID, "user_id": userID, "new_role": role, "old_role": previous,
 	})
 	return nil
 }
@@ -381,8 +383,9 @@ func (s *WorkspaceService) RemoveMember(ctx context.Context, workspaceID, userID
 	}
 
 	s.refreshAccess(workspaceID)
-	audit.Log("member.removed", userID, map[string]interface{}{
-		"workspace_id": workspaceID,
+	actor, _ := domain.AccessFromContext(ctx)
+	audit.Log("member.removed", actor.UserID, map[string]interface{}{
+		"workspace_id": workspaceID, "user_id": userID,
 	})
 	return nil
 }

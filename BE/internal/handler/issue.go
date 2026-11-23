@@ -361,12 +361,11 @@ func (h *IssueHandler) Unsubscribe(c *echo.Context) error {
 func (h *IssueHandler) Delete(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	identifier := c.Param("identifier")
-	role, _ := c.Get("workspace_role").(string)
 	userID := middleware.GetUserID(c)
 
 	// Admin/Owner can delete any issue, but a token must also carry issue:delete;
 	// otherwise the token's issue:delete_own scope only covers its owner's issues.
-	canDeleteAny := domain.HasPermission(role, domain.PermIssueDelete) && middleware.TokenAllows(c, domain.PermIssueDelete)
+	canDeleteAny := middleware.RequestAllows(c, domain.PermIssueDelete)
 	if !canDeleteAny {
 		issue, err := h.issueSvc.GetByIdentifier(c.Request().Context(), ws.ID, identifier)
 		if err != nil || issue == nil {
@@ -422,9 +421,8 @@ func (h *IssueHandler) BulkDelete(c *echo.Context) error {
 	}
 
 	ws := c.Get("workspace").(*domain.Workspace)
-	role, _ := c.Get("workspace_role").(string)
 	userID := middleware.GetUserID(c)
-	canDeleteAny := domain.HasPermission(role, domain.PermIssueDelete) && middleware.TokenAllows(c, domain.PermIssueDelete)
+	canDeleteAny := middleware.RequestAllows(c, domain.PermIssueDelete)
 
 	deleted, err := h.issueSvc.BulkDelete(c.Request().Context(), ws.ID, userID, canDeleteAny, req)
 	if err != nil {

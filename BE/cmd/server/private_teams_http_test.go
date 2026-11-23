@@ -21,6 +21,8 @@ import (
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
 	"github.com/labstack/echo/v5"
 	"github.com/lib/pq"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,7 +66,7 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	issueService := service.NewIssueService(issues, teams, statuses, repository.NewIssueHistoryRepository(db), hub, notifications, projects)
 	commentService := service.NewCommentService(repository.NewCommentRepository(db), issues, hub, notifications)
 	relationService := service.NewIssueRelationService(repository.NewIssueRelationRepository(db), issues)
-	handlers := &appHandlers{workspace: handler.NewWorkspaceHandler(service.NewWorkspaceService(workspaces, users, hub)), team: handler.NewTeamHandler(teamService), issue: handler.NewIssueHandler(issueService, commentService, users, statuses, projects, cycles, relationService)}
+	handlers := &appHandlers{notif: handler.NewNotificationHandler(notifications), workspace: handler.NewWorkspaceHandler(service.NewWorkspaceService(workspaces, users, hub)), team: handler.NewTeamHandler(teamService), issue: handler.NewIssueHandler(issueService, commentService, users, statuses, projects, cycles, relationService)}
 	secret := "private-team-http-test-secret"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
 	middleware.workspaceMembership = mw.WorkspaceMembership(workspaces, mw.SSONotEnforced)
@@ -185,8 +187,83 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	require.Zero(t, count)
 	require.NoError(t, db.Get(&count, `SELECT COUNT(*) FROM workspace_privacy WHERE workspace_id=$1`, other))
 	require.Zero(t, count)
+	// The same issued PAT follows role edits, member reassignment and a
+	// team exception. An override cannot make a private team visible.
+	rolesPath := base + "/roles"
+	previousHooks := log.StandardLogger().ReplaceHooks(log.LevelHooks{})
+	t.Cleanup(func() { log.StandardLogger().ReplaceHooks(previousHooks) })
+	auditEvents := logtest.NewGlobal()
+	memberPath := base + "/members/" + guest.String()
+	overridePath := memberPath + "/team-roles/" + teamID.String()
+	request(adminJWT, "POST", rolesPath, `{"name":"Reader","template":"guest"}`, http.StatusForbidden)
+	request(ownerJWT, "PUT", rolesPath+"/owner", `{"name":"Changed","permissions":[]}`, http.StatusForbidden)
+	request(ownerJWT, "DELETE", rolesPath+"/member", "", http.StatusForbidden)
+	request(ownerJWT, "POST", rolesPath, `{"name":"Invalid","permissions":["unknown"]}`, http.StatusBadRequest)
+	var role domain.WorkspaceRole
+	require.NoError(t, json.Unmarshal(request(ownerJWT, "POST", rolesPath, `{"name":"Triage","template":"member"}`, http.StatusCreated), &role))
+	require.ElementsMatch(t, domain.RolePermissions[domain.RoleMember], role.Permissions)
+	invite := `{"email":"` + outsider.String() + `@example.test","role":"` + role.Key + `"}`
+	request(ownerJWT, "POST", base+"/invite", invite, http.StatusOK)
+	require.Contains(t, string(request(jwt(outsider), "GET", base, "", http.StatusOK)), role.Key)
+	request(ownerJWT, "DELETE", base+"/members/"+outsider.String(), "", http.StatusOK)
+	userPAT := pat(guest, []string{domain.PermNotificationsRead, domain.PermWorkspacesRead}, nil)
+	_, err = db.Exec(`INSERT INTO notifications(user_id,workspace_id,issue_id,type,title,source_team_ids)
+ SELECT $1,workspace_id,id,'assigned','Role notification',ARRAY[team_id] FROM issues WHERE workspace_id=$2 AND identifier_text='PRIV-1'`, guest, ws)
+	require.NoError(t, err)
+	require.Contains(t, string(request(userPAT, "GET", "/api/notifications", "", http.StatusOK)), "Role notification")
+	rolePath := rolesPath + "/" + role.Key
+	assignment := `{"role":"` + role.Key + `"}`
+	request(ownerJWT, "PATCH", memberPath, assignment, http.StatusOK)
+	request(guestWritePAT, "PATCH", issuePath, `{"title":"Triaged"}`, http.StatusOK)
+	request(ownerJWT, "DELETE", rolePath, "", http.StatusConflict)
+	var roles []domain.WorkspaceRole
+	require.NoError(t, json.Unmarshal(request(ownerJWT, "GET", rolesPath, "", http.StatusOK), &roles))
+	found := false
+	for _, listed := range roles {
+		if listed.Key == role.Key {
+			found = true
+			require.Equal(t, 1, listed.MemberCount)
+		}
+	}
+	require.True(t, found)
+	request(ownerJWT, "PUT", rolePath, `{"name":"Review","permissions":["issues:read","member:invite"]}`, http.StatusOK)
+	request(guestWritePAT, "GET", issuePath, "", http.StatusOK)
+	require.NotContains(t, string(request(userPAT, "GET", "/api/notifications", "", http.StatusOK)), "Role notification")
+	list := string(request(userPAT, "GET", "/api/workspaces", "", http.StatusOK))
+	require.NotContains(t, list, ws.String())
+	require.Contains(t, list, other.String())
+	request(guestWritePAT, "PATCH", issuePath, `{"title":"Denied"}`, http.StatusForbidden)
+	request(guestJWT, "PATCH", base+"/members/"+member.String(), `{"role":"admin"}`, http.StatusForbidden)
+	request(pat(owner, []string{"member:invite"}, nil), "PATCH", memberPath, `{"role":"member"}`, http.StatusForbidden)
+	request(ownerJWT, "PUT", overridePath, `{"role":"member"}`, http.StatusNoContent)
+	request(guestWritePAT, "PATCH", issuePath, `{"title":"Team grant"}`, http.StatusOK)
+	request(ownerJWT, "POST", base+"/issues", `{"team_id":"`+envelope.ID+`","title":"Public issue"}`, http.StatusCreated)
+	request(guestWritePAT, "PATCH", base+"/issues/PUB-1", `{"title":"Denied in other team"}`, http.StatusForbidden)
+	request(ownerJWT, "PUT", overridePath, assignment, http.StatusNoContent)
+	request(ownerJWT, "PATCH", memberPath, `{"role":"member"}`, http.StatusOK)
+	request(ownerJWT, "DELETE", rolePath, "", http.StatusConflict)
+	request(guestWritePAT, "PATCH", issuePath, `{"title":"Denied by team override"}`, http.StatusForbidden)
+	request(guestWritePAT, "PATCH", base+"/issues/PUB-1", `{"title":"Workspace grant"}`, http.StatusOK)
+	request(ownerJWT, "DELETE", overridePath, "", http.StatusNoContent)
+	request(ownerJWT, "DELETE", rolePath, "", http.StatusNoContent)
+	request(guestWritePAT, "PATCH", issuePath, `{"title":"Inherited"}`, http.StatusOK)
 	// Reuse existing JWT/PAT after a workspace-level revocation.
 	request(ownerJWT, "DELETE", base+"/members/"+guest.String(), "", http.StatusOK)
 	request(guestJWT, "GET", issuePath, "", http.StatusForbidden)
 	request(guestWritePAT, "GET", issuePath, "", http.StatusForbidden)
+	var changes []string
+	for _, entry := range auditEvents.AllEntries() {
+		if entry.Data["audit"] == true && entry.Data["workspace_id"] == ws {
+			action, _ := entry.Data["action"].(string)
+			if strings.HasPrefix(action, "role.") || strings.HasPrefix(action, "member.") {
+				require.Equal(t, owner.String(), entry.Data["actor_id"], action)
+				changes = append(changes, action)
+			}
+		}
+	}
+	require.Equal(t, []string{
+		"role.created", "member.invited", "member.removed", "member.role_changed",
+		"role.updated", "member.team_role_changed", "member.team_role_changed", "member.role_changed",
+		"member.team_role_changed", "role.deleted", "member.removed",
+	}, changes)
 }

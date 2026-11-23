@@ -98,7 +98,15 @@ func notificationVisible(ctx context.Context, alias string) string {
 	if !ok || actor.UserID == uuid.Nil {
 		return "FALSE"
 	}
+	permission := "'notifications:read'"
+	if actor.Permission == domain.PermNotificationsWrite {
+		permission = "'notifications:write'"
+	}
+	roleAllows := func(team string) string {
+		return "kuayle_role_allows(" + alias + ".workspace_id," + alias + ".user_id," + team + "," + permission + ")"
+	}
 	return "(" + alias + ".user_id = " + uuidSQL(actor.UserID) + " AND " + workspaceVisible(ctx, alias+".workspace_id") +
+		" AND (CASE WHEN cardinality(" + alias + ".source_team_ids)>0 THEN NOT EXISTS(SELECT 1 FROM unnest(" + alias + ".source_team_ids) origin(id) WHERE NOT " + roleAllows("origin.id") + ") ELSE " + roleAllows("NULL") + " END)" +
 		" AND (" + alias + ".issue_id IS NULL OR " + issueVisible(ctx, alias+".issue_id") + ") AND CASE" +
 		" WHEN " + alias + ".type='host_disk_low' AND " + alias + ".issue_id IS NULL AND " + alias + ".source_team_ids IS NULL THEN EXISTS (SELECT 1 FROM workspace_members admin WHERE admin.workspace_id=" + alias + ".workspace_id AND admin.user_id=" + alias + ".user_id AND admin.role IN ('owner','admin'))" +
 		" WHEN " + alias + ".source_team_ids IS NOT NULL THEN NOT EXISTS (SELECT 1 FROM unnest(" + alias + ".source_team_ids) source_team(id) WHERE NOT (" + teamVisible(ctx, "source_team.id") + " AND EXISTS (SELECT 1 FROM teams origin_team WHERE origin_team.id=source_team.id AND origin_team.workspace_id=" + alias + ".workspace_id)))" +

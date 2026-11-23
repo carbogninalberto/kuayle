@@ -11,6 +11,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/middleware"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/kuayle/kuayle-backend/pkg/validate"
@@ -157,6 +158,9 @@ func (h *WorkspaceHandler) Invite(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 
 	if err := h.workspaceSvc.InviteMember(c.Request().Context(), ws.ID, req); err != nil {
+		if errors.Is(err, repository.ErrRoleGrant) {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "invited"})
@@ -204,6 +208,9 @@ func (h *WorkspaceHandler) UpdateMemberRole(c *echo.Context) error {
 	}
 
 	if err := h.workspaceSvc.UpdateMemberRole(c.Request().Context(), ws.ID, userID, req.Role); err != nil {
+		if errors.Is(err, repository.ErrRoleGrant) {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "updated"})
@@ -246,7 +253,7 @@ func (h *WorkspaceHandler) toWorkspaceResponse(c *echo.Context, ws domain.Worksp
 		LogoURL:          ws.LogoURL,
 		OwnerID:          ws.OwnerID.String(),
 		ShareLinkMinRole: ws.ShareLinkMinRole,
-		CurrentUserRole:  middleware.GetWorkspaceRole(c),
+		CurrentUserRole:  middleware.AssignedWorkspaceRole(c),
 		CreatedAt:        ws.CreatedAt,
 		UpdatedAt:        ws.UpdatedAt,
 	}

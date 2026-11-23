@@ -67,7 +67,7 @@ var pathParameters = map[string]object{
 var tagDescriptions = [][2]string{
 	{"Account", "The user a token belongs to."},
 	{"Workspaces", "Workspaces the user belongs to. Most paths start with a workspace slug."},
-	{"Members", "People in a workspace and their roles: owner, admin, member or guest."},
+	{"Members", "People in a workspace and their assigned built-in or custom role."},
 	{"Teams", "Teams own issues, statuses and cycles. Private teams are visible to their members, owners and admins."},
 	{"Statuses", "A team's workflow statuses, each in one category: backlog, unstarted, started, completed or cancelled."},
 	{"Cycles", "Date-bound iterations of a team. Tokens read cycles; they are changed in the app."},

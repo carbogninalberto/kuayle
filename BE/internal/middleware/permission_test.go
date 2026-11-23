@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -158,6 +159,43 @@ func TestRequireTokenWritePermissionIntersectsWorkspaceRole(t *testing.T) {
 				c.Set("workspace_role", tc.role)
 			})
 			assert.Equal(t, tc.want, code)
+		})
+	}
+}
+
+func TestPermissionMatrix(t *testing.T) {
+	team, other, granted := uuid.New(), uuid.New(), uuid.New()
+	for _, code := range domain.TokenScopes() {
+		t.Run(code, func(t *testing.T) {
+			roles := map[string][]string{"custom": {code}, "empty": {}}
+			for key, perms := range domain.RolePermissions {
+				roles[key] = perms
+			}
+			for key, perms := range roles {
+				for _, tc := range []struct {
+					name   string
+					team   uuid.UUID
+					scopes []string
+					want   bool
+				}{
+					{"workspace", other, nil, slices.Contains(perms, code)},
+					{"scoped token", other, []string{code}, slices.Contains(perms, code)},
+					{"narrow token", other, []string{}, false},
+					{"override", team, []string{code}, false},
+					{"team grant", granted, []string{code}, true},
+					{"token ceiling on team grant", granted, []string{}, false},
+				} {
+					status := runMiddleware(t, RequirePermission(code), func(c *echo.Context) {
+						c.Set("workspace_role", key)
+						c.Set("role_access", &domain.RoleAccess{Role: key, Permissions: perms, Teams: map[uuid.UUID][]string{team: {}, granted: {code}}})
+						c.SetPathValues(echo.PathValues{{Name: "teamId", Value: tc.team.String()}})
+						if tc.scopes != nil {
+							patContext(tc.scopes...)(c)
+						}
+					})
+					assert.Equal(t, tc.want, status == http.StatusNoContent, key+" "+tc.name)
+				}
+			}
 		})
 	}
 }

@@ -1204,11 +1204,7 @@
 						"type": "string"
 					},
 					"role": {
-						"enum": [
-							"admin",
-							"member",
-							"guest"
-						],
+						"maxLength": 36,
 						"type": "string"
 					}
 				},
@@ -2398,12 +2394,7 @@
 			"UpdateMemberRoleRequest": {
 				"properties": {
 					"role": {
-						"enum": [
-							"owner",
-							"admin",
-							"member",
-							"guest"
-						],
+						"maxLength": 36,
 						"type": "string"
 					}
 				},
@@ -13029,7 +13020,7 @@
 			"name": "Workspaces"
 		},
 		{
-			"description": "People in a workspace and their roles: owner, admin, member or guest.",
+			"description": "People in a workspace and their assigned built-in or custom role.",
 			"name": "Members"
 		},
 		{
