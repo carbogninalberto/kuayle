@@ -167,6 +167,11 @@ func RequestAllows(c *echo.Context, permission string) bool {
 		if a, ok := domain.AccessFromContext(c.Request().Context()); ok && a.TeamID != uuid.Nil {
 			return access.Allows(a.TeamID, permission)
 		}
+		// Membership is workspace-wide. Membership writes separately check
+		// the affected permissions in each team under the role-change lock.
+		if permission == domain.PermMemberInvite {
+			return access.Allows(uuid.Nil, permission)
+		}
 		return access.AllowsEverywhere(permission)
 	}
 	role, ok := c.Get("workspace_role").(string)

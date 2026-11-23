@@ -159,6 +159,33 @@ func authorizeRoleGrant(ctx context.Context, tx *sqlx.Tx, ws, user uuid.UUID, ro
 	return err
 }
 
+// The caller holds the role-change lock and the target membership row. Check
+// both members' effective grants wherever either has an exception.
+func authorizeMemberChange(ctx context.Context, tx *sqlx.Tx, ws, target uuid.UUID, current string) error {
+	actor, ok := domain.AccessFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	var allowed bool
+	err := tx.GetContext(ctx, &allowed, `WITH teams(team) AS (
+		SELECT NULL::uuid UNION SELECT team_id FROM team_role_overrides
+		WHERE workspace_id=$1 AND user_id IN ($2,$3)
+	)
+	SELECT NOT EXISTS (
+		SELECT 1 FROM teams
+		LEFT JOIN team_role_overrides o ON o.workspace_id=$1 AND o.user_id=$2 AND o.team_id=teams.team
+		JOIN workspace_roles r ON r.workspace_id=$1 AND r.key=coalesce(o.role_key,$4)
+		WHERE ($5::text[] IS NOT NULL AND NOT r.permissions <@ $5)
+		   OR EXISTS (SELECT 1 FROM unnest(r.permissions) p WHERE NOT kuayle_role_allows($1,$3,teams.team,p))
+	) FROM workspace_members WHERE workspace_id=$1 AND user_id=$3
+	  AND kuayle_role_allows($1,$3,NULL,'member:invite') FOR SHARE`,
+		ws, target, actor.UserID, current, pq.Array(actor.TokenScopes))
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && !allowed) {
+		return ErrRoleGrant
+	}
+	return err
+}
+
 func (r *WorkspaceRepository) SetTeamRole(ctx context.Context, ws, user, team uuid.UUID, key string) error {
 	if key == domain.RoleOwner {
 		return ErrRoleProtected

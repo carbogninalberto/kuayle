@@ -111,6 +111,7 @@
 			<Dialog.Title>{role ? m['settings.roles.edit']() : m['settings.roles.create']()}</Dialog.Title>
 		</Dialog.Header>
 		<div class="min-h-0 space-y-4 overflow-y-auto border-y border-[var(--app-border)] px-5 py-4">
+			<p class="text-sm text-muted-foreground">{m['settings.roles.session_limits']()}</p>
 			<div class="grid gap-3 sm:grid-cols-2">
 				<div class="space-y-1.5">
 					<label for="role-name">{m['cycles.field.name']()}</label>

@@ -3,6 +3,7 @@ package migrations_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -62,6 +63,14 @@ func TestWorkspaceRolesMigration(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, m.Force(201))
 	require.NoError(t, m.Migrate(202))
+	var catalogJSON []byte
+	require.NoError(t, db.QueryRow("SELECT jsonb_object_agg(key, permissions) FROM builtin_workspace_roles").Scan(&catalogJSON))
+	var catalog map[string][]string
+	require.NoError(t, json.Unmarshal(catalogJSON, &catalog))
+	require.Len(t, catalog, len(domain.RolePermissions))
+	for key, permissions := range domain.RolePermissions {
+		require.ElementsMatch(t, permissions, catalog[key], key)
+	}
 	for role, user := range users {
 		var permissions pq.StringArray
 		err = db.QueryRow(`SELECT r.permissions FROM workspace_members m JOIN workspace_roles r ON (r.workspace_id,r.key)=(m.workspace_id,m.role_key) WHERE m.workspace_id=$1 AND m.user_id=$2`, fixture.workspaceA, user).Scan(&permissions)

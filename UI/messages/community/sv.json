@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Redigera roll",
 	"settings.roles.team": "Teamroller",
 	"settings.roles.inherit": "Använd arbetsytans roll",
-	"settings.roles.override_effects": "En särskild roll i ett team stänger av funktioner i hela arbetsytan, bland annat assistentens status och funktioner, AI-skrivande, redigering av agentprofiler och bakgrundsjobb för konversationer, Telegram, agentmeddelanden och signaler.",
+	"settings.roles.session_limits": "Anpassade roller och lagvisa undantag blockerar sessionsbundna funktioner i hela arbetsytan, bland annat assistenten, AI-skrivning, redigering av arbetsflöden, agenthantering, minneslärdomar, färdigheter och verktyg. Även bakgrundsjobb för konversationer, Telegram, agentmeddelanden och signaler stoppas för den här medlemmen.",
 	"settings.roles.custom": "Anpassad roll",
 	"settings.roles.load_failed": "Kunde inte läsa in roller.",
 	"settings.roles.in_use": "Rollen används.",

@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Modifier le rôle",
 	"settings.roles.team": "Rôles d’équipe",
 	"settings.roles.inherit": "Utiliser le rôle de l’espace de travail",
-	"settings.roles.override_effects": "Un rôle spécifique à une équipe désactive dans tout l’espace de travail le statut et les fonctionnalités de l’assistant, la rédaction par IA, la modification des profils d’agents et les tâches de fond pour les conversations, Telegram, les messages et les signaux des agents.",
+	"settings.roles.session_limits": "Les rôles personnalisés et les exceptions par équipe bloquent dans tout l’espace de travail les fonctions réservées aux sessions, dont l’assistant, la rédaction par IA, la modification des workflows, la gestion des agents, les leçons de mémoire, les compétences et les outils. Les tâches de fond liées aux conversations, à Telegram, aux messages et aux signaux des agents s’arrêtent aussi pour ce membre.",
 	"settings.roles.custom": "Rôle personnalisé",
 	"settings.roles.load_failed": "Impossible de charger les rôles.",
 	"settings.roles.in_use": "Ce rôle est attribué.",

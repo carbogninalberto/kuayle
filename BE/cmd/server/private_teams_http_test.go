@@ -93,7 +93,7 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	adminManagePAT := pat(admin, []string{"team:manage", "teams:read", "members:read"}, []string{ws.String()})
 	memberManagePAT := pat(member, []string{"team:manage", "issue:create"}, nil)
 	guestWritePAT := pat(guest, []string{"issue:create", "issue:update", "issues:read"}, nil)
-	request := func(token, method, path, body string, want int) []byte {
+	doRequest := func(t *testing.T, token, method, path, body string, want int) []byte {
 		t.Helper()
 		req, err := http.NewRequest(method, server.URL+path, strings.NewReader(body))
 		require.NoError(t, err)
@@ -110,6 +110,10 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, want, resp.StatusCode, "%s %s: %s", method, path, data)
 		return data
+	}
+	request := func(token, method, path, body string, want int) []byte {
+		t.Helper()
+		return doRequest(t, token, method, path, body, want)
 	}
 	base := "/api/workspaces/" + ws.String()
 	privateBody := `{"name":"Restricted team","key":"PRIV","is_private":true}`
@@ -309,4 +313,46 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 		"role.updated", "member.team_role_changed", "member.team_role_changed", "member.role_changed",
 		"member.team_role_changed", "role.deleted", "member.removed",
 	}, changes)
+
+	t.Run("membership changes respect the target's current grants", func(t *testing.T) {
+		payload, err := json.Marshal(map[string]any{"name": "Recruiter", "permissions": append(
+			[]string{domain.PermMemberInvite}, domain.RolePermissions[domain.RoleGuest]...,
+		)})
+		require.NoError(t, err)
+		var recruiter domain.WorkspaceRole
+		require.NoError(t, json.Unmarshal(doRequest(t, ownerJWT, "POST", rolesPath, string(payload), http.StatusCreated), &recruiter))
+		doRequest(t, ownerJWT, "PATCH", base+"/members/"+member.String(), `{"role":"`+recruiter.Key+`"}`, http.StatusOK)
+		adminPath := base + "/members/" + admin.String()
+		doRequest(t, memberJWT, "PATCH", adminPath, `{"role":"guest"}`, http.StatusForbidden)
+		doRequest(t, memberJWT, "DELETE", adminPath, "", http.StatusForbidden)
+
+		target := base + "/members/" + outsider.String()
+		doRequest(t, memberJWT, "POST", base+"/invite", `{"email":"`+outsider.String()+`@example.test","role":"guest"}`, http.StatusOK)
+		override := target + "/team-roles/" + teamID.String()
+		doRequest(t, ownerJWT, "PUT", override, `{"role":"admin"}`, http.StatusNoContent)
+		doRequest(t, memberJWT, "PATCH", target, `{"role":"guest"}`, http.StatusForbidden)
+		doRequest(t, memberJWT, "DELETE", target, "", http.StatusForbidden)
+		// The elevated grants are comparable only when held in the same team.
+		actorOverride := base + "/members/" + member.String() + "/team-roles/"
+		doRequest(t, ownerJWT, "PUT", actorOverride+envelope.ID, `{"role":"admin"}`, http.StatusNoContent)
+		doRequest(t, memberJWT, "PATCH", target, `{"role":"guest"}`, http.StatusForbidden)
+		doRequest(t, ownerJWT, "PUT", actorOverride+teamID.String(), `{"role":"admin"}`, http.StatusNoContent)
+		doRequest(t, memberJWT, "PATCH", target, `{"role":"guest"}`, http.StatusOK)
+		doRequest(t, ownerJWT, "DELETE", actorOverride+teamID.String(), "", http.StatusNoContent)
+		doRequest(t, ownerJWT, "DELETE", actorOverride+envelope.ID, "", http.StatusNoContent)
+		doRequest(t, ownerJWT, "DELETE", override, "", http.StatusNoContent)
+		narrowPAT := pat(admin, []string{domain.PermMemberInvite}, nil)
+		doRequest(t, narrowPAT, "DELETE", target, "", http.StatusForbidden)
+		doRequest(t, memberJWT, "PATCH", target, `{"role":"guest"}`, http.StatusOK)
+		doRequest(t, memberJWT, "DELETE", target, "", http.StatusOK)
+	})
+	t.Run("admin with an override can grant roles held throughout the workspace", func(t *testing.T) {
+		doRequest(t, ownerJWT, "PUT", adminOverride+teamID.String(), `{"role":"member"}`, http.StatusNoContent)
+		doRequest(t, adminJWT, "POST", base+"/invite", `{"email":"`+guest.String()+`@example.test","role":"member"}`, http.StatusOK)
+		doRequest(t, ownerJWT, "PUT", overridePath, `{"role":"admin"}`, http.StatusNoContent)
+		doRequest(t, guestJWT, "POST", base+"/invite", `{"email":"`+outsider.String()+`@example.test","role":"guest"}`, http.StatusForbidden)
+		doRequest(t, ownerJWT, "PUT", adminOverride+teamID.String(), `{"role":"guest"}`, http.StatusNoContent)
+		doRequest(t, adminJWT, "POST", base+"/invite", `{"email":"`+outsider.String()+`@example.test","role":"member"}`, http.StatusForbidden)
+		doRequest(t, adminJWT, "PATCH", memberPath, `{"role":"member"}`, http.StatusForbidden)
+	})
 }

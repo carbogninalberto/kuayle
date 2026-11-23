@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Sửa vai trò",
 	"settings.roles.team": "Vai trò nhóm",
 	"settings.roles.inherit": "Dùng vai trò của không gian làm việc",
-	"settings.roles.override_effects": "Việc đặt vai trò riêng cho bất kỳ nhóm nào sẽ tắt một số tính năng trên toàn không gian làm việc, gồm trạng thái và khả năng của trợ lý, viết bằng AI, chỉnh sửa hồ sơ tác nhân và các tác vụ nền cho hội thoại, Telegram, tin nhắn và tín hiệu của tác nhân.",
+	"settings.roles.session_limits": "Vai trò tùy chỉnh và vai trò ghi đè theo nhóm chặn các tính năng chỉ dùng được trong phiên trên toàn bộ không gian làm việc, gồm trợ lý, viết bằng AI, chỉnh sửa quy trình, quản lý tác nhân, bài học bộ nhớ, kỹ năng và công cụ. Các tác vụ nền cho hội thoại, Telegram, tin nhắn và tín hiệu của tác nhân cũng dừng đối với thành viên này.",
 	"settings.roles.custom": "Vai trò tùy chỉnh",
 	"settings.roles.load_failed": "Không thể tải vai trò.",
 	"settings.roles.in_use": "Vai trò này đã được gán.",

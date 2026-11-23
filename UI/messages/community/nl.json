@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Rol bewerken",
 	"settings.roles.team": "Teamrollen",
 	"settings.roles.inherit": "Werkruimterol gebruiken",
-	"settings.roles.override_effects": "Een afwijkende teamrol schakelt in de hele werkruimte onder meer de status en functies van de assistent, schrijven met AI, het bewerken van agentprofielen en achtergrondtaken voor gesprekken, Telegram, agentberichten en signalen uit.",
+	"settings.roles.session_limits": "Aangepaste rollen en teamuitzonderingen blokkeren in de hele werkruimte functies die een interactieve sessie vereisen, zoals de assistent, AI-schrijfhulp, workflows bewerken, agentbeheer, geheugenlessen, vaardigheden en hulpmiddelen. Ook de achtergrondtaken voor gesprekken, Telegram, agentberichten en signalen stoppen voor dit lid.",
 	"settings.roles.custom": "Aangepaste rol",
 	"settings.roles.load_failed": "Rollen laden is mislukt.",
 	"settings.roles.in_use": "Deze rol is toegewezen.",

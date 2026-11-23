@@ -226,6 +226,9 @@ func (h *WorkspaceHandler) RemoveMember(c *echo.Context) error {
 	}
 
 	if err := h.workspaceSvc.RemoveMember(c.Request().Context(), ws.ID, userID); err != nil {
+		if errors.Is(err, repository.ErrRoleGrant) {
+			return response.Forbidden(c)
+		}
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}
 	return response.Success(c, http.StatusOK, map[string]string{"status": "removed"})

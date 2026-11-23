@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Editar função",
 	"settings.roles.team": "Funções da equipa",
 	"settings.roles.inherit": "Usar a função do espaço de trabalho",
-	"settings.roles.override_effects": "Definir uma função específica para uma equipa desativa em todo o espaço de trabalho o estado e as funcionalidades do assistente, a escrita com IA, a edição de perfis de agentes e as tarefas em segundo plano de conversas, Telegram, mensagens e sinais de agentes.",
+	"settings.roles.session_limits": "As funções personalizadas e as exceções por equipa bloqueiam em todo o espaço de trabalho as funcionalidades exclusivas de sessão, como o assistente, a escrita com IA, a edição de fluxos de trabalho, a gestão de agentes, as lições de memória, as competências e as ferramentas. As tarefas em segundo plano de conversas, Telegram, mensagens e sinais de agentes também param para este membro.",
 	"settings.roles.custom": "Função personalizada",
 	"settings.roles.load_failed": "Não foi possível carregar as funções.",
 	"settings.roles.in_use": "Esta função está atribuída.",

@@ -141,9 +141,9 @@ RETURNS boolean LANGUAGE sql STABLE AS $$
     SELECT COALESCE((
         SELECT 'member:invite'=ANY(actor.permissions)
         AND target.permissions <@ actor.permissions AND (scopes IS NULL OR target.permissions <@ scopes)
-        AND (m.role IN ('owner','admin') OR target.key NOT IN ('owner','admin','member'))
+        AND (m.role_key IN ('owner','admin') OR target.key NOT IN ('owner','admin','member'))
         AND NOT EXISTS (SELECT 1 FROM team_role_overrides o JOIN workspace_roles t ON (t.workspace_id,t.key)=(o.workspace_id,o.role_key)
-          WHERE o.workspace_id=m.workspace_id AND o.user_id=m.user_id AND NOT (target.permissions <@ t.permissions AND 'member:invite'=ANY(t.permissions)))
+          WHERE o.workspace_id=m.workspace_id AND o.user_id=m.user_id AND NOT target.permissions <@ t.permissions)
         FROM workspace_members m JOIN workspace_roles actor ON (actor.workspace_id,actor.key)=(m.workspace_id,m.role_key)
         JOIN workspace_roles target ON target.workspace_id=m.workspace_id AND target.key=requested
         WHERE m.workspace_id=wid AND m.user_id=actor_id

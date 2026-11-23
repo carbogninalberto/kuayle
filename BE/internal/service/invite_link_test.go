@@ -9,8 +9,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 // --- Mocks ---
@@ -265,12 +267,11 @@ func TestInviteLinkService_CreatorWithoutInvitePermission(t *testing.T) {
 	ws := &domain.Workspace{ID: wsID, Name: "Acme", Slug: "acme"}
 
 	for _, tc := range []struct {
-		name   string
-		member *domain.WorkspaceMember
+		name string
+		err  error
 	}{
 		{"removed", nil},
-		{"demoted to member", &domain.WorkspaceMember{Role: domain.RoleMember}},
-		{"demoted to guest", &domain.WorkspaceMember{Role: domain.RoleGuest}},
+		{"unknown invitation role", repository.ErrUnknownRole},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			linkRepo := new(mockInviteLinkRepo)
@@ -279,10 +280,10 @@ func TestInviteLinkService_CreatorWithoutInvitePermission(t *testing.T) {
 			link := validInviteLink(wsID)
 			linkRepo.On("GetByTokenHash", ctx, mock.Anything).Return(link, nil)
 			wsRepo.On("GetByID", ctx, wsID).Return(ws, nil)
-			wsRepo.On("CanGrantRole", ctx, wsID, link.CreatedBy, link.Role).Return(false, nil)
+			wsRepo.On("CanGrantRole", ctx, wsID, link.CreatedBy, link.Role).Return(false, tc.err)
 
 			preview, err := svc.Preview(ctx, "tok")
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, dto.InviteStatusRevoked, preview.Status)
 
 			_, _, err = svc.Validate(ctx, "tok")

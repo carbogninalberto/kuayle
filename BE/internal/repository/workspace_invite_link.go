@@ -135,6 +135,9 @@ func (r *WorkspaceInviteLinkRepository) Join(ctx context.Context, id, userID uui
 	// links that predate that revocation. The membership row is read without a
 	// lock because those writers lock it before the link.
 	allowed, err := canGrantRole(ctx, tx, link.WorkspaceID, link.CreatedBy, link.Role, nil, false)
+	if errors.Is(err, ErrUnknownRole) {
+		return "", ErrInviteLinkRevoked
+	}
 	if err != nil {
 		return "", err
 	}

@@ -235,6 +235,9 @@ func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID,
 	if err := tx.GetContext(ctx, &previous, `SELECT role_key FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID); err != nil {
 		return "", err
 	}
+	if err := authorizeMemberChange(ctx, tx, workspaceID, userID, previous); err != nil {
+		return "", err
+	}
 	err = tx.QueryRowContext(ctx, `UPDATE workspace_members SET
  role=CASE WHEN $4 OR EXISTS(SELECT 1 FROM team_role_overrides WHERE workspace_id=$2 AND user_id=$3) THEN 'guest' ELSE $1 END,
  assigned_role=CASE WHEN $4 OR EXISTS(SELECT 1 FROM team_role_overrides WHERE workspace_id=$2 AND user_id=$3) THEN $1 ELSE NULL END
@@ -251,7 +254,7 @@ func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID,
 }
 
 func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	tx, err := beginRoleChange(ctx, r.db, workspaceID)
 	if err != nil {
 		return err
 	}
@@ -268,10 +271,18 @@ func removeWorkspaceMember(ctx context.Context, tx *sqlx.Tx, workspaceID, userID
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`); err != nil {
 		return err
 	}
-	var member uuid.UUID
-	err := tx.GetContext(ctx, &member, `SELECT user_id FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID)
+	var current string
+	err := tx.GetContext(ctx, &current, `SELECT role_key FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
+	}
+	if err == nil {
+		if current == domain.RoleOwner {
+			return ErrRoleProtected
+		}
+		if err := authorizeMemberChange(ctx, tx, workspaceID, userID, current); err != nil {
+			return err
+		}
 	}
 	// A later workspace invitation must not revive old private-team grants or
 	// subscriptions. Remove all three memberships atomically.

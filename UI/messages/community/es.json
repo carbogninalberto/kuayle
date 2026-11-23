@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Editar rol",
 	"settings.roles.team": "Roles de equipo",
 	"settings.roles.inherit": "Usar el rol del espacio de trabajo",
-	"settings.roles.override_effects": "Asignar un rol específico a un equipo desactiva en todo el espacio de trabajo el estado y las funciones del asistente, la escritura con IA, la edición de perfiles de agentes y las tareas en segundo plano de conversaciones, Telegram, mensajes y señales de agentes.",
+	"settings.roles.session_limits": "Los roles personalizados y las excepciones por equipo bloquean en todo el espacio de trabajo las funciones exclusivas de sesión, como el asistente, la escritura con IA, la edición de flujos de trabajo, la gestión de agentes, las lecciones de memoria, las habilidades y las herramientas. También se detienen para este miembro las tareas en segundo plano de conversaciones, Telegram, mensajes y señales de agentes.",
 	"settings.roles.custom": "Rol personalizado",
 	"settings.roles.load_failed": "No se pudieron cargar los roles.",
 	"settings.roles.in_use": "Este rol tiene asignaciones.",

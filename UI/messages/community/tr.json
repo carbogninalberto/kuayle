@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Rolü düzenle",
 	"settings.roles.team": "Takım rolleri",
 	"settings.roles.inherit": "Çalışma alanı rolünü kullan",
-	"settings.roles.override_effects": "Herhangi bir takım için ayrı bir rol belirlemek, çalışma alanının tamamında asistan durumu ve yetenekleri, yapay zekâyla yazma, ajan profillerini düzenleme ve konuşmalar, Telegram, ajan mesajları ve sinyalleri için arka plan görevleri gibi özellikleri devre dışı bırakır.",
+	"settings.roles.session_limits": "Özel roller ve takıma özgü rol atamaları çalışma alanının tamamında asistana, yapay zekâ ile yazmaya, iş akışı düzenlemeye, ajan yönetimine, bellek derslerine, becerilere ve araçlara yönelik oturuma özel özellikleri engeller. Bu üye için konuşmalar, Telegram, ajan mesajları ve sinyalleriyle ilgili arka plan işleri de durur.",
 	"settings.roles.custom": "Özel rol",
 	"settings.roles.load_failed": "Roller yüklenemedi.",
 	"settings.roles.in_use": "Bu rol atanmış durumda.",

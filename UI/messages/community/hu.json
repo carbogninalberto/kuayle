@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Szerepkör szerkesztése",
 	"settings.roles.team": "Csapatszerepkörök",
 	"settings.roles.inherit": "Munkaterületi szerepkör használata",
-	"settings.roles.override_effects": "Bármely csapat szerepkörének felülbírálása a teljes munkaterületen letiltja az asszisztens állapotát és képességeit, az AI-alapú írást, az ügynökprofilok szerkesztését, illetve a beszélgetések, a Telegram, az ügynöküzenetek és a jelzések háttérfeladatait.",
+	"settings.roles.session_limits": "Az egyéni szerepkörök és a csapatonkénti felülbírálások az egész munkaterületen letiltják a munkamenethez kötött funkciókat, többek között az asszisztenst, az AI-szövegírást, a munkafolyamatok szerkesztését, az ügynökkezelést, a memórialeckéket, a készségeket és az eszközöket. Ennél a tagnál leállnak a beszélgetések, a Telegram, valamint az ügynöküzenetek és -jelzések háttérfeladatai is.",
 	"settings.roles.custom": "Egyéni szerepkör",
 	"settings.roles.load_failed": "A szerepkörök betöltése sikertelen.",
 	"settings.roles.in_use": "Ez a szerepkör használatban van.",

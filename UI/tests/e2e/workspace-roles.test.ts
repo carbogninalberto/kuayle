@@ -106,6 +106,7 @@ for (const width of [390, 1280]) {
 		await expect(roles.getByRole('row', { name: /Owner/ }).getByRole('button')).toHaveCount(0);
 		await page.getByRole('button', { name: 'Create role' }).click();
 		const dialog = page.getByRole('dialog');
+		await expect(dialog.getByText(/Custom roles and team overrides.*workflow editing.*skills and tools/)).toBeVisible();
 		await dialog.getByLabel('Name', { exact: true }).fill('Triage');
 		await dialog.getByLabel('Template').click();
 		await page.getByRole('option', { name: 'Guest', exact: true }).click();

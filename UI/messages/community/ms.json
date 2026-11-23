@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Edit peranan",
 	"settings.roles.team": "Peranan pasukan",
 	"settings.roles.inherit": "Gunakan peranan ruang kerja",
-	"settings.roles.override_effects": "Menetapkan peranan khusus bagi mana-mana pasukan melumpuhkan ciri di seluruh ruang kerja, termasuk status dan keupayaan pembantu, penulisan AI, penyuntingan profil ejen serta tugas latar belakang untuk perbualan, Telegram, mesej dan isyarat ejen.",
+	"settings.roles.session_limits": "Peranan tersuai dan penggantian peranan mengikut pasukan menyekat ciri khusus sesi di seluruh ruang kerja, termasuk pembantu, penulisan AI, penyuntingan aliran kerja, pengurusan ejen, pelajaran memori, kemahiran dan alat. Tugas latar belakang untuk perbualan, Telegram, mesej dan isyarat ejen turut berhenti untuk ahli ini.",
 	"settings.roles.custom": "Peranan tersuai",
 	"settings.roles.load_failed": "Gagal memuatkan peranan.",
 	"settings.roles.in_use": "Peranan ini sedang digunakan.",

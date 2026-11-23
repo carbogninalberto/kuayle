@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -130,7 +131,11 @@ func (s *InviteLinkService) Validate(ctx context.Context, token string) (*domain
 // role may invite. Join repeats this check inside its transaction; this copy
 // only keeps the preview and the signup pre-check consistent with it.
 func (s *InviteLinkService) creatorCanInvite(ctx context.Context, link *domain.WorkspaceInviteLink) (bool, error) {
-	return s.workspaceRepo.CanGrantRole(ctx, link.WorkspaceID, link.CreatedBy, link.Role)
+	allowed, err := s.workspaceRepo.CanGrantRole(ctx, link.WorkspaceID, link.CreatedBy, link.Role)
+	if errors.Is(err, repository.ErrUnknownRole) {
+		return false, nil
+	}
+	return allowed, err
 }
 
 // Preview returns public metadata about an invite token. Unknown tokens yield

@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Edytuj rolę",
 	"settings.roles.team": "Role zespołu",
 	"settings.roles.inherit": "Użyj roli obszaru roboczego",
-	"settings.roles.override_effects": "Nadpisanie roli w dowolnym zespole wyłącza w całym obszarze roboczym m.in. status i funkcje asystenta, pisanie z AI, edycję profili agentów oraz zadania w tle dla rozmów, Telegrama, wiadomości i sygnałów agentów.",
+	"settings.roles.session_limits": "Role niestandardowe i wyjątki dla zespołów blokują w całej przestrzeni roboczej funkcje wymagające sesji, w tym asystenta, pisanie z AI, edycję przepływów pracy, zarządzanie agentami, lekcje pamięci, umiejętności i narzędzia. Dla tego członka zatrzymują się też zadania w tle dotyczące rozmów, Telegrama, wiadomości i sygnałów agentów.",
 	"settings.roles.custom": "Rola niestandardowa",
 	"settings.roles.load_failed": "Nie udało się wczytać ról.",
 	"settings.roles.in_use": "Ta rola jest przypisana.",

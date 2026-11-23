@@ -79,7 +79,7 @@
 		{:else if !teams.length}<p>{m['agents.identity.no_teams']()}</p>
 		{:else}
 			<div class="min-h-0 space-y-3 overflow-y-auto p-1">
-				<p class="text-sm text-muted-foreground">{m['settings.roles.override_effects']()}</p>
+				<p class="text-sm text-muted-foreground">{m['settings.roles.session_limits']()}</p>
 				{#each teams as team (team.id)}
 					<div
 						class="grid min-w-0 items-center gap-2 sm:grid-cols-2 [&_[data-slot=select-trigger]]:max-w-full [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate"

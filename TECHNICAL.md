@@ -1534,7 +1534,15 @@ A create request takes a name, description and either a permission list or a
 built-in template key. Change a membership through `PATCH /members/:userId`.
 List its exceptions at `GET /members/:userId/team-roles`. Use `PUT` with a
 role key or `DELETE` on `/members/:userId/team-roles/:teamId` to set or clear
-an exception. Administrators retain implicit access to private teams where
+an exception. Membership management requires the workspace `member:invite`
+grant. Updating or removing a member also requires authority over that
+member's current permissions in the workspace and in each team, including
+any PAT scope limits. Assigning a new role checks its grants against the
+caller's workspace role and every team override. For example, an admin with
+a Member override can invite a Member, but a Guest override limits the
+invitation to grants available to a Guest.
+
+Administrators retain implicit access to private teams where
 their effective role is still administrative. A team override alone cannot
 give a non-administrator implicit access to a private team. Members with an
 override or custom role can leave an explicit team membership in an interactive
@@ -1544,12 +1552,14 @@ issue's team is fixed at creation.
 
 Custom roles and members with any team override use guest-level checks in
 legacy features without a matching grant. This applies workspace-wide, even
-if other teams inherit the member's ordinary role. Affected features include
-assistant status and capabilities, AI writing, agent profile authoring, and
-workers for the conversation queue, Telegram deliveries, agent messages and
-agent signals. A read grant on agent tasks does not authorize those jobs to
-perform writes. Clearing the last override restores the built-in role's usual
-access.
+if other teams inherit the member's ordinary role. All workspace routes guarded by
+`RequireSession` reject these memberships. This includes assistant status
+and capabilities, AI writing, workflow editing, agent profiles and task
+controls, memory lessons, and assistant skills and tools. Permission-scoped
+workflow and agent-task reads still use their respective read grants.
+Background workers for the conversation queue, Telegram deliveries, agent
+messages and agent signals also skip these members. Clearing the last
+override restores the built-in role's usual access.
 
 After applying migration 202, rerun the machine gateway database provisioner
 so it can read `dev_machine_role_access`. To downgrade, move members to built-in

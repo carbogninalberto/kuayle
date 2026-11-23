@@ -54,6 +54,22 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 		return link
 	}
 
+	t.Run("a missing invitation role is treated as revoked", func(t *testing.T) {
+		link := newLink(t, nil)
+		_, err := db.Exec(`DELETE FROM workspace_roles WHERE workspace_id=$1 AND key='guest'`, ws.ID)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, err := db.Exec(`INSERT INTO workspace_roles SELECT $1, r.* FROM builtin_workspace_roles r WHERE key='guest'`, ws.ID)
+			require.NoError(t, err)
+		})
+		user := newUser(t)
+		_, err = repo.Join(ctx, link.ID, user.ID, user)
+		require.ErrorIs(t, err, ErrInviteLinkRevoked)
+		saved, err := repo.GetByID(ctx, link.ID)
+		require.NoError(t, err)
+		require.Zero(t, saved.UseCount)
+	})
+
 	t.Run("concurrent signup consumes only the remaining slot", func(t *testing.T) {
 		maxUses := 1
 		link := newLink(t, &maxUses)

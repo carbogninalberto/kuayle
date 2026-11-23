@@ -1293,7 +1293,7 @@
 	"settings.roles.edit": "Editează rolul",
 	"settings.roles.team": "Roluri de echipă",
 	"settings.roles.inherit": "Folosește rolul spațiului de lucru",
-	"settings.roles.override_effects": "Atribuirea unui rol specific unei echipe dezactivează în întregul spațiu de lucru starea și funcțiile asistentului, scrierea cu IA, editarea profilurilor de agenți și activitățile în fundal pentru conversații, Telegram, mesajele și semnalele agenților.",
+	"settings.roles.session_limits": "Rolurile personalizate și excepțiile pe echipă blochează în întregul spațiu de lucru funcțiile rezervate sesiunilor, inclusiv asistentul, scrierea cu AI, editarea fluxurilor de lucru, gestionarea agenților, lecțiile de memorie, abilitățile și instrumentele. Pentru acest membru se opresc și sarcinile de fundal pentru conversații, Telegram, mesajele și semnalele agenților.",
 	"settings.roles.custom": "Rol personalizat",
 	"settings.roles.load_failed": "Rolurile nu au putut fi încărcate.",
 	"settings.roles.in_use": "Acest rol este atribuit.",
