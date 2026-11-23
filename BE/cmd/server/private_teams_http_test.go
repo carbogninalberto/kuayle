@@ -178,6 +178,23 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	require.NoError(t, json.Unmarshal(public, &envelope))
 	require.False(t, envelope.IsPrivate)
 	request(memberJWT, "GET", base+"/teams/"+envelope.ID, "", http.StatusOK)
+	publicTeam := base + "/teams/" + envelope.ID
+	adminOverride := base + "/members/" + admin.String() + "/team-roles/"
+	request(ownerJWT, "PUT", adminOverride+envelope.ID, `{"role":"guest"}`, http.StatusNoContent)
+	request(adminReadPAT, "GET", teamPath, "", http.StatusOK)
+	request(ownerJWT, "PUT", adminOverride+teamID.String(), `{"role":"guest"}`, http.StatusNoContent)
+	request(adminReadPAT, "GET", teamPath, "", http.StatusNotFound)
+	request(ownerJWT, "DELETE", adminOverride+teamID.String(), "", http.StatusNoContent)
+	request(ownerJWT, "POST", publicTeam+"/members", `{"user_id":"`+admin.String()+`"}`, http.StatusOK)
+	request(ownerJWT, "DELETE", publicTeam+"/members/"+owner.String(), "", http.StatusOK)
+	request(adminManagePAT, "POST", publicTeam+"/leave", "", http.StatusForbidden)
+	require.Contains(t, string(request(adminJWT, "POST", publicTeam+"/leave", "", http.StatusOK)), `"left"`)
+	request(ownerJWT, "GET", publicTeam, "", http.StatusOK)
+	request(ownerJWT, "DELETE", adminOverride+envelope.ID, "", http.StatusNoContent)
+	memberOverride := base + "/members/" + member.String() + "/team-roles/" + teamID.String()
+	request(ownerJWT, "PUT", memberOverride, `{"role":"admin"}`, http.StatusNoContent)
+	request(memberJWT, "GET", teamPath, "", http.StatusNotFound)
+	request(ownerJWT, "DELETE", memberOverride, "", http.StatusNoContent)
 	// Failed status initialization rolls back team, membership and privacy marker.
 	broken := &domain.Team{ID: uuid.New(), WorkspaceID: other, Name: "Rollback", Key: "ROLL", IsPrivate: true}
 	duplicate := domain.TeamStatus{ID: uuid.New(), Name: "Todo", Slug: "todo", Category: domain.StatusCategoryUnstarted}
@@ -195,6 +212,9 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	auditEvents := logtest.NewGlobal()
 	memberPath := base + "/members/" + guest.String()
 	overridePath := memberPath + "/team-roles/" + teamID.String()
+	unknown := uuid.NewString()
+	require.Contains(t, string(request(ownerJWT, "PATCH", memberPath, `{"role":"`+unknown+`"}`, http.StatusBadRequest)), "unknown role")
+	require.Contains(t, string(request(ownerJWT, "POST", base+"/invite", `{"email":"`+outsider.String()+`@example.test","role":"`+unknown+`"}`, http.StatusBadRequest)), "unknown role")
 	request(adminJWT, "POST", rolesPath, `{"name":"Reader","template":"guest"}`, http.StatusForbidden)
 	request(ownerJWT, "PUT", rolesPath+"/owner", `{"name":"Changed","permissions":[]}`, http.StatusForbidden)
 	request(ownerJWT, "DELETE", rolesPath+"/member", "", http.StatusForbidden)
@@ -258,6 +278,15 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	request(ownerJWT, "DELETE", rolePath, "", http.StatusConflict)
 	request(guestWritePAT, "PATCH", issuePath, `{"title":"Denied by team override"}`, http.StatusForbidden)
 	request(guestWritePAT, "PATCH", base+"/issues/PUB-1", `{"title":"Workspace grant"}`, http.StatusOK)
+	// PATCH cannot transfer an issue (or partially edit it while ignoring the move).
+	request(guestWritePAT, "PATCH", base+"/issues/PUB-1", `{"team_id":"`+teamID.String()+`","title":"Moved issue"}`, http.StatusBadRequest)
+	var afterMove struct {
+		TeamID string `json:"team_id"`
+		Title  string `json:"title"`
+	}
+	require.NoError(t, json.Unmarshal(request(ownerJWT, "GET", base+"/issues/PUB-1", "", http.StatusOK), &afterMove))
+	require.Equal(t, envelope.ID, afterMove.TeamID)
+	require.Equal(t, "Workspace grant", afterMove.Title)
 	request(ownerJWT, "DELETE", overridePath, "", http.StatusNoContent)
 	request(ownerJWT, "DELETE", rolePath, "", http.StatusNoContent)
 	request(guestWritePAT, "PATCH", issuePath, `{"title":"Inherited"}`, http.StatusOK)

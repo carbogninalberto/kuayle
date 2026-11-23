@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Upravit roli",
 	"settings.roles.team": "Týmové role",
 	"settings.roles.inherit": "Použít roli pracovního prostoru",
+	"settings.roles.override_effects": "Přepsání role v kterémkoli týmu vypne v celém pracovním prostoru stav a funkce asistenta, psaní s AI, úpravy profilů agentů a úlohy na pozadí pro konverzace, Telegram, zprávy a signály agentů.",
 	"settings.roles.custom": "Vlastní role",
 	"settings.roles.load_failed": "Role se nepodařilo načíst.",
 	"settings.roles.in_use": "Tato role je přiřazena.",

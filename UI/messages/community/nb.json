@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Rediger rolle",
 	"settings.roles.team": "Teamroller",
 	"settings.roles.inherit": "Bruk arbeidsområdets rolle",
+	"settings.roles.override_effects": "En egen rolle i et team deaktiverer funksjoner i hele arbeidsområdet, blant annet assistentens status og funksjoner, KI-skriving, redigering av agentprofiler og bakgrunnsjobber for samtaler, Telegram, agentmeldinger og signaler.",
 	"settings.roles.custom": "Egendefinert rolle",
 	"settings.roles.load_failed": "Kunne ikke laste roller.",
 	"settings.roles.in_use": "Denne rollen er i bruk.",

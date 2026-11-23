@@ -1509,6 +1509,14 @@ predicate as emitting; the settings page explains why from the workspace's
 ## Workspace roles
 
 Migration 202 seeds the four built-in role definitions for every workspace.
+Older installations can have several owner memberships in one workspace. Before
+changing any memberships, migration 202 stops and lists the affected workspace
+slugs. Review the rows against `workspaces.owner_id` and explicitly reassign
+the additional owners. Once the failed transaction has rolled back and the
+database is confirmed to be at schema 201, run `server migrate force 201` and
+retry `server migrate up`. This preserves existing grants until an operator
+has chosen how to resolve the conflict.
+
 `workspace_members.role_key` identifies the assigned role and
 `team_role_overrides` stores explicit exceptions. The legacy `role` column
 gives custom memberships and memberships with team exceptions guest privileges
@@ -1526,7 +1534,22 @@ A create request takes a name, description and either a permission list or a
 built-in template key. Change a membership through `PATCH /members/:userId`.
 List its exceptions at `GET /members/:userId/team-roles`. Use `PUT` with a
 role key or `DELETE` on `/members/:userId/team-roles/:teamId` to set or clear
-an exception. A team override preserves private-team visibility checks.
+an exception. Administrators retain implicit access to private teams where
+their effective role is still administrative. A team override alone cannot
+give a non-administrator implicit access to a private team. Members with an
+override or custom role can leave an explicit team membership in an interactive
+session. Leaving the last membership in a public team preserves the team if the
+delegated role lacks `team:manage`. Issue PATCH rejects `team_id` because an
+issue's team is fixed at creation.
+
+Custom roles and members with any team override use guest-level checks in
+legacy features without a matching grant. This applies workspace-wide, even
+if other teams inherit the member's ordinary role. Affected features include
+assistant status and capabilities, AI writing, agent profile authoring, and
+workers for the conversation queue, Telegram deliveries, agent messages and
+agent signals. A read grant on agent tasks does not authorize those jobs to
+perform writes. Clearing the last override restores the built-in role's usual
+access.
 
 After applying migration 202, rerun the machine gateway database provisioner
 so it can read `dev_machine_role_access`. To downgrade, move members to built-in

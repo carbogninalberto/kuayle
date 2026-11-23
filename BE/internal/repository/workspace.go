@@ -200,7 +200,7 @@ func (r *WorkspaceRepository) AddMember(ctx context.Context, member *domain.Work
 	}
 	query := `INSERT INTO workspace_members (workspace_id,user_id,role,assigned_role) VALUES($1,$2,$3,$4) RETURNING created_at`
 	if err := tx.QueryRowContext(ctx, query, member.WorkspaceID, member.UserID, legacyRole, assignedRole).Scan(&member.CreatedAt); err != nil {
-		return err
+		return membershipRoleError(err)
 	}
 	return tx.Commit()
 }
@@ -240,7 +240,7 @@ func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID,
  assigned_role=CASE WHEN $4 OR EXISTS(SELECT 1 FROM team_role_overrides WHERE workspace_id=$2 AND user_id=$3) THEN $1 ELSE NULL END
  WHERE workspace_id=$2 AND user_id=$3 RETURNING role_key`, role, workspaceID, userID, !domain.BuiltinRole(role)).Scan(&role)
 	if err != nil {
-		return "", err
+		return "", membershipRoleError(err)
 	}
 	// Invite links carry their creator's authority; a role that can no longer
 	// invite must not leave working links behind.

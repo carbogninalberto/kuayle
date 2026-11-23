@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "עריכת תפקיד",
 	"settings.roles.team": "תפקידי צוות",
 	"settings.roles.inherit": "שימוש בתפקיד מסביבת העבודה",
+	"settings.roles.override_effects": "הגדרת תפקיד נפרד בצוות כלשהו משביתה בכל סביבת העבודה את מצב העוזר ויכולותיו, כתיבה באמצעות בינה מלאכותית, עריכת פרופילי סוכנים ומשימות רקע לשיחות, לטלגרם, להודעות סוכנים ולאותות שלהם.",
 	"settings.roles.custom": "תפקיד מותאם אישית",
 	"settings.roles.load_failed": "טעינת התפקידים נכשלה.",
 	"settings.roles.in_use": "תפקיד זה נמצא בשימוש.",

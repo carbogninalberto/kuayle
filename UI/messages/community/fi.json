@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Muokkaa roolia",
 	"settings.roles.team": "Tiimiroolit",
 	"settings.roles.inherit": "Käytä työtilan roolia",
+	"settings.roles.override_effects": "Tiimikohtainen rooli poistaa koko työtilassa käytöstä muun muassa avustajan tilan ja ominaisuudet, tekoälykirjoittamisen, agenttiprofiilien muokkauksen sekä keskustelujen, Telegramin, agenttiviestien ja signaalien taustatehtävät.",
 	"settings.roles.custom": "Mukautettu rooli",
 	"settings.roles.load_failed": "Roolien lataaminen epäonnistui.",
 	"settings.roles.in_use": "Tämä rooli on käytössä.",

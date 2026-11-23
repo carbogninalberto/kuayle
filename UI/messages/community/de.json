@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Rolle bearbeiten",
 	"settings.roles.team": "Teamrollen",
 	"settings.roles.inherit": "Arbeitsbereichsrolle verwenden",
+	"settings.roles.override_effects": "Eine abweichende Teamrolle deaktiviert im gesamten Arbeitsbereich unter anderem Status und Funktionen des Assistenten, KI-Schreiben, die Bearbeitung von Agentenprofilen sowie Hintergrundaufgaben für Unterhaltungen, Telegram, Agentennachrichten und Signale.",
 	"settings.roles.custom": "Benutzerdefinierte Rolle",
 	"settings.roles.load_failed": "Rollen konnten nicht geladen werden.",
 	"settings.roles.in_use": "Diese Rolle ist zugewiesen.",

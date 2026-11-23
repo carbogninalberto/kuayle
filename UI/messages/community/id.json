@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Edit peran",
 	"settings.roles.team": "Peran tim",
 	"settings.roles.inherit": "Gunakan peran ruang kerja",
+	"settings.roles.override_effects": "Mengganti peran di tim mana pun menonaktifkan fitur di seluruh ruang kerja, termasuk status dan kemampuan asisten, penulisan dengan AI, pengeditan profil agen, serta pekerjaan latar belakang untuk percakapan, Telegram, pesan dan sinyal agen.",
 	"settings.roles.custom": "Peran khusus",
 	"settings.roles.load_failed": "Gagal memuat peran.",
 	"settings.roles.in_use": "Peran ini sedang digunakan.",

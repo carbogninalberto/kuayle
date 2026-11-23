@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Modifica ruolo",
 	"settings.roles.team": "Ruoli del team",
 	"settings.roles.inherit": "Usa il ruolo dello spazio di lavoro",
+	"settings.roles.override_effects": "Una deroga per un team disattiva in tutto lo spazio di lavoro lo stato e le funzionalità dell’assistente, la scrittura con IA, la modifica dei profili agente e le attività in background per conversazioni, Telegram, messaggi e segnali degli agenti.",
 	"settings.roles.custom": "Ruolo personalizzato",
 	"settings.roles.load_failed": "Impossibile caricare i ruoli.",
 	"settings.roles.in_use": "Questo ruolo è assegnato.",

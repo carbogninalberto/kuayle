@@ -44,6 +44,15 @@ var ErrRoleInUse = errors.New("role has workspace or team assignments")
 var ErrRoleNameTaken = errors.New("a role with that name already exists")
 var ErrRoleGrant = errors.New("cannot grant permissions outside your current access")
 var ErrRoleProtected = errors.New("this role is protected")
+var ErrUnknownRole = errors.New("unknown role")
+
+func membershipRoleError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == "workspace_members_workspace_id_role_key_fkey" {
+		return ErrUnknownRole
+	}
+	return err
+}
 
 // Serialize changes to the workspace and team grants used by a delegation.
 func beginRoleChange(ctx context.Context, db *sqlx.DB, ws uuid.UUID) (*sqlx.Tx, error) {
@@ -102,27 +111,40 @@ func (r *WorkspaceRepository) DeleteRole(ctx context.Context, ws uuid.UUID, key 
 	if domain.BuiltinRole(key) {
 		return ErrRoleProtected
 	}
-	err := r.db.QueryRowContext(ctx, `DELETE FROM workspace_roles WHERE workspace_id=$1 AND key=$2 RETURNING key`, ws, key).Scan(&key)
+	tx, err := beginRoleChange(ctx, r.db, ws)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	err = tx.QueryRowContext(ctx, `DELETE FROM workspace_roles WHERE workspace_id=$1 AND key=$2 RETURNING key`, ws, key).Scan(&key)
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 		return ErrRoleInUse
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
-const roleGrantQuery = `SELECT kuayle_can_grant_role(m.workspace_id,m.user_id,$3,$4) FROM workspace_members m WHERE m.workspace_id=$1 AND m.user_id=$2`
+const roleGrantQuery = `SELECT CASE WHEN target.key IS NOT NULL THEN kuayle_can_grant_role(m.workspace_id,m.user_id,$3,$4) END
+	FROM workspace_members m LEFT JOIN workspace_roles target ON target.workspace_id=m.workspace_id AND target.key=$3
+	WHERE m.workspace_id=$1 AND m.user_id=$2`
 
 func canGrantRole(ctx context.Context, q sqlx.QueryerContext, ws, user uuid.UUID, role string, scopes []string, lock bool) (bool, error) {
 	query := roleGrantQuery
 	if lock {
 		query += " FOR SHARE OF m"
 	}
-	var allowed bool
+	var allowed sql.NullBool
 	err := sqlx.GetContext(ctx, q, &allowed, query, ws, user, role, pq.Array(scopes))
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
-	return allowed, err
+	if err == nil && !allowed.Valid {
+		return false, ErrUnknownRole
+	}
+	return allowed.Bool, err
 }
 
 func (r *WorkspaceRepository) CanGrantRole(ctx context.Context, ws, user uuid.UUID, role string) (bool, error) {

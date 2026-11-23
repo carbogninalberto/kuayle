@@ -138,10 +138,12 @@ for (const width of [390, 1280]) {
 		await dialog.getByRole('button', { name: 'Save', exact: true }).click();
 		await expect(assignment).toHaveText('Triage lead');
 		await page.getByRole('button', { name: 'Team roles Ann Rivera' }).click();
+		await expect(dialog.getByText(/assistant.*Telegram/)).toBeVisible();
 		const team = dialog.getByRole('combobox', { name: 'Engineering' });
 		await team.click();
 		await page.getByRole('option', { name: 'Guest', exact: true }).click();
 		await expect(team).toHaveText('Guest');
+		await page.screenshot({ path: testInfo.outputPath(`team-roles-${width}.png`), animations: 'disabled' });
 		await team.click();
 		await page.getByRole('option', { name: 'Use workspace role' }).click();
 		await expect(team).toHaveText('Use workspace role');
@@ -183,4 +185,37 @@ test('permission loading can be retried without losing the draft or granting def
 	await save.click();
 	await expect(page.getByRole('row', { name: new RegExp(name) })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Create role' })).toBeFocused();
+});
+
+test('team role dialog keeps its controls reachable after retry and with long team names', async ({ page }) => {
+	await mockRoles(page);
+	await page.setViewportSize({ width: 390, height: 640 });
+	await page.goto('/studio/settings/members');
+	const trigger = page.getByRole('button', { name: 'Team roles Ann Rivera' });
+	await expect(trigger).toBeEnabled();
+	const teamsPath = '**/api/workspaces/studio/teams';
+	await page.route(teamsPath, (route) => route.fulfill({ json: [] }));
+	await page.route('**/members/ann/team-roles', (route) => route.fulfill({ status: 503, json: {} }), { times: 1 });
+	await trigger.click();
+	const dialog = page.getByRole('dialog');
+	await expect(dialog.getByRole('alert')).toBeVisible();
+	await dialog.getByRole('button', { name: 'Retry' }).click();
+	await expect(dialog.getByText('No team', { exact: true })).toBeVisible();
+	await dialog.press('Escape');
+	await expect(trigger).toBeFocused();
+
+	const teams = Array.from({ length: 12 }, (_, i) => ({ id: 'team-' + i, name: 'Engineering'.repeat(8) + i }));
+	await page.route(teamsPath, (route) => route.fulfill({ json: teams }));
+	await trigger.press('Enter');
+	await expect(dialog.getByText(/assistant.*Telegram/)).toBeInViewport();
+	const lastTeam = dialog.getByRole('combobox').last();
+	await lastTeam.focus();
+	await expect(lastTeam).toBeInViewport();
+	expect(await dialog.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+	await lastTeam.press('Tab');
+	const focused = page.locator(':focus');
+	await expect(focused).toHaveAccessibleName('Close');
+	await expect(focused).toBeInViewport();
+	await focused.press('Enter');
+	await expect(trigger).toBeFocused();
 });

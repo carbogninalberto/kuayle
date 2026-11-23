@@ -319,16 +319,22 @@ func (h *IssueHandler) Get(c *echo.Context) error {
 }
 
 func (h *IssueHandler) Update(c *echo.Context) error {
-	var req dto.UpdateIssueRequest
+	var req struct {
+		dto.UpdateIssueRequest
+		TeamID *string `json:"team_id"`
+	}
 	if err := c.Bind(&req); err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body")
+	}
+	if req.TeamID != nil {
+		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "An issue's team cannot be changed")
 	}
 
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	identifier := c.Param("identifier")
 
-	issue, undo, err := h.issueSvc.UpdateWithUndo(c.Request().Context(), ws.ID, userID, identifier, req)
+	issue, undo, err := h.issueSvc.UpdateWithUndo(c.Request().Context(), ws.ID, userID, identifier, req.UpdateIssueRequest)
 	if err != nil {
 		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
 	}

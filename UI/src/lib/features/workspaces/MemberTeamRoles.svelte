@@ -68,7 +68,7 @@
 		if (!next && !busy) onclose();
 	}}
 >
-	<Dialog.Content showCloseButton={!busy}>
+	<Dialog.Content class="top-[5dvh] flex max-h-[90dvh] flex-col" showCloseButton={!busy}>
 		<Dialog.Header>
 			<Dialog.Title>{m['settings.roles.team']()}</Dialog.Title>
 			<Dialog.Description>{member.name || member.email}</Dialog.Description>
@@ -78,7 +78,8 @@
 			<Button variant="outline" onclick={load}>{m['settings.tokens.retry']()}</Button>
 		{:else if !teams.length}<p>{m['agents.identity.no_teams']()}</p>
 		{:else}
-			<div class="max-h-[55dvh] space-y-3 overflow-y-auto p-1">
+			<div class="min-h-0 space-y-3 overflow-y-auto p-1">
+				<p class="text-sm text-muted-foreground">{m['settings.roles.override_effects']()}</p>
 				{#each teams as team (team.id)}
 					<div
 						class="grid min-w-0 items-center gap-2 sm:grid-cols-2 [&_[data-slot=select-trigger]]:max-w-full [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate"

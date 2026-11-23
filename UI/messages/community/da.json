@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Rediger rolle",
 	"settings.roles.team": "Teamroller",
 	"settings.roles.inherit": "Brug arbejdsområdets rolle",
+	"settings.roles.override_effects": "En særskilt rolle i et team deaktiverer funktioner i hele arbejdsområdet, herunder assistentens status og funktioner, AI-skrivning, redigering af agentprofiler og baggrundsjob for samtaler, Telegram, agentbeskeder og signaler.",
 	"settings.roles.custom": "Brugerdefineret rolle",
 	"settings.roles.load_failed": "Rollerne kunne ikke indlæses.",
 	"settings.roles.in_use": "Denne rolle er i brug.",

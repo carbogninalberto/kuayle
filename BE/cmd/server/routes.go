@@ -326,7 +326,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/teams/:teamId/members", h.team.Members, "members:read", mw.RequirePermission("teams:read"))
 	scoped(ws, http.MethodPost, "/teams/:teamId/members", h.team.AddMember, "team:manage")
 	scoped(ws, http.MethodDelete, "/teams/:teamId/members/:userId", h.team.RemoveMember, "team:manage")
-	sessionOnly(ws, http.MethodPost, "/teams/:teamId/leave", h.team.Leave)
+	addNamedRoute(ws, http.MethodPost, "/teams/:teamId/leave", h.team.Leave, "session", mw.RequireMemberSession())
 
 	// Team Statuses
 	scoped(ws, http.MethodGet, "/teams/:teamId/statuses", h.teamStatus.List, "teams:read")

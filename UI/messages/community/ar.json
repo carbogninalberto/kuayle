@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "تعديل الدور",
 	"settings.roles.team": "أدوار الفريق",
 	"settings.roles.inherit": "استخدام دور مساحة العمل",
+	"settings.roles.override_effects": "يؤدي تجاوز دور أي فريق إلى تعطيل بعض الميزات في مساحة العمل بأكملها، بما فيها حالة المساعد وإمكاناته، والكتابة بالذكاء الاصطناعي، وتعديل ملفات الوكلاء، ومهام الخلفية للمحادثات وTelegram ورسائل الوكلاء وإشاراتهم.",
 	"settings.roles.custom": "دور مخصص",
 	"settings.roles.load_failed": "تعذّر تحميل الأدوار.",
 	"settings.roles.in_use": "هذا الدور معيّن.",

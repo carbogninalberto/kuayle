@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "編輯角色",
 	"settings.roles.team": "團隊角色",
 	"settings.roles.inherit": "使用工作區角色",
+	"settings.roles.override_effects": "設定任一團隊角色覆寫後，整個工作區將無法使用助理狀態和功能、AI 寫作及代理程式設定檔編輯。對話、Telegram、代理程式訊息和訊號的背景工作也會停用。",
 	"settings.roles.custom": "自訂角色",
 	"settings.roles.load_failed": "無法載入角色。",
 	"settings.roles.in_use": "此角色已指派。",

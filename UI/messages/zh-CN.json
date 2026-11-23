@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "编辑角色",
 	"settings.roles.team": "团队角色",
 	"settings.roles.inherit": "使用工作区角色",
+	"settings.roles.override_effects": "设置任一团队角色覆盖后，整个工作区将无法使用助手状态和功能、AI 写作及智能体配置文件编辑。对话、Telegram、智能体消息和信号的后台任务也将停用。",
 	"settings.roles.custom": "自定义角色",
 	"settings.roles.load_failed": "无法加载角色。",
 	"settings.roles.in_use": "此角色已分配。",

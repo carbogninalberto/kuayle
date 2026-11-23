@@ -35,19 +35,29 @@ func RequirePermission(permission string) echo.MiddlewareFunc {
 // (JWT) only. Routes without a permission annotation get this instead, so
 // personal access tokens are denied by default.
 func RequireSession() echo.MiddlewareFunc {
-	return requireSession(response.Forbidden)
+	return requireSession(response.Forbidden, false)
+}
+
+// RequireMemberSession admits any current membership for self-service actions.
+func RequireMemberSession() echo.MiddlewareFunc {
+	return requireSession(response.Forbidden, true)
 }
 
 func RequireSessionWithRefusal(code, reason string) echo.MiddlewareFunc {
 	return requireSession(func(c *echo.Context) error {
 		return response.Error(c, http.StatusForbidden, code, reason)
-	})
+	}, false)
 }
 
-func requireSession(refuse echo.HandlerFunc) echo.MiddlewareFunc {
+func UsesDelegatedRole(c *echo.Context) bool {
+	access, _ := c.Get("role_access").(*domain.RoleAccess)
+	return access != nil && (!domain.BuiltinRole(access.Role) || len(access.Teams) > 0)
+}
+
+func requireSession(refuse echo.HandlerFunc, allowDelegated bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if access, ok := c.Get("role_access").(*domain.RoleAccess); ok && (!domain.BuiltinRole(access.Role) || len(access.Teams) > 0) {
+			if !allowDelegated && UsesDelegatedRole(c) {
 				// Session-only routes have no permission code for delegated access.
 				return response.Forbidden(c)
 			}
@@ -124,9 +134,7 @@ func GetWorkspaceRole(c *echo.Context) string {
 func RequireTokenPermission(permission string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			access, _ := c.Get("role_access").(*domain.RoleAccess)
-			delegated := access != nil && (!domain.BuiltinRole(access.Role) || len(access.Teams) > 0)
-			if (delegated || c.Get(TokenScopesKey) != nil) && !RequestAllows(c, permission) {
+			if (UsesDelegatedRole(c) || c.Get(TokenScopesKey) != nil) && !RequestAllows(c, permission) {
 				return response.Forbidden(c)
 			}
 			return next(c)

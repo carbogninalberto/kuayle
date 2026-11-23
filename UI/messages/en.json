@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Edit role",
 	"settings.roles.team": "Team roles",
 	"settings.roles.inherit": "Use workspace role",
+	"settings.roles.override_effects": "Any team override disables workspace-wide features including assistant status and capabilities, AI writing, agent profile editing, and background jobs for conversations, Telegram, agent messages and signals.",
 	"settings.roles.custom": "Custom role",
 	"settings.roles.load_failed": "Could not load roles.",
 	"settings.roles.in_use": "This role has assignments.",

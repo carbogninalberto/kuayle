@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "Edita el rol",
 	"settings.roles.team": "Rols d’equip",
 	"settings.roles.inherit": "Utilitza el rol de l’espai de treball",
+	"settings.roles.override_effects": "Qualsevol rol específic d’equip desactiva funcions a tot l’espai de treball, com ara l’estat i les capacitats de l’assistent, l’escriptura amb IA, l’edició de perfils d’agents i les tasques en segon pla de converses, Telegram, missatges i senyals d’agents.",
 	"settings.roles.custom": "Rol personalitzat",
 	"settings.roles.load_failed": "No s’han pogut carregar els rols.",
 	"settings.roles.in_use": "Aquest rol té assignacions.",

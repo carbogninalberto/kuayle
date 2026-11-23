@@ -1293,6 +1293,7 @@
 	"settings.roles.edit": "ロールを編集",
 	"settings.roles.team": "チームのロール",
 	"settings.roles.inherit": "ワークスペースのロールを使用",
+	"settings.roles.override_effects": "いずれかのチームでロールを上書きすると、ワークスペース全体でアシスタントの状態表示と機能、AI による文章作成、エージェントプロファイルの編集、会話・Telegram・エージェントのメッセージやシグナルのバックグラウンド処理が無効になります。",
 	"settings.roles.custom": "カスタムロール",
 	"settings.roles.load_failed": "ロールを読み込めませんでした。",
 	"settings.roles.in_use": "このロールは割り当て済みです。",

@@ -44,6 +44,16 @@ func TestWorkspaceRolesMigration(t *testing.T) {
 		require.NoError(t, err)
 		users[role] = user
 	}
+	// Older installations allowed several owners before owner_id was introduced.
+	_, err = db.Exec("UPDATE workspace_members SET role='owner' WHERE workspace_id=$1 AND user_id=$2", fixture.workspaceA, users[domain.RoleAdmin])
+	require.NoError(t, err)
+	require.ErrorContains(t, m.Migrate(202), "Multiple owner memberships in workspaces: migration-miga")
+	var owners int
+	require.NoError(t, db.QueryRow("SELECT count(*) FROM workspace_members WHERE workspace_id=$1 AND role='owner'", fixture.workspaceA).Scan(&owners))
+	require.Equal(t, 2, owners)
+	_, err = db.Exec("UPDATE workspace_members SET role='admin' WHERE workspace_id=$1 AND user_id=$2", fixture.workspaceA, users[domain.RoleAdmin])
+	require.NoError(t, err)
+	require.NoError(t, m.Force(201))
 	require.NoError(t, m.Migrate(202))
 	for role, user := range users {
 		var permissions pq.StringArray

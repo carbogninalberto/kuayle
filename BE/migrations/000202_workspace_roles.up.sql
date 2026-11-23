@@ -1,3 +1,19 @@
+-- Pre-owner_id databases could promote additional owners. An operator must
+-- resolve these memberships explicitly before the unique index is installed.
+DO $$
+DECLARE affected text;
+BEGIN
+    SELECT string_agg(w.slug, ', ' ORDER BY w.slug) INTO affected
+    FROM workspaces w WHERE w.id IN (
+        SELECT workspace_id FROM workspace_members WHERE role='owner'
+        GROUP BY workspace_id HAVING count(*) > 1
+    );
+    IF affected IS NOT NULL THEN
+        RAISE EXCEPTION 'Multiple owner memberships in workspaces: %', affected
+            USING HINT = 'Review the memberships against workspaces.owner_id and keep one owner before retrying migration 202.';
+    END IF;
+END $$;
+
 -- The keys of the built-ins are the existing membership values. Custom keys
 -- are independent of their editable display names.
 CREATE TABLE workspace_roles (
@@ -59,6 +75,23 @@ CREATE TABLE team_role_overrides (
 );
 CREATE INDEX team_role_overrides_role ON team_role_overrides(workspace_id,role_key);
 CREATE INDEX workspace_members_role_key ON workspace_members(workspace_id,role_key);
+
+-- An override can narrow an administrator’s implicit private-team access only
+-- in that team. A team role alone never confers private membership.
+CREATE OR REPLACE FUNCTION kuayle_team_access(ident UUID, actor UUID, scope UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql VOLATILE AS $$
+BEGIN
+ RETURN EXISTS(
+  SELECT 1 FROM teams t LEFT JOIN workspace_members m ON m.workspace_id=t.workspace_id AND m.user_id=actor
+  WHERE t.id=ident AND (scope IS NULL OR t.workspace_id=scope)
+   AND (actor IS NULL OR m.user_id IS NOT NULL)
+   AND (NOT t.is_private OR (actor IS NOT NULL AND
+     ((m.role_key IN ('owner','admin') AND NOT EXISTS (
+       SELECT 1 FROM team_role_overrides o WHERE o.workspace_id=t.workspace_id AND o.user_id=actor
+       AND o.team_id=t.id AND o.role_key NOT IN ('owner','admin'))) OR EXISTS(SELECT 1 FROM team_members tm WHERE tm.team_id=t.id AND tm.user_id=actor))))
+ );
+END;
+$$;
 
 -- Resource queries supply the stored team. Workspace-only operations pass NULL.
 CREATE FUNCTION kuayle_role_allows(wid uuid, actor uuid, team uuid, permission text)
