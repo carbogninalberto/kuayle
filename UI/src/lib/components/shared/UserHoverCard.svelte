@@ -1,8 +1,8 @@
 <script lang="ts">
+	import { roleName } from '$lib/features/workspaces/role-name';
 	import type { WorkspaceMember } from '$lib/types/workspace';
 	import Avatar from './Avatar.svelte';
 	import * as HoverCard from '$lib/components/ui/hover-card';
-	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
 		member,
@@ -15,7 +15,6 @@
 	} = $props();
 
 	const displayName = $derived(member.name || member.email);
-	const dynamicMessage = m as unknown as Record<string, () => string>;
 </script>
 
 <HoverCard.Root openDelay={150} closeDelay={100}>
@@ -28,7 +27,7 @@
 			<div class="min-w-0">
 				<div class="truncate text-sm font-medium text-[var(--color-text-primary)]">{displayName}</div>
 				<div class="truncate text-xs text-[var(--color-text-tertiary)]">{member.email}</div>
-				<div class="mt-0.5 text-[11px] capitalize text-[var(--color-text-tertiary)]">{dynamicMessage['common.role.' + member.role]()}</div>
+				<div class="mt-0.5 text-[11px] capitalize text-[var(--color-text-tertiary)]">{roleName(member.role, member.role_name)}</div>
 			</div>
 		</div>
 	</HoverCard.Content>

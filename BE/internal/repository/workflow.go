@@ -49,7 +49,10 @@ func NewWorkflowRepository(db *sqlx.DB) *WorkflowRepository { return &WorkflowRe
 // not a member.
 func (r *WorkflowRepository) MemberRole(ctx context.Context, ws, actor uuid.UUID) (string, error) {
 	var role string
-	err := r.db.GetContext(ctx, &role, `SELECT role FROM workspace_members WHERE workspace_id=$1 AND user_id=$2`, ws, actor)
+	access, _ := domain.AccessFromContext(ctx)
+	err := r.db.GetContext(ctx, &role, `SELECT CASE WHEN role='guest' AND $3 THEN 'member' ELSE role END
+		FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 AND kuayle_role_allows($1,$2,NULL,'workflows:read')`,
+		ws, actor, access.Permission == domain.PermWorkflowsRead)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

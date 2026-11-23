@@ -199,7 +199,7 @@ func TestCreateAccessTicketQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	query, _ := conn.captured()
 	require.Contains(t, query, "SELECT $1, m.workspace_id, m.id, s.id, $5")
 	require.Contains(t, query, "JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id")
-	require.Contains(t, query, "JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5")
+	require.Contains(t, query, "JOIN dev_machine_role_access wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5")
 	require.Contains(t, query, "m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5")
 	require.Contains(t, query, "m.status='running' AND m.desired_status='running'")
 	require.Contains(t, query, "s.status='running' AND $9>NOW()")
@@ -239,7 +239,7 @@ func TestCreateAccessSessionQueryRevalidatesCreatorAndTuple(t *testing.T) {
 	query, _ := conn.captured()
 	require.Contains(t, query, "SELECT $1, m.workspace_id, m.id, s.id, $5")
 	require.Contains(t, query, "JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id")
-	require.Contains(t, query, "JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5")
+	require.Contains(t, query, "JOIN dev_machine_role_access wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5")
 	require.Contains(t, query, "m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5")
 	require.Contains(t, query, "m.status='running' AND m.desired_status='running'")
 	require.Contains(t, query, "s.status='running' AND $8>NOW()")
@@ -488,7 +488,7 @@ func requireAccessAuthorizationQuery(t *testing.T, query, alias string) {
 	require.NotContains(t, query, "m.expires_at")
 	require.Contains(t, query, "s.id="+alias+".service_id AND s.machine_id=m.id AND s.status='running'")
 	require.Contains(t, query, "wm.workspace_id=m.workspace_id AND wm.user_id="+alias+".user_id")
-	require.Contains(t, query, "wm.role IN ('owner','admin','member')")
+	require.Contains(t, query, "dev_machine_role_access wm")
 }
 
 func TestDevMachineNameUniqueIndexIsCreatorScoped(t *testing.T) {

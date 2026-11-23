@@ -13,9 +13,10 @@ A token request is authorized by the intersection of two sets:
 1. **The token's scopes** (`scopes`, the ceiling). A route annotated
    `perm:<scope>` requires that scope in the token.
 2. **The owner's workspace role** (RBAC, the floor). The same permission must
-   be held by the owner's role in the workspace handling the request
-   (`domain.RolePermissions`). User-level routes without a workspace role are
-   governed by the scope alone.
+   be held by the current workspace or applicable team role. Membership and
+   role definitions are loaded for each request. User-level account routes
+   check the scope directly. Workspace lists and notifications also filter
+   their results against the current role.
 
 A token can additionally be restricted to a list of workspaces
 (`workspace_slugs`); requests to any other workspace are rejected before the
@@ -27,11 +28,9 @@ signed in through that workspace's SSO; other tokens get `403 SSO_REQUIRED`,
 at creation and on every request, owners included. See
 [SSO: personal access tokens and CLI links](sso.md#personal-access-tokens-and-cli-links).
 
-Scope names are the permission codes used by role RBAC. `validTokenScopes` in
-`BE/internal/domain/personal_access_token.go` is the public list of scopes a
-token may request. Roles hold `account:write` and `notifications:write` for
-every member, including guests; every other write scope follows the role
-matrix.
+Role definitions and PATs share the codes in
+`BE/internal/domain/permission_catalog.go`. All four built-in roles include
+`account:write` and `notifications:write`.
 
 ## Gaps found (KUA-111)
 
@@ -471,6 +470,9 @@ authentication.
 | GET | `/api/workspaces/:slug/members` | token | members:read |
 | DELETE | `/api/workspaces/:slug/members/:userId` | token | member:invite |
 | PATCH | `/api/workspaces/:slug/members/:userId` | token | member:invite |
+| GET | `/api/workspaces/:slug/members/:userId/team-roles` | session only | workspace owner |
+| DELETE | `/api/workspaces/:slug/members/:userId/team-roles/:teamId` | session only | workspace owner |
+| PUT | `/api/workspaces/:slug/members/:userId/team-roles/:teamId` | session only | workspace owner |
 | GET | `/api/workspaces/:slug/memory/lessons` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | POST | `/api/workspaces/:slug/memory/lessons` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | PUT | `/api/workspaces/:slug/memory/lessons/:lessonId` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
@@ -504,6 +506,11 @@ authentication.
 | PATCH | `/api/workspaces/:slug/projects/:id/wiki/settings` | token | wiki:write |
 | GET | `/api/workspaces/:slug/projects/:id/wiki/tree` | token | wiki:read |
 | POST | `/api/workspaces/:slug/projects/:id/wiki/tree` | token | wiki:write |
+| GET | `/api/workspaces/:slug/roles` | session only | workspace owner |
+| POST | `/api/workspaces/:slug/roles` | session only | workspace owner |
+| DELETE | `/api/workspaces/:slug/roles/:roleKey` | session only | workspace owner |
+| PUT | `/api/workspaces/:slug/roles/:roleKey` | session only | workspace owner |
+| GET | `/api/workspaces/:slug/roles/permissions` | session only | workspace owner |
 | DELETE | `/api/workspaces/:slug/scim/groups/:id/team` | session only | Only an interactive workspace owner or admin may manage its provisioning token and team mappings. |
 | PUT | `/api/workspaces/:slug/scim/groups/:id/team` | session only | Only an interactive workspace owner or admin may manage its provisioning token and team mappings. |
 | DELETE | `/api/workspaces/:slug/scim/token` | session only | Only an interactive workspace owner or admin may manage its provisioning token and team mappings. |

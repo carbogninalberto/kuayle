@@ -37,7 +37,7 @@ SELECT format('GRANT SELECT ON TABLE dev_machines, dev_machine_services TO %I', 
 SELECT format('GRANT SELECT (id, machine_id, workspace_id, port, target) ON TABLE dev_machine_ports TO %I', :'gateway_user') \gexec
 SELECT format('GRANT EXECUTE ON FUNCTION kuayle_assistant_process_available(UUID, BOOLEAN) TO %I', :'gateway_user') \gexec
 SELECT format('GRANT SELECT (workspace_id, enabled) ON TABLE dev_machine_workspace_policies TO %I', :'gateway_user') \gexec
-SELECT format('GRANT SELECT (workspace_id, user_id, role) ON TABLE workspace_members TO %I', :'gateway_user') \gexec
+SELECT format('GRANT SELECT ON TABLE dev_machine_role_access TO %I', :'gateway_user') \gexec
 SELECT format(
   'GRANT SELECT (id, workspace_id, machine_id, user_id, status) ON TABLE dev_machine_terminal_sessions TO %I',
   :'gateway_user'

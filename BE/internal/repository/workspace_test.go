@@ -33,6 +33,43 @@ func TestWorkspaceCreateErrorPreservesOtherErrors(t *testing.T) {
 	require.ErrorIs(t, workspaceCreateError(otherConstraintErr), otherConstraintErr)
 }
 
+func TestMembershipRoleError(t *testing.T) {
+	roleFK := &pgconn.PgError{Code: "23503", ConstraintName: "workspace_members_workspace_id_role_key_fkey"}
+	require.ErrorIs(t, membershipRoleError(roleFK), ErrUnknownRole)
+	userFK := &pgconn.PgError{Code: "23503", ConstraintName: "workspace_members_user_id_fkey"}
+	require.ErrorIs(t, membershipRoleError(userFK), userFK)
+}
+
+func TestDeleteRoleWaitsForRoleChanges(t *testing.T) {
+	url := os.Getenv("DATABASE_URL")
+	if url == "" {
+		t.Skip("DATABASE_URL is not configured")
+	}
+	db, err := sqlx.Connect("pgx", url)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	ctx := context.Background()
+	ws, key := uuid.New(), uuid.NewString()
+	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug) VALUES ($1,'Role lock',$2)`, ws, ws.String())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := db.Exec(`DELETE FROM workspaces WHERE id=$1`, ws)
+		require.NoError(t, err)
+	})
+	_, err = db.Exec(`INSERT INTO workspace_roles(workspace_id,key,name) VALUES ($1,$2,'Review')`, ws, key)
+	require.NoError(t, err)
+
+	tx, err := beginRoleChange(ctx, db, ws)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	repo := NewWorkspaceRepository(db)
+	wait, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, repo.DeleteRole(wait, ws, key), context.DeadlineExceeded)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, repo.DeleteRole(ctx, ws, key))
+}
+
 func TestWorkspaceDeleteWaitsForEnvironmentImageCleanup(t *testing.T) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {

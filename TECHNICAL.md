@@ -1506,6 +1506,77 @@ has or had a private team is refused with 403
 predicate as emitting; the settings page explains why from the workspace's
 `privacy_enabled`.
 
+## Workspace roles
+
+Migration 202 seeds the four built-in role definitions for every workspace.
+Older installations can have several owner memberships in one workspace. Before
+changing any memberships, migration 202 stops and lists the affected workspace
+slugs. Review the rows against `workspaces.owner_id` and explicitly reassign
+the additional owners. Once the failed transaction has rolled back and the
+database is confirmed to be at schema 201, run `server migrate force 201` and
+retry `server migrate up`. This preserves existing grants until an operator
+has chosen how to resolve the conflict.
+
+`workspace_members.role_key` identifies the assigned role and
+`team_role_overrides` stores explicit exceptions. The legacy `role` column
+gives custom memberships and memberships with team exceptions guest privileges
+in features that still check role names. The API reads the current permission
+set on each request. Permission checks under `/teams/:teamId`, including
+cycle operations, use that team's role. Routes under `/issues/:identifier`
+use the issue's stored team, and issue collection queries check each selected
+row.
+
+Resource routes such as `PATCH /projects/:id` and `GET /views` neither
+resolve a team nor check grants per row. They require the permission in
+the workspace role and every team override. For example, a workspace Guest
+with an Admin override in a team they belong to can manage that team's cycles.
+They cannot update a project there because their workspace role lacks
+`project:manage`.
+
+In Settings → Members, owners can manage role definitions, see member and team assignment counts, and set team overrides. Member listings return the assigned key and its display name. A workspace detail response includes `can_manage_members` for the current caller.
+
+Custom roles with `workspace:manage` can configure webhooks and GitHub integrations.
+The separate `workspace:transfer` grant permits downloading a workspace archive,
+including attachments. Managing roles and deleting the workspace still require the owner.
+
+The interactive owner manages definitions at `/api/workspaces/:slug/roles`.
+Within that workspace, `GET /roles/permissions` returns grouped codes and hints.
+A create request takes a name, description and either a permission list or a
+built-in template key. Change a membership through `PATCH /members/:userId`.
+List its exceptions at `GET /members/:userId/team-roles`. Use `PUT` with a
+role key or `DELETE` on `/members/:userId/team-roles/:teamId` to set or clear
+an exception. Membership management requires the workspace `member:invite`
+grant. Updating or removing a member also requires authority over that
+member's current permissions in the workspace and in each team, including
+any PAT scope limits. Assigning a new role checks its grants against the
+caller's workspace role and every team override. For example, an admin with
+a Member override can invite a Member, but a Guest override limits the
+invitation to grants available to a Guest. Invite links support Member and Guest.
+Use a direct invitation or assign the role after joining to give a member a custom role.
+
+Administrators retain implicit access to private teams where
+their effective role is still administrative. A team override alone cannot
+give a non-administrator implicit access to a private team. Members with an
+override or custom role can leave an explicit team membership in an interactive
+session. Leaving the last membership in a public team preserves the team if the
+delegated role lacks `team:manage`. Issue PATCH accepts the issue’s current `team_id` and rejects a
+different team before applying any edits.
+
+Custom roles and members with any team override use guest-level checks in
+legacy features without a matching grant. This applies workspace-wide, even
+if other teams inherit the member's ordinary role. Interactive sessions can use
+routes open to Guests. Routes that require a built-in admin role, including
+import jobs, SSO configuration and SCIM administration, still enforce that check.
+Assistant chat and assigning agents to issues also require a non-Guest membership.
+Workflow and agent-task reads use their respective permission codes.
+Background workers for the conversation queue, Telegram deliveries, agent
+messages and agent signals also skip these members. Clearing the last
+override restores the built-in role's usual access.
+
+After applying migration 202, rerun the machine gateway database provisioner
+so it can read `dev_machine_role_access`. To downgrade, move members to built-in
+roles, clear team overrides and delete custom definitions first.
+
 ## MCP server
 
 `POST /mcp` is a stateless Streamable HTTP [MCP server](docs/mcp.md) in

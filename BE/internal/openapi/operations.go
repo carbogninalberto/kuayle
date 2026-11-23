@@ -211,7 +211,7 @@ func Operations() []Operation {
 		{Method: http.MethodGet, Path: ws + "/issues/:identifier", Scope: domain.PermIssuesRead, ID: "getIssue", Tag: "Issues",
 			Summary: "Get an issue", Status: 200, Response: dto.IssueResponse{}},
 		{Method: http.MethodPatch, Path: ws + "/issues/:identifier", Scope: domain.PermIssueUpdate, ID: "updateIssue", Tag: "Issues",
-			Summary: "Update an issue", Description: "Changes the fields that are present.",
+			Summary: "Update an issue", Description: "Changes the fields that are present. If supplied, team_id must match the current team.",
 			Body: dto.UpdateIssueRequest{}, Status: 200, Response: dto.IssueResponse{}},
 		{Method: http.MethodDelete, Path: ws + "/issues/:identifier", Scope: domain.PermIssueDeleteOwn, ID: "deleteIssue", Tag: "Issues",
 			Summary: "Delete an issue", Description: "Members delete only issues they created; owners and admins delete any. The issue can be restored until restorable_until.",

@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/lib/pq"
 )
 
 // These predicates accept only developer-owned column expressions. UUID literals
@@ -42,7 +44,20 @@ func teamVisible(ctx context.Context, teamColumn string) string {
 		}
 	}
 	// The function takes a fresh snapshot after any statement-level lock wait.
-	return "kuayle_team_access(" + teamColumn + "," + actor + "," + scope + ")"
+	visible := "kuayle_team_access(" + teamColumn + "," + actor + "," + scope + ")"
+	if access.TeamPermission != "" {
+		if !domain.IsValidScope(access.TeamPermission) {
+			return "FALSE"
+		}
+		// sqlx.Named interprets colons even within SQL string literals.
+		area, action, _ := strings.Cut(access.TeamPermission, ":")
+		permission := pq.QuoteLiteral(area) + " || chr(58) || " + pq.QuoteLiteral(action)
+		visible = "(" + visible + " AND kuayle_role_allows(" + scope + "," + actor + "," + teamColumn + "," + permission + "))"
+	}
+	if access.TeamID != uuid.Nil {
+		return "(" + teamColumn + "=" + uuidSQL(access.TeamID) + " AND " + visible + ")"
+	}
+	return visible
 }
 
 func projectVisible(ctx context.Context, workspaceColumn, teamColumn string) string {

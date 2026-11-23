@@ -1204,11 +1204,7 @@
 						"type": "string"
 					},
 					"role": {
-						"enum": [
-							"admin",
-							"member",
-							"guest"
-						],
+						"maxLength": 36,
 						"type": "string"
 					}
 				},
@@ -2358,6 +2354,13 @@
 							"null"
 						]
 					},
+					"team_id": {
+						"format": "uuid",
+						"type": [
+							"string",
+							"null"
+						]
+					},
 					"title": {
 						"maxLength": 500,
 						"minLength": 1,
@@ -2398,12 +2401,7 @@
 			"UpdateMemberRoleRequest": {
 				"properties": {
 					"role": {
-						"enum": [
-							"owner",
-							"admin",
-							"member",
-							"guest"
-						],
+						"maxLength": 36,
 						"type": "string"
 					}
 				},
@@ -3754,6 +3752,9 @@
 			},
 			"Workspace": {
 				"properties": {
+					"can_manage_members": {
+						"type": "boolean"
+					},
 					"created_at": {
 						"format": "date-time",
 						"type": "string"
@@ -3828,11 +3829,15 @@
 					"role": {
 						"type": "string"
 					},
+					"role_name": {
+						"type": "string"
+					},
 					"user_id": {
 						"type": "string"
 					}
 				},
 				"required": [
+					"role_name",
 					"user_id",
 					"email",
 					"name",
@@ -4846,7 +4851,7 @@
 				"x-kuayle-stability": "stable"
 			},
 			"patch": {
-				"description": "Changes the fields that are present.\n\nRequired scope: `issue:update`.",
+				"description": "Changes the fields that are present. If supplied, team_id must match the current team.\n\nRequired scope: `issue:update`.",
 				"operationId": "updateIssue",
 				"parameters": [
 					{
@@ -13029,7 +13034,7 @@
 			"name": "Workspaces"
 		},
 		{
-			"description": "People in a workspace and their roles: owner, admin, member or guest.",
+			"description": "People in a workspace and their assigned built-in or custom role.",
 			"name": "Members"
 		},
 		{

@@ -2,11 +2,12 @@ package middleware
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"slices"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
-	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/pkg/response"
 	"github.com/labstack/echo/v5"
 )
@@ -27,7 +28,13 @@ func (ssoNotEnforced) RequiresSSO(ctx context.Context, workspaceID uuid.UUID) (b
 	return false, nil
 }
 
-func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo, sso SSORequirementSource) echo.MiddlewareFunc {
+type membershipSource interface {
+	IssueTeam(context.Context, uuid.UUID, string) (uuid.UUID, error)
+	GetBySlug(context.Context, string) (*domain.Workspace, error)
+	MemberAccess(context.Context, uuid.UUID, uuid.UUID) (*domain.RoleAccess, error)
+}
+
+func WorkspaceMembership(workspaceRepo membershipSource, sso SSORequirementSource) echo.MiddlewareFunc {
 	if sso == nil {
 		panic("middleware.WorkspaceMembership: an SSO requirement source is required")
 	}
@@ -48,7 +55,7 @@ func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo, sso SSORequirem
 				return response.Unauthorized(c)
 			}
 
-			member, err := workspaceRepo.GetMember(c.Request().Context(), ws.ID, userID)
+			member, err := workspaceRepo.MemberAccess(c.Request().Context(), ws.ID, userID)
 			if err != nil || member == nil {
 				return response.Forbidden(c)
 			}
@@ -95,8 +102,27 @@ func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo, sso SSORequirem
 
 			c.Set("workspace", ws)
 			c.Set("workspace_id", ws.ID)
-			c.Set("workspace_role", member.Role)
-			c.SetRequest(c.Request().WithContext(domain.WithAccess(c.Request().Context(), domain.Access{UserID: userID, WorkspaceID: ws.ID})))
+			c.Set("role_access", member)
+			legacyRole := member.Role
+			if !domain.BuiltinRole(legacyRole) || len(member.Teams) > 0 {
+				legacyRole = domain.RoleGuest
+			}
+			c.Set("workspace_role", legacyRole)
+			scopes, _ := c.Get(TokenScopesKey).([]string)
+			access := domain.Access{UserID: userID, WorkspaceID: ws.ID, TokenScopes: scopes}
+			if len(member.Teams) > 0 {
+				access.TeamID, _ = uuid.Parse(c.Param("teamId"))
+				if identifier := c.Param("identifier"); identifier != "" {
+					access.TeamID, err = workspaceRepo.IssueTeam(domain.WithAccess(c.Request().Context(), access), ws.ID, identifier)
+					if errors.Is(err, sql.ErrNoRows) {
+						return response.NotFound(c, "Issue")
+					}
+					if err != nil {
+						return response.InternalError(c)
+					}
+				}
+			}
+			c.SetRequest(c.Request().WithContext(domain.WithAccess(c.Request().Context(), access)))
 			return next(c)
 		}
 	}
@@ -105,4 +131,11 @@ func WorkspaceMembership(workspaceRepo repository.WorkspaceRepo, sso SSORequirem
 func GetWorkspace(c *echo.Context) *domain.Workspace {
 	workspace, _ := c.Get("workspace").(*domain.Workspace)
 	return workspace
+}
+
+func AssignedWorkspaceRole(c *echo.Context) string {
+	if access, ok := c.Get("role_access").(*domain.RoleAccess); ok {
+		return access.Role
+	}
+	return GetWorkspaceRole(c)
 }

@@ -173,19 +173,41 @@ func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) ([]domai
 
 func (r *WorkspaceRepository) ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Workspace, error) {
 	var workspaces []domain.Workspace
-	query := `SELECT w.*,EXISTS(SELECT 1 FROM workspace_privacy p WHERE p.workspace_id=w.id) AS privacy_enabled FROM workspaces w INNER JOIN workspace_members wm ON w.id = wm.workspace_id WHERE wm.user_id = $1 ORDER BY w.name`
+	query := `SELECT w.*,EXISTS(SELECT 1 FROM workspace_privacy p WHERE p.workspace_id=w.id) AS privacy_enabled FROM workspaces w INNER JOIN workspace_members wm ON w.id = wm.workspace_id WHERE wm.user_id = $1`
+	if a, ok := domain.AccessFromContext(ctx); ok && a.Permission == domain.PermWorkspacesRead {
+		query += ` AND kuayle_role_allows(w.id,$1,NULL,'workspaces:read')`
+	}
+	query += ` ORDER BY w.name`
 	err := r.db.SelectContext(ctx, &workspaces, query, userID)
 	return workspaces, err
 }
 
 func (r *WorkspaceRepository) AddMember(ctx context.Context, member *domain.WorkspaceMember) error {
-	query := `INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ($1, $2, $3) RETURNING created_at`
-	return r.db.QueryRowContext(ctx, query, member.WorkspaceID, member.UserID, member.Role).Scan(&member.CreatedAt)
+	tx, err := beginRoleChange(ctx, r.db, member.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if a, ok := domain.AccessFromContext(ctx); ok {
+		if err := authorizeRoleGrant(ctx, tx, member.WorkspaceID, a.UserID, member.Role, a.TokenScopes); err != nil {
+			return err
+		}
+	}
+	legacyRole := member.Role
+	var assignedRole *string
+	if !domain.BuiltinRole(member.Role) {
+		legacyRole, assignedRole = domain.RoleGuest, &member.Role
+	}
+	query := `INSERT INTO workspace_members (workspace_id,user_id,role,assigned_role) VALUES($1,$2,$3,$4) RETURNING created_at`
+	if err := tx.QueryRowContext(ctx, query, member.WorkspaceID, member.UserID, legacyRole, assignedRole).Scan(&member.CreatedAt); err != nil {
+		return membershipRoleError(err)
+	}
+	return tx.Commit()
 }
 
 func (r *WorkspaceRepository) GetMember(ctx context.Context, workspaceID, userID uuid.UUID) (*domain.WorkspaceMember, error) {
 	var member domain.WorkspaceMember
-	err := r.db.GetContext(ctx, &member, `SELECT * FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, workspaceID, userID)
+	err := r.db.GetContext(ctx, &member, `SELECT workspace_id,user_id,role,created_at FROM workspace_members WHERE workspace_id = $1 AND user_id = $2`, workspaceID, userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -194,52 +216,80 @@ func (r *WorkspaceRepository) GetMember(ctx context.Context, workspaceID, userID
 
 func (r *WorkspaceRepository) ListMembers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMember, error) {
 	var members []domain.WorkspaceMember
-	err := r.db.SelectContext(ctx, &members, `SELECT * FROM workspace_members WHERE workspace_id = $1 ORDER BY created_at`, workspaceID)
+	err := r.db.SelectContext(ctx, &members, `SELECT workspace_id,user_id,role,created_at FROM workspace_members WHERE workspace_id = $1 ORDER BY created_at`, workspaceID)
 	return members, err
 }
 
-func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+func (r *WorkspaceRepository) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) (string, error) {
+	actor, ok := memberChangeActor(ctx, workspaceID)
+	if !ok {
+		return "", ErrRoleGrant
+	}
+	tx, err := beginRoleChange(ctx, r.db, workspaceID)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx, `UPDATE workspace_members SET role = $1 WHERE workspace_id = $2 AND user_id = $3`, role, workspaceID, userID); err != nil {
-		return err
+	if err := authorizeRoleGrant(ctx, tx, workspaceID, actor.UserID, role, actor.TokenScopes); err != nil {
+		return "", err
+	}
+	var previous string
+	if err := tx.GetContext(ctx, &previous, `SELECT role_key FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID); err != nil {
+		return "", err
+	}
+	if err := authorizeMemberChange(ctx, tx, workspaceID, userID, previous, actor); err != nil {
+		return "", err
+	}
+	err = tx.QueryRowContext(ctx, `UPDATE workspace_members SET
+ role=CASE WHEN $4 OR EXISTS(SELECT 1 FROM team_role_overrides WHERE workspace_id=$2 AND user_id=$3) THEN 'guest' ELSE $1 END,
+ assigned_role=CASE WHEN $4 OR EXISTS(SELECT 1 FROM team_role_overrides WHERE workspace_id=$2 AND user_id=$3) THEN $1 ELSE NULL END
+ WHERE workspace_id=$2 AND user_id=$3 RETURNING role_key`, role, workspaceID, userID, !domain.BuiltinRole(role)).Scan(&role)
+	if err != nil {
+		return "", membershipRoleError(err)
 	}
 	// Invite links carry their creator's authority; a role that can no longer
 	// invite must not leave working links behind.
-	if !domain.HasPermission(role, domain.PermMemberInvite) {
-		if err := revokeInviteLinksCreatedBy(ctx, tx, workspaceID, userID); err != nil {
-			return err
-		}
+	if err := revokeInvalidRoleLinks(ctx, tx, workspaceID, &userID, nil); err != nil {
+		return "", err
 	}
-	return tx.Commit()
+	return previous, tx.Commit()
 }
 
 func (r *WorkspaceRepository) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
+	actor, ok := memberChangeActor(ctx, workspaceID)
+	if !ok {
+		return ErrRoleGrant
+	}
+	tx, err := beginRoleChange(ctx, r.db, workspaceID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := removeWorkspaceMember(ctx, tx, workspaceID, userID); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func removeWorkspaceMember(ctx context.Context, tx *sqlx.Tx, workspaceID, userID uuid.UUID) error {
 	// Match authorized readers' workspace -> team membership lock order.
 	// Take the privacy barrier before any row lock, as the DELETE statements do.
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`); err != nil {
 		return err
 	}
-	var member uuid.UUID
-	err := tx.GetContext(ctx, &member, `SELECT user_id FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID)
+	var current string
+	err = tx.GetContext(ctx, &current, `SELECT role_key FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR UPDATE`, workspaceID, userID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	if current == domain.RoleOwner {
+		return ErrRoleProtected
+	}
+	if err := authorizeMemberChange(ctx, tx, workspaceID, userID, current, actor); err != nil {
+		return err
+	}
+	if err := deleteWorkspaceMemberships(ctx, tx, workspaceID, userID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Member management and SCIM deprovisioning authorize removal and lock the
+// membership before calling this cleanup.
+func deleteWorkspaceMemberships(ctx context.Context, tx *sqlx.Tx, workspaceID, userID uuid.UUID) error {
 	// A later workspace invitation must not revive old private-team grants or
 	// subscriptions. Remove all three memberships atomically.
 	// The removed user's invite links are revoked with them, after the membership
@@ -267,8 +317,9 @@ func (r *WorkspaceRepository) CountMembersByRole(ctx context.Context, workspaceI
 
 func (r *WorkspaceRepository) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {
 	var members []domain.WorkspaceMemberWithUser
-	query := `SELECT wm.workspace_id, wm.user_id, wm.role, u.email, u.name, u.display_name, u.avatar_url, wm.created_at
+	query := `SELECT wm.workspace_id, wm.user_id, wm.role_key AS role, r.name AS role_name, u.email, u.name, u.display_name, u.avatar_url, wm.created_at
 		FROM workspace_members wm
+		JOIN workspace_roles r ON (r.workspace_id,r.key)=(wm.workspace_id,wm.role_key)
 		JOIN users u ON u.id = wm.user_id
 		WHERE wm.workspace_id = $1
 		ORDER BY wm.created_at`

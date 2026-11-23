@@ -16,6 +16,7 @@ import (
 // --- Mocks ---
 
 type mockWorkspaceRepo struct {
+	repository.WorkspaceRoleRepo
 	mock.Mock
 }
 
@@ -84,9 +85,9 @@ func (m *mockWorkspaceRepo) ListMembersWithUsers(ctx context.Context, workspaceI
 	return args.Get(0).([]domain.WorkspaceMemberWithUser), args.Error(1)
 }
 
-func (m *mockWorkspaceRepo) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) error {
+func (m *mockWorkspaceRepo) UpdateMemberRole(ctx context.Context, workspaceID, userID uuid.UUID, role string) (string, error) {
 	args := m.Called(ctx, workspaceID, userID, role)
-	return args.Error(0)
+	return args.String(0), args.Error(1)
 }
 
 func (m *mockWorkspaceRepo) RemoveMember(ctx context.Context, workspaceID, userID uuid.UUID) error {
@@ -451,7 +452,6 @@ func TestWorkspaceService_UpdateMemberRole_PreventsOwnerDemotion(t *testing.T) {
 	workspaceID := uuid.New()
 	ownerID := uuid.New()
 	wsRepo.On("GetByID", ctx, workspaceID).Return(&domain.Workspace{ID: workspaceID, OwnerID: ownerID}, nil)
-	wsRepo.On("GetMember", ctx, workspaceID, ownerID).Return(&domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: ownerID, Role: domain.RoleOwner}, nil)
 
 	err := svc.UpdateMemberRole(ctx, workspaceID, ownerID, domain.RoleAdmin)
 
@@ -470,7 +470,6 @@ func TestWorkspaceService_UpdateMemberRole_PreventsOwnershipTransfer(t *testing.
 	ownerID := uuid.New()
 	memberID := uuid.New()
 	wsRepo.On("GetByID", ctx, workspaceID).Return(&domain.Workspace{ID: workspaceID, OwnerID: ownerID}, nil)
-	wsRepo.On("GetMember", ctx, workspaceID, memberID).Return(&domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: memberID, Role: domain.RoleAdmin}, nil)
 
 	err := svc.UpdateMemberRole(ctx, workspaceID, memberID, domain.RoleOwner)
 
@@ -489,8 +488,8 @@ func TestWorkspaceService_UpdateMemberRole_AllowsNonOwnerRoleChange(t *testing.T
 	ownerID := uuid.New()
 	memberID := uuid.New()
 	wsRepo.On("GetByID", ctx, workspaceID).Return(&domain.Workspace{ID: workspaceID, OwnerID: ownerID}, nil)
-	wsRepo.On("GetMember", ctx, workspaceID, memberID).Return(&domain.WorkspaceMember{WorkspaceID: workspaceID, UserID: memberID, Role: domain.RoleMember}, nil)
-	wsRepo.On("UpdateMemberRole", ctx, workspaceID, memberID, domain.RoleAdmin).Return(nil)
+
+	wsRepo.On("UpdateMemberRole", ctx, workspaceID, memberID, domain.RoleAdmin).Return(domain.RoleMember, nil)
 
 	err := svc.UpdateMemberRole(ctx, workspaceID, memberID, domain.RoleAdmin)
 
@@ -539,4 +538,9 @@ func TestWorkspaceService_InviteMember_AlreadyMember(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "already a member")
+}
+
+func (m *mockWorkspaceRepo) CanGrantRole(ctx context.Context, ws, user uuid.UUID, role string) (bool, error) {
+	a := m.Called(ctx, ws, user, role)
+	return a.Bool(0), a.Error(1)
 }

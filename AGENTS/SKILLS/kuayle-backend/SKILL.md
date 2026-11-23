@@ -43,6 +43,8 @@ description: Implement Kuayle Go API behavior, authorization, persistence and mi
   Do not rewrite an already shipped migration. Inspect existing migration tests
   and verify upgrades on a disposable database with representative existing data.
   Document irreversible data effects or rollback limitations.
+- For permission changes, consult the [workspace role model](../../../TECHNICAL.md#workspace-roles).
+  Keep the role catalog, built-in database grants and PAT scope contract in sync.
 - When changing contracts, update relevant [UI API modules](../../../UI/src/lib/api),
   fixtures and documentation. Inspect history, notifications and realtime event
   publication for the affected service; avoid publishing effects before persistence

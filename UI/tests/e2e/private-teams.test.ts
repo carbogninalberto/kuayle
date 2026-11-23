@@ -118,6 +118,7 @@ async function mockWorkspace(page: Page) {
    return route.fulfill({json: teamMembers});
   }
   if (path === `/api/workspaces/test/teams/${teamId}/members/${userId}`) {teamMembers = []; return route.fulfill({json: {}});}
+  if (path === '/api/workspaces/test/roles') return route.fulfill({json: []});
   if (path === '/api/workspaces/test/members') return route.fulfill({json: [{user_id: userId, name: 'Test User', role: 'member', email: 'test@example.com'}]});
   if (path === '/api/workspaces/test/github/status') return route.fulfill({json: {connected: false, repositories: []}});
   if (path.includes('/dev-machine')) return route.fulfill({json: []});

@@ -85,11 +85,9 @@ func (h *IssueHandler) BulkUndo(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, dto.BulkUndoIssueResponse{Updated: len(undone)})
 }
 
-// canRestoreAny mirrors Delete: owners and admins restore any issue, with a
-// token that also carries issue:delete; everyone else only issues they created.
+// Restoring another author's issue needs the same grant as deleting it.
 func canRestoreAny(c *echo.Context) bool {
-	role, _ := c.Get("workspace_role").(string)
-	return domain.HasPermission(role, domain.PermIssueDelete) && middleware.TokenAllows(c, domain.PermIssueDelete)
+	return middleware.RequestAllows(c, domain.PermIssueDelete)
 }
 
 // Restore brings back a deleted issue within the grace period.

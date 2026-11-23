@@ -43,6 +43,7 @@ type WorkspaceOwnerResponse struct {
 }
 
 type WorkspaceResponse struct {
+	CanManageMembers *bool                   `json:"can_manage_members,omitempty"`
 	PrivacyEnabled   bool                    `json:"privacy_enabled"`
 	ID               string                  `json:"id"`
 	Name             string                  `json:"name"`
@@ -58,18 +59,26 @@ type WorkspaceResponse struct {
 
 type InviteMemberRequest struct {
 	Email string `json:"email" validate:"required,email"`
-	Role  string `json:"role" validate:"required,oneof=admin member guest"`
+	Role  string `json:"role" validate:"required,max=36,ne=owner"`
 }
 
 type UpdateMemberRoleRequest struct {
-	Role string `json:"role" validate:"required,oneof=owner admin member guest"`
+	Role string `json:"role" validate:"required,max=36"`
 }
 
 type WorkspaceMemberResponse struct {
+	RoleName  string    `json:"role_name"`
 	UserID    string    `json:"user_id"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
 	AvatarURL *string   `json:"avatar_url"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type SaveWorkspaceRoleRequest struct {
+	Name        string   `json:"name" validate:"required,max=100"`
+	Description string   `json:"description" validate:"max=2000"`
+	Permissions []string `json:"permissions"`
+	Template    string   `json:"template"`
 }

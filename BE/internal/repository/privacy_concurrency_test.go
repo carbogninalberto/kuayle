@@ -3,9 +3,11 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -199,6 +201,52 @@ func queuedPrivatizationEdit(t *testing.T, db *sqlx.DB, actor context.Context, w
 	return 0
 }
 
+// Migrate one pristine template per test process. Each fixture clones it so
+// rows, schema changes and database-scoped advisory locks stay isolated.
+var (
+	privacyTemplateName  = "kuayle_privacy_template_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	privacyTemplateOnce  sync.Once
+	privacyTemplateAdmin *sqlx.DB
+	privacyTemplateErr   error
+	errNoCreateDatabase  = errors.New("DATABASE_URL user cannot create an isolated concurrency database")
+)
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if privacyTemplateAdmin != nil {
+		_, err := privacyTemplateAdmin.Exec(`DROP DATABASE "` + privacyTemplateName + `" WITH (FORCE)`)
+		if err := errors.Join(err, privacyTemplateAdmin.Close()); err != nil {
+			fmt.Fprintln(os.Stderr, "clean up repository test template:", err)
+			code = 1
+		}
+	}
+	os.Exit(code)
+}
+
+func createPrivacyTemplate(databaseURL url.URL) (*sqlx.DB, error) {
+	admin, err := sqlx.Connect("pgx", databaseURL.String())
+	if err != nil {
+		return nil, err
+	}
+	if _, err := admin.Exec(`CREATE DATABASE "` + privacyTemplateName + `"`); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "42501" {
+			err = errNoCreateDatabase
+		}
+		return nil, errors.Join(err, admin.Close())
+	}
+	// Return the admin connection even on migration errors so TestMain drops
+	// the database. Close the migrator before any connection tries to clone it.
+	databaseURL.Path, databaseURL.RawPath = "/"+privacyTemplateName, ""
+	migrator, err := migrate.New("file://../../migrations", databaseURL.String())
+	if err != nil {
+		return admin, err
+	}
+	err = migrator.Up()
+	sourceErr, databaseErr := migrator.Close()
+	return admin, errors.Join(err, sourceErr, databaseErr)
+}
+
 // The privacy barrier is one database-wide advisory key. Other test packages run
 // concurrently against DATABASE_URL and may queue an exclusive request (team,
 // workspace, user or asset writes) behind this test's open shared lock; FIFO lock
@@ -206,31 +254,42 @@ func queuedPrivatizationEdit(t *testing.T, db *sqlx.DB, actor context.Context, w
 // guard. A private, fully migrated database keeps these timing assertions exact.
 func isolatedPrivacyDatabase(t *testing.T, databaseURL string) *sqlx.DB {
 	t.Helper()
-	admin, err := sqlx.Connect("pgx", databaseURL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = admin.Close() })
-	name := "kuayle_privacy_concurrency_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-	_, err = admin.Exec(`CREATE DATABASE "` + name + `"`)
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "42501" {
-		t.Skip("DATABASE_URL user cannot create an isolated concurrency database")
-	}
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		_, _ = admin.ExecContext(context.Background(), `DROP DATABASE "`+name+`" WITH (FORCE)`)
-	})
 	parsed, err := url.Parse(databaseURL)
 	require.NoError(t, err)
+	privacyTemplateOnce.Do(func() {
+		privacyTemplateAdmin, privacyTemplateErr = createPrivacyTemplate(*parsed)
+	})
+	if errors.Is(privacyTemplateErr, errNoCreateDatabase) {
+		t.Skip(errNoCreateDatabase)
+	}
+	require.NoError(t, privacyTemplateErr)
+
+	name := "kuayle_privacy_concurrency_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = privacyTemplateAdmin.Exec(`CREATE DATABASE "` + name + `" TEMPLATE "` + privacyTemplateName + `"`)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := privacyTemplateAdmin.Exec(`DROP DATABASE "` + name + `" WITH (FORCE)`)
+		require.NoError(t, err)
+	})
 	parsed.Path, parsed.RawPath = "/"+name, ""
-	migrator, err := migrate.New("file://../../migrations", parsed.String())
-	require.NoError(t, err)
-	err = migrator.Up()
-	sourceErr, databaseErr := migrator.Close()
-	require.NoError(t, err)
-	require.NoError(t, sourceErr)
-	require.NoError(t, databaseErr)
 	db, err := sqlx.Connect("pgx", parsed.String())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func TestPrivacyDatabaseFixturesAreIsolated(t *testing.T) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	first := isolatedPrivacyDatabase(t, databaseURL)
+	user := uuid.New()
+	_, err := first.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Fixture','hash')`, user, user.String()+"@test.invalid")
+	require.NoError(t, err)
+
+	second := isolatedPrivacyDatabase(t, databaseURL)
+	var exists bool
+	require.NoError(t, second.Get(&exists, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, user))
+	require.False(t, exists)
 }

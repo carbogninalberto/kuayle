@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -52,6 +53,22 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 		require.NoError(t, repo.Create(ctx, link))
 		return link
 	}
+
+	t.Run("a missing invitation role is treated as revoked", func(t *testing.T) {
+		link := newLink(t, nil)
+		_, err := db.Exec(`DELETE FROM workspace_roles WHERE workspace_id=$1 AND key='guest'`, ws.ID)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, err := db.Exec(`INSERT INTO workspace_roles SELECT $1, r.* FROM builtin_workspace_roles r WHERE key='guest'`, ws.ID)
+			require.NoError(t, err)
+		})
+		user := newUser(t)
+		_, err = repo.Join(ctx, link.ID, user.ID, user)
+		require.ErrorIs(t, err, ErrInviteLinkRevoked)
+		saved, err := repo.GetByID(ctx, link.ID)
+		require.NoError(t, err)
+		require.Zero(t, saved.UseCount)
+	})
 
 	t.Run("concurrent signup consumes only the remaining slot", func(t *testing.T) {
 		maxUses := 1
@@ -182,6 +199,7 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 
 	t.Run("links follow their creator's permission to invite", func(t *testing.T) {
 		wsRepo := NewWorkspaceRepository(db)
+		ownerCtx := domain.WithAccess(ctx, domain.Access{UserID: owner.ID, WorkspaceID: ws.ID})
 		newCreator := func(t *testing.T, workspaceID uuid.UUID, role string) *domain.User {
 			creator := newUser(t)
 			require.NoError(t, userRepo.Create(ctx, creator))
@@ -219,7 +237,7 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 		t.Run("removed creator cannot rejoin through their own link", func(t *testing.T) {
 			creator := newCreator(t, ws.ID, domain.RoleAdmin)
 			link := linkBy(t, ws.ID, creator.ID)
-			require.NoError(t, wsRepo.RemoveMember(ctx, ws.ID, creator.ID))
+			require.NoError(t, wsRepo.RemoveMember(ownerCtx, ws.ID, creator.ID))
 			_, err := repo.Join(ctx, link.ID, creator.ID, nil)
 			require.ErrorIs(t, err, ErrInviteLinkRevoked)
 			member, err := wsRepo.GetMember(ctx, ws.ID, creator.ID)
@@ -238,7 +256,8 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 		t.Run("demoted creator's links stop working", func(t *testing.T) {
 			creator := newCreator(t, ws.ID, domain.RoleAdmin)
 			link := linkBy(t, ws.ID, creator.ID)
-			require.NoError(t, wsRepo.UpdateMemberRole(ctx, ws.ID, creator.ID, domain.RoleMember))
+			_, err := wsRepo.UpdateMemberRole(ownerCtx, ws.ID, creator.ID, domain.RoleMember)
+			require.NoError(t, err)
 			requireRejected(t, link)
 			saved, err := repo.GetByID(ctx, link.ID)
 			require.NoError(t, err)
@@ -246,12 +265,21 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 		})
 
 		t.Run("role change that keeps the permission keeps the links", func(t *testing.T) {
-			creator := newCreator(t, ws.ID, domain.RoleOwner)
-			link := linkBy(t, ws.ID, creator.ID)
-			require.NoError(t, wsRepo.UpdateMemberRole(ctx, ws.ID, creator.ID, domain.RoleAdmin))
-			invited := newUser(t)
-			_, err := repo.Join(ctx, link.ID, invited.ID, invited)
+			creator := newCreator(t, ws.ID, domain.RoleAdmin)
+			link := &domain.WorkspaceInviteLink{ID: uuid.New(), WorkspaceID: ws.ID, CreatedBy: creator.ID, Role: domain.RoleGuest, TokenHash: uuid.NewString(), ExpiresAt: time.Now().Add(time.Hour)}
+			require.NoError(t, repo.Create(ctx, link))
+			role := domain.WorkspaceRole{Key: uuid.NewString(), Name: "Guest inviter", Permissions: append(slices.Clone(domain.RolePermissions[domain.RoleGuest]), domain.PermMemberInvite)}
+			require.NoError(t, wsRepo.SaveRole(ctx, ws.ID, &role, true))
+			_, err := wsRepo.UpdateMemberRole(ownerCtx, ws.ID, creator.ID, role.Key)
 			require.NoError(t, err)
+			invited := newUser(t)
+			_, err = repo.Join(ctx, link.ID, invited.ID, invited)
+			require.NoError(t, err)
+			role.Permissions = []string{domain.PermMemberInvite}
+			require.NoError(t, wsRepo.SaveRole(ctx, ws.ID, &role, false))
+			saved, err := repo.GetByID(ctx, link.ID)
+			require.NoError(t, err)
+			require.NotNil(t, saved.RevokedAt)
 		})
 
 		// Links whose creator lost access before removal started revoking them.
@@ -276,15 +304,15 @@ func TestWorkspaceInviteLinkRepositoryPostgres(t *testing.T) {
 			require.NoError(t, wsRepo.AddMember(ctx, &domain.WorkspaceMember{WorkspaceID: other.ID, UserID: creator.ID, Role: domain.RoleAdmin}))
 			colleague := newCreator(t, ws.ID, domain.RoleAdmin)
 			kept := []*domain.WorkspaceInviteLink{linkBy(t, other.ID, creator.ID), linkBy(t, ws.ID, colleague.ID)}
-			require.NoError(t, wsRepo.RemoveMember(ctx, ws.ID, creator.ID))
+			require.NoError(t, wsRepo.RemoveMember(ownerCtx, ws.ID, creator.ID))
 			for _, link := range kept {
 				invited := newUser(t)
 				_, err := repo.Join(ctx, link.ID, invited.ID, invited)
 				require.NoError(t, err)
 			}
 			// Membership elsewhere does not authorize a link in this workspace.
-			foreign := linkBy(t, ws.ID, creator.ID)
-			requireRejected(t, foreign)
+			foreign := &domain.WorkspaceInviteLink{ID: uuid.New(), WorkspaceID: ws.ID, CreatedBy: creator.ID, Role: domain.RoleMember, TokenHash: uuid.NewString(), ExpiresAt: time.Now().Add(time.Hour)}
+			require.ErrorIs(t, repo.Create(ctx, foreign), ErrRoleGrant)
 		})
 	})
 

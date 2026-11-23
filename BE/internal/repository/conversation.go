@@ -35,9 +35,11 @@ func conversationActor(ctx context.Context, ws uuid.UUID) (uuid.UUID, error) {
 	return a.UserID, nil
 }
 func conversationMember(ctx context.Context, tx *sqlx.Tx, ws, user uuid.UUID) error {
-	var role string
-	err := tx.GetContext(ctx, &role, `SELECT role FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR SHARE`, ws, user)
-	if errors.Is(err, sql.ErrNoRows) || role == "guest" {
+	var allowed bool
+	access, _ := domain.AccessFromContext(ctx)
+	err := tx.GetContext(ctx, &allowed, `SELECT role <> 'guest' OR ($3::boolean AND kuayle_role_allows($1,$2,NULL,'agent_tasks:read'))
+ FROM workspace_members WHERE workspace_id=$1 AND user_id=$2 FOR SHARE`, ws, user, access.Permission == domain.PermAgentTasksRead)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && !allowed) {
 		return ErrConversationNotFound
 	}
 	return err

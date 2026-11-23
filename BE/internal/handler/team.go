@@ -126,7 +126,8 @@ func (h *TeamHandler) Leave(c *echo.Context) error {
 	ws := c.Get("workspace").(*domain.Workspace)
 	userID := middleware.GetUserID(c)
 	role, _ := c.Get("workspace_role").(string)
-	deleted, err := h.teamSvc.Leave(c.Request().Context(), ws.ID, teamID, userID, role)
+	allowDelete := !middleware.UsesDelegatedRole(c) || middleware.RequestAllows(c, domain.PermTeamManage)
+	deleted, err := h.teamSvc.Leave(c.Request().Context(), ws.ID, teamID, userID, role, allowDelete)
 	if err != nil {
 		if errors.Is(err, service.ErrTeamNotFound) {
 			return response.NotFound(c, "Team")

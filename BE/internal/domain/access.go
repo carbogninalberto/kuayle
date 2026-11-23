@@ -12,8 +12,12 @@ type accessKey struct{}
 // must read current workspace roles and team membership when applying visibility.
 // A nil WorkspaceID is used only for user-level requests spanning workspaces.
 type Access struct {
-	UserID      uuid.UUID
-	WorkspaceID uuid.UUID
+	UserID         uuid.UUID
+	WorkspaceID    uuid.UUID
+	TokenScopes    []string  // nil for an interactive session
+	TeamID         uuid.UUID // restrict queries to the team authorized by the route
+	Permission     string    // permission required by the current HTTP operation
+	TeamPermission string    // apply the permission to the stored team of each selected row
 }
 
 func WithAccess(ctx context.Context, access Access) context.Context {

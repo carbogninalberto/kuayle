@@ -79,6 +79,28 @@ Caddy handles HTTPS termination and proxies `/api/*` to the backend and all othe
 
 ## Updating
 
+### Before migration 202 (workspace roles)
+
+Each workspace must have one owner. On a database at schema 201, this query
+lists workspaces with multiple owner memberships and the recorded owner ID.
+
+```sql
+SELECT w.slug, w.owner_id, array_agg(m.user_id ORDER BY m.user_id) AS owner_members
+FROM workspaces w JOIN workspace_members m ON m.workspace_id = w.id
+WHERE m.role = 'owner'
+GROUP BY w.id, w.slug, w.owner_id
+HAVING count(*) > 1;
+```
+
+If any rows appear, back up the database and confirm ownership with the
+affected workspaces. Keep the owner membership matching `owner_id` and agree
+on the replacement roles for the additional owners before upgrading.
+Migration 202 stops and names the affected workspaces so their permissions
+remain intact until this decision. If the migration already stopped, follow
+the [migration recovery procedure](../TECHNICAL.md#workspace-roles) before retrying.
+
+### Run the update
+
 ```sh
 cd kuayle
 bash selfhosting/update.sh

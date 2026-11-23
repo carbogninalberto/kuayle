@@ -295,7 +295,7 @@ func (s *TeamService) Delete(ctx context.Context, workspaceID, id uuid.UUID) err
 	return err
 }
 
-func (s *TeamService) Leave(ctx context.Context, workspaceID, teamID, userID uuid.UUID, workspaceRole string) (bool, error) {
+func (s *TeamService) Leave(ctx context.Context, workspaceID, teamID, userID uuid.UUID, workspaceRole string, allowDelete bool) (bool, error) {
 	team, err := s.teamRepo.GetByID(ctx, teamID)
 	if err != nil {
 		return false, err
@@ -304,7 +304,7 @@ func (s *TeamService) Leave(ctx context.Context, workspaceID, teamID, userID uui
 		return false, ErrTeamNotFound
 	}
 
-	if workspaceRole == domain.RoleOwner && !team.IsPrivate {
+	if allowDelete && workspaceRole == domain.RoleOwner && !team.IsPrivate {
 		return true, s.Delete(ctx, workspaceID, teamID)
 	}
 
@@ -315,9 +315,8 @@ func (s *TeamService) Leave(ctx context.Context, workspaceID, teamID, userID uui
 	if member == nil {
 		return false, ErrTeamMemberNotFound
 	}
-	// Leaving a private team only revokes explicit membership. Administrative
-	// visibility remains governed by the workspace role; content is never deleted.
-	if team.IsPrivate {
+	// Private teams and teams the caller cannot delete survive their last member.
+	if team.IsPrivate || !allowDelete {
 		err = s.teamRepo.RemoveMember(ctx, teamID, userID)
 		if err == nil {
 			s.refresh(team.WorkspaceID)

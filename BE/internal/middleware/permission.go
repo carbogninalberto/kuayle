@@ -18,17 +18,13 @@ import (
 func RequirePermission(permission string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if scopes, ok := c.Get(TokenScopesKey).([]string); ok {
-				if !slices.Contains(scopes, permission) {
-					return response.Forbidden(c)
-				}
-			}
-			role, ok := c.Get("workspace_role").(string)
-			if !ok {
-				return next(c)
-			}
-			if !domain.HasPermission(role, permission) {
+			if !RequestAllows(c, permission) {
 				return response.Forbidden(c)
+			}
+			ctx := c.Request().Context()
+			if a, ok := domain.AccessFromContext(ctx); ok {
+				a.Permission = permission
+				c.SetRequest(c.Request().WithContext(domain.WithAccess(ctx, a)))
 			}
 			return next(c)
 		}
@@ -46,6 +42,11 @@ func RequireSessionWithRefusal(code, reason string) echo.MiddlewareFunc {
 	return requireSession(func(c *echo.Context) error {
 		return response.Error(c, http.StatusForbidden, code, reason)
 	})
+}
+
+func UsesDelegatedRole(c *echo.Context) bool {
+	access, _ := c.Get("role_access").(*domain.RoleAccess)
+	return access != nil && (!domain.BuiltinRole(access.Role) || len(access.Teams) > 0)
 }
 
 func requireSession(refuse echo.HandlerFunc) echo.MiddlewareFunc {
@@ -124,13 +125,8 @@ func GetWorkspaceRole(c *echo.Context) string {
 func RequireTokenPermission(permission string) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			if scopes, ok := c.Get(TokenScopesKey).([]string); ok {
-				if !slices.Contains(scopes, permission) {
-					return response.Forbidden(c)
-				}
-				if role, ok := c.Get("workspace_role").(string); ok && !domain.HasPermission(role, permission) {
-					return response.Forbidden(c)
-				}
+			if (UsesDelegatedRole(c) || c.Get(TokenScopesKey) != nil) && !RequestAllows(c, permission) {
+				return response.Forbidden(c)
 			}
 			return next(c)
 		}
@@ -145,6 +141,61 @@ func RequireUnrestrictedTokenWorkspaces() echo.MiddlewareFunc {
 			if slugs, ok := c.Get(TokenWorkspacesKey).([]string); ok && slugs != nil {
 				return response.Forbidden(c)
 			}
+			return next(c)
+		}
+	}
+}
+
+func RequestAllows(c *echo.Context, permission string) bool {
+	if !TokenAllows(c, permission) {
+		return false
+	}
+	if access, ok := c.Get("role_access").(*domain.RoleAccess); ok {
+		if team := c.Param("teamId"); team != "" {
+			id, err := uuid.Parse(team)
+			return err == nil && access.Allows(id, permission)
+		}
+		if a, ok := domain.AccessFromContext(c.Request().Context()); ok && a.TeamID != uuid.Nil {
+			return access.Allows(a.TeamID, permission)
+		}
+		// Membership is workspace-wide. Membership writes separately check
+		// the affected permissions in each team under the role-change lock.
+		if permission == domain.PermMemberInvite {
+			return access.Allows(uuid.Nil, permission)
+		}
+		return access.AllowsEverywhere(permission)
+	}
+	role, ok := c.Get("workspace_role").(string)
+	return !ok || domain.HasPermission(role, permission)
+}
+
+// RequireTeamResourcePermission is for routes whose repositories apply
+// teamVisible to the selected rows, including insert and update targets.
+func RequireTeamResourcePermission(permission string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		plain := RequirePermission(permission)(next)
+		return func(c *echo.Context) error {
+			roles, ok := c.Get("role_access").(*domain.RoleAccess)
+			if !ok || len(roles.Teams) == 0 {
+				return plain(c)
+			}
+			if !TokenAllows(c, permission) {
+				return response.Forbidden(c)
+			}
+			allowed := roles.Allows(uuid.Nil, permission)
+			for team := range roles.Teams {
+				allowed = allowed || roles.Allows(team, permission)
+			}
+			if !allowed {
+				return response.Forbidden(c)
+			}
+			ctx := c.Request().Context()
+			access, ok := domain.AccessFromContext(ctx)
+			if !ok {
+				return response.Forbidden(c)
+			}
+			access.TeamPermission = permission
+			c.SetRequest(c.Request().WithContext(domain.WithAccess(ctx, access)))
 			return next(c)
 		}
 	}

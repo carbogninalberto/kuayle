@@ -91,44 +91,12 @@ func (t *PersonalAccessToken) Active() bool {
 
 // validTokenScopes is the public contract of scopes: the write permission
 // codes already enforced by route annotations, plus the *:read codes.
-var validTokenScopes = map[string]bool{
-	// Write codes (as annotated on routes)
-	PermWorkspaceManage:    true,
-	PermWorkspaceTransfer:  true,
-	PermTeamManage:         true,
-	PermIssueCreate:        true,
-	PermIssueUpdate:        true,
-	PermIssueDelete:        true,
-	PermIssueDeleteOwn:     true,
-	PermProjectManage:      true,
-	PermLabelManage:        true,
-	PermMemberInvite:       true,
-	PermCycleManage:        true,
-	PermViewManage:         true,
-	PermAccountWrite:       true,
-	PermNotificationsWrite: true,
-	PermDevMachineRead:     true,
-	PermDevMachineCreate:   true,
-	PermDevMachineManage:   true,
-	PermDevMachineAdmin:    true,
-	PermWikiWrite:          true,
-	// Read codes
-	PermIssuesRead:        true,
-	PermCommentsRead:      true,
-	PermProjectsRead:      true,
-	PermCyclesRead:        true,
-	PermLabelsRead:        true,
-	PermTeamsRead:         true,
-	PermMembersRead:       true,
-	PermTemplatesRead:     true,
-	PermViewsRead:         true,
-	PermAnalyticsRead:     true,
-	PermNotificationsRead: true,
-	PermWorkspacesRead:    true,
-	PermAccountRead:       true,
-	PermAssetsRead:        true,
-	PermWikiRead:          true,
-	// Member-only read codes (not held by guests)
-	PermAgentTasksRead: true,
-	PermWorkflowsRead:  true,
-}
+var validTokenScopes = func() map[string]bool {
+	scopes := make(map[string]bool)
+	for _, group := range PermissionGroups {
+		for _, entry := range group.Permissions {
+			scopes[entry.Code] = true
+		}
+	}
+	return scopes
+}()

@@ -27,10 +27,12 @@ type WorkspaceTransferTableSpec struct {
 // rows from entering an export.
 func WorkspaceTransferTableSpecs() []WorkspaceTransferTableSpec {
 	return []WorkspaceTransferTableSpec{
-		{Name: "workspace_members", SelectSQL: `SELECT to_jsonb(x)::text FROM workspace_members x WHERE workspace_id=$1 ORDER BY created_at,user_id`, UserFields: []string{"user_id"}},
+		{Name: "workspace_roles", SelectSQL: `SELECT to_jsonb(r)::text FROM workspace_roles r WHERE workspace_id=$1 AND key NOT IN ('owner','admin','member','guest') ORDER BY key`},
+		{Name: "workspace_members", SelectSQL: `SELECT (to_jsonb(x)-'role_key')::text FROM workspace_members x WHERE workspace_id=$1 ORDER BY created_at,user_id`, UserFields: []string{"user_id"}},
 		{Name: "teams", SelectSQL: `SELECT to_jsonb(x)::text FROM teams x WHERE workspace_id=$1 ORDER BY created_at,id`, IDColumn: "id"},
 		{Name: "team_key_aliases", SelectSQL: `SELECT to_jsonb(x)::text FROM team_key_aliases x WHERE workspace_id=$1 ORDER BY x.created_at,x.old_key`},
 		{Name: "team_members", SelectSQL: `SELECT to_jsonb(x)::text FROM team_members x JOIN teams p ON p.id=x.team_id WHERE p.workspace_id=$1 ORDER BY x.created_at,x.team_id,x.user_id`, UserFields: []string{"user_id"}},
+		{Name: "team_role_overrides", SelectSQL: `SELECT to_jsonb(o)::text FROM team_role_overrides o WHERE workspace_id=$1 ORDER BY team_id,user_id`, UserFields: []string{"user_id"}},
 		{Name: "team_statuses", SelectSQL: `SELECT to_jsonb(x)::text FROM team_statuses x JOIN teams p ON p.id=x.team_id WHERE p.workspace_id=$1 ORDER BY x.team_id,x.position,x.id`, IDColumn: "id"},
 		{Name: "projects", SelectSQL: `SELECT to_jsonb(x)::text FROM projects x WHERE workspace_id=$1 ORDER BY created_at,id`, IDColumn: "id", UserFields: []string{"lead_id"}},
 		{Name: "labels", SelectSQL: `SELECT to_jsonb(x)::text FROM labels x WHERE workspace_id=$1 ORDER BY created_at,id`, IDColumn: "id"},
@@ -267,7 +269,7 @@ func transferDBValue(table, column string, value any) any {
 		}
 		return "{" + strings.Join(parts, ",") + "}"
 	}
-	if table == "notifications" && column == "source_team_ids" {
+	if (table == "notifications" && column == "source_team_ids") || (table == "workspace_roles" && column == "permissions") {
 		items, _ := value.([]any)
 		parts := make([]string, 0, len(items))
 		for _, item := range items {

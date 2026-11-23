@@ -27,10 +27,8 @@ const (
 	PermWorkflowsRead  = "workflows:read"
 )
 
-// Read permission codes for read routes. Every workspace role holds all of
-// them as a role ceiling; team visibility is enforced separately. Read routes with
-// RequirePermission does not change JWT authorization; the codes exist so
-// personal access tokens can be limited to a subset.
+// All built-in roles have these read permissions. Custom roles and tokens
+// can select a subset. Team visibility is checked separately.
 const (
 	PermCommentsRead      = "comments:read"
 	PermProjectsRead      = "projects:read"

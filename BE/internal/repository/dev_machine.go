@@ -1614,7 +1614,7 @@ func (r *DevMachineRepository) CreateAccessTicket(ctx context.Context, ticket *d
 		SELECT $1, m.workspace_id, m.id, s.id, $5, $6, $7, $8, $9, $10
 		FROM dev_machines m
 		JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id
-		JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5 AND wm.role IN ('owner','admin','member')
+		JOIN dev_machine_role_access wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5
 		WHERE m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5
 		AND m.status='running' AND m.desired_status='running'
 		AND s.status='running' AND $9>NOW()
@@ -1631,12 +1631,12 @@ func (r *DevMachineRepository) CreateAccessTicket(ctx context.Context, ticket *d
 func (r *DevMachineRepository) ConsumeAccessTicket(ctx context.Context, tokenHash, host string) (*domain.DevMachineAccessTicket, error) {
 	var ticket domain.DevMachineAccessTicket
 	err := r.db.GetContext(ctx, &ticket, `UPDATE dev_machine_access_tickets t SET status='used', used_at=NOW()
-		FROM dev_machines m, dev_machine_services s, workspace_members wm
+		FROM dev_machines m, dev_machine_services s, dev_machine_role_access wm
 		WHERE t.token_hash=$1 AND t.bound_host=$2 AND t.status='active' AND t.expires_at>NOW()
 		AND m.id=t.machine_id AND t.workspace_id=m.workspace_id AND m.created_by_user_id=t.user_id
 		AND m.status='running' AND m.desired_status='running'
 		AND s.id=t.service_id AND s.machine_id=m.id AND s.status='running'
-		AND wm.workspace_id=m.workspace_id AND wm.user_id=t.user_id AND wm.role IN ('owner','admin','member')
+		AND wm.workspace_id=m.workspace_id AND wm.user_id=t.user_id
 		AND (t.terminal_session_id IS NULL OR EXISTS (
 			SELECT 1 FROM dev_machine_terminal_sessions ts
 			WHERE ts.id=t.terminal_session_id AND ts.workspace_id=t.workspace_id
@@ -1655,7 +1655,7 @@ func (r *DevMachineRepository) CreateAccessSession(ctx context.Context, session 
 		SELECT $1, m.workspace_id, m.id, s.id, $5, $6, $7, $8
 		FROM dev_machines m
 		JOIN dev_machine_services s ON s.id=$4 AND s.machine_id=m.id
-		JOIN workspace_members wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5 AND wm.role IN ('owner','admin','member')
+		JOIN dev_machine_role_access wm ON wm.workspace_id=m.workspace_id AND wm.user_id=$5
 		WHERE m.workspace_id=$2 AND m.id=$3 AND m.created_by_user_id=$5
 		AND m.status='running' AND m.desired_status='running'
 		AND s.status='running' AND $8>NOW()
@@ -1667,12 +1667,12 @@ func (r *DevMachineRepository) CreateAccessSession(ctx context.Context, session 
 func (r *DevMachineRepository) GetAccessSession(ctx context.Context, tokenHash, host string) (*domain.DevMachineAccessSession, error) {
 	var session domain.DevMachineAccessSession
 	err := r.db.GetContext(ctx, &session, `UPDATE dev_machine_access_sessions a SET last_seen_at=NOW()
-		FROM dev_machines m, dev_machine_services s, workspace_members wm
+		FROM dev_machines m, dev_machine_services s, dev_machine_role_access wm
 		WHERE a.token_hash=$1 AND a.bound_host=$2 AND a.revoked_at IS NULL AND a.expires_at>NOW()
 		AND m.id=a.machine_id AND a.workspace_id=m.workspace_id AND m.created_by_user_id=a.user_id
 		AND m.status='running' AND m.desired_status='running'
 		AND s.id=a.service_id AND s.machine_id=m.id AND s.status='running'
-		AND wm.workspace_id=m.workspace_id AND wm.user_id=a.user_id AND wm.role IN ('owner','admin','member')
+		AND wm.workspace_id=m.workspace_id AND wm.user_id=a.user_id
 		RETURNING a.*`, tokenHash, host)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

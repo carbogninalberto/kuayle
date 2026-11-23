@@ -1,10 +1,30 @@
 package domain
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestPermissionCatalogCoversEveryOwnerPermission(t *testing.T) {
+	var codes []string
+	for _, group := range PermissionGroups {
+		require.NotEmpty(t, group.Area)
+		for _, permission := range group.Permissions {
+			require.NotEmpty(t, strings.TrimSpace(permission.Hint), permission.Code)
+			switch permission.Code {
+			case PermWorkspaceManage:
+				require.Contains(t, permission.Hint, "workspace owner")
+			case PermWorkspaceTransfer:
+				require.Contains(t, permission.Hint, "archive")
+				require.Contains(t, permission.Hint, "attachments")
+			}
+			codes = append(codes, permission.Code)
+		}
+	}
+	require.ElementsMatch(t, RolePermissions[RoleOwner], codes)
+}
 
 func TestWorkspaceTransferPermissionIsLimitedToOwnerAndAdmin(t *testing.T) {
 	require.True(t, HasPermission(RoleOwner, PermWorkspaceTransfer))

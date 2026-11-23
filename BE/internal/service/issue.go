@@ -503,6 +503,12 @@ func (s *IssueService) update(ctx context.Context, workspaceID, userID uuid.UUID
 	if err != nil || issue == nil {
 		return nil, fmt.Errorf("issue not found")
 	}
+	if req.TeamID != nil {
+		team, err := uuid.Parse(*req.TeamID)
+		if err != nil || team != issue.TeamID {
+			return nil, errors.New("an issue's team cannot be changed")
+		}
+	}
 	// The values before the edit, for its undo.
 	before := *issue
 

@@ -28,6 +28,7 @@ type WorkspaceMember struct {
 }
 
 type WorkspaceMemberWithUser struct {
+	RoleName    string    `db:"role_name"`
 	WorkspaceID uuid.UUID `db:"workspace_id"`
 	UserID      uuid.UUID `db:"user_id"`
 	Role        string    `db:"role"`

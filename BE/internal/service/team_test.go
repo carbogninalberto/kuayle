@@ -59,7 +59,7 @@ func TestTeamService_Leave_RemovesMembership(t *testing.T) {
 	}, nil)
 	repo.On("RemoveMember", ctx, teamID, userID).Return(nil)
 
-	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleMember)
+	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleMember, true)
 
 	assert.NoError(t, err)
 	assert.False(t, deleted)
@@ -79,7 +79,7 @@ func TestTeamService_Leave_DeletesWhenLastMember(t *testing.T) {
 	repo.On("ListMembers", ctx, teamID).Return([]domain.TeamMember{{TeamID: teamID, UserID: userID}}, nil)
 	repo.On("Delete", ctx, teamID).Return(nil, nil)
 
-	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleMember)
+	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleMember, true)
 
 	assert.NoError(t, err)
 	assert.True(t, deleted)
@@ -97,7 +97,7 @@ func TestTeamService_Leave_DeletesWhenWorkspaceOwner(t *testing.T) {
 	repo.On("GetByID", ctx, teamID).Return(&domain.Team{ID: teamID, WorkspaceID: workspaceID}, nil)
 	repo.On("Delete", ctx, teamID).Return(nil, nil)
 
-	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleOwner)
+	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleOwner, true)
 
 	assert.NoError(t, err)
 	assert.True(t, deleted)
@@ -116,7 +116,7 @@ func TestTeamService_Leave_NotMember(t *testing.T) {
 	repo.On("GetByID", ctx, teamID).Return(&domain.Team{ID: teamID, WorkspaceID: workspaceID}, nil)
 	repo.On("GetMember", ctx, teamID, userID).Return(nil, nil)
 
-	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleMember)
+	deleted, err := svc.Leave(ctx, workspaceID, teamID, userID, domain.RoleMember, true)
 
 	assert.ErrorIs(t, err, ErrTeamMemberNotFound)
 	assert.False(t, deleted)
@@ -133,7 +133,7 @@ func TestPrivateTeamLeaveNeverDeletesContent(t *testing.T) {
 			repo.On("GetByID", ctx, team).Return(&domain.Team{ID: team, WorkspaceID: workspace, IsPrivate: true}, nil)
 			repo.On("GetMember", ctx, team, user).Return(&domain.TeamMember{TeamID: team, UserID: user}, nil)
 			repo.On("RemoveMember", ctx, team, user).Return(nil)
-			deleted, err := svc.Leave(ctx, workspace, team, user, role)
+			deleted, err := svc.Leave(ctx, workspace, team, user, role, true)
 			assert.NoError(t, err)
 			assert.False(t, deleted)
 			repo.AssertNotCalled(t, "Delete", ctx, team)
