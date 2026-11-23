@@ -214,6 +214,20 @@ func TestPrivateTeamsHTTPAndPAT(t *testing.T) {
 	rolePath := rolesPath + "/" + role.Key
 	assignment := `{"role":"` + role.Key + `"}`
 	request(ownerJWT, "PATCH", memberPath, assignment, http.StatusOK)
+	var roster []struct {
+		UserID   uuid.UUID `json:"user_id"`
+		RoleName string    `json:"role_name"`
+	}
+	require.NoError(t, json.Unmarshal(request(ownerJWT, "GET", base+"/members", "", http.StatusOK), &roster))
+	var assignedName string
+	for _, entry := range roster {
+		if entry.UserID == guest {
+			assignedName = entry.RoleName
+		}
+	}
+	require.Equal(t, role.Name, assignedName)
+	require.Contains(t, string(request(guestJWT, "GET", base, "", http.StatusOK)), `"can_manage_members":false`)
+	require.Contains(t, string(request(ownerJWT, "GET", base, "", http.StatusOK)), `"can_manage_members":true`)
 	request(guestWritePAT, "PATCH", issuePath, `{"title":"Triaged"}`, http.StatusOK)
 	request(ownerJWT, "DELETE", rolePath, "", http.StatusConflict)
 	var roles []domain.WorkspaceRole

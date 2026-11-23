@@ -3745,6 +3745,9 @@
 			},
 			"Workspace": {
 				"properties": {
+					"can_manage_members": {
+						"type": "boolean"
+					},
 					"created_at": {
 						"format": "date-time",
 						"type": "string"
@@ -3819,11 +3822,15 @@
 					"role": {
 						"type": "string"
 					},
+					"role_name": {
+						"type": "string"
+					},
 					"user_id": {
 						"type": "string"
 					}
 				},
 				"required": [
+					"role_name",
 					"user_id",
 					"email",
 					"name",

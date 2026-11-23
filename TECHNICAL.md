@@ -1518,6 +1518,8 @@ resolve the stored team, and issue collection queries check each selected row.
 Operations spanning several teams without a row-level permission check require
 the permission in the workspace and in every override.
 
+In Settings → Members, owners can manage role definitions, see member and team assignment counts, and set team overrides. Member listings return the assigned key and its display name. A workspace detail response includes `can_manage_members` for the current caller.
+
 The interactive owner manages definitions at `/api/workspaces/:slug/roles`.
 Within that workspace, `GET /roles/permissions` returns grouped codes and hints.
 A create request takes a name, description and either a permission list or a

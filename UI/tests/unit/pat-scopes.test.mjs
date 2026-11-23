@@ -11,34 +11,22 @@ import {
 
 const sorted = (scopes) => [...scopes].sort();
 
-// Compare the actual backend contract when the dependent backend PR is present.
-// Standalone UI branches cannot validate a contract they do not contain.
-const backendPath = new URL('../../../BE/internal/domain/personal_access_token.go', import.meta.url);
-let backendScopes;
-if (existsSync(backendPath)) {
-	const domain = readFileSync(backendPath, 'utf8');
-	const permissions = readFileSync(new URL('../../../BE/internal/domain/permission.go', import.meta.url), 'utf8');
-	const constants = new Map(
-		[...permissions.matchAll(/(Perm\w+)\s*=\s*"([^"]+)"/g)].map((match) => [match[1], match[2]])
-	);
-	const contract = domain.match(/var validTokenScopes = map\[string\]bool\{([\s\S]*?)\n\}/)?.[1];
-	assert.ok(contract, 'backend validTokenScopes declaration must be readable');
-	backendScopes = [...contract.matchAll(/(?:"([^"]+)"|(Perm\w+)):\s*true/g)]
-		.map((match) => {
-			const scope = match[1] ?? constants.get(match[2]);
-			assert.ok(scope, `missing constant ${match[2]}`);
-			return scope;
-		})
-		.sort();
-	assert.ok(backendScopes.length > 0, 'backend contract must not be empty');
-}
-
+const domain = new URL('../../../BE/internal/domain/', import.meta.url);
 test(
-	'resource rows match the actual backend valid scope set',
-	{ skip: !backendScopes && 'dependent backend contract is absent' },
+	'resource rows match the workspace and token permission catalog',
+	{ skip: !existsSync(domain) && 'backend source is absent in a standalone UI checkout' },
 	() => {
-		const all = RESOURCE_ROWS.flatMap((row) => [...row.readScopes, ...row.writeScopes]);
-		assert.deepEqual(sorted(all), backendScopes);
+		const declarations = readFileSync(new URL('permission.go', domain), 'utf8');
+		const constants = new Map(
+			[...declarations.matchAll(/(Perm\w+)\s*=\s*"([^"]+)"/g)].map(([, name, code]) => [name, code])
+		);
+		const catalog = readFileSync(new URL('permission_catalog.go', domain), 'utf8');
+		const codes = [...catalog.matchAll(/\{\s*(Perm\w+)\s*,/g)].map(([, name]) => {
+			assert.ok(constants.has(name), name);
+			return constants.get(name);
+		});
+		const rows = RESOURCE_ROWS.flatMap((row) => [...row.readScopes, ...row.writeScopes]);
+		assert.deepEqual(sorted(rows), sorted(codes));
 	}
 );
 

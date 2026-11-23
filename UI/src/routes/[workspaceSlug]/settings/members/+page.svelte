@@ -17,7 +17,11 @@
 	} from '$lib/api/invite';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
-	import * as Popover from '$lib/components/ui/popover';
+	import { getCurrentWorkspace } from '$lib/features/workspaces/current-workspace.svelte';
+	import { listRoles, type WorkspaceRole } from '$lib/api/workspace-roles';
+	import { isBuiltinRole, roleName } from '$lib/features/workspaces/role-name';
+	import RoleEditor from '$lib/features/workspaces/RoleEditor.svelte';
+	import MemberTeamRoles from '$lib/features/workspaces/MemberTeamRoles.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { formatDate } from '$lib/utils/format';
@@ -48,7 +52,53 @@
 	let linkSubmitting = $state(false);
 	let createdLinkUrl = $state<string | null>(null);
 
-	const roles = ['owner', 'admin', 'member', 'guest'];
+	const current = getCurrentWorkspace();
+	const owner = $derived(current.membership?.workspace.slug === slug && current.membership.workspace.current_user_role === 'owner');
+	const canManageMembers = $derived(current.membership?.workspace.slug === slug && (current.membership.workspace.can_manage_members ?? ['owner', 'admin'].includes(current.membership.workspace.current_user_role)));
+	let roles = $state<WorkspaceRole[]>([]);
+	let rolesPending = $state(true);
+	let rolesFailed = $state(false);
+	let roleRequest = 0;
+	let editor = $state<WorkspaceRole | 'create'>();
+	let teamMember = $state<WorkspaceMember>();
+	let changingMember = $state('');
+	let trigger: HTMLElement | null = null;
+	let createButton = $state<HTMLButtonElement | null>(null);
+	const roleOptions = $derived(owner && roles.length
+		? roles.filter(r => r.key !== 'owner').map(r => ({ value: r.key, label: roleName(r.key, r.name) }))
+		: ['admin', 'member', 'guest'].map(key => ({ value: key, label: roleName(key) })));
+
+	$effect(() => {
+		const workspace = slug;
+		roles = [];
+		editor = undefined;
+		teamMember = undefined;
+		if (owner) void reloadRoles(workspace);
+	});
+
+	async function reloadRoles(workspace: string) {
+		const request = ++roleRequest;
+		rolesPending = true;
+		rolesFailed = false;
+		try {
+			const result = await listRoles(workspace);
+			if (request === roleRequest && slug === workspace && owner) roles = result;
+		} catch {
+			if (request === roleRequest) rolesFailed = true;
+		} finally {
+			if (request === roleRequest) rolesPending = false;
+		}
+	}
+
+	function refreshRoles() {
+		if (owner) void reloadRoles(slug);
+	}
+
+	function closeDialog() {
+		editor = undefined;
+		teamMember = undefined;
+		requestAnimationFrame(() => (trigger?.isConnected ? trigger : createButton)?.focus());
+	}
 
 	onMount(async () => {
 		try {
@@ -58,8 +108,9 @@
 		} finally {
 			loading = false;
 		}
-		await loadInviteLinks();
 	});
+
+	$effect(() => { if (canManageMembers) void loadInviteLinks(); });
 
 	async function loadInviteLinks() {
 		linksLoading = true;
@@ -74,19 +125,23 @@
 	}
 
 	async function handleRoleChange(userId: string, role: string) {
+		if (changingMember) return;
+		changingMember = userId;
 		try {
 			await updateMemberRole(slug, userId, role);
-			members = members.map((m) => (m.user_id === userId ? { ...m, role } : m));
+			members = members.map((m) => (m.user_id === userId ? { ...m, role, role_name: roleOptions.find(o => o.value === role)?.label } : m));
+			refreshRoles();
 			appToast.success(m['settings.members.role_updated']());
 		} catch (err: any) {
 			appToast.apiError(err, m['settings.members.failed_update_role']());
-		}
+		} finally { changingMember = ''; }
 	}
 
 	async function handleRemove(userId: string) {
 		try {
 			await removeMember(slug, userId);
 			members = members.filter((m) => m.user_id !== userId);
+			refreshRoles();
 			appToast.success(m['settings.members.removed']());
 		} catch (err: any) {
 			appToast.apiError(err, m['settings.members.failed_remove']());
@@ -101,6 +156,7 @@
 			showInvite = false;
 			inviteEmail = '';
 			inviteRole = 'member';
+			refreshRoles();
 			members = await listMembers(slug);
 		} catch (err: any) {
 			appToast.apiError(err, m['settings.members.failed_invite']());
@@ -178,67 +234,59 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
+<div class="mx-auto max-w-3xl px-4 sm:px-8 py-10">
 	<div class="flex items-center justify-between">
 		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.members.title']()}</h1>
+		{#if canManageMembers}
 		<Button variant="plain" onclick={() => openInvite('email')}
 			class="flex items-center gap-1.5 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
 		>
 			<UserPlus size={14} />
 			{m['settings.members.invite']()}
 		</Button>
+		{/if}
 	</div>
 
 	<div class="mt-8">
 		{#if loading}
-			<p class="text-sm text-[var(--color-text-tertiary)]"></p>
+			<p role="status" class="text-sm text-muted-foreground">{m['common.loading']()}</p>
 		{:else if members.length === 0}
 			<p class="text-sm text-[var(--color-text-secondary)]">{m['settings.members.no_members']()}</p>
 		{:else}
 			<div class="overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 				{#each members as member, i}
 					<div
-						class="flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}"
+						class="flex flex-wrap items-center justify-between gap-3 px-4 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}"
 					>
-						<div class="flex items-center gap-3">
+						<div class="flex min-w-0 items-center gap-3">
 							<Avatar name={member.name || member.email} avatarUrl={member.avatar_url} size="md" />
-							<div>
+							<div class="min-w-0 break-words">
 								<p class="text-sm font-medium text-[var(--color-text-primary)]">
 									{member.name || m['settings.members.unnamed']()}
 								</p>
 								<p class="text-xs text-[var(--color-text-tertiary)]">{member.email}</p>
 							</div>
 						</div>
-						<div class="flex items-center gap-2">
-							<Popover.Root>
-								<Popover.Trigger>
-									{#snippet child({ props })}
-										<Button {...props} variant="plain"
-											class="rounded-md border border-[var(--app-border)] px-2.5 py-1 text-xs capitalize text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)]"
-										>
-											{(m as unknown as Record<string, () => string>)['common.role.' + member.role]()}
-										</Button>
-									{/snippet}
-								</Popover.Trigger>
-								<Popover.Content class="w-36 p-1" align="end">
-									{#each roles as role}
-										<Button variant="plain" onclick={() => handleRoleChange(member.user_id, role)}
-											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm capitalize text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] {member.role ===
-											role
-												? 'bg-[var(--color-bg-hover)]'
-												: ''}"
-										>
-											{(m as unknown as Record<string, () => string>)['common.role.' + role]()}
-										</Button>
-									{/each}
-								</Popover.Content>
-							</Popover.Root>
+						<div class="flex max-w-full flex-wrap items-center gap-2 [&_[data-slot=select-trigger]]:max-w-full [&_[data-slot=select-value]]:block [&_[data-slot=select-value]]:truncate">
+							{#if member.role === 'owner' || !canManageMembers}
+								<span class="text-sm text-muted-foreground">{roleName(member.role, member.role_name)}</span>
+							{:else}
+								{@const selected = roleOptions.find(o => o.value === member.role)}
+								<SelectField aria-label={m['settings.members.role']() + ' ' + (member.name || member.email)}
+									bind:value={() => member.role, (role) => { void handleRoleChange(member.user_id, role); }}
+									disabled={!!changingMember || (owner && !roles.length)}
+									options={selected ? roleOptions : [...roleOptions, { value: member.role, label: roleName(member.role, member.role_name), disabled: true }]} />
+								{#if owner}
+									<Button variant="outline" size="sm" aria-label={m['settings.roles.team']() + ' ' + (member.name || member.email)}
+										disabled={!roles.length} onclick={(e) => { trigger = e.currentTarget; teamMember = member; }}>{m['settings.roles.team']()}</Button>
+								{/if}
 							<Button variant="plain" onclick={() => handleRemove(member.user_id)}
 								class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-red-500"
 								title={m['settings.members.remove']()}
 							>
 								<Trash2 size={14} />
 							</Button>
+							{/if}
 						</div>
 					</div>
 				{/each}
@@ -246,7 +294,45 @@
 		{/if}
 	</div>
 
+	{#if owner}
+		<section class="mt-10" aria-labelledby="roles-heading">
+			<div class="flex items-center justify-between gap-2">
+				<h2 id="roles-heading" class="text-lg font-semibold">{m['settings.roles.title']()}</h2>
+				<Button bind:ref={createButton} size="sm" disabled={!roles.length} onclick={(e) => { trigger = e.currentTarget; editor = 'create'; }}>{m['settings.roles.create']()}</Button>
+			</div>
+			{#if rolesFailed}
+				<p role="alert" class="my-3 text-sm">{m['settings.roles.load_failed']()}</p>
+				<Button variant="outline" onclick={refreshRoles}>{m['settings.tokens.retry']()}</Button>
+			{:else if rolesPending && !roles.length}
+				<p role="status" class="mt-3 text-sm text-muted-foreground">{m['common.loading']()}</p>
+			{:else}
+				<table aria-labelledby="roles-heading" class="mt-3 w-full table-fixed text-left text-sm">
+					<thead class="border-b text-xs text-muted-foreground"><tr>
+						<th class="w-[46%] py-2 font-medium">{m['settings.members.role']()}</th>
+						<th class="w-[18%] px-1 text-right font-medium">{m['common.members']()}</th>
+						<th class="w-[18%] px-1 text-right font-medium">{m['settings.roles.team']()}</th>
+						<th><span class="sr-only">{m['common.edit']()}</span></th>
+					</tr></thead>
+					<tbody>
+						{#each roles as role (role.key)}
+							<tr class="border-b">
+								<td class="break-words py-3 pr-1"><span class="font-medium">{roleName(role.key, role.name)}</span>
+									{#if role.description}<p class="mt-0.5 text-xs text-muted-foreground">{role.description}</p>{/if}</td>
+								<td class="px-1 text-right tabular-nums">{role.member_count}</td>
+								<td class="px-1 text-right tabular-nums">{role.team_assignments}</td>
+								<td class="text-right">{#if !isBuiltinRole(role.key)}<Button variant="ghost" size="sm" onclick={(e) => { trigger = e.currentTarget; editor = role; }}>{m['common.edit']()}</Button>{/if}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+		</section>
+		{#if editor}<RoleEditor {slug} {roles} role={editor === 'create' ? undefined : editor} onchanged={refreshRoles} onclose={closeDialog} />{/if}
+		{#if teamMember}<MemberTeamRoles {slug} member={teamMember} options={roleOptions} onchanged={refreshRoles} onclose={closeDialog} />{/if}
+	{/if}
+
 	<!-- Invite links section -->
+	{#if canManageMembers}
 	<div class="mt-10">
 		<div class="flex items-center justify-between">
 			<div>
@@ -313,6 +399,7 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
 </div>
 
 <!-- Invite Dialog (email / invite link tabs) -->
@@ -397,7 +484,7 @@
 							id="invite-role"
 							bind:value={inviteRole}
 							class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none"
-						 options={[{ value: 'admin' as const, label: m['settings.role_admin']() }, { value: 'member' as const, label: m['settings.role_member']() }, { value: 'guest' as const, label: m['common.role.guest']() }]} />
+						 options={roleOptions} />
 					</div>
 				{:else}
 					<div>

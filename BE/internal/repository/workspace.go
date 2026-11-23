@@ -300,8 +300,9 @@ func (r *WorkspaceRepository) CountMembersByRole(ctx context.Context, workspaceI
 
 func (r *WorkspaceRepository) ListMembersWithUsers(ctx context.Context, workspaceID uuid.UUID) ([]domain.WorkspaceMemberWithUser, error) {
 	var members []domain.WorkspaceMemberWithUser
-	query := `SELECT wm.workspace_id, wm.user_id, wm.role_key AS role, u.email, u.name, u.display_name, u.avatar_url, wm.created_at
+	query := `SELECT wm.workspace_id, wm.user_id, wm.role_key AS role, r.name AS role_name, u.email, u.name, u.display_name, u.avatar_url, wm.created_at
 		FROM workspace_members wm
+		JOIN workspace_roles r ON (r.workspace_id,r.key)=(wm.workspace_id,wm.role_key)
 		JOIN users u ON u.id = wm.user_id
 		WHERE wm.workspace_id = $1
 		ORDER BY wm.created_at`

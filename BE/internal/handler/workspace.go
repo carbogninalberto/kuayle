@@ -177,6 +177,7 @@ func (h *WorkspaceHandler) ListMembers(c *echo.Context) error {
 	for _, m := range members {
 		resp = append(resp, dto.WorkspaceMemberResponse{
 			UserID:    m.UserID.String(),
+			RoleName:  m.RoleName,
 			Email:     m.Email,
 			Name:      m.Name,
 			AvatarURL: m.AvatarURL,
@@ -256,6 +257,11 @@ func (h *WorkspaceHandler) toWorkspaceResponse(c *echo.Context, ws domain.Worksp
 		CurrentUserRole:  middleware.AssignedWorkspaceRole(c),
 		CreatedAt:        ws.CreatedAt,
 		UpdatedAt:        ws.UpdatedAt,
+	}
+
+	if resp.CurrentUserRole != "" {
+		allowed := middleware.RequestAllows(c, domain.PermMemberInvite)
+		resp.CanManageMembers = &allowed
 	}
 
 	if ws.OwnerID != uuid.Nil {

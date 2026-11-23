@@ -43,6 +43,7 @@ type WorkspaceOwnerResponse struct {
 }
 
 type WorkspaceResponse struct {
+	CanManageMembers *bool                   `json:"can_manage_members,omitempty"`
 	PrivacyEnabled   bool                    `json:"privacy_enabled"`
 	ID               string                  `json:"id"`
 	Name             string                  `json:"name"`
@@ -66,6 +67,7 @@ type UpdateMemberRoleRequest struct {
 }
 
 type WorkspaceMemberResponse struct {
+	RoleName  string    `json:"role_name"`
 	UserID    string    `json:"user_id"`
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`

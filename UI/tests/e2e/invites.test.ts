@@ -83,7 +83,7 @@ async function mockApi(
 					name: preview.workspace_name,
 					slug: 'invited',
 					owner_id: user.id,
-					current_user_role: 'member',
+					current_user_role: 'admin',
 					logo_url: null
 				}
 			});
