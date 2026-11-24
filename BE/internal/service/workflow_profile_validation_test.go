@@ -38,6 +38,12 @@ func newProfileFixture(t *testing.T) profileFixture {
 	if dsn == "" {
 		t.Skip("DATABASE_URL is not set")
 	}
+	return profileFixtureOn(t, dsn)
+}
+
+// profileFixtureOn is newProfileFixture on the database at dsn.
+func profileFixtureOn(t *testing.T, dsn string) profileFixture {
+	t.Helper()
 	db, err := repository.Open(dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { db.Close() })

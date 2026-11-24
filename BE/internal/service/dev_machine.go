@@ -1044,15 +1044,19 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 }
 
 func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest) (*domain.DevMachineCheckout, error) {
-	return s.checkoutIssue(ctx, workspaceID, machineID, userID, request, "", uuid.New(), 0)
+	return s.checkoutIssue(ctx, workspaceID, machineID, userID, request, "", uuid.New(), 0, false)
 }
 func (s *DevMachineService) checkoutTask(ctx context.Context, task domain.AgentTask) (*domain.DevMachineCheckout, error) {
 	if task.MachineID == nil {
 		return nil, ErrInvalidOperation
 	}
-	return s.checkoutIssue(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CheckoutIssueRequest{IssueID: task.IssueID.String()}, task.ID.String(), task.CheckoutID, task.Generation)
+	// A review task's next generation (a pipeline member's next turn) reads
+	// a commit published after its worktree was made: the worktree fetches
+	// again first, once per generation.
+	refresh := task.Kind == domain.AgentTaskKindReview && task.Generation > 1
+	return s.checkoutIssue(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CheckoutIssueRequest{IssueID: task.IssueID.String()}, task.ID.String(), task.CheckoutID, task.Generation, refresh)
 }
-func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest, scope string, checkoutID uuid.UUID, retryGeneration int64) (*domain.DevMachineCheckout, error) {
+func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest, scope string, checkoutID uuid.UUID, retryGeneration int64, refresh bool) (*domain.DevMachineCheckout, error) {
 	if err := s.RequireMachineUse(userID); err != nil {
 		return nil, err
 	}
@@ -1113,7 +1117,7 @@ func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, mach
 	}
 	for index := range existing {
 		if existing[index].IssueID == issueID && existing[index].ScopeKey == scope {
-			if existing[index].Status == "retired" || (existing[index].Status == "failed" && (scope == "" || retryGeneration > 1)) {
+			if existing[index].Status == "retired" || (existing[index].Status == "failed" && (scope == "" || retryGeneration > 1)) || (refresh && existing[index].Status == "ready") {
 				key := "checkout-issue-retry:" + issueID.String() + ":" + uuid.NewString()
 				if scope != "" {
 					key = fmt.Sprintf("task-checkout-retry:%s:%d", scope, retryGeneration)

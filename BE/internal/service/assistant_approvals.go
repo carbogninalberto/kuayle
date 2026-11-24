@@ -522,8 +522,6 @@ func delegationFailure(err error) (string, bool) {
 		return "The chosen workflow can no longer start a task", true
 	case errors.Is(err, ErrPipelinesDisabled):
 		return "Pipeline workflows are turned off on this server", true
-	case errors.Is(err, ErrPipelineNotRunnable):
-		return "Pipeline workflows cannot run tasks yet", true
 	case errors.Is(err, ErrInvalidMachineInput), errors.Is(err, repository.ErrConversationInvalid):
 		return "The coding task request was rejected", true
 	case errors.Is(err, repository.ErrConversationNotFound), errors.Is(err, repository.ErrAgentTaskUnauthorized):

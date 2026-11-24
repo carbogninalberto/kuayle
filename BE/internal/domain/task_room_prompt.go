@@ -27,6 +27,23 @@ func RoomInbox(role string, posts []TaskMessage) []TaskMessage {
 	return inbox
 }
 
+// RoomWakes reports whether a role's inbox (RoomInbox) calls for a turn: a
+// post addressed to the role, or one a person or another role wrote to
+// everyone to talk (say, ask, request). What only records a state (a fact,
+// a phase, a verdict, a summary) to everyone waits for the next turn.
+func RoomWakes(role string, inbox []TaskMessage) bool {
+	for _, m := range inbox {
+		switch {
+		case m.RejectReason != nil:
+		case slices.Contains(m.ToRoles, role):
+			return true
+		case len(m.ToRoles) == 0 && m.AuthorKind != RoomAuthorKuayle && (m.Kind == RoomSay || m.Kind == RoomAsk || m.Kind == RoomRequest):
+			return true
+		}
+	}
+	return false
+}
+
 // RoomTurnPrompt is the room section of a member's turn prompt: each post of
 // its inbox (RoomInbox) with its number, author and kind, the text fenced as
 // data, then how to answer. It is empty when there is nothing new.

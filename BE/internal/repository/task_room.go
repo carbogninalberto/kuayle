@@ -52,6 +52,10 @@ func (r *AgentTaskRepository) PostRoomMessage(ctx context.Context, ws, id uuid.U
 	if err != nil {
 		return nil, err
 	}
+	// The task's tick delivers it (to a role that rests, a turn) at once.
+	if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND pipeline AND state='awaiting_review'`, task.ID); err != nil {
+		return nil, err
+	}
 	return message, tx.Commit()
 }
 

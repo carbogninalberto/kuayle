@@ -124,6 +124,11 @@ type AgentTask struct {
 	// current step has an outcome).
 	WorkflowPauseRequest *string    `json:"workflow_pause_request,omitempty" db:"workflow_pause_request"`
 	WorkflowPausedAt     *time.Time `json:"workflow_paused_at,omitempty" db:"workflow_paused_at"`
+	// Pipeline is set on a task that runs a pipeline workflow (KUA-252): its
+	// tick, not the graph runner, moves it. PipelineState is the tick's
+	// memory between passes; the phase is WorkflowNode.
+	Pipeline      bool            `json:"pipeline,omitempty" db:"pipeline"`
+	PipelineState json.RawMessage `json:"-" db:"pipeline_state"`
 	// LiveResumeGeneration is the attempt a person started to deliver a
 	// message (see LiveResumed); one more than the generation while the
 	// attempt they interrupted is still being stopped (LiveInterrupting).

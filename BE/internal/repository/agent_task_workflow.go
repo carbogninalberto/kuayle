@@ -175,6 +175,9 @@ func transitionWorkflowTask(ctx context.Context, tx *sqlx.Tx, task *domain.Agent
 // startWorkflow pins the version on a new task and enters its first agent
 // step, which is the iteration delegation creates.
 func startWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, version domain.WorkflowVersion) error {
+	if domain.WorkflowKind(version.Graph) == domain.WorkflowKindPipeline {
+		return startPipeline(ctx, tx, task, version)
+	}
 	graph, err := domain.ParseWorkflowGraph(version.Graph)
 	if err != nil {
 		return err
@@ -1313,6 +1316,13 @@ func (r *AgentTaskRepository) DeferredShipMerge(ctx context.Context, task domain
 func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID) error {
 	if !task.RunsWorkflow() {
 		return nil
+	}
+	if task.Pipeline {
+		// A pipeline task starts again with its writer's turn, on another
+		// budget of the same size; its tick asks every role again and counts
+		// stalls anew.
+		return tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_status='running',workflow_wake_at=NULL,workflow_sequence=workflow_sequence+1,workflow_iterations=workflow_iterations+1,
+ workflow_budget_extensions=workflow_budget_extensions+1,workflow_budget_from=now(),workflow_held_since=NULL,pipeline_state=pipeline_state-'stall'-'asked'-'merge' WHERE id=$1 RETURNING *`, task.ID)
 	}
 	// The step is looked up in the version the task runs now: a task moved to
 	// a newer version goes back to its latest implementing step that version

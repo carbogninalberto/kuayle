@@ -109,7 +109,10 @@ type MemberTurn struct {
 	Instructions string
 	CI           AgentReviewCI
 	VerdictAsked bool
-	Posts        []TaskMessage
+	// Since is the commit the member's previous turn read, when the work
+	// moved on from it.
+	Since string
+	Posts []TaskMessage
 }
 
 // MemberInstructionsBytes bounds the profile's instructions in a turn
@@ -138,6 +141,9 @@ func MemberTurnPrompt(turn MemberTurn) string {
 		b.WriteString("Do not edit, commit or push anything: you have no repository credentials and Kuayle discards any change.\n")
 	default:
 		b.WriteString("Nothing is published yet, so there is no commit to review. Do not edit, commit or push anything: you have no repository credentials and Kuayle discards any change.\n")
+	}
+	if turn.Target != nil && turn.Since != "" && turn.Since != turn.Target.CommitSHA {
+		fmt.Fprintf(&b, "Your previous turn read commit %s. What changed since then is `git diff %s %s`: check that what you raised was addressed, and that nothing else broke.\n", turn.Since, turn.Since, turn.Target.CommitSHA)
 	}
 	if !turn.VerdictAsked || turn.Target == nil {
 		if instructions != "" {

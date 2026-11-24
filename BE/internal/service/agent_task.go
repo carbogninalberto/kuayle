@@ -271,6 +271,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if result == nil {
 			return nil
 		}
+		// A pipeline's tick reads what the publication did as a fact.
+		if task.Pipeline {
+			return s.pipelinePublished(ctx, task, result)
+		}
 		if reason := domain.PublicationCheckoutBlockReason(result.Summary); result.Status == domain.DevMachineAgentRunStepStatusFailed && reason != "" {
 			if task.RunsWorkflow() {
 				if s.workflow == nil {
@@ -303,7 +307,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		}
 		return nil
 	}
-	// A workflow step waiting for a review, CI or a timeout was woken.
+	// A pipeline's tick, or a workflow step waiting for a review, CI or a
+	// timeout, was woken.
+	if task.State == "awaiting_review" && task.Pipeline {
+		return s.pipelineTick(ctx, task)
+	}
 	if task.State == "awaiting_review" && task.RunsWorkflow() && s.workflow != nil {
 		return s.workflow.Evaluate(ctx, task)
 	}
@@ -358,6 +366,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			if model, ok := domain.ParseModelNotFoundError(*run.ErrorMessage); ok {
 				return s.store.FailWithClass(ctx, task, domain.FailureProvider, modelNotFoundReason(task, model))
 			}
+		}
+		// A pipeline's writer whose turn failed: the failure is a fact its
+		// tick routes like any other.
+		if task.Pipeline && task.State == "running" {
+			return s.pipelineTurnEnded(ctx, task, runFailureDetail(run))
 		}
 		// An agent that stopped without concluding says so, in a workflow
 		// (which still decides what follows) and outside one.
@@ -433,7 +446,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if task.Kind == domain.AgentTaskKindReview {
 			return s.store.CompleteReview(ctx, task)
 		}
-		// A workflow decides what follows the agent step.
+		// A pipeline's tick, or a workflow, decides what follows the agent step.
+		if task.Pipeline {
+			return s.pipelineTurnEnded(ctx, task, "")
+		}
 		if task.RunsWorkflow() && s.workflow != nil {
 			return s.workflow.AgentFinished(ctx, task)
 		}
@@ -445,6 +461,20 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		return s.store.Transition(ctx, task, "publishing", reason)
 	}
 	return nil
+}
+
+// runFailureDetail is why a run failed: its recorded cause, or what it
+// reported, or that it failed or timed out.
+func runFailureDetail(run *domain.DevMachineAgentRun) string {
+	switch {
+	case run.FailureCause != nil && strings.TrimSpace(*run.FailureCause) != "":
+		return *run.FailureCause
+	case run.ErrorMessage != nil && strings.TrimSpace(*run.ErrorMessage) != "":
+		return *run.ErrorMessage
+	case run.Status == domain.DevMachineAgentRunStatusTimeout:
+		return "The agent's iteration reached its time limit"
+	}
+	return "The agent's iteration failed"
 }
 
 // runFailureClass is the class the machine recorded for the run, or the

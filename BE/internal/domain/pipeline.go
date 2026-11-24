@@ -138,6 +138,12 @@ type PipelineBudget struct {
 	OnExhausted string `json:"on_exhausted,omitempty"`
 }
 
+// Workflow is the budget as a graph workflow's, whose limits and policy
+// the pipeline's tick applies the same way: its turns are the iterations.
+func (b PipelineBudget) Workflow() WorkflowBudget {
+	return WorkflowBudget{MaxIterations: b.MaxTurns, MaxMinutes: b.MaxMinutes, OnExhausted: b.OnExhausted}
+}
+
 // WorkflowKind reads the kind of a version's JSON: "graph" when it names
 // none, or when it cannot be read (the graph parser then says why).
 func WorkflowKind(raw []byte) string {

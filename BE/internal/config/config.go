@@ -69,7 +69,7 @@ type Config struct {
 	DisableRegistration bool `envconfig:"DISABLE_REGISTRATION" default:"false"`
 
 	// WorkflowPipelines allows saving the experimental pipeline workflows
-	// (KUA-252). Off, a pipeline is refused; no task starts on one yet.
+	// (KUA-252). Off, a pipeline is neither saved nor started.
 	WorkflowPipelines bool `envconfig:"WORKFLOW_PIPELINES_ENABLED" default:"false"`
 
 	// Passkeys (WebAuthn). The relying party defaults to FRONTEND_URL; see

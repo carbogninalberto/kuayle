@@ -204,7 +204,7 @@ type headInspector interface {
 // merges its pull request: it is the workflow's ship approval and Kuayle
 // merges here (KUA-216). The task card and the approval say so.
 func (w *WorkflowRunner) ShipMergeWaiting(ctx context.Context, task domain.AgentTask) (bool, error) {
-	if w.pulls == nil || w.merger == nil || !task.RunsWorkflow() || task.WorkflowNode == nil || task.WorkflowStatus == nil ||
+	if w.pulls == nil || w.merger == nil || !task.RunsWorkflow() || task.Pipeline || task.WorkflowNode == nil || task.WorkflowStatus == nil ||
 		*task.WorkflowStatus != domain.WorkflowStatusWaiting || task.State != "awaiting_review" || task.WorkflowPausedAt != nil {
 		return false, nil
 	}

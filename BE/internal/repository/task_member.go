@@ -194,6 +194,9 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		return nil, err
 	}
 	turn := domain.MemberTurn{Role: role, Target: target, Instructions: profile.Instructions}
+	if member != nil && member.PinnedCommit != nil {
+		turn.Since = *member.PinnedCommit
+	}
 	if target != nil {
 		turn.VerdictAsked = askVerdict || domain.RoomReviewRequested(domain.RoomInbox(role, posts))
 		if turn.CI, err = recordedReviewCI(ctx, tx, published, target.CommitSHA); err != nil {
@@ -274,9 +277,9 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 // published from the root task's attempts, with its pull request, and the
 // root as of the attempt that published it; nil before anything is
 // published with a pull request.
-func publishedTarget(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask) (*domain.AgentReviewTarget, domain.AgentTask, error) {
+func publishedTarget(ctx context.Context, q sqlx.QueryerContext, root domain.AgentTask) (*domain.AgentReviewTarget, domain.AgentTask, error) {
 	var run uuid.UUID
-	err := tx.GetContext(ctx, &run, `SELECT g.agent_run_id FROM dev_machine_git_refs g JOIN dev_machine_agent_runs r ON r.id=g.agent_run_id AND r.workspace_id=g.workspace_id
+	err := sqlx.GetContext(ctx, q, &run, `SELECT g.agent_run_id FROM dev_machine_git_refs g JOIN dev_machine_agent_runs r ON r.id=g.agent_run_id AND r.workspace_id=g.workspace_id
  WHERE r.task_id=$1 AND r.workspace_id=$2 AND g.ref_type='commit' AND g.source='published' AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC,g.id DESC LIMIT 1`, root.ID, root.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, root, nil
@@ -286,7 +289,7 @@ func publishedTarget(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask) (*
 	}
 	published := root
 	published.RunID = run
-	target, err := reviewTarget(ctx, tx, published)
+	target, err := reviewTarget(ctx, q, published)
 	if errors.Is(err, ErrNoReviewTarget) {
 		return nil, root, nil
 	}
@@ -294,11 +297,12 @@ func publishedTarget(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask) (*
 }
 
 // LatestVerdicts is the latest verdict of each role for one commit of a
-// pipeline task. A verdict counts for the commit it names only: whether it
-// also holds for a head that merely merged the base is the tick's call.
+// pipeline task, or with commit "" on any commit. A verdict counts for the
+// commit it names only: whether it also holds for a head that merely merged
+// the base is the tick's call.
 func (r *AgentTaskRepository) LatestVerdicts(ctx context.Context, rootID uuid.UUID, commit string) (map[string]domain.TaskVerdict, error) {
 	var verdicts []domain.TaskVerdict
-	if err := r.db.SelectContext(ctx, &verdicts, `SELECT DISTINCT ON (role) * FROM task_verdicts WHERE task_id=$1 AND commit_sha=$2 ORDER BY role,seq DESC`, rootID, commit); err != nil {
+	if err := r.db.SelectContext(ctx, &verdicts, `SELECT DISTINCT ON (role) * FROM task_verdicts WHERE task_id=$1 AND ($2='' OR commit_sha=$2) ORDER BY role,seq DESC`, rootID, commit); err != nil {
 		return nil, err
 	}
 	byRole := make(map[string]domain.TaskVerdict, len(verdicts))
@@ -330,6 +334,13 @@ func syncMemberState(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) er
 	}
 	_, err := tx.ExecContext(ctx, `UPDATE task_members SET state=$3,updated_at=now() WHERE workspace_id=$2 AND (member_task_id=$1 OR (task_id=$1 AND member_task_id IS NULL)) AND state<>$3`,
 		task.ID, task.WorkspaceID, domain.MemberState(task.State))
+	if err != nil || task.Kind != domain.AgentTaskKindReview || domain.MemberState(task.State) != domain.MemberIdle {
+		return err
+	}
+	// A member's turn that ended, however it ended, wakes the tick of its
+	// root task waiting for it.
+	_, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=(SELECT task_id FROM task_members WHERE member_task_id=$1 AND workspace_id=$2)
+ AND workspace_id=$2 AND pipeline AND state='awaiting_review'`, task.ID, task.WorkspaceID)
 	return err
 }
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -75,4 +76,53 @@ func TestOtherReviewsStillStartCold(t *testing.T) {
 	require.NoError(t, json.Unmarshal(run.CommandArgv, &argv))
 	require.NotContains(t, strings.Join(argv, " "), session)
 	require.NotContains(t, run.Prompt, "previous attempt")
+}
+
+// A member's next turn reads a commit published after its worktree was
+// made, so its worktree fetches again first, once per turn; its first turn
+// and any other task's checkout are used as they are.
+func TestAMembersNextTurnFetchesItsWorktreeAgain(t *testing.T) {
+	ws, user, machineID, issueID, repoID := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, IssueID: issueID, MachineID: &machineID, CheckoutID: uuid.New(), Kind: domain.AgentTaskKindReview, Generation: 1}
+	store := &devMachineStoreFake{
+		policy:        testPolicy(ws),
+		machine:       &domain.DevMachine{ID: machineID, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
+		issues:        map[uuid.UUID]*domain.Issue{issueID: {ID: issueID, WorkspaceID: ws, TeamID: uuid.New(), Identifier: "ENG-7"}},
+		reposByID:     map[uuid.UUID]*domain.GitHubRepoModel{repoID: {ID: repoID, WorkspaceID: ws, FullName: "kuayle/api", DefaultBranch: "main", IsActive: true}},
+		scopeSettings: map[string]*domain.DevMachineScopeSetting{scopeKey(nil, nil, &issueID): {WorkspaceID: ws, GitHubRepoID: &repoID}},
+	}
+	svc := newTestDevMachineService(store)
+	first, err := svc.checkoutTask(context.Background(), task)
+	require.NoError(t, err)
+	store.checkouts[0].Status = "ready"
+	store.createCheckoutCalled = false
+	again, err := svc.checkoutTask(context.Background(), task)
+	require.NoError(t, err)
+	require.Equal(t, "ready", again.Status)
+	require.False(t, store.createCheckoutCalled, "the first turn reads the worktree it made")
+
+	task.Generation = 2
+	refreshed, err := svc.checkoutTask(context.Background(), task)
+	require.NoError(t, err)
+	require.True(t, store.createCheckoutCalled, "the next turn fetches the worktree again")
+	require.Equal(t, "queued", refreshed.Status)
+	require.Equal(t, first.WorkspacePath, refreshed.WorkspacePath, "the same worktree, so its session finds it")
+	require.Equal(t, fmt.Sprintf("task-checkout-retry:%s:2", task.ID), store.checkoutOperation.IdempotencyKey)
+
+	// Fetched once for the turn: the turn's later steps use it as it is.
+	store.checkouts[0].Status = "ready"
+	store.createCheckoutCalled = false
+	store.queuedOperation = store.checkoutOperation
+	store.queuedOperation.Status = domain.DevMachineOpStatusCompleted
+	ready, err := svc.checkoutTask(context.Background(), task)
+	require.NoError(t, err)
+	require.Equal(t, "ready", ready.Status)
+	require.False(t, store.createCheckoutCalled)
+
+	// An implementing task's next iteration keeps its worktree as it is.
+	task.Kind = domain.AgentTaskKindImplement
+	task.Generation = 3
+	_, err = svc.checkoutTask(context.Background(), task)
+	require.NoError(t, err)
+	require.False(t, store.createCheckoutCalled)
 }

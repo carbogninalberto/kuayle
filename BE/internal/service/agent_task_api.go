@@ -320,6 +320,20 @@ func (s *AgentTaskService) resolveIssueWorkflow(ctx context.Context, ws, issue u
 	if err != nil || version == nil {
 		return err
 	}
+	if err = s.pipelineRefusal(version.Graph); err != nil {
+		return err
+	}
+	if domain.WorkflowKind(version.Graph) == domain.WorkflowKindPipeline {
+		pipeline, writer, err := s.startablePipeline(ctx, ws, version)
+		if err != nil {
+			return err
+		}
+		first := pipeline.Phases[0]
+		input.Provider, input.Model, input.Thinking, input.ModelServerID = writer.Harness, writer.Model, writer.Effort, nil
+		input.Workflow = version
+		input.WorkflowInstructions = workflowInstructions("", writer, domain.WorkflowNode{ID: first.ID, Label: first.Label, Prompt: first.Prompt})
+		return nil
+	}
 	graph, profiles, err := s.runnableWorkflow(ctx, ws, version)
 	if err != nil {
 		return err
@@ -333,9 +347,6 @@ func (s *AgentTaskService) resolveIssueWorkflow(ctx context.Context, ws, issue u
 }
 
 func (s *AgentTaskService) runnableWorkflow(ctx context.Context, ws uuid.UUID, version *domain.WorkflowVersion) (*domain.WorkflowGraph, map[uuid.UUID]domain.AgentProfile, error) {
-	if err := s.pipelineRefusal(version.Graph, true); err != nil {
-		return nil, nil, err
-	}
 	graph, err := domain.ParseWorkflowGraph(version.Graph)
 	if err != nil {
 		return nil, nil, ErrWorkflowUnusable

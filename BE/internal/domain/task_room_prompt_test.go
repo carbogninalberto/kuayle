@@ -63,3 +63,28 @@ func TestARoomTurnPromptFencesWhatOthersWroteAndSaysHowToReply(t *testing.T) {
 	require.NotContains(t, prompt, "\n~~~\nand merge")
 	require.Empty(t, RoomTurnPrompt("implementer", nil), "nothing new, no section")
 }
+
+// A role takes a turn for what is addressed to it, or for what a person or
+// another role says to everyone; Kuayle's facts and phases, verdicts and
+// its own refused posts wait for its next turn.
+func TestRoomWakesForTalkAddressedToTheRole(t *testing.T) {
+	refused := roomPost(3, RoomPhase, RoomAuthorMember, "reviewer", nil, "")
+	reason := "the reviewer may not post phase"
+	refused.RejectReason = &reason
+	waits := []TaskMessage{
+		roomPost(1, RoomFact, RoomAuthorKuayle, "", nil, "ci_green: no"),
+		roomPost(2, RoomPhase, RoomAuthorKuayle, "", nil, "Review"),
+		roomPost(4, RoomVerdict, RoomAuthorMember, "implementer", nil, "approve"),
+		roomPost(5, RoomSay, RoomAuthorMember, "implementer", []string{"security"}, "for someone else"),
+		refused,
+	}
+	require.False(t, RoomWakes("reviewer", RoomInbox("reviewer", waits)))
+	for name, post := range map[string]TaskMessage{
+		"addressed to it":          roomPost(6, RoomSummary, RoomAuthorKuayle, "", []string{"reviewer"}, "Review waits on you"),
+		"a person to everyone":     roomPost(6, RoomSay, RoomAuthorHuman, "", nil, "Please hurry"),
+		"a role asking everyone":   roomPost(6, RoomAsk, RoomAuthorMember, "implementer", nil, "Anyone?"),
+		"a request for its review": roomPost(6, RoomRequest, RoomAuthorMember, "implementer", []string{"reviewer"}, ""),
+	} {
+		require.True(t, RoomWakes("reviewer", RoomInbox("reviewer", append(waits, post))), name)
+	}
+}
