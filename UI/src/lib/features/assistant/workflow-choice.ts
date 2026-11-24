@@ -12,9 +12,12 @@ export interface WorkflowOption {
 	label: string;
 }
 
-/** The workflows a task can be started on besides Standard: not built in, not archived. */
+/**
+ * The workflows a task can be started on besides Standard: not built in, not
+ * archived, and not an experimental pipeline (no task runs on one yet).
+ */
 export function customWorkflows(list: WorkflowList | null | undefined): WorkflowSummary[] {
-	return (list?.workflows ?? []).filter((w) => !w.builtin && !w.archived);
+	return (list?.workflows ?? []).filter((w) => !w.builtin && !w.archived && w.graph?.kind !== 'pipeline');
 }
 
 /** A custom workflow's first agent step decides the harness and model. */

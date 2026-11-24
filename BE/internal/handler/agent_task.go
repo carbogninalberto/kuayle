@@ -56,6 +56,10 @@ func agentTaskError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "TERMINAL_UNSUPPORTED", "Only Claude Code tasks open in Claude Code")
 	case errors.Is(err, service.ErrSignInNotFound):
 		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
+	case errors.Is(err, service.ErrPipelinesDisabled):
+		return response.Error(c, http.StatusForbidden, "PIPELINES_DISABLED", "Pipeline workflows are turned off on this server")
+	case errors.Is(err, service.ErrPipelineNotRunnable):
+		return response.Error(c, http.StatusConflict, "PIPELINE_NOT_RUNNABLE", "Pipeline workflows cannot run tasks yet")
 	default:
 		return machineError(c, err)
 	}

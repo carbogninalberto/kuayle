@@ -118,6 +118,7 @@ func main() {
 	// Tasks that pin a configurable workflow follow it (KUA-95).
 	workflowRepo := repository.NewWorkflowRepository(db)
 	agentTaskSvc.SetWorkflows(workflowRepo)
+	agentTaskSvc.SetPipelines(cfg.WorkflowPipelines)
 	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationRepo, agentTaskSvc)
 	if len(os.Args) == 2 && os.Args[1] == "automation-worker" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

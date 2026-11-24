@@ -109,9 +109,55 @@ export interface WorkflowBudget {
 }
 
 export interface WorkflowGraph {
+	kind?: 'graph';
 	nodes: WorkflowNode[];
 	edges: WorkflowEdge[];
 	budget: WorkflowBudget;
+}
+
+/** A check of a pipeline phase: a fact Kuayle reads, required or advisory. */
+export interface PipelineCheck {
+	id: string;
+	fact: string;
+	/** The role whose verdict it is. */
+	role?: string;
+	/** The command a script check runs. */
+	script?: string;
+	required?: boolean;
+}
+
+export interface PipelinePhase {
+	id: string;
+	label: string;
+	/** A role of the roster, "kuayle" or "human". */
+	owner: string;
+	prompt?: string;
+	checks?: PipelineCheck[];
+	guarded?: boolean;
+}
+
+export interface PipelineMember {
+	role: string;
+	profile_id: string;
+	writer?: boolean;
+	on_call?: boolean;
+}
+
+/**
+ * An experimental pipeline (KUA-252): ordered phases with checks, worked by a
+ * roster of roles. It is shown read only, and no task runs on one yet.
+ */
+export interface PipelineDefinition {
+	kind: 'pipeline';
+	phases: PipelinePhase[];
+	roster: PipelineMember[];
+	lead?: { profile_id: string };
+	autonomy?: { approve?: string; waive?: Record<string, string> };
+	budget?: { max_turns?: number; max_minutes?: number; on_exhausted?: 'fail' | 'ask' };
+}
+
+export function isPipeline(graph: WorkflowGraph | PipelineDefinition | null | undefined): graph is PipelineDefinition {
+	return graph?.kind === 'pipeline';
 }
 
 /** A validation error located on a node or a transition. */
@@ -133,7 +179,7 @@ export interface WorkflowSummary {
 	latest_version: number;
 	version_id?: string | null;
 	archived: boolean;
-	graph: WorkflowGraph;
+	graph: WorkflowGraph | PipelineDefinition;
 	updated_at?: string;
 }
 

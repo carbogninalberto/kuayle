@@ -2756,6 +2756,35 @@ move where it happened. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.
 
+### Pipelines (experimental)
+
+A workflow version whose JSON has `"kind": "pipeline"` is a pipeline (KUA-252);
+absent or `"graph"` is the graph above. `domain/pipeline.go` holds the
+definition and its own validator (`ValidatePipeline`, separate from the graph's):
+ordered `phases` (`id`, `label`, `owner`: a roster role, `kuayle` or `human`,
+`prompt`, `checks`, `guarded` for the last phase run by `kuayle`), a `roster` of
+roles (`role`, `profile_id`, exactly one `writer` whose profile changes code,
+`on_call`), an optional `lead`, `autonomy` (`approve` and `waive` per check:
+`human`, or `lead` when there is one) and a `budget` (`max_turns`,
+`max_minutes`, `on_exhausted`). A check requires one fact from a closed list:
+`pr_exists`, `head_contains_base`, `ci_green`, `verdict` (with the `role` that
+gives it), `approved` and `script` (the only one with author content: a command
+of at most 4,000 bytes). Bounds follow the graph's.
+
+- Off by default: `WORKFLOW_PIPELINES_ENABLED=true` lets owners and admins save
+  pipelines, including the built-in `template: "team"` of `POST /workflows`
+  (implement, pull request, review, CI checks, approval, merge; the built-in
+  implementer and reviewer; no lead). Off, creating, saving or duplicating one
+  answers `403 PIPELINES_DISABLED`.
+- No task runs on a pipeline yet, even with the switch on: starting one, or
+  making it a default, answers `409 PIPELINE_NOT_RUNNABLE`.
+  `ParseWorkflowGraph` refuses a pipeline, so the graph engine never runs one.
+  Standard stays a graph, the task composer and **Continue on another
+  workflow…** do not offer pipelines, and a move between kinds is refused as
+  `workflow_kind`.
+- The editor shows a pipeline read only with a notice (`PipelineView.svelte`).
+  A pipeline's roster and lead keep their profiles in use like graph steps do.
+
 ### Moving a task to a newer workflow version
 
 A task is pinned to the workflow version it started on; saving the workflow

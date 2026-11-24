@@ -55,6 +55,10 @@ func (r *AgentTaskRepository) SwitchWorkflow(ctx context.Context, ws, id uuid.UU
 		return nil, nil, err
 	}
 	plan.ToVersion = newest.Version
+	if domain.WorkflowKind(newest.Graph) != domain.WorkflowKind(pinned.Graph) {
+		plan.Refused = domain.WorkflowSwitchKind
+		return plan, nil, nil
+	}
 	if plan.Refused = domain.WorkflowSwitchBlocked(*task); plan.Refused != "" {
 		return plan, nil, nil
 	}
@@ -142,6 +146,10 @@ func continueWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, 
 	}
 	if target.ExpectedVersionID != nil && *target.ExpectedVersionID != version.ID {
 		plan.Refused = domain.WorkflowSwitchTargetStale
+		return plan, nil, nil
+	}
+	if domain.WorkflowKind(version.Graph) != domain.WorkflowKind(pinned.Graph) {
+		plan.Refused = domain.WorkflowSwitchKind
 		return plan, nil, nil
 	}
 	graph, err := domain.ParseWorkflowGraph(version.Graph)

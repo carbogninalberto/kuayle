@@ -100,7 +100,7 @@
 		onsaved
 	}: {
 		slug: string;
-		workflow: WorkflowDetail;
+		workflow: WorkflowDetail & { graph: WorkflowGraph };
 		profiles: AgentProfile[];
 		editable: boolean;
 		backHref: string;

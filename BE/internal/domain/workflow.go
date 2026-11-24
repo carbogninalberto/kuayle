@@ -242,8 +242,10 @@ const (
 	WorkflowScopeWorkspace = "workspace"
 )
 
-// WorkflowGraph is the JSON document a version stores.
+// WorkflowGraph is the JSON document a version stores. Kind is absent or
+// "graph"; a pipeline is another document (pipeline.go).
 type WorkflowGraph struct {
+	Kind   string         `json:"kind,omitempty"`
 	Nodes  []WorkflowNode `json:"nodes"`
 	Edges  []WorkflowEdge `json:"edges"`
 	Budget WorkflowBudget `json:"budget"`
@@ -340,9 +342,18 @@ func (e *WorkflowInvalidError) Error() string {
 }
 
 // ParseWorkflowGraph decodes a graph strictly: unknown fields are refused.
+// A pipeline is refused too, so the graph engine never runs one; callers
+// that accept both kinds dispatch on WorkflowKind first.
 func ParseWorkflowGraph(raw []byte) (*WorkflowGraph, error) {
 	if len(raw) > WorkflowMaxGraphBytes {
 		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "too_large", Message: "the workflow is too large"}}}
+	}
+	switch WorkflowKind(raw) {
+	case WorkflowKindGraph:
+	case WorkflowKindPipeline:
+		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "pipeline", Message: "the workflow is a pipeline, not a graph"}}}
+	default:
+		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "invalid_kind", Message: "a workflow is a graph or a pipeline"}}}
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()

@@ -14,14 +14,15 @@ const list = {
 	workflows: [
 		summary('standard', 'Standard', { builtin: true }),
 		summary('loop', 'Review loop'),
-		summary('old', 'Old flow', { archived: true })
+		summary('old', 'Old flow', { archived: true }),
+		summary('team', 'Team', { graph: { kind: 'pipeline', phases: [], roster: [] } })
 	],
 	defaults: [],
 	can_manage: true
 };
 const labels = { default: 'Issue default', standard: 'Standard' };
 
-test('only workflows a task can start on are offered', () => {
+test('only workflows a task can start on are offered (no pipeline yet)', () => {
 	assert.deepEqual(
 		customWorkflows(list).map((w) => w.id),
 		['loop']

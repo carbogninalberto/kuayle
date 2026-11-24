@@ -333,6 +333,9 @@ func (s *AgentTaskService) resolveIssueWorkflow(ctx context.Context, ws, issue u
 }
 
 func (s *AgentTaskService) runnableWorkflow(ctx context.Context, ws uuid.UUID, version *domain.WorkflowVersion) (*domain.WorkflowGraph, map[uuid.UUID]domain.AgentProfile, error) {
+	if err := s.pipelineRefusal(version.Graph, true); err != nil {
+		return nil, nil, err
+	}
 	graph, err := domain.ParseWorkflowGraph(version.Graph)
 	if err != nil {
 		return nil, nil, ErrWorkflowUnusable

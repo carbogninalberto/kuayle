@@ -354,8 +354,8 @@ func (s *WorkflowService) Get(ctx context.Context, ws uuid.UUID, id string) (*Wo
 }
 
 // WorkflowRequest creates or saves a workflow. Template names a built-in
-// starting point ("review_loop", "full_cycle" or "standard") instead of a
-// graph.
+// starting point ("review_loop", "full_cycle", "standard", or the
+// experimental pipeline "team") instead of a graph.
 type WorkflowRequest struct {
 	Name            string          `json:"name"`
 	Description     string          `json:"description"`
@@ -448,7 +448,7 @@ func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowR
 		if err != nil {
 			return nil, err
 		}
-		var template domain.WorkflowGraph
+		var template any
 		switch in.Template {
 		case "review_loop":
 			template = domain.ReviewLoopWorkflowGraph(implementer, reviewer)
@@ -456,6 +456,8 @@ func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowR
 			template = domain.FullCycleWorkflowGraph(implementer, reviewer)
 		case domain.StandardWorkflowID:
 			template = standardCopy(implementer)
+		case "team":
+			template = domain.TeamPipeline(implementer, reviewer)
 		default:
 			return nil, &ErrInvalidWorkflowInput{"unknown template"}
 		}
@@ -511,6 +513,10 @@ func (s *WorkflowService) saveStandard(ctx context.Context, ws, actor uuid.UUID,
 	_, description, err := validateWorkflowMeta("Standard", in.Description)
 	if err != nil {
 		return nil, err
+	}
+	// Every task without another workflow runs Standard.
+	if domain.WorkflowKind(in.Graph) != domain.WorkflowKindGraph {
+		return nil, &ErrInvalidWorkflowInput{"the Standard workflow stays a graph"}
 	}
 	if err = s.requireStartable(ctx, ws, in.Graph); err != nil {
 		return nil, err
@@ -572,6 +578,9 @@ func (s *WorkflowService) Duplicate(ctx context.Context, ws uuid.UUID, id, name 
 	}
 	name, description, err = validateWorkflowMeta(name, description)
 	if err != nil {
+		return nil, err
+	}
+	if err = s.tasks.pipelineRefusal(graph, false); err != nil {
 		return nil, err
 	}
 	created, err := s.repo.CreateWorkflow(ctx, ws, actor, name, description, graph, "duplicated")
@@ -667,6 +676,9 @@ func (s *WorkflowService) SetDefault(ctx context.Context, ws uuid.UUID, in Workf
 			return nil, err
 		}
 		if chosen != nil {
+			if err = s.tasks.pipelineRefusal(chosen.Graph, true); err != nil {
+				return nil, err
+			}
 			if err = s.requireStartable(ctx, ws, chosen.Graph); err != nil {
 				return nil, err
 			}
@@ -713,6 +725,9 @@ func (s *WorkflowService) Warnings(ctx context.Context, ws uuid.UUID, raw json.R
 // (domain.ValidateWorkflowGraph) and each agent step whose profile cannot
 // start a task, reported on that step with the step and profile named.
 func (s *WorkflowService) graphIssues(ctx context.Context, ws uuid.UUID, raw json.RawMessage) ([]domain.WorkflowIssue, error) {
+	if domain.WorkflowKind(raw) == domain.WorkflowKindPipeline {
+		return s.pipelineIssues(ctx, ws, raw)
+	}
 	graph, err := domain.ParseWorkflowGraph(raw)
 	if err != nil {
 		var invalid *domain.WorkflowInvalidError
@@ -757,6 +772,9 @@ func (s *WorkflowService) graphIssues(ctx context.Context, ws uuid.UUID, raw jso
 // save does. The repository validates the structure again in the saving
 // transaction; the profile checks need the task service, so they run here.
 func (s *WorkflowService) requireStartable(ctx context.Context, ws uuid.UUID, raw json.RawMessage) error {
+	if err := s.tasks.pipelineRefusal(raw, false); err != nil {
+		return err
+	}
 	issues, err := s.graphIssues(ctx, ws, raw)
 	if err != nil {
 		return err

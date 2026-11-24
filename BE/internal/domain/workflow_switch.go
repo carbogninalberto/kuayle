@@ -22,6 +22,9 @@ const (
 	WorkflowSwitchStepMissing = "step_missing"
 	WorkflowSwitchStepInvalid = "step_not_runnable"
 	WorkflowSwitchTargetStale = "target_version_changed"
+	// The destination is another kind of workflow (a graph or a pipeline):
+	// a task never changes engine.
+	WorkflowSwitchKind = "workflow_kind"
 )
 
 // WorkflowSwitchAction is the audit action of a task moved to another

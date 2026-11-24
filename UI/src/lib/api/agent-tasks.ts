@@ -344,6 +344,7 @@ export type WorkflowSwitchRefusal =
 	| 'step_missing'
 	| 'step_not_runnable'
 	| 'target_version_changed'
+	| 'workflow_kind'
 	| 'not_creator'
 	| 'session_required';
 export interface WorkflowSwitchTarget {
