@@ -2924,6 +2924,15 @@ graph's.
   that line (`ParseAgentReview`) is posted as the member's verdict, and
   without one Kuayle posts a `verdict` fact with `"verdict": "none"`. The end
   of a member's turn wakes the root task (`workflow_wake_at`).
+- The agent view of a task on a pipeline shows its room instead of a timeline
+  (`TaskRoom.svelte`, rows from `task-room.ts`): the creator's posts, Kuayle's
+  facts and phase moves, and each role's turn (its posts with one `run_id`) as
+  one row that opens the run's transcript; a refused post is muted with its
+  reason. The room is read once, kept by `task.room_message` events
+  (`ConversationState.taskRooms`, once per `seq`) and read on from the last
+  unbroken `seq` when the task's run is read again or a post arrives after a
+  gap. The composer posts a `say` there (text only, with a `request_id`). The
+  side panel names the pipeline and draws no graph.
 
 ### Moving a task to a newer workflow version
 

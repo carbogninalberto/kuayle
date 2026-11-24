@@ -327,6 +327,57 @@ export interface MergedPullRequest {
 export interface AgentLiveChatMessage extends AgentLiveMessage {
 	identifier: string;
 }
+// The room of a task on a pipeline workflow (KUA-252): one log per task,
+// ordered by seq, read by the task's creator alone. The creator ("human"),
+// the pipeline's roles ("member", by role) and Kuayle post to it. A role's
+// post the room refused is kept with its reason and delivered to nobody.
+// Text from roles is untrusted and only ever shown as plain text.
+export type TaskRoomAuthor = 'human' | 'member' | 'kuayle';
+export type TaskRoomKind = 'say' | 'ask' | 'phase' | 'verdict' | 'request' | 'waiver' | 'grant' | 'fact' | 'summary';
+// The structured part of a post; each kind reads its own fields.
+export interface TaskRoomData {
+	/** phase: the phase moved to. */
+	phase?: string;
+	/** verdict: what the role decided, on a commit, for its own role. */
+	verdict?: 'approve' | 'request_changes' | 'comment';
+	commit?: string;
+	role?: string;
+	/** waiver, grant: a check of the pipeline. */
+	check?: string;
+	/** request: review, merge, publish or split. */
+	action?: string;
+	/** fact: its name and value. */
+	fact?: string;
+	value?: unknown;
+}
+export interface TaskMessage {
+	id: string;
+	task_id: string;
+	seq: number;
+	author_kind: TaskRoomAuthor;
+	author_role: string | null;
+	author_user_id: string | null;
+	author_member_id: string | null;
+	/** A role's post: the run (its turn) that wrote it. */
+	run_id: string | null;
+	/** Empty: everyone. */
+	to_roles: string[] | null;
+	kind: TaskRoomKind;
+	body: string;
+	data: TaskRoomData;
+	reply_to: number | null;
+	reject_reason: string | null;
+	created_at: string;
+}
+// What the creator may post; request_id makes a repeated post return the first.
+export interface TaskRoomPost {
+	kind: 'say' | 'ask' | 'request' | 'waiver' | 'grant';
+	body?: string;
+	to?: string[];
+	data?: TaskRoomData;
+	reply_to?: number;
+	request_id?: string;
+}
 // Pausing a workflow: at once, which stops the agent that is working, or
 // once the current step has finished.
 // Moving a task to the newest version of its workflow: where it continues,
@@ -406,6 +457,11 @@ export const agentTasks = {
 			`${task(slug, id)}/live-messages`,
 			{ body, ...(mode ? { mode } : {}), ...(confirmMerged ? { confirm_merged: true } : {}), ...(attachments.length ? { attachment_ids: attachments } : {}) }
 		),
+	// The room of a task on a pipeline: at most 200 posts after a seq, oldest
+	// first; a task on no pipeline answers 409 ROOM_UNAVAILABLE.
+	room: (slug: string, id: string, after = 0) =>
+		api.get<{ messages: TaskMessage[] }>(`${task(slug, id)}/room?after=${after}`),
+	postRoom: (slug: string, id: string, post: TaskRoomPost) => api.post<TaskMessage>(`${task(slug, id)}/room`, post),
 	// Opens a terminal on the task's machine running Claude Code on the task's
 	// own session, in its worktree; only for its creator, while it is stopped.
 	openInClaudeCode: (slug: string, id: string) =>

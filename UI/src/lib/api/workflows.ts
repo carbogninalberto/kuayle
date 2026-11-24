@@ -292,6 +292,7 @@ export interface TaskWorkflow {
 	name: string;
 	version: number;
 	builtin: boolean;
+	/** A task on a pipeline gets the pipeline here instead (TaskRun.pipeline). */
 	graph: WorkflowGraph;
 	node: string;
 	/** A workflow status, or for Standard tasks the task's state. */

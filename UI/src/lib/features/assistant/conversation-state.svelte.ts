@@ -1,4 +1,4 @@
-import type { AgentLiveChatMessage, AgentLiveMessage, AgentTask, TaskActivity } from '$lib/api/agent-tasks';
+import type { AgentLiveChatMessage, AgentLiveMessage, AgentTask, TaskActivity, TaskMessage } from '$lib/api/agent-tasks';
 import {
 	conversations,
 	type Conversation,
@@ -10,6 +10,7 @@ import {
 	type ConversationApproval
 } from '$lib/api/conversations';
 import type { TaskRun } from './task-run.svelte';
+import { mergeRoom } from './task-room';
 
 export class ConversationState {
 	conversation = $state<Conversation | null>(null);
@@ -43,6 +44,13 @@ export class ConversationState {
 	agentMessages = $state<AgentLiveChatMessage[]>([]);
 	// Bumped when a task's live channel changes; its thread on the card reloads.
 	taskLiveCursor = $state<Record<string, number>>({});
+	// The rooms of the conversation's pipeline tasks by task, oldest first:
+	// what their views read and what arrived live, once per seq. A task has
+	// an entry once it is known to have a room. Text from roles is untrusted.
+	// Posts never change: each change replaces the task's room.
+	taskRooms = $state.raw<Record<string, TaskMessage[]>>({});
+	// Bumped when a post reaches a task's room; its view reads what it missed.
+	taskRoomCursor = $state<Record<string, number>>({});
 	// Told about an agent question that arrives live, to notify the reader.
 	onAgentQuestion: ((message: AgentLiveChatMessage) => void) | null = null;
 	// Text a view asks the chat composer to show, e.g. a review request.
@@ -119,6 +127,8 @@ export class ConversationState {
 			this.taskReviewCursor = {};
 			this.agentMessages = [];
 			this.taskLiveCursor = {};
+			this.taskRooms = {};
+			this.taskRoomCursor = {};
 			this.conversation = null;
 			this.issue = null;
 			this.disconnect();
@@ -154,6 +164,10 @@ export class ConversationState {
 				!this.agentMessages.some((known) => known.id === message.id);
 			this.acceptAgentMessages([message]);
 			if (receivedQuestion) this.onAgentQuestion?.(message);
+		} else if (event.type === 'task.room_message') {
+			const message = event.payload as TaskMessage;
+			this.acceptRoomMessages(message.task_id, [message]);
+			this.taskRoomCursor = { ...this.taskRoomCursor, [message.task_id]: event.cursor };
 		} else if (event.type === 'task.workflow_updated') {
 			const data = event.payload as { task_id: string };
 			this.taskWorkflowCursor = { ...this.taskWorkflowCursor, [data.task_id]: event.cursor };
@@ -223,6 +237,13 @@ export class ConversationState {
 		this.agentMessages = [...this.agentMessages, ...fresh].sort(
 			(a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id)
 		);
+	}
+	/** Adds posts to a task's room once per seq; with none, marks the task as having a room. */
+	acceptRoomMessages(taskId: string, messages: TaskMessage[]) {
+		if (this.disposed || this.unavailable) return;
+		const known = this.taskRooms[taskId];
+		const room = mergeRoom(known, messages.filter((message) => message.task_id === taskId));
+		if (room !== known) this.taskRooms = { ...this.taskRooms, [taskId]: room };
 	}
 	recordAgentSend(message: AgentLiveMessage) {
 		if (this.disposed || this.unavailable) return;
