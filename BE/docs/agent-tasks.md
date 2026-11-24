@@ -3078,8 +3078,10 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   generation of that same task. `Attempt` reads the previous attempt for a
   member's task (every other review still starts cold), so the turn resumes
   the role's session (`claude --resume`, `codex exec resume`,
-  `opencode run --session`) when its previous turn succeeded on the same
-  machine, and otherwise starts with the handoff. A later turn fetches its
+  `opencode run --session`, `qwen --resume`, `kimi --session` or
+  `goose run --resume --name`) when its previous turn succeeded on the same
+  machine and harness, and otherwise starts with the handoff (always on Pi,
+  Crush and custom harnesses). A later turn fetches its
   worktree again first (only a member's task re-queues its checkout, once
   per turn), so it reads the newest head. Between turns the member's task
   rests in `blocked` (no notification, session kept; `completed` would purge

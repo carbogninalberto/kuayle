@@ -30,7 +30,9 @@ func reviewTurn(t *testing.T, provider, session string, member bool) (domain.Dev
 	machines := newTestDevMachineService(store)
 	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""))
 	root := uuid.New()
-	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, NativeSessionID: session}}
+	// The previous turn ran on the same harness (AgentHandoff.Provider, which
+	// PreviousAttempt reads from the run): only it can continue the session.
+	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, Provider: provider, NativeSessionID: session}}
 	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: provider,
 		Prompt: "You are the @reviewer of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: 2}
 	if member {
