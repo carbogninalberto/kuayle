@@ -260,7 +260,9 @@ On `release.published`, Build & Push runs `node scripts/ci/upgrade-agent-clis.mj
 before its existing release commit and image publishing. Node 22 and network
 access to npm and GitHub are required; `GH_TOKEN` authenticates only GitHub
 metadata requests. The helper picks, for Claude Code, OpenCode (`@opencode/cli`;
-`opencode-ai` keeps only the 1.x line), Codex and Qwen Code (npm) and for
+`opencode-ai` keeps only the 1.x line), Codex, Pi
+(`@earendil-works/pi-coding-agent`, the only scope with its CVE fixes) and Qwen
+Code (npm) and for
 Crush, Goose and Kimi (GitHub releases), the newest stable
 version published at least `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` ago (default 48,
 range 0-720, the same setting and default as the runtime refresh), so a

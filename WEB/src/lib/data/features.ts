@@ -477,11 +477,11 @@ export const features: ContentRegistry = {
 			},
 			{
 				heading: 'Agent providers',
-				body: 'The developer terminal includes seven pinned agent CLIs for direct interactive terminal use: Claude Code, Codex, OpenCode, Qwen Code, Crush, Kimi and Goose. Admins can also allow a custom CLI. Agent tasks launch bounded autonomous runs in separate containers under a time limit, with scoped secrets.',
+				body: 'The developer terminal includes eight pinned agent CLIs for direct interactive terminal use: Claude Code, Codex, OpenCode, Pi, Qwen Code, Crush, Kimi and Goose. Admins can also allow a custom CLI. Agent tasks launch bounded autonomous runs in separate containers under a time limit, with scoped secrets.',
 				list: [
-					'Claude Code, Codex, OpenCode, Qwen Code, Crush, Kimi, Goose and custom CLIs',
+					'Claude Code, Codex, OpenCode, Pi, Qwen Code, Crush, Kimi, Goose and custom CLIs',
 					'Interactive built-in CLIs in the developer terminal',
-					'Model and thinking level for Codex and Claude Code runs',
+					'Model and thinking level for Codex, Claude Code, OpenCode and Pi runs',
 					'Scoped secrets delivered through tmpfs, redacted in logs'
 				]
 			},

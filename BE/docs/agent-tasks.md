@@ -1489,19 +1489,20 @@ message keeps its exit status instead of failing, with a risk note.
 **Summary and final message.** A run's summary is the agent's final message,
 never its events: with no message, JSON event lines are left out and the
 summary is what else the harness printed (plain output; standard error only
-when it exited nonzero), usually nothing. For Claude Code, Codex and OpenCode,
-whose final-message event Kuayle knows, a run whose output holds events and
+when it exited nonzero), usually nothing. For Claude Code, Codex, OpenCode and
+Pi, whose final-message event Kuayle knows, a run whose output holds events and
 that exits 0 without a final message is recorded as `failed`
 (`result.no_final_message`), with the error "The agent ended without a final
 message, so there is no summary of what it did", followed by the error the
 harness reported last, if any (OpenCode's top-level `error` event, for example
-a provider's 429). Text followed by a tool call or by such an error is not a
+a provider's 429, or the `errorMessage` of Pi's last assistant message, which
+Pi writes when the provider kept failing although it then exits 0). Text followed by a tool call or by such an error is not a
 final message; it stays the summary. The task fails with that reason (kept
 through cleanup), or its workflow step leaves on `agent_failed` with the
 reason in its detail and, when the workflow ends there, in the task's reason.
 Only work clears the final flag: a Codex `command_execution`, `file_change`,
-`mcp_tool_call`, `web_search` or `collab_tool_call` item and an OpenCode
-`tool_use`; a `todo_list`, `step_finish` or reasoning after the message does
+`mcp_tool_call`, `web_search` or `collab_tool_call` item, an OpenCode
+`tool_use` and a Pi assistant message with a tool call; a `todo_list`, `step_finish` or reasoning after the message does
 not. "command not found" in a shell tool's output, a shell exit code 126 or 127
 and a tool error are risk notes: they fail the run only when the agent did not
 conclude;
@@ -1509,7 +1510,7 @@ output of other tools is not scanned. The
 next attempt of the task keeps the worktree (attempts share the task's
 checkout) and its handoff says that the previous attempt ended without a final
 message, to check the worktree, finish and end with a summary.
-The agent is not asked again in the same session: OpenCode runs have no
+The agent is not asked again in the same session: OpenCode and Pi runs have no
 persisted session to resume, and a workflow that wants a retry already has
 one (an `agent_failed` transition back to the step, bounded by its visit
 limit). Other harnesses (Qwen Code, Kimi, Goose, Crush, custom) keep their
@@ -2360,7 +2361,7 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   providers, which can change later) and answers `400` with the reason, for
   example a harness that takes no model or effort; `GET /agent-profiles`
   lists the harnesses that take them in `model_harnesses`
-  (`harnessAcceptsModel` is the one rule: Codex, Claude Code and OpenCode)
+  (`harnessAcceptsModel` is the one rule: Codex, Claude Code, OpenCode and Pi)
   and, in `model_formats`, the form and an example of a harness's model
   names when they are not bare names, which the profile form shows.
   OpenCode's model is `provider/model` (`opencode-go/deepseek-v4.1-flash`)
@@ -2374,10 +2375,11 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   model does not allow is a `400` with the reason. The check runs only on a
   save; a task start, retry or workflow step never reads the catalog or the
   network, so a stored profile keeps running if the list drops its model.
-  OpenCode never runs on a model server (`harnessRunsOnModelServer`: Codex
-  and Claude Code), so a step, task, retry or review on it gets no server
-  and no server's default model or thinking level; with no model it runs the
-  one OpenCode is configured with. Profiles stored before that check
+  Pi's model is also `provider/model`; its effort is passed as `--thinking`
+  (Pi has no catalog check). OpenCode and Pi never run on a model server
+  (`harnessRunsOnModelServer`: Codex and Claude Code), so a step, task,
+  retry or review on them gets no server and no server's default model or
+  thinking level; with no model each runs the one it is configured with. Profiles stored before that check
   still load and are checked when they are saved again.
 - **Stage assistants** (KUA-233, migration 184). In the node inspector, an
   owner or admin can assign a profile with the “changes code” behaviour to a
@@ -2626,7 +2628,7 @@ the home and `/tmp` tmpfs, and `.kuayle/` in the worktree. Per harness
 | --- | --- | --- |
 | Claude Code, Codex, OpenCode | read-only | Sessions, caches and temporary files are outside the worktree. Not exercised against the real CLIs in tests; the mount spec and the request are. |
 | Crush | writable, checked after the run | Keeps its state in `.crush/` inside the working directory. |
-| Qwen Code, Kimi, Goose, custom | writable, checked after the run | Not verified to start with a read-only working directory. |
+| Pi, Qwen Code, Kimi, Goose, custom | writable, checked after the run | Not verified to start with a read-only working directory. |
 
 The mount needs Docker API 1.45 (Engine 26); on an older daemon the step runs
 with a writable worktree and a warning is logged. The same happens when the
@@ -3004,7 +3006,7 @@ too long, or none at all, changes nothing: the step fails as before.
 | --- | --- |
 | Claude Code | `claude --print … --resume <session> -p <prompt>` in the task's session directory |
 | Codex | `codex exec resume … <thread> <prompt>` with the thread ID the run reported |
-| OpenCode, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
+| OpenCode, Pi, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
 
 **When an attempt leaves no valid update** (`machine/notebook.go`). The run
 of such an attempt has `notebook_required`. The work is never lost over the
