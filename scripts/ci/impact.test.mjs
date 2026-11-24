@@ -84,6 +84,8 @@ test('headless and shared developer image inputs select only their consumers', (
   assert.equal(headless.runtime, true);
   assert.deepEqual(ids(headless.devImages), ['headless']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/install-agent-clis.sh']).devImages), ['ide', 'headless']);
+  // The agent CLI flag check runs in the builds of the images that install CLIs.
+  assert.deepEqual(ids(planForPaths(['devmachine/common/check-agent-cli-flags.sh']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/start-common.sh']).devImages), ['ide', 'headless', 'browser', 'collector', 'egress', 'agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-agent-runner']).devImages), ['headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-live-inbox-hook.cjs', 'devmachine/common/claude-managed-settings.json']).devImages), ['agent-claude', 'agent-opencode', 'agent-codex']);

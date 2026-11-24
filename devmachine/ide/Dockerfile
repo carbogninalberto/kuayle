@@ -33,7 +33,7 @@ COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
-COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md common/kuayle-agent-sign-in.sh common/kuayle-claude-config.cjs /usr/local/lib/kuayle/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md common/kuayle-agent-sign-in.sh common/kuayle-claude-config.cjs common/check-agent-cli-flags.sh /usr/local/lib/kuayle/
 COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
@@ -63,6 +63,7 @@ RUN rm -f /usr/bin/pebble \
     && chmod 0755 /usr/local/bin/ttyd \
     && npm install -g "npm@${NPM_VERSION}" \
     && sh /usr/local/bin/install-agent-clis.sh "$TARGETARCH" \
+    && sh /usr/local/lib/kuayle/check-agent-cli-flags.sh \
     && sh /usr/local/bin/install-docker-cli.sh "$TARGETARCH" \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs /usr/lib/code-server \
     && npm install --prefix /tmp/code-server-patches --ignore-scripts --package-lock=false \

@@ -319,7 +319,12 @@ using their images' pinned CLIs). Project and `~/.npmrc` settings override `/etc
 **Agent CLI updates.** Releases pin every built-in agent CLI in the images
 (`scripts/ci/upgrade-agent-clis.mjs` raises the pins at release time, to the
 newest stable versions published at least 48 hours earlier, and never lowers
-them; see [release agent CLI refresh](scripts/ci/README.md#release-agent-cli-refresh)). Between
+them; see [release agent CLI refresh](scripts/ci/README.md#release-agent-cli-refresh)).
+Each image build, and the IDE and headless smoke tests, run
+`devmachine/common/check-agent-cli-flags.sh`: it fails when a CLI's help no
+longer lists a flag or fixed value the adapters in `BE/internal/agent/providers.go`
+pass (its list is kept equal to the adapters by
+`TestAgentCLIFlagContractMatchesTheAdapters`). Between
 releases the machine manager keeps the npm-distributed ones current for every
 machine: every `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS` (default 6; 0 turns it off)
 it runs a helper container from the headless image that installs the latest

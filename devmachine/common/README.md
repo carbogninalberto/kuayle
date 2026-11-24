@@ -1,10 +1,16 @@
 # npm security backports in development images
 
-`install-agent-clis.sh` is the single pin list for the eight interactive agent
+`install-agent-clis.sh` is the single pin list for the seven interactive agent
 CLIs. It maps Docker's `amd64` and `arm64` values to the release archive names,
 checks each release SHA-256 before extraction, installs binaries into
 `/usr/local/bin`, and runs every CLI's version check. The IDE and headless images
 share this installer.
+
+`check-agent-cli-flags.sh` holds the flags and fixed values Kuayle passes each
+built-in CLI and fails when a CLI's help no longer lists one. Every image that
+installs CLIs runs it while building, and the IDE and headless smoke tests run it
+again. `TestAgentCLIFlagContractMatchesTheAdapters` keeps its list equal to the
+adapters in `BE/internal/agent/providers.go`.
 
 `patch-npm-security.cjs` replaces pinned dependencies bundled by npm. Its versions
 stay within npm's existing dependency major versions. Run it after installing npm

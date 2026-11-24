@@ -20,6 +20,8 @@ docker exec "$container" curl --fail --silent --output /dev/null http://127.0.0.
 for command in node npm claude opencode codex qwen crush goose kimi ttyd; do
   docker exec "$container" "$command" --version
 done
+# Every flag Kuayle passes an agent CLI is still in its help.
+docker exec "$container" sh /usr/local/lib/kuayle/check-agent-cli-flags.sh
 docker exec "$container" go version
 docker exec "$container" sh -c 'kuayle-ports list | grep -Eq "^7681 +listening"'
 docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-qa/SKILL.md

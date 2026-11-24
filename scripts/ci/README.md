@@ -37,7 +37,7 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Shared scoped startup and agent runner logic | IDE, headless, browser, collector, egress and all three provider images; backend tests and Docker lifecycle. |
 | Shared service entrypoint | IDE, headless, browser, collector and egress images; backend tests and Docker lifecycle. |
 | Shared terminal, checkout and shell scripts | IDE and headless images; backend tests and Docker lifecycle. |
-| Shared npm security patch/cache tests | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
+| Shared npm security patch/cache tests, agent CLI flag check | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
 | `devmachine/security/` | Backend and Docker lifecycle checks for host policy; no independent image build. |
 | `CLI/` (Rust CLI and SDK, installers, `deny.toml`) | CLI Checks on Linux and Windows (`fmt`, `clippy -D warnings` for source and release features, tests; installer tests on Linux) and CLI Security Scan (`cargo deny`: RustSec advisories, licenses, bans, sources). No image consumes the CLI. `CLI/README.md` follows the documentation rule. |
 | `selfhosting/` scripts and configuration | Update-recovery and profile-preflight tests only; no image is built from these files. |
@@ -266,7 +266,10 @@ version published at least `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` ago (default 48
 range 0-720, the same setting and default as the runtime refresh), so a
 compromised release has time to be withdrawn before it reaches published images.
 It updates the shared installer, all provider Dockerfile pins, and Goose/Kimi
-SHA-256 pins for amd64 and arm64 from the chosen release's asset metadata.
+SHA-256 pins for amd64 and arm64 from the chosen release's asset metadata. The
+images then run `devmachine/common/check-agent-cli-flags.sh` while building, so a
+new version whose help no longer lists a flag or value Kuayle passes it fails
+the build before it is published.
 Missing assets/digests, invalid versions, HTTP failures or unexpected pin layouts
 stop the refresh before any files are written. Run it only when an update is
 intended: it writes four tracked runtime files, prints the resolved versions as

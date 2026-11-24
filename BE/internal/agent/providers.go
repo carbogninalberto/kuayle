@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// The flags and fixed values the built-in adapters pass are listed in
+// devmachine/common/check-agent-cli-flags.sh, which the images run against each
+// CLI's help; TestAgentCLIFlagContractMatchesTheAdapters keeps the two equal.
 type builtinProvider struct {
 	metadata    Metadata
 	build       func(RunInput) []string

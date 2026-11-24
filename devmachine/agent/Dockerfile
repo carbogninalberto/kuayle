@@ -18,7 +18,7 @@ ARG CODEX_VERSION=0.171.0
 
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-docker-cli.sh /usr/local/lib/kuayle/
-COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-agents.md common/kuayle-live-inbox-hook.cjs common/claude-managed-settings.json /usr/local/lib/kuayle/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-agents.md common/kuayle-live-inbox-hook.cjs common/claude-managed-settings.json common/check-agent-cli-flags.sh /usr/local/lib/kuayle/
 
 ARG SECURITY_REFRESH=initial
 RUN apk upgrade --no-cache \
@@ -35,9 +35,10 @@ RUN apk upgrade --no-cache \
     && rm -rf /root/.npm \
     && case "$PROVIDER" in \
          claude-code) claude --version \
+           && sh /usr/local/lib/kuayle/check-agent-cli-flags.sh claude \
            && install -D -m 0644 /usr/local/lib/kuayle/claude-managed-settings.json /etc/claude-code/managed-settings.json ;; \
-         opencode) opencode --version ;; \
-         codex) codex --version ;; \
+         opencode) opencode --version && sh /usr/local/lib/kuayle/check-agent-cli-flags.sh opencode ;; \
+         codex) codex --version && sh /usr/local/lib/kuayle/check-agent-cli-flags.sh codex ;; \
        esac \
     && npm --version
 
