@@ -70,11 +70,16 @@ func (w *workflowWorld) recordMerge(merge repository.WorkflowMerge) (*domain.Age
 type workflowMerger struct {
 	h      *workflowHarness
 	merged []string
+	// onMerge lets a test move other pull requests' base as the merge does.
+	onMerge func()
 }
 
 func (m *workflowMerger) MergeTaskPullRequest(_ context.Context, _ uuid.UUID, repository string, number int, sha, method string) error {
 	m.merged = append(m.merged, fmt.Sprintf("%s#%d@%s/%s", repository, number, sha, method))
 	m.h.pulls.status.State = "merged"
+	if m.onMerge != nil {
+		m.onMerge()
+	}
 	if m.h.w.task.State == "awaiting_review" && m.h.w.published[m.h.w.task.RunID] {
 		done := domain.WorkflowStatusDone
 		m.h.w.task.State, m.h.w.task.WorkflowStatus, m.h.w.task.WorkflowWakeAt = "completed", &done, nil

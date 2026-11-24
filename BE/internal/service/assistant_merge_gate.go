@@ -57,6 +57,9 @@ type mergeHold struct {
 	// GitHub's branch update cannot repair this collision, and the
 	// approved commit must not be rewritten during a merge.
 	migrationRepair string
+	// conflict is set when the branch conflicts with its base: only the
+	// task agent can merge the base in (a workflow sends it back, KUA-264).
+	conflict bool
 	// pending is set while waiting for the head's CI or migration check.
 	pending bool
 	// updated is set when Kuayle just brought the branch up to date: the wait
@@ -188,7 +191,7 @@ func (g mergeGate) check(ctx context.Context, ws, actor uuid.UUID, repository st
 		return mergeHold{pending: true, reason: migrationCheckUnavailableReason + ". Kuayle will retry"}, nil
 	case facts.HeadContainsBase == FactNo:
 		if facts.Conflict == FactYes {
-			return mergeHold{reason: branchConflictRefusal(number, base)}, nil
+			return mergeHold{conflict: true, reason: branchConflictRefusal(number, base)}, nil
 		}
 		if wait.Updates >= maxMergeUpdates {
 			return mergeHold{reason: fmt.Sprintf("Pull request #%d fell behind %s again after Kuayle brought it up to date %d times, so it was not merged. Next step: ask to merge again once %s is quieter", number, base, wait.Updates, base)}, nil
@@ -247,7 +250,7 @@ func (g mergeGate) updateBehindBranch(ctx context.Context, ws, actor uuid.UUID, 
 			wait.Updates, wait.Updating, wait.Base = wait.Updates+1, true, base
 			return mergeHold{updated: true, reason: behind + ". Kuayle asked GitHub to bring the branch up to date; " + waitFor}, nil
 		case errors.As(err, &api) && api.Status == http.StatusUnprocessableEntity && strings.Contains(strings.ToLower(api.Message), "conflict"):
-			return mergeHold{reason: branchConflictRefusal(number, base)}, nil
+			return mergeHold{conflict: true, reason: branchConflictRefusal(number, base)}, nil
 		case errors.As(err, &api) && api.Status == http.StatusUnprocessableEntity && strings.Contains(strings.ToLower(api.Message), "head"):
 			return mergeHold{reason: "The pull request head moved after approval was requested; ask again to review the new commit"}, nil
 		}

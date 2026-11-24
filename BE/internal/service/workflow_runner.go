@@ -740,7 +740,12 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 			if reason := strings.TrimSpace(review.Reason); reason != "" {
 				detail += ": " + reason
 			}
+		default:
+			// The reviewer still works: its branch follows the base.
+			outcome, detail = w.followBase(ctx, task)
 		}
+	case node.Type == domain.WorkflowNodeApproval && graph.ShipApproval(node, profiles) != "", node.Type == domain.WorkflowNodeMerge:
+		outcome, detail = w.followBase(ctx, task)
 	case node.Type == domain.WorkflowNodeCheck && node.Check == domain.WorkflowCheckCI:
 		published, err := w.tasks.WorkflowCI(ctx, task)
 		if err != nil {
@@ -801,6 +806,22 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 		record = ci.record
 	}
 	return w.outcome(ctx, task, outcome, detail, "", record)
+}
+
+// followBase is what a step that waits with a published pull request (a
+// review, a ship approval, a merge step) does each time it wakes, as a push
+// to its base wakes it (KUA-264): what entering a ship approval or a review
+// does (prepareBranch, without marking a draft ready again). A branch behind
+// its base is brought up to date, within the bound every update of the
+// published commit shares; a conflict or a migration collision returns
+// branch_conflict and the instruction that sends the work back to the step
+// that changes code. It acts only on what GitHub reports now, so waking again
+// on the same branch changes nothing.
+func (w *WorkflowRunner) followBase(ctx context.Context, task domain.AgentTask) (string, string) {
+	if _, conflict := w.prepareBranch(ctx, task, false); conflict != "" {
+		return domain.WorkflowBranchConflict, conflict
+	}
+	return "", ""
 }
 
 func (w *WorkflowRunner) enterSwitchedStep(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, reason string) error {

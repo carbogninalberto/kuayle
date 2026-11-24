@@ -30,9 +30,16 @@ import (
 //     done, or the merge step after it. The worker then merges as the
 //     approver once every gate passes, waiting for the checks of a branch it
 //     updated; the task completes only through the merge. A merge that cannot
-//     happen keeps the task on that step with the reason, for a person.
+//     happen keeps the task on that step with the reason, for a person, except
+//     a branch that now conflicts with its base, which goes back to the step
+//     that changes code at once (KUA-264).
 //   - Before each agent review, a branch behind its base is brought up to
 //     date, and a conflicting one is sent back as review feedback.
+//   - While a review, a ship approval or a merge step waits, each wake (a
+//     push to the base wakes it, KUA-257) reads the pull request again and
+//     does the same (followBase, KUA-264): behind is brought up to date, a
+//     conflict goes back. Every update of a published commit, the CI step's
+//     and the merge's included, counts toward one bound (updateBound).
 //
 // A ship approval whose approved path runs through agent steps to a done end
 // (WorkflowGraph.ShipApproval's ShipMergesAfterAgents, KUA-216) is entered
@@ -65,15 +72,19 @@ func rebaseInstruction(base string) string {
 	return fmt.Sprintf("The pull request conflicts with %s, so it cannot be reviewed or merged. Bring the branch up to date (rebase onto %s in effect): fetch origin, merge origin/%s into the task branch (a merge commit; no rebase or force-push), resolve the conflicts keeping both sides' intent, run the checks, and finish.", base, base, base)
 }
 
-func pullRequestConflicts(status *PullRequestStatus) bool {
-	return status.MergeableState == "dirty" || (status.Mergeable != nil && !*status.Mergeable)
-}
-
-// prepareBranch brings the task's open pull request up to date with its base
-// when it is behind. It returns what it did for the step's reason, or, when
-// the branch conflicts, the instruction that sends it back. GitHub that
-// cannot be reached or refuses for another reason changes nothing: the
-// merge's own gate decides later.
+// prepareBranch reads the task's open pull request (readBranchFacts) and
+// brings it up to date with its base when it is behind. Entering a ship
+// approval or a review calls it, and so does every wake of a step that waits
+// (KUA-264). It returns what it did for the step's reason, or, when the branch
+// conflicts or shares a migration version with its base, the instruction that
+// sends it back. GitHub that cannot be reached, a fact it has not reported or
+// a refusal for another reason changes nothing: the next wake, or the merge's
+// own gate, decides later.
+//
+// Only the published commit or Kuayle's verified updates of it are updated,
+// and only while they are fewer than maxMergeUpdates (updateBound): every
+// step's updates and the merge's share that bound, so the merge never meets
+// a chain of updates longer than it verifies as Kuayle's.
 func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTask, ready bool) (done []string, conflict string) {
 	if w.pulls == nil {
 		return nil, ""
@@ -82,18 +93,18 @@ func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTas
 	if err != nil {
 		return nil, ""
 	}
-	status, err := w.pulls.PullRequestStatus(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber)
-	if err != nil || status.State != "open" {
+	facts, _ := readBranchFacts(ctx, w.pulls, task.WorkspaceID, target.Repository, target.PullRequestNumber)
+	if facts.PRExists != FactYes || facts.Merged != FactNo || facts.Closed != FactNo {
 		return nil, ""
 	}
-	base := status.BaseRef
+	base := facts.BaseRef
 	if base == "" {
 		base = target.BaseBranch
 	}
-	if status.migrationRepair != "" {
-		return nil, status.migrationRepair
+	if facts.MigrationCollision == FactYes {
+		return nil, facts.MigrationRepair
 	}
-	if ready && status.Draft {
+	if ready && facts.PRDraft == FactYes {
 		if err := w.pulls.SetPullRequestDraft(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber, false); err != nil {
 			log.WithFields(log.Fields{"task_id": task.ID}).WithError(err).Warn("The workflow could not mark the pull request ready for review")
 		} else {
@@ -101,19 +112,46 @@ func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTas
 			done = append(done, "marked the pull request ready for review")
 		}
 	}
-	if pullRequestConflicts(status) {
+	if facts.Conflict == FactYes {
 		return done, rebaseInstruction(base)
 	}
-	if status.Behind <= 0 || status.migrationCheckUnavailable {
+	// Behind and not known to conflict (GitHub's update-branch says if it
+	// does); a collision check GitHub could not run holds the update.
+	if facts.HeadContainsBase != FactNo || facts.MigrationCollision != FactNo {
 		return done, ""
 	}
-	switch _, updated, conflicts := w.updateBranch(ctx, task, target, status.HeadSHA, status.Behind); {
+	if within, why := w.updateBound(ctx, task, target, base, facts.HeadSHA); !within {
+		if why != "" {
+			done = append(done, why)
+		}
+		return done, ""
+	}
+	switch _, updated, conflicts := w.updateBranch(ctx, task, target, facts.HeadSHA, facts.Behind); {
 	case conflicts:
 		return done, rebaseInstruction(base)
 	case updated:
 		done = append(done, "brought the branch up to date with "+base)
 	}
 	return done, ""
+}
+
+// updateBound reports whether Kuayle may bring head, its pull request's
+// head, up to date: head is the published commit or a chain of Kuayle's
+// verified updates of it (verifiedUpdates) shorter than maxMergeUpdates. The
+// count is read from the commits themselves, so the CI step, the other steps
+// and the merge share it, across restarts. A head someone else pushed is not
+// Kuayle's to update (the merge refuses it), and a chain GitHub could not
+// show waits for the next pass. why says so for the step's reason when the
+// bound is reached.
+func (w *WorkflowRunner) updateBound(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, base, head string) (bool, string) {
+	updates, refused, err := w.verifiedUpdates(ctx, task, target, base, head, target.CommitSHA)
+	switch {
+	case err != nil || refused != "":
+		return false, ""
+	case updates >= maxMergeUpdates:
+		return false, fmt.Sprintf("left the branch behind %s: it already brought it up to date %d times", base, updates)
+	}
+	return true, ""
 }
 
 // updateBranch asks GitHub to merge the base into the task's pull request
@@ -381,8 +419,19 @@ func (w *WorkflowRunner) driveMerge(ctx context.Context, task domain.AgentTask, 
 		at := now.Add(mergeWaitPoll)
 		return true, record("approved; "+lowerFirst(wait.Waiting), &at, false)
 	}
-	if hold.migrationRepair != "" {
-		err := w.Outcome(ctx, task, domain.WorkflowBranchConflict, hold.migrationRepair)
+	sendBack := hold.migrationRepair
+	if hold.conflict && node.Type != domain.WorkflowNodeEnd {
+		// The base moved into a conflict: back to the step that changes code
+		// at once, as entering the ship approval does (KUA-264), rather than
+		// waiting for the approver to deny it.
+		base := wait.Base
+		if base == "" {
+			base = target.BaseBranch
+		}
+		sendBack = rebaseInstruction(base)
+	}
+	if sendBack != "" {
+		err := w.Outcome(ctx, task, domain.WorkflowBranchConflict, sendBack)
 		if errors.Is(err, repository.ErrAgentTaskConflict) {
 			err = nil
 		}

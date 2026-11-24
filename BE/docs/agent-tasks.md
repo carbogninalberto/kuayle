@@ -935,12 +935,37 @@ to ship from a plan's approval, which also leads to agents. The runner
   collision leaves the step at once with `branch_conflict` and goes back as
   above, instead of the step waiting for checks that never start until it
   times out. A branch behind its base that merges cleanly is brought up to
-  date, pinned to the commit the step judges, at most three times, like an
-  approved merge; the step then judges CI on the new head once it is verified
-  as merges of the base into the published commit (recorded on the step's
-  `ci` as `head`, `update_of` and `updates`), and the ship merge accepts that
-  head as Kuayle's update. A fact GitHub has not reported changes nothing; CI
-  that already passed or failed decides as before.
+  date, pinned to the commit the step judges, within the bound below; the
+  step then judges CI on the new head once it is verified as merges of the
+  base into the published commit (recorded on the step's `ci` as `head`,
+  `update_of` and `updates`), and the ship merge accepts that head as Kuayle's
+  update. A fact GitHub has not reported changes nothing; CI that already
+  passed or failed decides as before.
+- **A CI step judges Kuayle's update, not the stale commit** (KUA-264). When
+  the pull request's head is a verified update of the published commit (an
+  earlier step brought it up to date), the CI step judges that head from its
+  first pass, never the published commit's older CI. So CI that failed on the
+  update carries over: when the work comes back without a new commit, the
+  next CI step judges the same update, runs its failed jobs again once and
+  then pauses for a person, as for any unchanged commit.
+- **While a step waits** (a running review, a ship approval, a merge step
+  waiting for a person; KUA-264) each wake reads the pull request again
+  (`followBase`) and does what entering a ship approval does, without marking
+  a draft ready again: a branch behind its base is brought up to date, and a
+  conflict or a migration collision leaves the step with `branch_conflict`
+  and goes back as above (a running review is cancelled). A push to the base
+  wakes waiting runs (KUA-257); a step's timeout and the budget wake it too.
+  Each pass acts only on what GitHub reports then, so a wake on a branch
+  already up to date changes nothing.
+- **One bound for every update** (KUA-264). The CI step, entering or waking a
+  step and the approved merge all count the updates of the published commit
+  from the commits themselves (the chain of verified merges of the base on top
+  of it, `updateBound`): none of them makes a fourth (`maxMergeUpdates`), and
+  none updates a head someone else pushed, which the merge would refuse. So
+  the merge never meets a head longer than it verifies as Kuayle's update. A
+  branch that falls behind once more after that stays behind; approving it
+  ends the merge with "fell behind again after Kuayle brought it up to date 3
+  times", for a person.
 - **Approving** records the merge on the step that carries it out
   (`agent_task_workflow_steps.merge`, migration 171) with the approver and the
   commit the task published: on the approval itself when it leads to `done`, or
@@ -951,11 +976,13 @@ to ship from a plan's approval, which also leads to agents. The runner
   branch was not approved and is refused. A branch Kuayle updates waits for the
   new head's checks, polled every minute, as above. Kuayle's merge completes the
   task, so the workflow reaches done only through it.
-- **A merge that cannot happen** (failing checks, a conflict, a head someone
-  else pushed, a refusal by GitHub, the two-hour wait running out) keeps the task
-  on that step with the reason as its reason and in the step's merge, and tells
-  the creator a person is needed again; approving again retries, denying
-  follows the denied transition. While a merge runs nobody decides the step
+- **A merge that cannot happen** (failing checks, a head someone else pushed,
+  a refusal by GitHub, the two-hour wait running out) keeps the task on that
+  step with the reason as its reason and in the step's merge, and tells the
+  creator a person is needed again; approving again retries, denying follows
+  the denied transition. A branch that now conflicts with its base, or shares
+  a migration version with it, goes back to the step that changes code at once
+  with `branch_conflict` instead (KUA-264), as entering the approval does. While a merge runs nobody decides the step
   (`can_decide` is false) and its timeout does not fire.
 - **A ship approval before agent steps** (KUA-216; the graph of KUA-171:
   `ci → ship → agent step → done`) is entered the same way. Approving records

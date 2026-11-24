@@ -32,22 +32,28 @@ import (
 //     in the background, and the step waits for that read within
 //     domain.CIFailureDetailsWait.
 //
-// A CI step that would wait for checks first reads its pull request's branch
-// (readBranchFacts, KUA-260). CI never starts on a branch that conflicts with
-// its base, and CI on a branch behind its base never ran with the base's
-// newest commits:
+// A CI step reads its pull request's branch on each pass (readBranchFacts,
+// KUA-260). When the pull request's head is Kuayle's verified update of the
+// published commit (merges of the base, made by an earlier step or before CI
+// on that update sent the work back), the step judges the update, never the
+// published commit's older CI (KUA-264): a failure on the update is then a
+// result once, like any failure above, when the work comes back without a
+// new commit. CI never starts on a branch that conflicts with its base, and
+// CI on a branch behind its base never ran with the base's newest commits, so
+// a step that would wait for checks first looks at the branch:
 //
 //   - A conflict, or a migration version the branch shares with its base,
 //     goes back to the first step that changes code at once
 //     (domain.WorkflowBranchConflict), as from the ship approval, instead of
 //     the step waiting until it times out.
 //   - A branch behind its base that merges cleanly is brought up to date with
-//     GitHub's update-branch, pinned to the commit the step judges, at most
-//     maxMergeUpdates times. The step then judges CI on the new head once it
-//     is verified as merges of the base into the published commit
-//     (verifiedUpdates); so it does when another step or a person updated the
-//     branch that way. A head someone else pushed is not judged: the step
-//     goes on judging its commit, as before.
+//     GitHub's update-branch, pinned to the commit the step judges, while the
+//     published commit has fewer than maxMergeUpdates updates in all (every
+//     step's and the merge's count, KUA-264). The step then judges CI on the
+//     new head once it is verified as merges of the base into the published
+//     commit (verifiedUpdates); so it does when another step or a person
+//     updated the branch that way. A head someone else pushed is not judged:
+//     the step goes on judging its commit, as before.
 //   - A fact GitHub has not reported changes nothing: the step keeps waiting
 //     and reads it again on its next pass. Neither does the branch change CI
 //     that already passed or failed: the ship approval and the merge gate
@@ -118,7 +124,9 @@ func (w *WorkflowRunner) ciOutcome(ctx context.Context, task domain.AgentTask, c
 // commit, none failed, none is still running and the whole list could be
 // read. Otherwise the step keeps waiting (waiting says why) and polls again,
 // unless its pull request's branch decides first (ciBranch). On a commit an
-// earlier CI step of the task failed on, ciAgain decides.
+// earlier CI step of the task failed on, ciAgain decides. The commit judged
+// is the published one, or Kuayle's verified update of it that the pull
+// request's head is (ciUpdate).
 func (w *WorkflowRunner) judgeCI(ctx context.Context, task domain.AgentTask, step *domain.WorkflowStep, ci *repository.WorkflowCI, now time.Time) (ciVerdict, error) {
 	published := ci.CommitSHA
 	record := &domain.WorkflowCIRecord{Repository: ci.Repository, Head: published}
@@ -127,16 +135,67 @@ func (w *WorkflowRunner) judgeCI(ctx context.Context, task domain.AgentTask, ste
 			record = stored
 		}
 	}
+	branch, err := w.ciPullRequest(ctx, task, published)
+	if err != nil {
+		return ciVerdict{}, err
+	}
+	adopted := false
+	if branch != nil && record.UpdateOf == "" && branch.facts.HeadSHA != record.Head {
+		// The branch was brought up to date since the commit was published:
+		// CI on the commit is stale, and the update decides (KUA-264).
+		if update, ok := w.ciUpdate(ctx, task, branch, branch.facts.HeadSHA, published, record); ok {
+			record, adopted = update, true
+		}
+	}
 	if record.UpdateOf != "" {
 		// The step judges Kuayle's update of the published commit; the
 		// suites reported for the published commit say nothing about it.
 		ci = &repository.WorkflowCI{Published: ci.Published, Repository: ci.Repository, CommitSHA: record.Head}
 	}
 	v, err := w.judgeChecks(ctx, task, step, ci, record, now)
-	if err != nil || v.outcome != "" || v.stop != "" || v.failing {
+	if err != nil {
 		return v, err
 	}
-	return w.ciBranch(ctx, task, published, v, now)
+	// A step that keeps waiting stores the head it now judges.
+	v.save = v.save || adopted
+	if v.outcome != "" || v.stop != "" || v.failing || branch == nil {
+		return v, nil
+	}
+	return w.ciBranch(ctx, task, branch, published, v, now)
+}
+
+// ciBranchRead is a CI step's read of its open pull request.
+type ciBranchRead struct {
+	target *domain.AgentReviewTarget
+	facts  TaskFacts
+	base   string
+}
+
+// ciPullRequest reads the task's open pull request for a CI step, or nil
+// when there is none or Kuayle cannot read pull requests here.
+func (w *WorkflowRunner) ciPullRequest(ctx context.Context, task domain.AgentTask, published string) (*ciBranchRead, error) {
+	if w.pulls == nil || published == "" {
+		return nil, nil
+	}
+	target, err := w.tasks.WorkflowPullRequest(ctx, task)
+	if errors.Is(err, repository.ErrNoReviewTarget) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	facts, _ := readBranchFacts(ctx, w.pulls, task.WorkspaceID, target.Repository, target.PullRequestNumber)
+	if errors.Is(facts.Err, context.Canceled) || errors.Is(facts.Err, context.DeadlineExceeded) {
+		return nil, facts.Err
+	}
+	if facts.PRExists != FactYes || facts.Merged != FactNo || facts.Closed != FactNo {
+		return nil, nil
+	}
+	base := facts.BaseRef
+	if base == "" {
+		base = target.BaseBranch
+	}
+	return &ciBranchRead{target: target, facts: facts, base: base}, nil
 }
 
 // judgeChecks is judgeCI on the checks of the commit the step judges.
@@ -199,28 +258,8 @@ func (w *WorkflowRunner) judgeChecks(ctx context.Context, task domain.AgentTask,
 // branch: a conflict or a migration collision goes back at once, and a
 // branch behind its base is brought up to date; see the comment at the top
 // of the file. Anything else leaves v as it is.
-func (w *WorkflowRunner) ciBranch(ctx context.Context, task domain.AgentTask, published string, v ciVerdict, now time.Time) (ciVerdict, error) {
-	if w.pulls == nil || published == "" {
-		return v, nil
-	}
-	target, err := w.tasks.WorkflowPullRequest(ctx, task)
-	if errors.Is(err, repository.ErrNoReviewTarget) {
-		return v, nil
-	}
-	if err != nil {
-		return ciVerdict{}, err
-	}
-	facts, _ := readBranchFacts(ctx, w.pulls, task.WorkspaceID, target.Repository, target.PullRequestNumber)
-	if errors.Is(facts.Err, context.Canceled) || errors.Is(facts.Err, context.DeadlineExceeded) {
-		return ciVerdict{}, facts.Err
-	}
-	if facts.PRExists != FactYes || facts.Merged != FactNo || facts.Closed != FactNo {
-		return v, nil
-	}
-	base := facts.BaseRef
-	if base == "" {
-		base = target.BaseBranch
-	}
+func (w *WorkflowRunner) ciBranch(ctx context.Context, task domain.AgentTask, branch *ciBranchRead, published string, v ciVerdict, now time.Time) (ciVerdict, error) {
+	target, facts, base := branch.target, branch.facts, branch.base
 	sendBack := func(why string) (ciVerdict, error) {
 		return ciVerdict{outcome: domain.WorkflowBranchConflict, detail: why, record: v.record}, nil
 	}
@@ -231,7 +270,7 @@ func (w *WorkflowRunner) ciBranch(ctx context.Context, task domain.AgentTask, pu
 	case facts.Conflict == FactYes:
 		return sendBack(rebaseInstruction(base))
 	case facts.HeadSHA != record.Head:
-		if moved, ok := w.ciAdopt(ctx, task, target, base, facts.HeadSHA, published, record, now); ok {
+		if moved, ok := w.ciAdopt(ctx, task, branch, facts.HeadSHA, published, record, now); ok {
 			return moved, nil
 		}
 		return v, nil
@@ -249,7 +288,7 @@ func (w *WorkflowRunner) ciBranch(ctx context.Context, task domain.AgentTask, pu
 	case !updated:
 		return v, nil
 	case head != "" && head != record.Head:
-		if moved, ok := w.ciAdopt(ctx, task, target, base, head, published, record, now); ok {
+		if moved, ok := w.ciAdopt(ctx, task, branch, head, published, record, now); ok {
 			return moved, nil
 		}
 	}
@@ -260,25 +299,36 @@ func (w *WorkflowRunner) ciBranch(ctx context.Context, task domain.AgentTask, pu
 	return v, nil
 }
 
-// ciAdopt makes the step judge head, its pull request's new head, when it
-// is the published commit or merges of the base into it, each verified
-// (verifiedUpdates). It returns false for any other head, or one GitHub
-// could not show yet: the step goes on judging its commit.
-func (w *WorkflowRunner) ciAdopt(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, base, head, published string, from *domain.WorkflowCIRecord, now time.Time) (ciVerdict, bool) {
-	if head == "" {
+// ciAdopt makes a waiting step judge head, its pull request's new head,
+// when ciUpdate verifies it; the step then waits for CI on it.
+func (w *WorkflowRunner) ciAdopt(ctx context.Context, task domain.AgentTask, branch *ciBranchRead, head, published string, from *domain.WorkflowCIRecord, now time.Time) (ciVerdict, bool) {
+	record, ok := w.ciUpdate(ctx, task, branch, head, published, from)
+	if !ok {
 		return ciVerdict{}, false
 	}
-	updates, why, err := w.verifiedUpdates(ctx, task, target, base, head, published)
+	poll := now.Add(ciPoll)
+	return ciVerdict{record: record, save: true, wake: &poll,
+		waiting: fmt.Sprintf("waiting for CI on %s, the branch brought up to date with %s", shortSHA(head), branch.base)}, true
+}
+
+// ciUpdate is the record of a step that judges head, its pull request's
+// head, when head is the published commit or merges of the base into it,
+// each verified (verifiedUpdates); Updates is at least that chain's length.
+// It returns false for any other head, or one GitHub could not show yet:
+// the step goes on judging its commit.
+func (w *WorkflowRunner) ciUpdate(ctx context.Context, task domain.AgentTask, branch *ciBranchRead, head, published string, from *domain.WorkflowCIRecord) (*domain.WorkflowCIRecord, bool) {
+	if head == "" {
+		return nil, false
+	}
+	updates, why, err := w.verifiedUpdates(ctx, task, branch.target, branch.base, head, published)
 	if err != nil || why != "" {
-		return ciVerdict{}, false
+		return nil, false
 	}
 	record := &domain.WorkflowCIRecord{Repository: from.Repository, Head: head, Updates: max(from.Updates, updates)}
 	if head != published {
 		record.UpdateOf = published
 	}
-	poll := now.Add(ciPoll)
-	return ciVerdict{record: record, save: true, wake: &poll,
-		waiting: fmt.Sprintf("waiting for CI on %s, the branch brought up to date with %s", shortSHA(head), base)}, true
+	return record, true
 }
 
 // ciPrior reads what the task's earlier CI steps judged on the commit.
