@@ -92,17 +92,17 @@ func TestAMembersNextTurnFetchesItsWorktreeAgain(t *testing.T) {
 		scopeSettings: map[string]*domain.DevMachineScopeSetting{scopeKey(nil, nil, &issueID): {WorkspaceID: ws, GitHubRepoID: &repoID}},
 	}
 	svc := newTestDevMachineService(store)
-	first, err := svc.checkoutTask(context.Background(), task)
+	first, err := svc.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	store.checkouts[0].Status = "ready"
 	store.createCheckoutCalled = false
-	again, err := svc.checkoutTask(context.Background(), task)
+	again, err := svc.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	require.Equal(t, "ready", again.Status)
 	require.False(t, store.createCheckoutCalled, "the first turn reads the worktree it made")
 
 	task.Generation = 2
-	refreshed, err := svc.checkoutTask(context.Background(), task)
+	refreshed, err := svc.checkoutTask(context.Background(), task, true)
 	require.NoError(t, err)
 	require.True(t, store.createCheckoutCalled, "the next turn fetches the worktree again")
 	require.Equal(t, "queued", refreshed.Status)
@@ -114,15 +114,32 @@ func TestAMembersNextTurnFetchesItsWorktreeAgain(t *testing.T) {
 	store.createCheckoutCalled = false
 	store.queuedOperation = store.checkoutOperation
 	store.queuedOperation.Status = domain.DevMachineOpStatusCompleted
-	ready, err := svc.checkoutTask(context.Background(), task)
+	ready, err := svc.checkoutTask(context.Background(), task, true)
 	require.NoError(t, err)
 	require.Equal(t, "ready", ready.Status)
 	require.False(t, store.createCheckoutCalled)
 
-	// An implementing task's next iteration keeps its worktree as it is.
-	task.Kind = domain.AgentTaskKindImplement
-	task.Generation = 3
-	_, err = svc.checkoutTask(context.Background(), task)
-	require.NoError(t, err)
-	require.False(t, store.createCheckoutCalled)
+}
+
+// Only a pipeline member's next turn fetches its worktree again: a review a
+// graph workflow or the assistant asked for, retried, and an implementing
+// task's next iteration keep theirs as they are.
+func TestOnlyAMembersNextTurnRefreshesItsWorktree(t *testing.T) {
+	member := &domain.TaskMember{ID: uuid.New(), Role: "reviewer"}
+	for name, c := range map[string]struct {
+		task   domain.AgentTask
+		member *domain.TaskMember
+		want   bool
+	}{
+		"a member's next turn":          {domain.AgentTask{Kind: domain.AgentTaskKindReview, Generation: 2}, member, true},
+		"a member's first turn":         {domain.AgentTask{Kind: domain.AgentTaskKindReview, Generation: 1}, member, false},
+		"a retried requested review":    {domain.AgentTask{Kind: domain.AgentTaskKindReview, Generation: 2}, nil, false},
+		"an implementing iteration":     {domain.AgentTask{Kind: domain.AgentTaskKindImplement, Generation: 3}, nil, false},
+		"a pipeline writer's next turn": {domain.AgentTask{Kind: domain.AgentTaskKindImplement, Generation: 3, Pipeline: true}, nil, false},
+	} {
+		runtime := &devMachineTaskRuntime{tasks: &taskRuntimeStoreFake{member: c.member}}
+		refresh, err := runtime.checkoutRefresh(context.Background(), c.task)
+		require.NoError(t, err)
+		require.Equal(t, c.want, refresh, name)
+	}
 }

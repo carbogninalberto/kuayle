@@ -963,7 +963,7 @@ func TestCheckoutIssueRetriesFailedCheckout(t *testing.T) {
 	checkout, err = svc.checkoutTask(context.Background(), domain.AgentTask{
 		ID: taskID, WorkspaceID: workspaceID, CreatorID: userID, IssueID: issueID, MachineID: &machineID,
 		CheckoutID: store.checkouts[0].ID, Generation: 2,
-	})
+	}, false)
 	require.NoError(t, err)
 	require.Equal(t, "queued", checkout.Status)
 	require.True(t, store.createCheckoutCalled)

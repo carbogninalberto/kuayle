@@ -956,6 +956,9 @@ func closeWorkflowOnFinish(ctx context.Context, tx *sqlx.Tx, task domain.AgentTa
 	if err := cancelWorkflowReviews(ctx, tx, task.ID, 0); err != nil {
 		return err
 	}
+	if err := cancelMemberTurns(ctx, tx, task); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(outcome,$2),finished_at=now() WHERE task_id=$1 AND finished_at IS NULL`, task.ID, "task_"+task.State); err != nil {
 		return err
 	}
@@ -982,6 +985,30 @@ func cancelWorkflowReviews(ctx context.Context, tx *sqlx.Tx, taskID uuid.UUID, s
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET lease_token=NULL,lease_expires_at=NULL,next_poll_at=now() WHERE id=$1`, reviews[i].ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cancelMemberTurns asks the turns the members of a pipeline task that ended
+// are taking to stop, as cancelWorkflowReviews does for a graph's reviews:
+// nothing would read their result. A member task locked by its own
+// transition right now is skipped; its turn ends on its own.
+func cancelMemberTurns(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask) error {
+	if !root.Pipeline {
+		return nil
+	}
+	var turns []domain.AgentTask
+	if err := tx.SelectContext(ctx, &turns, `SELECT t.* FROM agent_tasks t JOIN task_members m ON m.member_task_id=t.id AND m.workspace_id=t.workspace_id
+ WHERE m.task_id=$1 AND m.workspace_id=$2 AND t.state IN ('queued','preparing','waiting_for_disk','running','waiting_input') FOR UPDATE OF t SKIP LOCKED`, root.ID, root.WorkspaceID); err != nil {
+		return err
+	}
+	for i := range turns {
+		if err := transitionAgentTask(ctx, tx, &turns[i], "cancelling", "The task ended before this turn did", nil); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET lease_token=NULL,lease_expires_at=NULL,next_poll_at=now() WHERE id=$1`, turns[i].ID); err != nil {
 			return err
 		}
 	}
@@ -1433,17 +1460,27 @@ func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.Age
 		if err != nil {
 			return nil, err
 		}
-		var graph domain.WorkflowGraph
-		if err = json.Unmarshal(raw, &graph); err != nil {
-			return nil, err
-		}
-		node, ok := graph.Node(*task.WorkflowNode)
-		if !ok {
-			return nil, nil
-		}
-		profileID = node.ProfileID
-		if node.Supervised() {
-			stageInstructions = graph.StageInstructions(node)
+		if task.Pipeline {
+			// A pipeline task's turns are its writer's.
+			pipeline, err := domain.ParsePipeline(raw)
+			if err != nil {
+				return nil, err
+			}
+			writer, _ := pipeline.Writer()
+			profileID = &writer.ProfileID
+		} else {
+			var graph domain.WorkflowGraph
+			if err = json.Unmarshal(raw, &graph); err != nil {
+				return nil, err
+			}
+			node, ok := graph.Node(*task.WorkflowNode)
+			if !ok {
+				return nil, nil
+			}
+			profileID = node.ProfileID
+			if node.Supervised() {
+				stageInstructions = graph.StageInstructions(node)
+			}
 		}
 	}
 	if profileID == nil {

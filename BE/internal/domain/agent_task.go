@@ -266,6 +266,11 @@ type AgentTaskTransition struct {
 // validates, publishes or awaits review, so it can never push.
 func ValidAgentTaskKindTransition(kind, from, to string) bool {
 	if kind == AgentTaskKindReview {
+		// A pipeline member's task takes its next turn after one that was
+		// cancelled, as after one that failed (StartMemberTurn).
+		if from == "cancelled" && to == "queued" {
+			return true
+		}
 		switch to {
 		case "validating", "publishing", "awaiting_review":
 			return false
