@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -175,6 +176,7 @@ func readyFacts() TaskFacts {
 		CI:       CIFacts{Green: FactYes, State: "passing", Head: head, Checks: passingChecks},
 		Verdicts: map[string]TaskVerdict{"reviewer": {Commit: head, Verdict: "approve"}},
 		Approved: FactYes,
+		Overlap:  []domain.AgentBoardOverlap{},
 	}
 }
 
@@ -183,6 +185,7 @@ func TestUnmetChecksSayWhatToDo(t *testing.T) {
 		{ID: "pr", Fact: "pr_exists"}, {ID: "ready", Fact: "pr_draft"}, {ID: "up-to-date", Fact: "head_contains_base"},
 		{ID: "clean", Fact: "conflict"}, {ID: "migrations", Fact: "migration_collision"}, {ID: "ci", Fact: "ci_green"},
 		{ID: "review", Fact: "verdict", Role: "reviewer"}, {ID: "owner", Fact: "approved"}, {ID: "open", Fact: "closed"},
+		{ID: "board", Fact: "overlap"},
 	}
 	t.Run("a ready pull request meets every check", func(t *testing.T) {
 		require.Empty(t, unmetChecks(readyFacts(), every))
@@ -285,6 +288,25 @@ func TestUnmetChecksSayWhatToDo(t *testing.T) {
 		{name: "a check that needs an open pull request on a merged one", check: FactCheck{ID: "up-to-date", Fact: "head_contains_base"},
 			change: func(f *TaskFacts) { f.Merged, f.HeadContainsBase = FactYes, FactUnknown },
 			state:  CheckUnmet, reason: "Pull request #12 is already merged."},
+		{name: "a task ahead changes the same files", check: FactCheck{ID: "board", Fact: "overlap"},
+			change: func(f *TaskFacts) {
+				f.Overlap = []domain.AgentBoardOverlap{
+					{IssueIdentifier: "KUA-7", PullRequest: 3, Files: []string{"BE/migrations/000201_board.up.sql"}, FileCount: 1, Ahead: true},
+					{IssueIdentifier: "KUA-9", PullRequest: 14, Files: []string{"UI/x.ts"}, FileCount: 1},
+				}
+			},
+			state: CheckWaiting, reason: "KUA-7 (pull request #3) also changes BE/migrations/000201_board.up.sql and is ahead of you in the merge order. Next step: let it merge first, then bring the branch up to date with main and resolve any conflicts."},
+		{name: "several tasks ahead change the same files", check: FactCheck{ID: "board", Fact: "overlap"},
+			change: func(f *TaskFacts) {
+				f.Overlap = []domain.AgentBoardOverlap{
+					{IssueIdentifier: "KUA-7", PullRequest: 3, Files: []string{"a.go", "b.go", "c.go", "d.go"}, FileCount: 5, Ahead: true},
+					{IssueIdentifier: "KUA-8", Files: []string{"a.go"}, FileCount: 1, Ahead: true},
+				}
+			},
+			state: CheckWaiting, reason: "KUA-7 (pull request #3) also changes a.go, b.go, c.go and 2 more file(s) and is ahead of you in the merge order; KUA-8 also changes a.go and is ahead of you in the merge order. Next step: let them merge first, then bring the branch up to date with main and resolve any conflicts."},
+		{name: "the board not read", check: FactCheck{ID: "board", Fact: "overlap"},
+			change: func(f *TaskFacts) { f.Overlap = nil },
+			state:  CheckUnknown, reason: "Kuayle has not read the repository's other active tasks. It reads them again shortly."},
 		{name: "a fact Kuayle does not know", check: FactCheck{ID: "lint", Fact: "linted"},
 			state: CheckUnmet, reason: "Kuayle does not know the fact \"linted\". Next step: fix the workflow definition."},
 	}
@@ -317,6 +339,12 @@ func TestUnmetChecksSayWhatToDo(t *testing.T) {
 		for _, check := range unmet {
 			require.Equal(t, CheckUnknown, check.State, check.ID)
 		}
+	})
+
+	t.Run("only tasks behind change the same files", func(t *testing.T) {
+		facts := readyFacts()
+		facts.Overlap = []domain.AgentBoardOverlap{{IssueIdentifier: "KUA-9", PullRequest: 14, Files: []string{"UI/x.ts"}, FileCount: 1}}
+		require.Empty(t, unmetChecks(facts, []FactCheck{{ID: "board", Fact: "overlap"}}), "a task behind adapts to this one")
 	})
 
 	t.Run("a merged pull request meets the merged check", func(t *testing.T) {

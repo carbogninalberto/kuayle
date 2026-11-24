@@ -868,6 +868,35 @@ facts and the checks a step requires into what does not hold yet, each `unmet`
 (someone acts), `waiting` (CI is running) or `unknown` (read again), with a
 reason a person or an agent can act on.
 
+**The board (KUA-262).** `GET /agent-tasks/board?repository=owner/name` lists
+the repository's active tasks (not completed, failed or cancelled) with the
+visibility of `GET /agent-tasks`: the caller's own tasks on issues whose team
+they can still see (the repository shares `ownTaskRows`/`ownTaskVisible` with
+`Queue`). It reads only Kuayle's records, never GitHub, so it can lag:
+
+- pull request and head: the newest pull request Kuayle published for the task;
+  the head GitHub last reported (`pull_request_heads`) when observed after that
+  publication, otherwise the published commit. How far the branch is behind its
+  base is not stored; `TaskFacts.Behind` reads it live.
+- changed files: `changed_files` of the newest attempt that recorded any (the
+  branch's `git diff --name-only origin/<base>...HEAD`, committed changes only).
+- `ci`: `failing` when a check suite reported on the head failed, `passing`
+  when one passed and none failed, empty otherwise. Suites report only when they
+  finish, so `passing` can hide one still running.
+- `approved_at`: when a person approved the merge Kuayle is carrying out now (an
+  unfailed merge wait on the current workflow step, or an assistant
+  `merge_pull_request` waiting for checks).
+
+`arrangeBoard` (`service/task_board.go`) derives the merge order: approved and
+`passing` by approval time, then the other approved tasks by approval time, then
+the other pull requests by number; a task without a pull request has no
+`merge_position`. Each task's `overlap` lists the other tasks sharing changed
+files (at most 20 named, `file_count` counts them) and whether each is `ahead`.
+A step that read the board passes `boardOverlap` into `TaskFacts.Overlap`; the
+`overlap` check is `waiting` while a task ahead changes the same files, with a
+reason such as "KUA-123 (pull request #12) also changes BE/migrations/... and is
+ahead of you in the merge order", and `unknown` when the board was not read.
+
 **Waiting for the updated branch (KUA-207).** An approved merge is tracked as a
 `domain.MergeWait`: the approved commit, the head Kuayle merges, its update
 rounds and a deadline. After Kuayle's own update-branch:
@@ -3174,6 +3203,9 @@ and cancellation remain available to authorized users.
   the AI Elements [Queue](https://www.shadcn-svelte.com/docs/ai-elements/queue)
   composition (in progress or waiting, then finished), linking each task to its
   issue chat, and refreshes it every 20 seconds while visible.
+- `GET /agent-tasks/board?repository=owner/name` lists those of the tasks that
+  are active on one repository, in merge order with their overlap
+  ([the board](#merging-only-up-to-date-heads)); `Cache-Control: private, no-store`.
 - `GET /agent-tasks/:taskId` reads the durable task.
 - `POST /agent-tasks/:taskId/cancel` requests cleanup, including an explicit retry
   of exhausted cleanup operations.

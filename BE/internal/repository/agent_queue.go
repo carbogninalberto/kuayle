@@ -23,6 +23,16 @@ type AgentQueueItem struct {
 	CheckoutID  *uuid.UUID `json:"checkout_id,omitempty" db:"checkout_id"`
 }
 
+// ownTaskRows and ownTaskVisible are the tasks Queue shows the actor ($2) in
+// workspace $1: their own implementing tasks, from their own issue
+// conversations whose team they can still see. Board reuses them, so the
+// two never differ.
+const ownTaskRows = `agent_tasks t JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN issues i ON i.id=c.issue_id`
+
+func ownTaskVisible() string {
+	return `t.workspace_id=$1 AND t.kind='implement' AND t.creator_id=$2 AND c.creator_id=$2 AND ` + conversationScopePredicate("c")
+}
+
 // Queue lists the actor's most recent tasks across their issue conversations,
 // re-checking membership and each issue's current team visibility, exactly as
 // opening the conversation would.
@@ -42,9 +52,9 @@ func (r *AgentTaskRepository) Queue(ctx context.Context, ws uuid.UUID) ([]AgentQ
 	items := []AgentQueueItem{}
 	err = tx.SelectContext(ctx, &items, `SELECT t.id,t.conversation_id,t.state,t.reason,t.provider,t.updated_at,i.identifier_text,i.title,t.machine_id,m.name AS machine_name,
  CASE WHEN t.machine_id IS NOT NULL THEN t.checkout_id END AS checkout_id
- FROM agent_tasks t JOIN conversations c ON c.id=t.conversation_id AND c.workspace_id=t.workspace_id JOIN issues i ON i.id=c.issue_id
+ FROM `+ownTaskRows+`
  LEFT JOIN dev_machines m ON m.id=t.machine_id AND m.workspace_id=t.workspace_id AND m.status<>'destroyed'
- WHERE t.workspace_id=$1 AND t.kind='implement' AND t.creator_id=$2 AND c.creator_id=$2 AND `+conversationScopePredicate("c")+`
+ WHERE `+ownTaskVisible()+`
  ORDER BY t.updated_at DESC,t.id LIMIT 50`, ws, actor)
 	return items, err
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
 // Kuayle reads what is true about a task's pull request without a model, once,
@@ -68,6 +69,11 @@ type TaskFacts struct {
 	// Verdicts were not read.
 	Verdicts map[string]TaskVerdict `json:"verdicts"`
 	Approved Fact                   `json:"approved"`
+	// Overlap lists the repository's other active tasks whose branches
+	// change some of the same files, and whether each merges first, from the
+	// board (boardOverlap); the caller that read the board sets it. Nil: not
+	// read.
+	Overlap []domain.AgentBoardOverlap `json:"overlap"`
 	// Err is why the pull request could not be read.
 	Err error `json:"-"`
 }
@@ -227,8 +233,9 @@ func uncheckedHead(ctx context.Context, pulls pullRequestReader, now func() time
 // FactCheck is a check a step requires: a fact that must hold, and for a
 // verdict the role that gives it. A check holds when its fact is yes for
 // pr_exists, head_contains_base, ci_green, approved and merged; no for
-// pr_draft, conflict, migration_collision and closed; and for verdict when the
-// role approved the head.
+// pr_draft, conflict, migration_collision and closed; for verdict when the
+// role approved the head; and for overlap when no task ahead in the board's
+// merge order changes the same files.
 type FactCheck struct {
 	ID   string `json:"id"`
 	Fact string `json:"fact"`
@@ -247,6 +254,7 @@ const (
 	factApproved           = "approved"
 	factMerged             = "merged"
 	factClosed             = "closed"
+	factOverlap            = "overlap"
 )
 
 // What a check that does not hold waits for.
@@ -281,7 +289,7 @@ func unmetChecks(f TaskFacts, checks []FactCheck) []UnmetCheck {
 // judge returns "" when the check holds, otherwise its state and reason.
 func (f TaskFacts) judge(check FactCheck) (string, string) {
 	switch check.Fact {
-	case factPRExists, factPRDraft, factHeadContainsBase, factConflict, factMigrationCollision, factCIGreen, factVerdict, factApproved, factMerged, factClosed:
+	case factPRExists, factPRDraft, factHeadContainsBase, factConflict, factMigrationCollision, factCIGreen, factVerdict, factApproved, factMerged, factClosed, factOverlap:
 	default:
 		return CheckUnmet, fmt.Sprintf("Kuayle does not know the fact %q. Next step: fix the workflow definition.", check.Fact)
 	}
@@ -333,6 +341,16 @@ func (f TaskFacts) judge(check FactCheck) (string, string) {
 		return judgeFact(f.MigrationCollision, FactNo, f.MigrationRepair, migrationCheckUnavailableReason+". It checks again shortly.")
 	case factCIGreen:
 		return f.judgeCI(pr, head)
+	case factOverlap:
+		// A task ahead changes the base under this one when it merges; once
+		// merged it leaves the board, so the check waits for it.
+		if f.Overlap == nil {
+			return CheckUnknown, "Kuayle has not read the repository's other active tasks. It reads them again shortly."
+		}
+		if reason := overlapReason(f.Overlap, base); reason != "" {
+			return CheckWaiting, reason
+		}
+		return "", ""
 	}
 	return judgeFact(f.Closed, FactNo, "", unreadable)
 }
