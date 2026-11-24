@@ -45,6 +45,13 @@ type notebookStoreFake struct {
 	unanswered []int64
 	settles    int
 	unread     time.Time
+	// missingVerdict is the commit a pipeline member's turn owes a verdict
+	// for (MissingVerdict).
+	missingVerdict string
+}
+
+func (f *notebookStoreFake) MissingVerdict(context.Context, uuid.UUID) (string, error) {
+	return f.missingVerdict, nil
 }
 
 func (f *notebookStoreFake) UnansweredLiveMessages(context.Context, uuid.UUID) ([]int64, error) {
@@ -211,6 +218,9 @@ type notebookScenario struct {
 	// shutdownAfterAttempt stops the manager while the attempt's own container
 	// is running.
 	shutdownAfterAttempt bool
+	// missingVerdict: the attempt is a member's turn that owes a verdict for
+	// this commit.
+	missingVerdict string
 }
 
 const openCodeConclusion = `{"type":"text","part":{"type":"text","text":"Implemented the toggle and ran the tests."}}`
@@ -261,7 +271,7 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 	sealed, err := cryptoutil.Encrypt("fixture-api-key", make([]byte, 32))
 	require.NoError(t, err)
 	container := "developer"
-	store := &notebookStoreFake{unanswered: scenario.unanswered, updates: scenario.updates, problem: scenario.problem, unchanged: scenario.unchanged, alreadyAsked: scenario.alreadyAsked, managerStoreFake: &managerStoreFake{
+	store := &notebookStoreFake{missingVerdict: scenario.missingVerdict, unanswered: scenario.unanswered, updates: scenario.updates, problem: scenario.problem, unchanged: scenario.unchanged, alreadyAsked: scenario.alreadyAsked, managerStoreFake: &managerStoreFake{
 		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1},
 		agentRun: run,

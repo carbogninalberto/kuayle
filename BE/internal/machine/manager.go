@@ -1679,8 +1679,8 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	closing, closingErr := m.settleClosing(ctx,
 		closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets, deadline: limit},
 		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun,
-			planTooLong: run.WorktreeReadOnly && first.FinalMessage && first.SummaryTruncated,
-			parseReply:  func(stdout, stderr string) agent.RunResult { return provider.ParseResult(stdout, stderr, 0) }})
+			planTooLong: run.WorktreeReadOnly && first.FinalMessage && first.SummaryTruncated, summary: first.Summary,
+			parseReply: func(stdout, stderr string) agent.RunResult { return provider.ParseResult(stdout, stderr, 0) }})
 	if closingErr != nil {
 		// The attempt's container has exited; the next manager re-adopts it,
 		// replays its log and asks then, since closing_asked_at was not taken.
