@@ -44,7 +44,7 @@ func (u Usage) Then(next Usage) Usage {
 }
 
 // ParseUsage reads what a run's harness reported it spent from its standard
-// output. Claude Code, Codex and OpenCode report usage; for any other
+// output. Claude Code, Codex, OpenCode and Pi report usage; for any other
 // harness, and for output without a usage event, nothing is reported.
 func ParseUsage(providerID, stdout string) Usage {
 	switch providerID {
@@ -54,6 +54,8 @@ func ParseUsage(providerID, stdout string) Usage {
 		return codexUsage(stdout)
 	case "opencode":
 		return openCodeUsage(stdout)
+	case "pi":
+		return piUsage(stdout)
 	}
 	return Usage{}
 }
@@ -193,6 +195,51 @@ func openCodeUsage(stdout string) Usage {
 			if tokens.Cache != nil {
 				spent.CacheReadTokens, spent.CacheWriteTokens = &tokens.Cache.Read, &tokens.Cache.Write
 			}
+		}
+		usage = usage.Then(spent)
+	})
+	return usage
+}
+
+// piUsage sums the usage of Pi's assistant messages (message_end): each
+// states its own model request, with input that excludes cache reads and
+// writes, output that includes reasoning, and cost.total, Pi's estimate from
+// its model catalog. A message_update's usage is the same request's, so it
+// is not read. A failed or aborted request that carries no tokens adds
+// nothing: Pi gives it an empty usage.
+func piUsage(stdout string) Usage {
+	usage := Usage{}
+	eachEvent(stdout, func(line []byte, kind string) {
+		if kind != "message_end" {
+			return
+		}
+		var event struct {
+			Message struct {
+				Role       string `json:"role"`
+				StopReason string `json:"stopReason"`
+				Usage      *struct {
+					Input      int64 `json:"input"`
+					Output     int64 `json:"output"`
+					CacheRead  int64 `json:"cacheRead"`
+					CacheWrite int64 `json:"cacheWrite"`
+					Cost       *struct {
+						Total *float64 `json:"total"`
+					} `json:"cost"`
+				} `json:"usage"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(line, &event) != nil || event.Message.Role != "assistant" || event.Message.Usage == nil {
+			return
+		}
+		reported := event.Message.Usage
+		if (event.Message.StopReason == "error" || event.Message.StopReason == "aborted") &&
+			reported.Input+reported.Output+reported.CacheRead+reported.CacheWrite == 0 {
+			return
+		}
+		spent := Usage{InputTokens: &reported.Input, OutputTokens: &reported.Output,
+			CacheReadTokens: &reported.CacheRead, CacheWriteTokens: &reported.CacheWrite}
+		if reported.Cost != nil {
+			spent.CostUSD = reported.Cost.Total
 		}
 		usage = usage.Then(spent)
 	})

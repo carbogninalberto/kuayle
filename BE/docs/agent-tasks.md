@@ -3891,7 +3891,7 @@ Each run records what its harness reported it spent (KUA-255, migration
 `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`
 (bigint) and `cost_usd` (numeric: the harness's own estimate in US dollars, not
 a bill). NULL means the harness did not report the value; so do all runs
-recorded before the migration and every harness other than the three below.
+recorded before the migration and every harness other than the four below.
 `input_tokens` excludes cache reads and writes, and `output_tokens` includes
 reasoning. When a run ends, the manager reads them from the run's standard
 output (`agent.ParseUsage`, called in `machine/manager.go`) and adds what the
@@ -3902,9 +3902,10 @@ output (`agent.ParseUsage`, called in `machine/manager.go`) and adds what the
 | Claude Code | `result` events: the sum of `model_usage_since_last_result` over the run's numbered results (`result_index`), every model included (subagents, compaction) | A result's `usage` covers the main loop only, and `total_cost_usd` and `modelUsage` are the session's running totals, which a resumed session continues. They are read, as a session total, only from a Claude Code that does not number its results. |
 | Codex | the last `turn.completed` `usage` | Codex reports the thread's running total, which `exec resume` continues, and one `exec` runs one turn. `CompleteAgentRun` stores the total less what the task's earlier runs in the same thread (`native_session_id`) recorded. Input is `input_tokens` less `cached_input_tokens`; there is no cost. |
 | OpenCode | the sum of `step_finish` `part.tokens` and `part.cost` | Output is `output` plus `reasoning`. A reported cost of 0 is stored as 0. |
+| Pi | the sum of the assistant `message_end` events' `message.usage` (`input`, `output`, `cacheRead`, `cacheWrite`, `cost.total`) | Each states its own model request (Pi keeps no session); `output` already includes reasoning, and `cost.total` is Pi's estimate from its model catalog (0 for an unpriced model, stored as 0). A failed request with an empty usage adds nothing. |
 
-A run whose output Kuayle could not keep whole may under-report (OpenCode sums
-its steps; Claude Code's and Codex's final events are kept in the result
+A run whose output Kuayle could not keep whole may under-report (OpenCode and
+Pi sum their steps; Claude Code's and Codex's final events are kept in the result
 tail). The run DTO carries the five fields when reported, on
 `GET /agent-tasks/:taskId/runs` and in the workflow view's `runs`. A task's
 usage is the sum over its own runs (`AgentTaskRepository.Usage`, keyed on the

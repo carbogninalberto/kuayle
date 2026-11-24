@@ -1133,7 +1133,7 @@ A Codex or Claude Code run without a model server uses the agent's own account. 
 
 ### Token usage and cost
 
-Every agent run records the tokens and cost its harness reported (Claude Code, Codex and OpenCode; NULL when not reported), its closing continuation included (migration `000204_agent_run_usage`, KUA-255). A task's usage is the sum over its runs, shown in the agent view's details block and per run. The harness's cost is an estimate, and no budget is enforced on it. See [BE/docs/agent-tasks.md](BE/docs/agent-tasks.md#token-usage-and-cost).
+Every agent run records the tokens and cost its harness reported (Claude Code, Codex, OpenCode and Pi; NULL when not reported), its closing continuation included (migration `000204_agent_run_usage`, KUA-255). A task's usage is the sum over its runs, shown in the agent view's details block and per run. The harness's cost is an estimate, and no budget is enforced on it. See [BE/docs/agent-tasks.md](BE/docs/agent-tasks.md#token-usage-and-cost).
 
 ### Usage limits
 

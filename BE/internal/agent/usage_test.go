@@ -136,6 +136,34 @@ func TestOpenCodeUsageIsTheSumOfItsSteps(t *testing.T) {
 	require.InDelta(t, 0.0024, *ParseUsage("opencode", priced).CostUSD, 1e-12)
 }
 
+// Pi states each assistant message's own usage (one model request) on its
+// message_end: input without cache reads and writes, output with reasoning
+// (pi-ai's Usage), and cost.total, its estimate from the model catalog. The
+// lines are Pi 1.6.0's recorded ones (pi_test.go); the priced and cached
+// variant is made by hand.
+func TestPiUsageIsTheSumOfItsAssistantMessages(t *testing.T) {
+	run := piStream(piSession, piAgentStart, piTurnStart, piUserMessage, piToolCall, piToolStart, piToolEnd, piToolResult, piTextEnd, piConclusion, piAgentSettled)
+	usage := ParseUsage("pi", run)
+	require.False(t, usage.SessionTotal, "Pi keeps no session, so a run reports only its own requests")
+	require.Equal(t, count(100+150), usage.InputTokens, "the streamed message_update usage is not counted again")
+	require.Equal(t, count(10+8), usage.OutputTokens)
+	require.Equal(t, count(0), usage.CacheReadTokens)
+	require.Equal(t, count(0), usage.CacheWriteTokens)
+	require.Equal(t, dollars(0), usage.CostUSD, "an unpriced model's cost is a reported zero")
+
+	priced := strings.ReplaceAll(run, `"cacheRead":0,"cacheWrite":0,"reasoning":0`, `"cacheRead":800,"cacheWrite":300,"reasoning":4`)
+	priced = strings.ReplaceAll(priced, `"total":0,"totalFromProvider":false`, `"total":0.0012,"totalFromProvider":false`)
+	usage = ParseUsage("pi", priced)
+	require.Equal(t, count(1600), usage.CacheReadTokens)
+	require.Equal(t, count(600), usage.CacheWriteTokens)
+	require.Equal(t, count(18), usage.OutputTokens, "reasoning is part of Pi's output")
+	require.InDelta(t, 0.0024, *usage.CostUSD, 1e-12)
+
+	// A request that failed after an answer adds nothing to it: Pi gives the
+	// failed message an empty usage.
+	require.Equal(t, ParseUsage("pi", run), ParseUsage("pi", run+piStream(piProviderError)))
+}
+
 func TestRunsWithoutUsageReportNothing(t *testing.T) {
 	for name, tc := range map[string]struct{ provider, stdout string }{
 		"claude-code result without usage":      {"claude-code", `{"type":"result","subtype":"success","result":"Done."}`},
@@ -145,6 +173,7 @@ func TestRunsWithoutUsageReportNothing(t *testing.T) {
 		"opencode step without tokens":          {"opencode", `{"type":"step_finish","part":{"type":"step-finish","reason":"error"}}`},
 		"plain output":                          {"codex", "Segmentation fault"},
 		"no output":                             {"opencode", ""},
+		"pi request that kept failing":          {"pi", piStream(piSession, piAgentStart, piTurnStart, piUserMessage, piProviderError, piRetryFailed)},
 		"harness without known usage":           {"goose", usageSample(t, "opencode-run.jsonl") + usageSample(t, "codex-first.jsonl")},
 	} {
 		t.Run(name, func(t *testing.T) {
