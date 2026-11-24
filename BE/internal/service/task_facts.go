@@ -121,6 +121,17 @@ var errNoPullRequestReader = errors.New("Kuayle cannot read pull requests from G
 // in Err or CI.Err. A repository or number that is not set means no pull
 // request. now is read only to judge a head that reports no checks.
 func readTaskFacts(ctx context.Context, pulls pullRequestReader, now func() time.Time, ws uuid.UUID, repository string, number int) TaskFacts {
+	f, status := readBranchFacts(ctx, pulls, ws, repository, number)
+	if status != nil && status.State == "open" {
+		f.CI = readCIFacts(ctx, pulls, now, ws, repository, number, status)
+	}
+	return f
+}
+
+// readBranchFacts is readTaskFacts without CI, which stays unknown, for a
+// caller that judges CI on a commit of its own (a workflow's CI step). It
+// also returns the pull request it read, or nil.
+func readBranchFacts(ctx context.Context, pulls pullRequestReader, ws uuid.UUID, repository string, number int) (TaskFacts, *PullRequestStatus) {
 	f := TaskFacts{
 		Repository: repository, PullRequest: number, Behind: -1,
 		PRExists: FactUnknown, PRDraft: FactUnknown, Merged: FactUnknown, Closed: FactUnknown,
@@ -130,21 +141,21 @@ func readTaskFacts(ctx context.Context, pulls pullRequestReader, now func() time
 	switch {
 	case repository == "" || number <= 0:
 		f.PRExists = FactNo
-		return f
+		return f, nil
 	case pulls == nil:
 		f.Err = errNoPullRequestReader
-		return f
+		return f, nil
 	}
 	status, err := pulls.PullRequestStatus(ctx, ws, repository, number)
 	if err != nil {
 		f.Err = err
-		return f
+		return f, nil
 	}
 	f.PRExists, f.PRDraft = FactYes, factOf(status.Draft)
 	f.Merged, f.Closed = factOf(status.State == "merged"), factOf(status.State != "open" && status.State != "merged")
 	f.HeadSHA, f.BaseRef, f.MergeCommit = status.HeadSHA, status.BaseRef, status.MergeCommit
 	if status.State != "open" {
-		return f
+		return f, status
 	}
 	f.Behind = status.Behind
 	if status.Behind >= 0 {
@@ -163,8 +174,7 @@ func readTaskFacts(ctx context.Context, pulls pullRequestReader, now func() time
 	case !status.migrationCheckUnavailable:
 		f.MigrationCollision = FactNo
 	}
-	f.CI = readCIFacts(ctx, pulls, now, ws, repository, number, status)
-	return f
+	return f, status
 }
 
 // readCIFacts reads the checks of an open pull request's head.

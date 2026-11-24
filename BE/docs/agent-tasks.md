@@ -930,6 +930,17 @@ to ship from a plan's approval, which also leads to agents. The runner
 - **Before each agent review** a branch behind its base is brought up to date
   the same way, and a conflicting one goes back as `review_changes_requested`
   with that instruction; the reviewer's visit limit and the budget stop a loop.
+- **While a CI step waits for checks** (KUA-260) it reads the pull request
+  first (`readBranchFacts`, without its CI). A conflict or a migration
+  collision leaves the step at once with `branch_conflict` and goes back as
+  above, instead of the step waiting for checks that never start until it
+  times out. A branch behind its base that merges cleanly is brought up to
+  date, pinned to the commit the step judges, at most three times, like an
+  approved merge; the step then judges CI on the new head once it is verified
+  as merges of the base into the published commit (recorded on the step's
+  `ci` as `head`, `update_of` and `updates`), and the ship merge accepts that
+  head as Kuayle's update. A fact GitHub has not reported changes nothing; CI
+  that already passed or failed decides as before.
 - **Approving** records the merge on the step that carries it out
   (`agent_task_workflow_steps.merge`, migration 171) with the approver and the
   commit the task published: on the approval itself when it leads to `done`, or
