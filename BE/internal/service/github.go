@@ -49,7 +49,8 @@ type GitHubService struct {
 	// installationAccess reports whether the user behind a shared-app
 	// installation callback owns the installation or administers its organization.
 	installationAccess func(ctx context.Context, code string, installationID int64) (bool, error)
-	// taskReviews finalizes agent tasks whose recorded pull request merged.
+	// taskReviews finalizes agent tasks whose recorded pull request merged,
+	// and wakes workflow tasks waiting on a pull request whose base moved.
 	taskReviews mergedPullRequestCompleter
 	// taskSignals records CI and review events for agent task pull requests.
 	taskSignals taskSignalRecorder
@@ -100,6 +101,7 @@ type GitHubService struct {
 type mergedPullRequestCompleter interface {
 	CompleteMergedPullRequest(ctx context.Context, workspaceID uuid.UUID, repository string, number int) (int, error)
 	ReviewPullRequests(ctx context.Context, limit int) ([]repository.ReviewPullRequest, error)
+	WakeBaseBranchWaits(ctx context.Context, workspaceID uuid.UUID, repository, branch string) (int, error)
 }
 
 type taskSignalRecorder interface {
@@ -820,6 +822,11 @@ func (s *GitHubService) processPullRequestEvent(ctx context.Context, payload []b
 			return fmt.Errorf("completing merged agent tasks: %w", err)
 		}
 	}
+	if event.Action == "closed" && event.PullRequest.Merged {
+		if err := s.wakeBaseBranchWaits(ctx, inst.WorkspaceID, repo.FullName, baseRef); err != nil {
+			return err
+		}
+	}
 
 	if issue != nil {
 		action := event.Action
@@ -923,7 +930,26 @@ func (s *GitHubService) processPushEvent(ctx context.Context, payload []byte) er
 	if len(updatedIssues) > 0 {
 		s.broadcastAppRefresh(inst.WorkspaceID, "issues")
 	}
+	if branch, ok := strings.CutPrefix(event.Ref, "refs/heads/"); ok && repo.IsActive && repo.InstallationID == inst.ID {
+		return s.wakeBaseBranchWaits(ctx, inst.WorkspaceID, repo.FullName, branch)
+	}
 
+	return nil
+}
+
+// wakeBaseBranchWaits wakes the workflow tasks waiting on a pull request into
+// a branch that just moved (a push, or a merge), so a waiting step sees at
+// once that its branch fell behind or conflicts. Like a signal, the write
+// lands even when GitHub drops the delivery.
+func (s *GitHubService) wakeBaseBranchWaits(ctx context.Context, ws uuid.UUID, repository, branch string) error {
+	if s.taskReviews == nil || branch == "" {
+		return nil
+	}
+	writeCtx, cancel := finalSignalContext(ctx)
+	defer cancel()
+	if _, err := s.taskReviews.WakeBaseBranchWaits(writeCtx, ws, repository, branch); err != nil {
+		return fmt.Errorf("waking workflows waiting on %s: %w", branch, err)
+	}
 	return nil
 }
 

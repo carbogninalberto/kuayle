@@ -2527,6 +2527,11 @@ task in `awaiting_review` with `workflow_wake_at`. A waiting node is
 evaluated as soon as it is entered (CI may have finished during the review),
 then wakes at its timeout, the time budget's end or a CI poll; a finished
 review or a CI result wakes it sooner, and the claim query picks the task up.
+A move of the base branch wakes it too (KUA-257): a push to a branch of an
+active linked repository, or a pull request merged into it, wakes every
+waiting workflow task of that workspace whose published pull request in that
+repository targets the branch (`WakeBaseBranchWaits`; the base is the task
+checkout's, as the review target reads it). A wake already due earlier is kept.
 A reviewer step left before its verdict (a timeout, a budget, a person's stop,
 or the task ending outside the runner) asks its review task to stop, as a
 cancellation request does; a review whose row is locked by its own transition
