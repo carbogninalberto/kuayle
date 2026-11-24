@@ -151,7 +151,21 @@ interface AgentRunResult {
 	artifacts: AgentArtifact[];
 }
 
-export interface AgentRun {
+/**
+ * What an agent run's harness reported it spent (with its closing
+ * continuation), or for a task the sum over its runs. An absent value was not
+ * reported. input_tokens excludes cache reads and writes; output_tokens
+ * includes reasoning; cost_usd is the harness's own estimate.
+ */
+export interface RunUsage {
+	input_tokens?: number;
+	output_tokens?: number;
+	cache_read_tokens?: number;
+	cache_write_tokens?: number;
+	cost_usd?: number;
+}
+
+export interface AgentRun extends RunUsage {
 	id: string;
 	machine_id: string;
 	issue_id?: string;

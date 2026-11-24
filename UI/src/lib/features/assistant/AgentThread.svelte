@@ -19,6 +19,7 @@
 	import AgentReview from './AgentReview.svelte';
 	import TaskNotebook from './TaskNotebook.svelte';
 	import TaskRoom from './TaskRoom.svelte';
+	import UsageLine from './UsageLine.svelte';
 	import { missedNotebook } from './task-notebook';
 	import TaskStopButton from './TaskStopButton.svelte';
 	import { openStep } from './agent-timeline';
@@ -276,6 +277,7 @@
 				<p class="text-xs text-muted-foreground">{identifier} · {m['tasks.attempt']({ number: task.generation })}</p>
 				<p class="break-words whitespace-pre-wrap text-sm">{task.prompt}</p>
 				{#if task.reason}<p class="break-words text-xs text-muted-foreground">{task.reason}</p>{/if}
+				<UsageLine usage={run.usage} label={m['tasks.usage_total']()} />
 			{/if}
 		</Collapsible.Content>
 		{#if run.notebook}<TaskNotebook view={run.notebook} request={task.prompt} name={personName} bind:open={notebookOpen} onopened={() => scroller.scrollToStart({ behavior: 'auto' })} />{/if}

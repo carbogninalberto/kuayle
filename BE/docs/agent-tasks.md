@@ -2649,8 +2649,8 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   merge step keeps the clock held from the decision until the person acts, so
   the next budget counts only the working time after it. The step's saved
   detail (failing checks, review comments) is passed on as it would have been.
-  Cost budgets are a follow-up:
-  runs do not record cost.
+  Cost budgets are a follow-up: runs record the cost their harness reports
+  ([token usage and cost](#token-usage-and-cost)), but no budget reads it.
 - **Defaults** (`workflow_defaults`): per workspace, team and project; the
   most specific wins. A task may choose any active workflow (`workflow_id` on
   task creation, `"standard"` for Standard); the assistant's `delegate_issue`
@@ -3556,9 +3556,10 @@ too long, or none at all, changes nothing: the step fails as before.
   left and does not run it again, also when too little time is left or
   nothing is missing any more. The attempt's own container is never
   removed from this path.
-- Its output is not the attempt's: summary, logs and token usage stay those
-  of the work. That it ran and for how long is on the run
-  (`closing_asked_at`, `closing_seconds`) and in the machine's events
+- Its output is not the attempt's: summary and logs stay those of the work.
+  What its harness reported it spent is added to the run's
+  [token usage](#token-usage-and-cost). That it ran and for how long is on
+  the run (`closing_asked_at`, `closing_seconds`) and in the machine's events
   (`agent_run.closing_continuation`).
 
 | Harness | Continuation |
@@ -3882,6 +3883,35 @@ or the task has published a newer commit:
 `request_agent_review` for the new head. Re-running a review still pins the
 commit Kuayle published. An implementing visit synchronizes its checkout before
 it starts and can publish a new commit for review.
+
+## Token usage and cost
+
+Each run records what its harness reported it spent (KUA-255, migration
+`000204_agent_run_usage`), in nullable columns of `dev_machine_agent_runs`:
+`input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`
+(bigint) and `cost_usd` (numeric: the harness's own estimate in US dollars, not
+a bill). NULL means the harness did not report the value; so do all runs
+recorded before the migration and every harness other than the three below.
+`input_tokens` excludes cache reads and writes, and `output_tokens` includes
+reasoning. When a run ends, the manager reads them from the run's standard
+output (`agent.ParseUsage`, called in `machine/manager.go`) and adds what the
+[closing continuation](#closing-continuation) reported.
+
+| Harness | Read from | Notes |
+| --- | --- | --- |
+| Claude Code | `result` events: the sum of `model_usage_since_last_result` over the run's numbered results (`result_index`), every model included (subagents, compaction) | A result's `usage` covers the main loop only, and `total_cost_usd` and `modelUsage` are the session's running totals, which a resumed session continues. They are read, as a session total, only from a Claude Code that does not number its results. |
+| Codex | the last `turn.completed` `usage` | Codex reports the thread's running total, which `exec resume` continues, and one `exec` runs one turn. `CompleteAgentRun` stores the total less what the task's earlier runs in the same thread (`native_session_id`) recorded. Input is `input_tokens` less `cached_input_tokens`; there is no cost. |
+| OpenCode | the sum of `step_finish` `part.tokens` and `part.cost` | Output is `output` plus `reasoning`. A reported cost of 0 is stored as 0. |
+
+A run whose output Kuayle could not keep whole may under-report (OpenCode sums
+its steps; Claude Code's and Codex's final events are kept in the result
+tail). The run DTO carries the five fields when reported, on
+`GET /agent-tasks/:taskId/runs` and in the workflow view's `runs`. A task's
+usage is the sum over its own runs (`AgentTaskRepository.Usage`, keyed on the
+task so that member tasks can join it): `usage` on every page of the runs
+response and on `GET /agent-tasks/:taskId/workflow`. A review task's runs
+count on the review task. The agent view shows the task's sum in its details
+block and each run's under its transcript. Nothing is enforced on cost yet.
 
 ## Usage limits
 

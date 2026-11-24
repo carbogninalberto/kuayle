@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
@@ -99,7 +100,35 @@ func (r *AgentTaskRepository) Runs(ctx context.Context, ws, id uuid.UUID, before
 		next := result.Runs[24].ID
 		result.NextBefore = &next
 	}
+	if result.Usage, err = taskUsage(ctx, tx, ws, id); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+// Usage is the task's usage (taskUsage), under the task's authorization.
+func (r *AgentTaskRepository) Usage(ctx context.Context, ws, id uuid.UUID) (domain.AgentRunUsage, error) {
+	if _, err := conversationActor(ctx, ws); err != nil {
+		return domain.AgentRunUsage{}, err
+	}
+	tx, _, err := r.transaction(ctx, id, true)
+	if err != nil {
+		return domain.AgentRunUsage{}, err
+	}
+	defer tx.Rollback()
+	return taskUsage(ctx, tx, ws, id)
+}
+
+// taskUsage is what a task's runs reported they spent, summed; a value no
+// run reported stays unreported. The tasks CTE is the task itself: the
+// member tasks of a task join it there once they exist.
+func taskUsage(ctx context.Context, tx *sqlx.Tx, ws, id uuid.UUID) (domain.AgentRunUsage, error) {
+	var usage domain.AgentRunUsage
+	err := tx.GetContext(ctx, &usage, `WITH tasks AS (SELECT $1::uuid AS id)
+ SELECT sum(r.input_tokens)::bigint AS input_tokens,sum(r.output_tokens)::bigint AS output_tokens,sum(r.cache_read_tokens)::bigint AS cache_read_tokens,
+  sum(r.cache_write_tokens)::bigint AS cache_write_tokens,sum(r.cost_usd) AS cost_usd
+ FROM dev_machine_agent_runs r JOIN tasks t ON r.task_id=t.id WHERE r.workspace_id=$2`, id, ws)
+	return usage, err
 }
 
 func (r *AgentTaskRepository) Logs(ctx context.Context, ws, id, run uuid.UUID, after int64) (*domain.AgentTaskLogs, error) {

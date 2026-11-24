@@ -1,5 +1,6 @@
 import { api } from './client';
 import type { MergeWait } from './conversations';
+import type { RunUsage } from '$lib/types/dev-machine';
 
 // Configurable workflows (KUA-95): agent profiles, workflows (immutable
 // versions of a state machine graph), defaults and a task's workflow run.
@@ -300,7 +301,7 @@ export interface WorkflowPauseEvent {
  * step's own runs, or the runs of the review task a reviewer step created
  * (task_id is then that review task).
  */
-export interface WorkflowStepRun {
+export interface WorkflowStepRun extends RunUsage {
 	id: string;
 	task_id: string;
 	/** The step's sequence; absent for a task that follows no workflow. */
@@ -339,6 +340,8 @@ export interface TaskWorkflow {
 	steps: WorkflowStep[];
 	/** Every run on its step, oldest first; absent on older servers. */
 	runs?: WorkflowStepRun[];
+	/** The task's own usage, summed over its runs; absent on older servers. */
+	usage?: RunUsage;
 	profiles: AgentProfile[];
 	can_decide: boolean;
 	task_state: string;

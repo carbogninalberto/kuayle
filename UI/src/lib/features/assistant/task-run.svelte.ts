@@ -7,7 +7,7 @@ import {
 	type TaskWorkflow,
 	type WorkflowGraph
 } from '$lib/api/workflows';
-import type { AgentRun } from '$lib/types/dev-machine';
+import type { AgentRun, RunUsage } from '$lib/types/dev-machine';
 import type { ConversationState } from './conversation-state.svelte';
 import { attemptTimeline, workflowTimeline, type TimelineStep } from './agent-timeline';
 
@@ -25,6 +25,8 @@ export class TaskRun {
 	view = $state.raw<TaskWorkflow | null>(null);
 	attempts = $state.raw<AgentRun[]>([]);
 	transitions = $state.raw<TaskTransition[]>([]);
+	/** The task's own usage, summed over its runs; null until read. */
+	usage = $state.raw<RunUsage | null>(null);
 	/** The task's notebook, for its creator; null until read or when it cannot be. */
 	notebook = $state.raw<TaskNotebook | null>(null);
 	/** What the task did could not be read, also when tried again. */
@@ -119,6 +121,7 @@ export class TaskRun {
 					return run.summary || !this.summaries.has(run.id) ? run : { ...run, summary: this.summaries.get(run.id) };
 				});
 				this.view = { ...loaded, runs };
+				this.usage = loaded.usage ?? null;
 			} else {
 				// The attempts, the Standard chart and the state changes are
 				// read side by side: one that fails takes none of the others.
@@ -127,6 +130,7 @@ export class TaskRun {
 				const loaded = await agentTasks.runs(this.slug, this.task.id);
 				if (current !== this.request) return;
 				this.attempts = loaded.runs;
+				this.usage = loaded.usage ?? null;
 			}
 			this.failed = false;
 			this.failures = 0;

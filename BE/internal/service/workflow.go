@@ -824,8 +824,10 @@ type TaskWorkflow struct {
 	TaskGeneration int64                 `json:"task_generation"`
 
 	// Runs are the task's agent runs, each on the step that started it, with
-	// the runs of the review tasks its steps created.
-	Runs []domain.WorkflowStepRun `json:"runs"`
+	// the runs of the review tasks its steps created. Usage is the task's
+	// own usage, the sum over its runs (the review tasks' are theirs).
+	Runs  []domain.WorkflowStepRun `json:"runs"`
+	Usage domain.AgentRunUsage     `json:"usage"`
 	// PausedAt is set while a person's pause holds the workflow, and
 	// PauseRequest while one waits for the current step. Pauses are its
 	// pauses, resumes and moves to another version of the workflow so far,
@@ -849,6 +851,9 @@ func (s *WorkflowService) TaskWorkflow(ctx context.Context, ws, id uuid.UUID, su
 	out := &TaskWorkflow{TaskState: task.State, TaskReason: task.Reason, TaskGeneration: task.Generation, Steps: []domain.WorkflowStep{}, Profiles: []domain.AgentProfile{}, Visits: map[string]int{},
 		PausedAt: task.WorkflowPausedAt, PauseRequest: task.WorkflowPauseRequest, Pauses: []domain.WorkflowPauseEvent{}}
 	if out.Runs, err = s.tasks.Repo.StepRuns(ctx, ws, id, summariesSince); err != nil {
+		return nil, err
+	}
+	if out.Usage, err = s.tasks.Repo.Usage(ctx, ws, id); err != nil {
 		return nil, err
 	}
 	if !task.RunsWorkflow() {

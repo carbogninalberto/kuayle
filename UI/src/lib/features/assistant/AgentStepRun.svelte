@@ -7,6 +7,7 @@
 	import type { DevMachineLogChunk } from '$lib/types/dev-machine';
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentTranscript from './AgentTranscript.svelte';
+	import UsageLine from './UsageLine.svelte';
 	import type { PlacedMessage } from './agent-conversation';
 	import { m } from '$lib/features/i18n/messages';
 
@@ -113,4 +114,5 @@
 			<p role="alert" class="text-sm text-destructive">{error}</p>
 			<Button variant="ghost" size="sm" onclick={() => void refresh()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>{/if}
+	<UsageLine usage={run} label={m['tasks.usage']()} />
 </div>

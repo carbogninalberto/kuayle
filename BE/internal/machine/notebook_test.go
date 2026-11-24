@@ -87,6 +87,9 @@ func (f *notebookStoreFake) MarkClosingAsked(context.Context, uuid.UUID) (bool, 
 	return true, nil
 }
 
+// RecordNativeSession accepts the thread a Codex attempt reports.
+func (f *notebookStoreFake) RecordNativeSession(context.Context, uuid.UUID, string) error { return nil }
+
 func (f *notebookStoreFake) RecordNotebookFallback(_ context.Context, _ uuid.UUID, summary, problem string) (string, error) {
 	f.fallbacks = append(f.fallbacks, summary)
 	f.fallbackProblem = problem
