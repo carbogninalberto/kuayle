@@ -1316,3 +1316,36 @@ func TestTickApprovedMergeMakesAtMostItsOwnUpdates(t *testing.T) {
 	require.NotContains(t, w.github.calls, "update:"+head, "no fourth update after the approval")
 	require.Empty(t, w.github.merged)
 }
+
+// KUA-257 for pipelines: a push to the base (or a pull request merged into
+// it) wakes a pipeline task that waits on its pull request, also while the
+// owner is awaited and when the writer's latest turn published nothing (its
+// pull request is on an earlier run, as the tick reads it).
+func TestTickABasePushWakesTheWaitingPipeline(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	w.throughReview()
+	waiting := w.task()
+	require.Equal(t, "awaiting_review", waiting.State)
+	require.Equal(t, domain.WorkflowStatusWaiting, deref(waiting.WorkflowStatus))
+	require.Nil(t, waiting.WorkflowWakeAt, "nothing polls while the owner is awaited")
+
+	wake := func(branch string) int {
+		t.Helper()
+		n, err := w.f.tasks.Repo.WakeBaseBranchWaits(w.f.ctx, w.f.ws, tickRepository, branch)
+		require.NoError(t, err)
+		return n
+	}
+	require.Zero(t, wake("release"), "a push to another branch")
+	require.Equal(t, 1, wake("main"))
+	require.WithinDuration(t, time.Now(), *w.task().WorkflowWakeAt, 5*time.Second)
+	w.drain()
+
+	// The writer's latest turn changed nothing, so Kuayle did not publish it.
+	quiet := uuid.New()
+	w.exec(`INSERT INTO dev_machine_agent_runs SELECT (jsonb_populate_record(NULL::dev_machine_agent_runs,
+ to_jsonb(r)||jsonb_build_object('id',$2::uuid))).* FROM dev_machine_agent_runs r WHERE r.id=$1`, waiting.RunID, quiet)
+	w.exec(`UPDATE agent_tasks SET run_id=$2,workflow_wake_at=NULL WHERE id=$1`, w.root, quiet)
+	require.Equal(t, 1, wake("main"))
+	require.WithinDuration(t, time.Now(), *w.task().WorkflowWakeAt, 5*time.Second)
+}

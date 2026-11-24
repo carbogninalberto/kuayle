@@ -2687,7 +2687,9 @@ A move of the base branch wakes it too (KUA-257): a push to a branch of an
 active linked repository, or a pull request merged into it, wakes every
 waiting workflow task of that workspace whose published pull request in that
 repository targets the branch (`WakeBaseBranchWaits`; the base is the task
-checkout's, as the review target reads it). A wake already due earlier is kept.
+checkout's, as the review target reads it; a pipeline task's pull request is
+the one its last published run recorded, as the tick reads it). A wake already
+due earlier is kept.
 A reviewer step left before its verdict (a timeout, a budget, a person's stop,
 or the task ending outside the runner) asks its review task to stop, as a
 cancellation request does; a review whose row is locked by its own transition
@@ -3252,7 +3254,9 @@ The tick has no branch for a particular failure: a new situation is a fact
 with a reason, sent to whoever owns the phase.
 
 **Wakes.** The worker runs a pass when `workflow_wake_at` is due. It is set
-by a CI result from GitHub (and its failure details, once read), the end of a
+by a CI result from GitHub (and its failure details, once read), a move of
+the pull request's base branch (`WakeBaseBranchWaits`, also while the owner is
+awaited), the end of a
 member's turn or of a script check's run, a person's post, decision or
 resume, and the tick's own poll or the time budget's end (not while a person
 is awaited). A pull request merged on GitHub completes the task

@@ -276,14 +276,23 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 	return member, tx.Commit()
 }
 
+// pipelinePublicationRun is the last run of a pipeline task (t) that
+// published a commit. The writer's turns all run on the root task, and a turn
+// that changed nothing is not published, so the task's latest run need not
+// be it.
+const pipelinePublicationRun = `(SELECT g.agent_run_id FROM dev_machine_git_refs g JOIN dev_machine_agent_runs r ON r.id=g.agent_run_id AND r.workspace_id=g.workspace_id
+ WHERE r.task_id=t.id AND r.workspace_id=t.workspace_id AND g.ref_type='commit' AND g.source='published' AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC,g.id DESC LIMIT 1)`
+
 // publishedTarget is the work a member reads: the newest commit Kuayle
 // published from the root task's attempts, with its pull request, and the
 // root as of the attempt that published it; nil before anything is
 // published with a pull request.
 func publishedTarget(ctx context.Context, q sqlx.QueryerContext, root domain.AgentTask) (*domain.AgentReviewTarget, domain.AgentTask, error) {
 	var run uuid.UUID
-	err := sqlx.GetContext(ctx, q, &run, `SELECT g.agent_run_id FROM dev_machine_git_refs g JOIN dev_machine_agent_runs r ON r.id=g.agent_run_id AND r.workspace_id=g.workspace_id
- WHERE r.task_id=$1 AND r.workspace_id=$2 AND g.ref_type='commit' AND g.source='published' AND g.commit_sha IS NOT NULL ORDER BY g.created_at DESC,g.id DESC LIMIT 1`, root.ID, root.WorkspaceID)
+	err := sqlx.GetContext(ctx, q, &run, `SELECT `+pipelinePublicationRun+` FROM agent_tasks t WHERE t.id=$1 AND t.workspace_id=$2`, root.ID, root.WorkspaceID)
+	if err == nil && run == uuid.Nil {
+		err = sql.ErrNoRows
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, root, nil
 	}
