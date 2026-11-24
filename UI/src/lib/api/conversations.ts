@@ -1,4 +1,4 @@
-import type { AgentLiveChatMessage, AgentTask, MergedPullRequest, TaskActivity } from './agent-tasks';
+import type { AgentLiveChatMessage, AgentTask, MergedPullRequest, TaskActivity, TaskMessage } from './agent-tasks';
 import { api } from './client';
 import { uploadWithProgress, type UploadError } from './upload';
 export type { UploadError };
@@ -70,6 +70,7 @@ export interface ConversationEvent {
 		| 'task.review_updated'
 		| 'task.workflow_updated'
 		| 'task.live_message'
+		| 'task.room_message'
 		| 'tool.started'
 		| 'tool.completed'
 		| 'approval.requested'
@@ -81,6 +82,7 @@ export interface ConversationEvent {
 		| AgentTask
 		| TaskActivity
 		| AgentLiveChatMessage
+		| TaskMessage
 		| ConversationMessage
 		| { message_id: string; delta?: string; status?: MessageStatus };
 }

@@ -38,14 +38,17 @@
 	const load = () => shared.load();
 	let deciding = $state(false);
 
-	const overlay = $derived(run ? runOverlay(run) : null);
-	const decision = $derived(run ? pendingDecision(run) : null);
+	// A pipeline (KUA-252) has no graph to chart: its task shows its room in
+	// the agent view, and this only what it runs on.
+	const graphRun = $derived(shared.pipeline ? null : run);
+	const overlay = $derived(graphRun ? runOverlay(graphRun) : null);
+	const decision = $derived(graphRun ? pendingDecision(graphRun) : null);
 	const nodeLabel = (id: string | null | undefined) =>
 		(id && run?.graph.nodes.find((n) => n.id === id)?.label) || id || '';
 
 	// The chart runs left to right at a readable size, opens on the step the
 	// task is at and pans when the panel is narrower; Expand shows it full-screen.
-	const layout = $derived(run ? leftToRight(run.graph) : null);
+	const layout = $derived(graphRun ? leftToRight(graphRun.graph) : null);
 	const chart = $derived(layout && overlay ? runChartGraph(layout, overlay) : null);
 	const name = $derived(run ? (run.builtin ? m['workflows.standard']() : run.name) : '');
 	let expanded = $state(false);

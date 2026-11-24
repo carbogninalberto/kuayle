@@ -18,6 +18,7 @@
 	import AgentReviewRequest from './AgentReviewRequest.svelte';
 	import AgentReview from './AgentReview.svelte';
 	import TaskNotebook from './TaskNotebook.svelte';
+	import TaskRoom from './TaskRoom.svelte';
 	import { missedNotebook } from './task-notebook';
 	import TaskStopButton from './TaskStopButton.svelte';
 	import { openStep } from './agent-timeline';
@@ -41,7 +42,9 @@
 	// reply as the next item; one that waits while no step runs follows the
 	// last step, where the next iteration picks it up. It is written in the
 	// composer under the view (the shared chat composer). A review of the task's pull
-	// request is asked for from its header and appears in the timeline.
+	// request is asked for from its header and appears in the timeline. A task
+	// on a pipeline shows its room instead of a timeline (TaskRoom), and the
+	// composer writes to the room.
 	let {
 		chat,
 		task,
@@ -278,7 +281,7 @@
 		{#if run.notebook}<TaskNotebook view={run.notebook} request={task.prompt} name={personName} bind:open={notebookOpen} onopened={() => scroller.scrollToStart({ behavior: 'auto' })} />{/if}
 	</section>
 
-	<ol aria-label={m['workflows.task.path']()} class="flex min-w-0 flex-col gap-1">
+	{#if run.pipeline}<TaskRoom {chat} {task} {run} />{:else}<ol aria-label={m['workflows.task.path']()} class="flex min-w-0 flex-col gap-1">
 		{#each steps as step (step.anchor)}
 			{#each timeline.before[step.anchor] ?? [] as session (session.id)}{@render reviewRow(session)}{/each}
 			<li class="min-w-0">
@@ -300,7 +303,7 @@
 		{#if conversation.pending.length && steps.length}<li class="flex min-w-0 flex-col gap-3 py-2" data-step="pending">
 				{#each conversation.pending as placed (placed.message.id)}<AgentLiveMessage {placed} />{/each}
 			</li>{/if}
-	</ol>
+	</ol>{/if}
 	{#if run.failed}<div class="flex flex-wrap items-center gap-2">
 			<p role="alert" class="text-sm text-destructive">
 				{run.followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}
