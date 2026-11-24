@@ -2836,8 +2836,8 @@ one, and a task never changes engine: a move between kinds is refused as
 pipelines. Standard stays a graph.
 
 **The switch.** `WORKFLOW_PIPELINES_ENABLED` (`config.WorkflowPipelines`,
-default `false`) is read by the API process; the Compose files do not pass
-it, so an operator who wants pipelines adds it to the backend's environment.
+default `false`) is read by the API process; both Compose files pass it
+through (`WORKFLOW_PIPELINES_ENABLED` in `.env`, see `.env.example`).
 Off, creating, saving or duplicating a pipeline, making one a default and
 starting a task on one answer `403 PIPELINES_DISABLED` (a delegation from the
 assistant says "Pipeline workflows are turned off on this server"). Saved
