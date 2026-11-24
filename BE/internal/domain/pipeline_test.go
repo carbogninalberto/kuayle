@@ -165,3 +165,21 @@ func TestPipelineWithALeadAndExpertsIsValid(t *testing.T) {
 	p.Autonomy = PipelineAutonomy{Approve: PipelineLeadRole, Waive: map[string]string{"ci": PipelineOwnerHuman, "uiux": PipelineLeadRole}}
 	require.Empty(t, ValidatePipeline(p, profiles))
 }
+
+// Every fact with a defined "met" can be required (owner decision on
+// KUA-258): the plan's conditions, not only those of the team template.
+// Values such as the head or base name are reported, never required.
+func TestPipelineChecksAcceptEveryConditionFact(t *testing.T) {
+	implementer, reviewer, profiles := exampleProfiles()
+	for _, fact := range PipelineConditionFacts {
+		p := TeamPipeline(implementer, reviewer)
+		p.Phases[0].Checks = []PipelineCheck{{ID: "c", Fact: fact}}
+		require.Empty(t, ValidatePipeline(p, profiles), fact)
+	}
+	require.ElementsMatch(t, []string{"pr_exists", "pr_draft", "head_contains_base", "conflict", "migration_collision", "ci_green", "approved", "merged", "closed", "overlap"}, PipelineConditionFacts)
+	for _, value := range []string{"head_sha", "base_ref", "board", "merged_elsewhere"} {
+		p := TeamPipeline(implementer, reviewer)
+		p.Phases[0].Checks = []PipelineCheck{{ID: "c", Fact: value}}
+		require.NotEmpty(t, ValidatePipeline(p, profiles), value)
+	}
+}
