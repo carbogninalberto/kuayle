@@ -53,7 +53,14 @@ const (
 	// tickStallLimit is how many passes in a row may find nobody working on
 	// the same head and unmet checks before the task pauses for a person.
 	tickStallLimit = 3
+	// tickSaveReserve is the part of the worker's step a pass keeps for its
+	// own writes after the reads and writes on GitHub.
+	tickSaveReserve = 5 * time.Second
 )
+
+// tickGitHubTimeout bounds what one pass asks of GitHub. A read that runs
+// out is a fact that could not be read: the pass waits and reads again.
+var tickGitHubTimeout = 12 * time.Second
 
 // tickState is the tick's memory between passes (agent_tasks.pipeline_state).
 type tickState struct {
@@ -81,6 +88,32 @@ type tickState struct {
 	// Merge is the merge the guarded phase carries out.
 	Merge *domain.MergeWait `json:"merge,omitempty"`
 	Stall tickStall         `json:"stall,omitzero"`
+	// Wait is since when the current phase waits on the same checks that
+	// change by themselves (CI running, a fact not readable).
+	Wait tickWait `json:"wait,omitzero"`
+	// Scripts are the runs of the script checks, by check ID.
+	Scripts map[string]*tickScript `json:"scripts,omitempty"`
+}
+
+// tickScript is a script check's latest run: the published commit it checks
+// in the task's worktree, the check run in flight, its exit code and the end
+// of its output once it ended, why it could not run, and whether the room
+// heard the result.
+type tickScript struct {
+	Commit string     `json:"commit"`
+	Step   *uuid.UUID `json:"step,omitempty"`
+	Exit   *int       `json:"exit,omitempty"`
+	Output string     `json:"output,omitempty"`
+	Why    string     `json:"why,omitempty"`
+	Posted bool       `json:"posted,omitempty"`
+}
+
+// tickScriptOutput bounds the end of a check's output the room keeps.
+const tickScriptOutput = 2000
+
+type tickWait struct {
+	Key   string    `json:"key,omitempty"`
+	Since time.Time `json:"since,omitzero"`
 }
 
 type tickApproval struct {
@@ -142,6 +175,8 @@ type tickPass struct {
 	members  map[string]domain.AgentTask
 	turns    int
 	readSeq  int64
+	// gh bounds the pass's calls to GitHub (tickGitHubTimeout).
+	gh context.Context
 	// stop ends the pass when the budget has no turn left for a member.
 	stop *repository.WorkflowEntry
 	// busy: a member works or a turn just started; pending: an action is
@@ -237,6 +272,13 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	}
 	t := &tickPass{s: s, w: w, task: task, p: *p, profiles: profiles, st: readTickState(task), now: w.now()}
 	t.writer, _ = p.Writer()
+	deadline := time.Now().Add(tickGitHubTimeout)
+	if step, ok := ctx.Deadline(); ok && step.Add(-tickSaveReserve).Before(deadline) {
+		deadline = step.Add(-tickSaveReserve)
+	}
+	gh, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	t.gh = gh
 	if err = t.read(ctx); err != nil {
 		return err
 	}
@@ -247,6 +289,9 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 		return t.save(ctx, t.wait("Kuayle could not read the pull request from GitHub and reads it again shortly", true), deref(task.WorkflowNode))
 	}
 	if err = t.postFacts(ctx); err != nil {
+		return err
+	}
+	if err = t.postScripts(ctx); err != nil {
 		return err
 	}
 	index, unmet := t.phase()
@@ -272,6 +317,11 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	if entry, ok := t.exhausted(0); ok {
 		return t.save(ctx, entry, phase.ID)
 	}
+	if ran, err := t.runScripts(ctx, index); err != nil {
+		return err
+	} else if ran {
+		_, unmet = t.phase()
+	}
 	if err = t.act(ctx, index, unmet); err != nil {
 		return err
 	}
@@ -281,21 +331,16 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 		}
 		return t.save(ctx, entry, phase.ID)
 	}
-	// A merge the gate refused is what the guarded phase waits on.
-	if merge := t.st.Merge; merge != nil && merge.Failure != "" && len(unmet) == 0 && index == len(p.Phases)-1 {
-		unmet = []UnmetCheck{{FactCheck: FactCheck{ID: "merge", Fact: "merge"}, State: CheckUnmet, Reason: merge.Failure}}
-	}
-	if err = t.deliver(ctx); err != nil {
+	if err = t.deliver(ctx, index); err != nil {
 		return err
-	}
-	if t.stop != nil {
-		return t.save(ctx, *t.stop, phase.ID)
 	}
 	writerDue, err := t.due(ctx, t.writer.Role)
 	if err != nil {
 		return err
 	}
-	if !writerDue {
+	if !writerDue && t.stop == nil {
+		// What is sent to a role other than the writer starts its turn now;
+		// what is sent to a person waits for the person.
 		entry, paused, err := t.stall(ctx, phase, unmet)
 		if err != nil || paused {
 			if err != nil {
@@ -303,16 +348,29 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 			}
 			return t.save(ctx, entry, phase.ID)
 		}
+		if err = t.deliver(ctx, index); err != nil {
+			return err
+		}
 		if writerDue, err = t.due(ctx, t.writer.Role); err != nil {
 			return err
 		}
+	}
+	if t.stop != nil {
+		return t.save(ctx, *t.stop, phase.ID)
 	}
 	if writerDue {
 		entry, err := t.writerTurn(ctx, phase)
 		if err != nil {
 			return err
 		}
-		return t.save(ctx, entry, phase.ID)
+		err = t.save(ctx, entry, phase.ID)
+		if !errors.Is(err, repository.ErrAgentTaskConflict) || entry.Kind != repository.WorkflowEnterIteration {
+			return err
+		}
+		// The writer's last attempt is still being wound down: its turn
+		// waits for the next poll.
+		t.turns, t.readSeq = t.turns-1, 0
+		return t.save(ctx, t.wait(phase.Label+": the writer's next turn waits until its last attempt has stopped", true), phase.ID)
 	}
 	return t.save(ctx, t.wait(t.reason(phase, unmet), t.poll || t.pending), phase.ID)
 }
@@ -327,9 +385,9 @@ func (t *tickPass) read(ctx context.Context) error {
 	}
 	t.target = target
 	if target == nil {
-		t.facts = readTaskFacts(ctx, t.w.pulls, t.w.now, task.WorkspaceID, "", 0)
+		t.facts = readTaskFacts(t.gh, t.w.pulls, t.w.now, task.WorkspaceID, "", 0)
 	} else {
-		t.facts = readTaskFacts(ctx, t.w.pulls, t.w.now, task.WorkspaceID, target.Repository, target.PullRequestNumber)
+		t.facts = readTaskFacts(t.gh, t.w.pulls, t.w.now, task.WorkspaceID, target.Repository, target.PullRequestNumber)
 	}
 	if err = ctx.Err(); err != nil {
 		return err
@@ -341,11 +399,11 @@ func (t *tickPass) read(ctx context.Context) error {
 		return t.readRoom(ctx)
 	}
 	head := t.facts.HeadSHA
-	verdicts, err := s.Repo.LatestVerdicts(ctx, task.ID, "")
+	verdicts, err := s.Repo.LatestVerdicts(ctx, task, "")
 	if err != nil {
 		return err
 	}
-	onHead, err := s.Repo.LatestVerdicts(ctx, task.ID, head)
+	onHead, err := s.Repo.LatestVerdicts(ctx, task, head)
 	if err != nil {
 		return err
 	}
@@ -354,7 +412,7 @@ func (t *tickPass) read(ctx context.Context) error {
 		if v, ok := onHead[role]; ok {
 			verdict = v
 		}
-		commit, err := t.covered(ctx, verdict.CommitSHA)
+		commit, err := t.covered(verdict.CommitSHA)
 		if err != nil {
 			t.facts.Verdicts = nil // transient: the verdict checks wait
 			break
@@ -363,11 +421,14 @@ func (t *tickPass) read(ctx context.Context) error {
 	}
 	t.facts.Approved = FactNo
 	if t.st.Approved != nil {
-		if commit, err := t.covered(ctx, t.st.Approved.Head); err != nil {
+		if commit, err := t.covered(t.st.Approved.Head); err != nil {
 			t.facts.Approved = FactUnknown
 		} else {
 			t.facts.Approved = factOf(commit == head && head != "")
 		}
+	}
+	if err = t.readScripts(ctx); err != nil {
+		return err
 	}
 	if target != nil {
 		if board, err := s.Board(ctx, task.WorkspaceID, target.Repository); err == nil {
@@ -379,12 +440,12 @@ func (t *tickPass) read(ctx context.Context) error {
 
 // covered is the head when it is commit, or commit plus only merges of the
 // base that Kuayle verified (verifiedUpdates); commit otherwise.
-func (t *tickPass) covered(ctx context.Context, commit string) (string, error) {
+func (t *tickPass) covered(commit string) (string, error) {
 	head := t.facts.HeadSHA
 	if commit == head || head == "" || t.target == nil || t.w.pulls == nil {
 		return commit, nil
 	}
-	_, why, err := t.w.verifiedUpdates(ctx, t.task, t.target, t.facts.BaseRef, head, commit)
+	_, why, err := t.w.verifiedUpdates(t.gh, t.task, t.target, t.facts.BaseRef, head, commit)
 	if err != nil || why != "" {
 		return commit, err
 	}
@@ -412,6 +473,127 @@ func (t *tickPass) readRoom(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// scriptChecks are the script checks of the phases up to the one at upto.
+func (t *tickPass) scriptChecks(upto int) []domain.PipelineCheck {
+	var checks []domain.PipelineCheck
+	for _, phase := range t.p.Phases[:upto+1] {
+		for _, check := range phase.Checks {
+			if check.Fact == domain.PipelineFactScript {
+				checks = append(checks, check)
+			}
+		}
+	}
+	return checks
+}
+
+// readScripts records the script checks' runs that ended, and makes each
+// check's fact its run for the head (a run of a commit the head merely
+// merged the base into counts, as verdicts do).
+func (t *tickPass) readScripts(ctx context.Context) error {
+	t.facts.Scripts = map[string]ScriptFact{}
+	for _, check := range t.scriptChecks(len(t.p.Phases) - 1) {
+		run := t.st.Scripts[check.ID]
+		if run == nil {
+			t.facts.Scripts[check.ID] = ScriptFact{State: "pending"}
+			continue
+		}
+		if run.Step != nil {
+			status, exit, output, err := t.s.Repo.PipelineCheckResult(ctx, t.task, *run.Step, tickScriptOutput)
+			if err != nil {
+				return err
+			}
+			if status == domain.DevMachineAgentRunStepStatusSucceeded || status == domain.DevMachineAgentRunStepStatusFailed {
+				run.Step, run.Exit, run.Output, run.Posted = nil, exit, output, false
+				if exit == nil {
+					run.Why = "the check could not finish"
+				}
+			}
+		}
+		fact := ScriptFact{State: "pending"}
+		switch commit, err := t.covered(run.Commit); {
+		case err != nil:
+			fact = ScriptFact{State: "unavailable", Why: "GitHub did not say whether the head is the commit it checked"}
+		case commit != t.facts.HeadSHA:
+		case run.Step != nil:
+			fact.State = "running"
+		case run.Exit != nil && *run.Exit == 0:
+			fact.State = "passed"
+		case run.Exit != nil:
+			fact = ScriptFact{State: "failed", Exit: *run.Exit, Output: run.Output}
+		case run.Why != "":
+			fact = ScriptFact{State: "unavailable", Why: run.Why}
+		}
+		t.facts.Scripts[check.ID] = fact
+	}
+	return nil
+}
+
+// runScripts runs, in the task's worktree through the manual check runner,
+// the script checks up to the current phase that have no run for the head
+// (or could not run). It reports whether it changed any.
+func (t *tickPass) runScripts(ctx context.Context, index int) (bool, error) {
+	changed := false
+	for _, check := range t.scriptChecks(index) {
+		if fact := t.facts.Scripts[check.ID]; t.target == nil || t.facts.PRExists != FactYes || (fact.State != "pending" && fact.State != "unavailable") {
+			continue
+		}
+		run := &tickScript{Commit: t.target.CommitSHA}
+		step, err := t.s.Repo.RunPipelineCheck(ctx, t.task, "Pipeline check "+check.ID, []string{"sh", "-c", check.Script})
+		switch {
+		case errors.Is(err, repository.ErrCheckUnavailable), errors.Is(err, repository.ErrMachineBusy), errors.Is(err, repository.ErrConversationInvalid):
+			run.Why = err.Error()
+			t.facts.Scripts[check.ID] = ScriptFact{State: "unavailable", Why: run.Why}
+		case err != nil:
+			return changed, err
+		default:
+			run.Step = &step.ID
+			t.facts.Scripts[check.ID] = ScriptFact{State: "running"}
+		}
+		if t.st.Scripts == nil {
+			t.st.Scripts = map[string]*tickScript{}
+		}
+		t.st.Scripts[check.ID], changed = run, true
+	}
+	return changed, nil
+}
+
+// postScripts posts each script check's result once: a failed advisory
+// check to the owner of its phase, which it never holds up.
+func (t *tickPass) postScripts(ctx context.Context) error {
+	for _, phase := range t.p.Phases {
+		for _, check := range phase.Checks {
+			run := t.st.Scripts[check.ID]
+			if check.Fact != domain.PipelineFactScript || run == nil || run.Exit == nil || run.Posted {
+				continue
+			}
+			body := fmt.Sprintf("Check %s passed on %s.", check.ID, shortSHA(run.Commit))
+			var to []string
+			if *run.Exit != 0 {
+				_, body = TaskFacts{Scripts: map[string]ScriptFact{check.ID: {State: "failed", Exit: *run.Exit, Output: run.Output}}}.judgeScript(check.ID, shortSHA(run.Commit))
+				if !check.Required {
+					to = []string{t.owner(phase)}
+				}
+			}
+			value, _ := json.Marshal(map[string]any{"check": check.ID, "commit": run.Commit, "exit": *run.Exit})
+			if err := t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomFact, ToRoles: to, Body: truncateUTF8Bytes(body, domain.RoomMaxBodyBytes),
+				Data: domain.TaskRoomData{Fact: domain.PipelineFactScript, Value: value}, DedupeKey: fmt.Sprintf("script:%s:%s:%d", check.ID, run.Commit, t.st.Pass)}); err != nil {
+				return err
+			}
+			run.Posted = true
+		}
+	}
+	return nil
+}
+
+// owner is who a phase's unmet checks go to: its role or person, and the
+// writer for a phase Kuayle runs (the writer changes what blocks it).
+func (t *tickPass) owner(phase domain.PipelinePhase) string {
+	if _, role := t.p.RosterRole(phase.Owner); !role && phase.Owner != domain.PipelineOwnerHuman {
+		return t.writer.Role
+	}
+	return phase.Owner
 }
 
 // tickFacts are the facts a pass posts, in order.
@@ -548,14 +730,24 @@ func (t *tickPass) exhausted(turns int) (repository.WorkflowEntry, bool) {
 // act runs the platform actions the facts call for in the current phase.
 func (t *tickPass) act(ctx context.Context, index int, unmet []UnmetCheck) error {
 	f := t.facts
+	var waiting []string
 	for _, check := range unmet {
 		if check.State != CheckUnmet {
-			t.poll = true // it changes by itself, or is read again
+			waiting = append(waiting, check.ID+":"+check.State)
 		}
 		if check.Fact == factApproved && check.State == CheckUnmet {
 			t.person = true // the owner approves through the decision route
 		}
 	}
+	// What changes by itself (CI running, a fact not readable) is read
+	// again shortly, for as long as a merge would wait for it; then it is
+	// sent on like any unmet check.
+	if key := f.HeadSHA + "|" + strings.Join(waiting, ","); len(waiting) == 0 {
+		t.st.Wait = tickWait{}
+	} else if t.st.Wait.Key != key {
+		t.st.Wait = tickWait{Key: key, Since: t.now}
+	}
+	t.poll = len(waiting) > 0 && t.now.Sub(t.st.Wait.Since) < mergeWaitTimeout
 	for role, task := range t.members {
 		if domain.MemberState(task.State) != domain.MemberIdle {
 			t.busy = true
@@ -575,22 +767,22 @@ func (t *tickPass) act(ctx context.Context, index int, unmet []UnmetCheck) error
 	}
 	if f.HeadContainsBase == FactNo && f.Conflict == FactNo && f.MigrationCollision == FactNo && t.st.Updates < maxMergeUpdates {
 		t.st.Updates++
-		if _, updated, conflicts := t.w.updateBranch(ctx, t.task, t.target, f.HeadSHA, f.Behind); updated || conflicts {
+		if _, updated, conflicts := t.w.updateBranch(t.gh, t.task, t.target, f.HeadSHA, f.Behind); updated || conflicts {
 			t.pending = true
 		}
 	}
 	// CI that fails again on a head the writer was sent and did not change
 	// runs its failed jobs once more (as ciAgain does).
 	if f.CI.Green == FactNo && f.CI.State == "failing" && t.st.Stall.Head == f.HeadSHA && t.st.Stall.Count > 0 && t.st.Rerun != f.HeadSHA && !t.busy {
-		if done, err := t.rerun(ctx); err != nil || done {
-			return err
+		if t.rerun() {
+			return nil
 		}
 	}
 	return t.askReviewers(ctx, index)
 }
 
 // rerun asks GitHub to run the head's failed Actions jobs again.
-func (t *tickPass) rerun(ctx context.Context) (bool, error) {
+func (t *tickPass) rerun() bool {
 	rerunner, ok := t.w.checks.(ciRerunner)
 	runs := []int64{}
 	for _, check := range t.facts.CI.failing() {
@@ -599,20 +791,15 @@ func (t *tickPass) rerun(ctx context.Context) (bool, error) {
 		}
 	}
 	if !ok || len(runs) == 0 {
-		return false, nil
+		return false
 	}
-	err := rerunner.RerunFailedJobs(ctx, t.task.WorkspaceID, t.target.Repository, runs)
-	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
-		return false, err
-	}
+	err := rerunner.RerunFailedJobs(t.gh, t.task.WorkspaceID, t.target.Repository, runs)
 	if err != nil && rerunRefusal(err) == "" {
-		return false, nil // GitHub could not be reached: next pass
+		return false // GitHub could not be reached in time: next pass
 	}
 	t.st.Rerun = t.facts.HeadSHA
-	if err == nil {
-		t.pending = true
-	}
-	return err == nil, nil
+	t.pending = err == nil
+	return err == nil
 }
 
 // askReviewers asks each role whose verdict the current phase requires and
@@ -624,8 +811,12 @@ func (t *tickPass) askReviewers(ctx context.Context, index int) error {
 		if check.Fact != domain.PipelineFactVerdict || !check.Required || t.facts.Verdicts == nil || (given && verdict.Commit == head) || t.st.Asked[check.Role] == head {
 			continue
 		}
-		if err := t.startMember(ctx, check.Role, true); err != nil {
-			return err
+		started, err := t.startMember(ctx, check.Role, true)
+		if err != nil || !started {
+			if err != nil {
+				return err
+			}
+			continue
 		}
 		if t.st.Asked == nil {
 			t.st.Asked = map[string]string{}
@@ -635,29 +826,50 @@ func (t *tickPass) askReviewers(ctx context.Context, index int) error {
 	return nil
 }
 
-// startMember starts a turn of a role that does not write, unless it is
-// busy or the budget has no turn left (the next pass stops the task then).
-func (t *tickPass) startMember(ctx context.Context, role string, askVerdict bool) error {
+// owesVerdict reports whether the current phase requires a role's verdict
+// on the head and does not have it.
+func (t *tickPass) owesVerdict(index int, role string) bool {
+	verdict, given := t.facts.Verdicts[role]
+	return t.facts.Verdicts != nil && (!given || verdict.Commit != t.facts.HeadSHA) && slices.ContainsFunc(t.p.Phases[index].Checks, func(c domain.PipelineCheck) bool {
+		return c.Fact == domain.PipelineFactVerdict && c.Role == role && c.Required
+	})
+}
+
+// startMember starts a turn of a role that does not write, and says
+// whether it did: not while it is busy, nor when the budget has no turn left
+// (the pass stops the task then). A role whose last turn is still being
+// wound down is tried again at the next poll; one that cannot take a turn at
+// all is a fact, and a person decides.
+func (t *tickPass) startMember(ctx context.Context, role string, askVerdict bool) (bool, error) {
 	if task, ok := t.members[role]; ok && domain.MemberState(task.State) != domain.MemberIdle {
 		t.busy = true
-		return nil
+		return false, nil
 	}
 	if entry, out := t.exhausted(1); out {
 		t.stop = &entry
-		return nil
+		return false, nil
 	}
 	member, err := t.s.Repo.StartMemberTurn(ctx, t.task.ID, role, askVerdict)
-	if errors.Is(err, repository.ErrMemberBusy) {
-		t.busy = true
-		return nil
-	}
-	if err != nil {
-		return err
+	switch {
+	case errors.Is(err, repository.ErrMemberBusy):
+		t.poll = true
+		return false, nil
+	case errors.Is(err, repository.ErrMemberUnavailable), errors.Is(err, repository.ErrConversationInvalid):
+		why := fmt.Sprintf("The @%s cannot take a turn: %s", role, err)
+		value, _ := json.Marshal(map[string]string{"role": role, "state": "unavailable"})
+		if err = t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomFact, Body: why, Data: domain.TaskRoomData{Fact: "turn", Value: value},
+			DedupeKey: fmt.Sprintf("unavailable:%d:%s", t.st.Pass, role)}); err != nil {
+			return false, err
+		}
+		t.stop = &repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: domain.WorkflowReasonPrefix + why + ". Continue or stop the workflow"}
+		return false, nil
+	case err != nil:
+		return false, err
 	}
 	t.members[role] = domain.AgentTask{ID: *member.MemberTaskID, State: "queued"}
 	t.turns++
 	t.busy = true
-	return nil
+	return true, nil
 }
 
 // mergeGuarded merges the pull request through the merge gate once the
@@ -668,21 +880,32 @@ func (t *tickPass) mergeGuarded(ctx context.Context, index int, unmet []UnmetChe
 	last := len(t.p.Phases) - 1
 	head := t.facts.HeadSHA
 	if index != last || len(unmet) > 0 || t.facts.PRExists != FactYes {
+		// The facts sent the work back: a merge starts afresh once they hold.
+		t.st.Merge = nil
 		return repository.WorkflowEntry{}, false, nil
 	}
 	if !t.p.Phases[last].Guarded {
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterComplete, Reason: domain.WorkflowReasonPrefix + "Every required check holds for " + shortSHA(head)}, true, nil
 	}
 	wait := t.st.Merge
-	if wait == nil || (wait.Head != head && !wait.Updating) {
+	if wait != nil && wait.Head != head {
+		// Only Kuayle's own update of the head it merges carries a wait on.
+		if covered, err := t.covered(wait.Head); err != nil || !wait.Updating || covered != head {
+			wait = nil
+		}
+	}
+	if wait == nil {
 		wait = newMergeWait(head, "", t.now)
 		t.st.Merge = wait
 	}
 	if wait.Failure != "" {
-		return repository.WorkflowEntry{}, false, nil
+		// The gate refused, and the facts read since do not say why: a
+		// person decides (Continue tries again).
+		return repository.WorkflowEntry{Kind: repository.WorkflowEnterPause,
+			Reason: truncateUTF8Bytes(domain.WorkflowReasonPrefix+"The merge was refused: "+wait.Failure, 1900) + ". Continue to try again, or stop the workflow"}, true, nil
 	}
 	refuse := func(reason string) error {
-		wait.Failure = truncateRunes(reason, 1000)
+		wait.Failure, t.pending = truncateRunes(reason, 1000), true
 		value, _ := json.Marshal(map[string]string{"head": head, "state": "refused"})
 		return t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomFact, Body: wait.Failure, Data: domain.TaskRoomData{Fact: "merge", Value: value}, DedupeKey: "merge:" + head})
 	}
@@ -690,7 +913,7 @@ func (t *tickPass) mergeGuarded(ctx context.Context, index int, unmet []UnmetChe
 		return repository.WorkflowEntry{}, false, refuse("Kuayle cannot merge pull requests here")
 	}
 	if wait.Method == "" {
-		method, err := t.w.pulls.ResolveMergeMethod(ctx, t.task.WorkspaceID, t.target.Repository)
+		method, err := t.w.pulls.ResolveMergeMethod(t.gh, t.task.WorkspaceID, t.target.Repository)
 		if errors.Is(err, ErrMergeMethodNotAllowed) {
 			return repository.WorkflowEntry{}, false, refuse(upperFirst(err.Error()))
 		}
@@ -700,9 +923,10 @@ func (t *tickPass) mergeGuarded(ctx context.Context, index int, unmet []UnmetChe
 		}
 		wait.Method = method
 	}
-	// The merge is the approver's, who must still be allowed to decide.
+	// The merge is the approver of the head's, who must still be allowed to
+	// decide; without an approval (it was waived) it is the creator's.
 	actor := t.task.CreatorID
-	if t.st.Approved != nil {
+	if t.st.Approved != nil && t.facts.Approved == FactYes {
 		actor = t.st.Approved.By
 		access := domain.WithAccess(ctx, domain.Access{WorkspaceID: t.task.WorkspaceID, UserID: actor})
 		if _, err := t.s.Repo.WorkflowDecisionTask(access, t.task.WorkspaceID, t.task.ID); errors.Is(err, repository.ErrConversationNotFound) || errors.Is(err, repository.ErrAgentTaskUnauthorized) {
@@ -711,16 +935,16 @@ func (t *tickPass) mergeGuarded(ctx context.Context, index int, unmet []UnmetChe
 			return repository.WorkflowEntry{}, false, err
 		}
 	}
-	hold, err := t.w.gate().merge(ctx, t.task.WorkspaceID, actor, t.target.Repository, t.target.PullRequestNumber, wait, t.w.merger)
+	hold, err := t.w.gate().merge(t.gh, t.task.WorkspaceID, actor, t.target.Repository, t.target.PullRequestNumber, wait, t.w.merger)
 	switch {
-	case err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)):
-		return repository.WorkflowEntry{}, false, err
 	case err != nil:
-		t.pending = true // GitHub could not be reached: next pass
+		t.pending = true // GitHub could not be reached in time: next pass
 	case hold.merged || hold.mergedElsewhere:
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterComplete, Reason: fmt.Sprintf("%sMerged pull request #%d at %s", domain.WorkflowReasonPrefix, t.target.PullRequestNumber, shortSHA(wait.Head))}, true, nil
-	case hold.waits(wait):
+	case hold.waits(wait) && t.now.Before(wait.Deadline):
 		wait.Waiting, t.pending = truncateRunes(hold.reason, 600), true
+	case hold.waits(wait):
+		return repository.WorkflowEntry{}, false, refuse(mergeWaitExpiredRefusal(t.target.PullRequestNumber, wait))
 	default:
 		return repository.WorkflowEntry{}, false, refuse(hold.reason)
 	}
@@ -734,8 +958,8 @@ func (t *tickPass) due(ctx context.Context, role string) (bool, error) {
 }
 
 // deliver starts a turn of every idle member, other than the writer, whose
-// unread posts call for one.
-func (t *tickPass) deliver(ctx context.Context) error {
+// unread posts call for one; it owes a verdict when the phase requires it.
+func (t *tickPass) deliver(ctx context.Context, index int) error {
 	for _, member := range t.p.Roster {
 		if member.Writer {
 			continue
@@ -746,7 +970,7 @@ func (t *tickPass) deliver(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := t.startMember(ctx, member.Role, false); err != nil {
+		if _, err := t.startMember(ctx, member.Role, t.owesVerdict(index, member.Role)); err != nil {
 			return err
 		}
 	}
@@ -776,10 +1000,8 @@ func (t *tickPass) stall(ctx context.Context, phase domain.PipelinePhase, unmet 
 		why := fmt.Sprintf("Nobody made progress on %s in %d passes; %s waits on: %s", shortSHA(t.facts.HeadSHA), t.st.Stall.Count, phase.Label, strings.Join(reasons, " "))
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: truncateUTF8Bytes(domain.WorkflowReasonPrefix+why, 1900) + ". Continue or stop the workflow"}, true, nil
 	}
-	owner := phase.Owner
-	if _, role := t.p.RosterRole(owner); !role && owner != domain.PipelineOwnerHuman {
-		owner = t.writer.Role // Kuayle's own phase: the writer changes what blocks it
-	}
+	owner := t.owner(phase)
+	t.person = owner == domain.PipelineOwnerHuman
 	body := fmt.Sprintf("Nobody is working, and the phase %s waits on:\n%s", phase.Label, strings.Join(reasons, "\n"))
 	return repository.WorkflowEntry{}, false, t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomSummary, ToRoles: []string{owner},
 		Body: truncateUTF8Bytes(body, domain.RoomMaxBodyBytes), DedupeKey: fmt.Sprintf("stall:%d", t.st.Pass)})
@@ -869,47 +1091,55 @@ func (t *tickPass) save(ctx context.Context, entry repository.WorkflowEntry, pha
 
 // decidePipeline applies a person's decision on a pipeline task: approving
 // the head where a phase waits for the owner's approval, or continuing or
-// stopping where the tick paused.
-func (s *AgentTaskService) decidePipeline(ctx context.Context, ws uuid.UUID, task domain.AgentTask, sequence int, decision string) (*domain.AgentTask, error) {
+// stopping where the tick paused. It reads the task as it is locked for the
+// decision, so a pass that ran meanwhile is neither lost nor overwritten.
+func (s *AgentTaskService) decidePipeline(ctx context.Context, ws, id uuid.UUID, sequence int, decision string) (*domain.AgentTask, error) {
 	access, ok := domain.AccessFromContext(ctx)
-	if !ok || s.workflow == nil || task.WorkflowSequence != sequence || task.WorkflowStatus == nil || task.WorkflowPausedAt != nil {
+	if !ok || s.workflow == nil {
 		return nil, ErrWorkflowDecision
 	}
-	p, _, err := s.workflow.pipeline(ctx, task)
-	if err != nil {
-		return nil, err
-	}
-	st := readTickState(task)
-	now := s.workflow.now()
-	apply := repository.PipelineApply{Sequence: sequence, Phase: deref(task.WorkflowNode), Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, WakeAt: &now}}
-	phase := p.Phases[max(slices.IndexFunc(p.Phases, func(phase domain.PipelinePhase) bool { return phase.ID == apply.Phase }), 0)]
-	switch {
-	case *task.WorkflowStatus == domain.WorkflowStatusWaiting && decision == WorkflowDecisionApprove && task.State == "awaiting_review":
-		var head string
-		_ = json.Unmarshal(st.Facts["head_sha"], &head)
-		if head == "" || !slices.ContainsFunc(phase.Checks, func(c domain.PipelineCheck) bool { return c.Fact == domain.PipelineFactApproved }) {
+	decided, err := s.Repo.DecidePipeline(ctx, ws, id, func(task domain.AgentTask) (*repository.PipelineApply, error) {
+		if !task.Pipeline || task.WorkflowSequence != sequence || task.WorkflowStatus == nil || task.WorkflowPausedAt != nil {
 			return nil, ErrWorkflowDecision
 		}
-		st.Approved = &tickApproval{Head: head, By: access.UserID}
-		apply.Entry.Reason = fmt.Sprintf("%s%s: approved %s; Kuayle reads the facts", domain.WorkflowReasonPrefix, phase.Label, shortSHA(head))
-		apply.Notes = []domain.NotebookNote{{Event: fmt.Sprintf("A person approved merging %s at %s", shortSHA(head), phase.Label)}}
-	case *task.WorkflowStatus == domain.WorkflowStatusPaused && decision == WorkflowDecisionContinue:
-		// Every role may be asked again, and the stall counts anew; a budget
-		// that is used up grants another of the same size.
-		st.Stall, st.Asked, st.Merge = tickStall{}, nil, nil
-		t := &tickPass{task: task, p: *p, now: now}
-		_, apply.ExtendBudget = t.exhausted(1)
-		apply.Entry.Reason = domain.WorkflowReasonPrefix + "Continued by a person; Kuayle reads the facts"
-		apply.Notes = []domain.NotebookNote{{Event: fmt.Sprintf("A person chose %q at %s", decision, phase.Label)}}
-	case *task.WorkflowStatus == domain.WorkflowStatusPaused && decision == WorkflowDecisionStop:
-		apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: domain.WorkflowReasonPrefix + "stopped by a person where it paused"}
-	default:
-		return nil, ErrWorkflowDecision
-	}
-	if apply.State, err = json.Marshal(st); err != nil {
-		return nil, err
-	}
-	decided, err := s.Repo.DecidePipeline(ctx, ws, task.ID, apply)
+		p, _, err := s.workflow.pipeline(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		st := readTickState(task)
+		now := s.workflow.now()
+		apply := &repository.PipelineApply{Sequence: sequence, Phase: deref(task.WorkflowNode), Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, WakeAt: &now}}
+		phase := p.Phases[max(slices.IndexFunc(p.Phases, func(phase domain.PipelinePhase) bool { return phase.ID == apply.Phase }), 0)]
+		switch {
+		case *task.WorkflowStatus == domain.WorkflowStatusWaiting && decision == WorkflowDecisionApprove && task.State == "awaiting_review":
+			var head string
+			_ = json.Unmarshal(st.Facts["head_sha"], &head)
+			if head == "" || !slices.ContainsFunc(phase.Checks, func(c domain.PipelineCheck) bool { return c.Fact == domain.PipelineFactApproved }) {
+				return nil, ErrWorkflowDecision
+			}
+			// A new approval starts a new merge.
+			st.Approved, st.Merge = &tickApproval{Head: head, By: access.UserID}, nil
+			apply.Entry.Reason = fmt.Sprintf("%s%s: approved %s; Kuayle reads the facts", domain.WorkflowReasonPrefix, phase.Label, shortSHA(head))
+			apply.Notes = []domain.NotebookNote{{Event: fmt.Sprintf("A person approved merging %s at %s", shortSHA(head), phase.Label)}}
+		case *task.WorkflowStatus == domain.WorkflowStatusPaused && decision == WorkflowDecisionContinue:
+			// Every role may be asked again, the stall and the waits count
+			// anew and the merge starts again; a budget that is used up
+			// grants another of the same size.
+			st.Stall, st.Wait, st.Asked, st.Merge = tickStall{}, tickWait{}, nil, nil
+			t := &tickPass{task: task, p: *p, now: now}
+			_, apply.ExtendBudget = t.exhausted(1)
+			apply.Entry.Reason = domain.WorkflowReasonPrefix + "Continued by a person; Kuayle reads the facts"
+			apply.Notes = []domain.NotebookNote{{Event: fmt.Sprintf("A person chose %q at %s", decision, phase.Label)}}
+		case *task.WorkflowStatus == domain.WorkflowStatusPaused && decision == WorkflowDecisionStop:
+			apply.Entry = repository.WorkflowEntry{Kind: repository.WorkflowEnterFail, Reason: domain.WorkflowReasonPrefix + "stopped by a person where it paused"}
+		default:
+			return nil, ErrWorkflowDecision
+		}
+		if apply.State, err = json.Marshal(st); err != nil {
+			return nil, err
+		}
+		return apply, nil
+	})
 	if errors.Is(err, repository.ErrAgentTaskConflict) {
 		return nil, ErrWorkflowDecision
 	}

@@ -74,6 +74,9 @@ type TaskFacts struct {
 	// board (boardOverlap); the caller that read the board sets it. Nil: not
 	// read.
 	Overlap []domain.AgentBoardOverlap `json:"overlap"`
+	// Scripts are the runs of a pipeline's script checks for the head, by
+	// check ID; the tick that runs them sets them.
+	Scripts map[string]ScriptFact `json:"scripts,omitempty"`
 	// Err is why the pull request could not be read.
 	Err error `json:"-"`
 }
@@ -83,6 +86,16 @@ type TaskFacts struct {
 type TaskVerdict struct {
 	Commit  string `json:"commit"`
 	Verdict string `json:"verdict"`
+}
+
+// ScriptFact is a script check's run for the head: "pending" (not run
+// yet), "running", "passed", "failed" (its exit code and the end of its
+// output), or "unavailable" (it could not run, and why).
+type ScriptFact struct {
+	State  string `json:"state"`
+	Exit   int    `json:"exit,omitempty"`
+	Output string `json:"output,omitempty"`
+	Why    string `json:"why,omitempty"`
 }
 
 // CIFacts is CI on the pull request's head.
@@ -265,6 +278,7 @@ const (
 	factMerged             = "merged"
 	factClosed             = "closed"
 	factOverlap            = "overlap"
+	factScript             = "script"
 )
 
 // What a check that does not hold waits for.
@@ -299,7 +313,7 @@ func unmetChecks(f TaskFacts, checks []FactCheck) []UnmetCheck {
 // judge returns "" when the check holds, otherwise its state and reason.
 func (f TaskFacts) judge(check FactCheck) (string, string) {
 	switch check.Fact {
-	case factPRExists, factPRDraft, factHeadContainsBase, factConflict, factMigrationCollision, factCIGreen, factVerdict, factApproved, factMerged, factClosed, factOverlap:
+	case factPRExists, factPRDraft, factHeadContainsBase, factConflict, factMigrationCollision, factCIGreen, factVerdict, factApproved, factMerged, factClosed, factOverlap, factScript:
 	default:
 		return CheckUnmet, fmt.Sprintf("Kuayle does not know the fact %q. Next step: fix the workflow definition.", check.Fact)
 	}
@@ -318,6 +332,8 @@ func (f TaskFacts) judge(check FactCheck) (string, string) {
 		return "", ""
 	case factVerdict:
 		return f.judgeVerdict(check, head)
+	case factScript:
+		return f.judgeScript(check.ID, head)
 	case factApproved:
 		return judgeFact(f.Approved, FactYes, fmt.Sprintf("Nobody has approved merging %s yet. Next step: ask the owner to approve it.", head),
 			"Kuayle could not read the approvals. It reads them again shortly.")
@@ -406,6 +422,23 @@ func (f TaskFacts) judgeCI(pr, head string) (string, string) {
 		return CheckWaiting, fmt.Sprintf("No checks have reported on %s yet, %s. Kuayle waits for them.", head, ci.Unchecked)
 	}
 	return CheckUnknown, fmt.Sprintf("Not every check on %s could be read, so it is not known that CI passed. Kuayle reads them again shortly.", head)
+}
+
+// judgeScript judges a script check by its run for the head; the end of a
+// failed run's output is fenced as data.
+func (f TaskFacts) judgeScript(id, head string) (string, string) {
+	result, ok := f.Scripts[id]
+	switch {
+	case f.Scripts == nil:
+		return CheckUnknown, "Kuayle has not read the checks' runs. It reads them again shortly."
+	case !ok || result.State == "pending" || result.State == "running":
+		return CheckWaiting, fmt.Sprintf("Kuayle runs check %s on %s in the task's worktree and waits for it.", id, head)
+	case result.State == "unavailable":
+		return CheckUnknown, fmt.Sprintf("Kuayle could not run check %s on %s: %s. It tries again shortly.", id, head, lowerFirst(strings.TrimSuffix(result.Why, ".")))
+	case result.State == "failed":
+		return CheckUnmet, fmt.Sprintf("Check %s exited %d on %s. The end of its output:\n~~~text\n%s\n~~~\nNext step: fix what it reports and push.", id, result.Exit, head, strings.ReplaceAll(strings.TrimSpace(result.Output), "~~~", "~ ~ ~"))
+	}
+	return "", ""
 }
 
 func (f TaskFacts) judgeVerdict(check FactCheck, head string) (string, string) {

@@ -253,6 +253,14 @@ func ValidatePipeline(p Pipeline, profiles map[uuid.UUID]AgentProfile) []Workflo
 		}
 	}
 
+	// The owner merges (A6): a guarded merge needs a person's (or a granted
+	// lead's) approval in a phase before it, as a required check.
+	if last := len(p.Phases) - 1; p.Phases[last].Guarded && !slices.ContainsFunc(p.Phases[:last], func(phase PipelinePhase) bool {
+		return slices.ContainsFunc(phase.Checks, func(c PipelineCheck) bool { return c.Fact == PipelineFactApproved && c.Required })
+	}) {
+		add("missing_approval", p.Phases[last].ID, "%s: a guarded merge needs a required approved check in a phase before it", p.Phases[last].Label)
+	}
+
 	decides := func(who string) bool {
 		return who == "" || who == PipelineOwnerHuman || (who == PipelineLeadRole && p.Lead != nil)
 	}
@@ -299,7 +307,8 @@ func pipelineCheckProblem(check PipelineCheck, roles map[string]PipelineMember) 
 
 // TeamPipeline is the "team" template: the implementer writes, Kuayle opens
 // the pull request, the reviewer gives a verdict, the branch is up to date
-// with green CI, a person approves and Kuayle merges. No lead: Kuayle moves
+// with green CI and takes no migration number its base took, a person
+// approves and Kuayle merges. No lead: Kuayle moves
 // to the first phase with an unmet required check.
 func TeamPipeline(implementer, reviewer uuid.UUID) Pipeline {
 	required := func(id, fact string) PipelineCheck { return PipelineCheck{ID: id, Fact: fact, Required: true} }
@@ -309,7 +318,8 @@ func TeamPipeline(implementer, reviewer uuid.UUID) Pipeline {
 			{ID: "implement", Label: "Implement", Owner: "implementer"},
 			{ID: "pr", Label: "Pull request", Owner: PipelineOwnerKuayle, Checks: []PipelineCheck{required("pr-exists", PipelineFactPRExists)}},
 			{ID: "review", Label: "Review", Owner: "implementer", Checks: []PipelineCheck{{ID: "reviewer", Fact: PipelineFactVerdict, Role: "reviewer", Required: true}}},
-			{ID: "integrate", Label: "CI checks", Owner: "implementer", Checks: []PipelineCheck{required("up-to-date", PipelineFactHeadContainsBase), required("ci", PipelineFactCIGreen)}},
+			{ID: "integrate", Label: "CI checks", Owner: "implementer", Checks: []PipelineCheck{required("up-to-date", PipelineFactHeadContainsBase), required("ci", PipelineFactCIGreen),
+				{ID: "migrations", Fact: PipelineFactMigrationCollision, Required: true}}},
 			{ID: "approval", Label: "Approval", Owner: PipelineOwnerHuman, Checks: []PipelineCheck{required("owner", PipelineFactApproved)}},
 			{ID: "merge", Label: "Merge", Owner: PipelineOwnerKuayle, Guarded: true},
 		},

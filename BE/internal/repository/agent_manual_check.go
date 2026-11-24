@@ -73,6 +73,73 @@ func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, co
 			return nil, ErrCheckForbidden
 		}
 	}
+	if command == nil {
+		// The check is refused for what it would run on before it is refused
+		// for the missing command.
+		if _, err = queueManualCheck(ctx, tx, task, actor, nil, ""); err != nil {
+			return nil, err
+		}
+		return nil, ErrNoCheckCommand
+	}
+	step, err := queueManualCheck(ctx, tx, task, actor, command, "Manual check")
+	if err != nil {
+		return nil, err
+	}
+	return step, tx.Commit()
+}
+
+// RunPipelineCheck runs a script check of the pipeline a task is pinned to
+// in the task's worktree, through the manual check runner, for its creator
+// (the tick's). The command comes from the pinned version, which only those
+// who manage workflows write, so the creator needs no permission to run a
+// command of their own. It returns the check's step.
+func (r *AgentTaskRepository) RunPipelineCheck(ctx context.Context, root domain.AgentTask, name string, command []string) (*domain.DevMachineAgentRunStep, error) {
+	if len(command) == 0 || domain.ValidateTestCommand(command) != nil {
+		return nil, ErrConversationInvalid
+	}
+	tx, task, err := r.transaction(ctx, root.ID, true)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if !task.Pipeline || task.WorkspaceID != root.WorkspaceID {
+		return nil, ErrTaskRoomUnavailable
+	}
+	step, err := queueManualCheck(ctx, tx, task, task.CreatorID, command, name)
+	if err != nil {
+		return nil, err
+	}
+	return step, tx.Commit()
+}
+
+// PipelineCheckResult is a check run of a task's attempts: its status, its
+// exit code once it ended, and the end of its output (at most limit bytes).
+func (r *AgentTaskRepository) PipelineCheckResult(ctx context.Context, task domain.AgentTask, step uuid.UUID, limit int) (domain.DevMachineAgentRunStepStatus, *int, string, error) {
+	var row struct {
+		Status domain.DevMachineAgentRunStepStatus `db:"status"`
+		Exit   *int                                `db:"exit_code"`
+	}
+	err := r.db.GetContext(ctx, &row, `SELECT s.status,s.exit_code FROM dev_machine_agent_run_steps s JOIN dev_machine_agent_runs r ON r.id=s.agent_run_id
+ WHERE s.id=$1 AND s.step_type=$2 AND r.task_id=$3 AND r.workspace_id=$4`, step, manualCheckStepType, task.ID, task.WorkspaceID)
+	if err != nil {
+		return "", nil, "", err
+	}
+	var chunks []string
+	if err = r.db.SelectContext(ctx, &chunks, `SELECT content FROM dev_machine_log_chunks WHERE service_id=$1 AND workspace_id=$2 ORDER BY sequence DESC,id DESC LIMIT 40`, step, task.WorkspaceID); err != nil {
+		return "", nil, "", err
+	}
+	slices.Reverse(chunks)
+	output := strings.Join(chunks, "")
+	if len(output) > limit {
+		output = strings.ToValidUTF8(output[len(output)-limit:], "")
+	}
+	return row.Status, row.Exit, output, nil
+}
+
+// queueManualCheck queues a check of command (nil only checks that one can
+// run) on the locked task's latest attempt, in its worktree, as actor.
+func queueManualCheck(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID, command []string, name string) (*domain.DevMachineAgentRunStep, error) {
+	ws := task.WorkspaceID
 	if slices.Contains(activeTaskStates, task.State) {
 		return nil, ErrMachineBusy
 	}
@@ -81,7 +148,7 @@ func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, co
 	}
 	// The redaction snapshot hides the attempt's credentials from the output.
 	var ready bool
-	if err = tx.GetContext(ctx, &ready, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2 AND machine_id=$3 AND workspace_id=$4 AND encrypted_output_secrets IS NOT NULL)
+	if err := tx.GetContext(ctx, &ready, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE id=$1 AND task_id=$2 AND machine_id=$3 AND workspace_id=$4 AND encrypted_output_secrets IS NOT NULL)
  AND EXISTS(SELECT 1 FROM dev_machine_checkouts WHERE id=$5 AND machine_id=$3 AND workspace_id=$4 AND status='ready')`, task.RunID, task.ID, task.MachineID, ws, task.CheckoutID); err != nil {
 		return nil, err
 	}
@@ -93,7 +160,7 @@ func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, co
 		return nil, err
 	}
 	if command == nil {
-		return nil, ErrNoCheckCommand
+		return nil, nil
 	}
 	argv, err := json.Marshal(command)
 	if err != nil {
@@ -109,7 +176,7 @@ func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, co
 	}
 	step := &domain.DevMachineAgentRunStep{}
 	if err = tx.GetContext(ctx, step, `INSERT INTO dev_machine_agent_run_steps(agent_run_id,sequence,step_type,name,status,command_argv,summary,compose_file)
- SELECT $1,GREATEST(99,COALESCE(MAX(sequence),0))+1,$2,'Manual check','queued',$3,'Waiting for the check to start',$4 FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 RETURNING *`, task.RunID, manualCheckStepType, argv, compose); err != nil {
+ SELECT $1,GREATEST(99,COALESCE(MAX(sequence),0))+1,$2,$5,'queued',$3,'Waiting for the check to start',$4 FROM dev_machine_agent_run_steps WHERE agent_run_id=$1 RETURNING *`, task.RunID, manualCheckStepType, argv, compose, name); err != nil {
 		return nil, err
 	}
 	op := &domain.DevMachineOperation{ID: uuid.New(), WorkspaceID: ws, MachineID: *task.MachineID, AgentRunID: &task.RunID, CheckoutID: &task.CheckoutID, AgentTaskID: &task.ID, Action: domain.DevMachineOpRunCheck, Status: domain.DevMachineOpStatusPending, Generation: generation, IdempotencyKey: manualCheckKeyPrefix + step.ID.String(), RequestedByUserID: &actor, MaxAttempts: 3}
@@ -119,7 +186,7 @@ func (r *AgentTaskRepository) RunCheck(ctx context.Context, ws, id uuid.UUID, co
 	if err = validationEvent(ctx, tx, *task, step); err != nil {
 		return nil, err
 	}
-	return step, tx.Commit()
+	return step, nil
 }
 
 // lockMachineForCheck takes native-run creation's locks, then refuses a
@@ -224,6 +291,9 @@ func (r *DevMachineRepository) FailManualCheck(ctx context.Context, op domain.De
 		return nil
 	}
 	if err != nil {
+		return err
+	}
+	if err = wakePipelineTick(ctx, tx, *task); err != nil {
 		return err
 	}
 	if task.ConversationID != nil {

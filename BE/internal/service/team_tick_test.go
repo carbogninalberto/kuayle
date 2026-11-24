@@ -21,6 +21,7 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	gh "github.com/kuayle/kuayle-backend/pkg/github"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
@@ -88,13 +89,23 @@ func tickDatabase(t *testing.T) string {
 type tickGitHub struct {
 	*prGitHub
 	onStatus func()
-	merged   []string
-	reruns   [][]int64
+	// slow makes reading the pull request take that long, unless the
+	// caller gives up first.
+	slow   time.Duration
+	merged []string
+	reruns [][]int64
 }
 
 func (g *tickGitHub) PullRequestStatus(ctx context.Context, ws uuid.UUID, repository string, number int) (*PullRequestStatus, error) {
 	if g.onStatus != nil {
 		g.onStatus()
+	}
+	if g.slow > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(g.slow):
+		}
 	}
 	return g.prGitHub.PullRequestStatus(ctx, ws, repository, number)
 }
@@ -121,6 +132,8 @@ func (g *tickGitHub) ci(state, summary string) {
 type tickTurn struct {
 	commit, final, fail string
 	posts               []string
+	// hold keeps the turn's agent working until the test finishes it.
+	hold bool
 }
 
 type tickWorld struct {
@@ -130,6 +143,8 @@ type tickWorld struct {
 	runtime *tickRuntime
 	root    uuid.UUID
 	machine uuid.UUID
+	// step is the time the worker gives each step (20 s, as the server).
+	step time.Duration
 	// agent plays each turn of a role ("implementer" writes); turn counts
 	// that role's turns from 1.
 	agent func(role string, turn int, task domain.AgentTask) tickTurn
@@ -154,8 +169,8 @@ func newTickWorld(t *testing.T, edit func(*domain.Pipeline)) *tickWorld {
 	github.ci("pending", "")
 	f.tasks.Workflow().SetPullRequests(github, github)
 	f.tasks.Workflow().SetCIChecks(github)
-	w := &tickWorld{t: t, f: f, github: github, machine: uuid.New()}
-	w.runtime = &tickRuntime{w: w, runs: map[uuid.UUID]*domain.DevMachineAgentRun{}, commits: map[uuid.UUID]string{}, turns: map[string]int{}}
+	w := &tickWorld{t: t, f: f, github: github, machine: uuid.New(), step: 20 * time.Second}
+	w.runtime = &tickRuntime{w: w, runs: map[uuid.UUID]*domain.DevMachineAgentRun{}, commits: map[uuid.UUID]string{}, turns: map[string]int{}, held: map[uuid.UUID]string{}}
 	f.tasks.runtime = w.runtime
 	suffix := strings.ReplaceAll(w.machine.String(), "-", "")
 	w.exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb)
@@ -163,7 +178,42 @@ func newTickWorld(t *testing.T, edit func(*domain.Pipeline)) *tickWorld {
 	task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add a dark mode toggle", Provider: "codex", WorkflowID: &created.ID})
 	require.NoError(t, err)
 	w.root = task.ID
+	// The root task's worktree on the machine, where its checks run.
+	installation, repo := uuid.New(), uuid.New()
+	w.exec(`INSERT INTO dev_machine_workspace_policies(workspace_id,enabled) VALUES($1,true) ON CONFLICT (workspace_id) DO NOTHING`, f.ws)
+	w.exec(`INSERT INTO github_installations(id,workspace_id,installation_id,account_login,account_type,installed_by) VALUES($1,$2,1,'acme','Organization',$3)`, installation, f.ws, f.user)
+	w.exec(`INSERT INTO github_repos(id,installation_id,workspace_id,github_repo_id,full_name,default_branch) VALUES($1,$2,$3,1,$4,'main')`, repo, installation, f.ws, tickRepository)
+	w.exec(`INSERT INTO dev_machine_checkouts(id,workspace_id,machine_id,issue_id,github_repo_id,repository_full_name,base_branch,working_branch,workspace_path,status,scope_key) VALUES($1,$2,$3,$4,$5,$6,'main','kuayle/eng-1','/workspace/tasks/eng-1','ready',$7)`,
+		task.CheckoutID, f.ws, w.machine, f.issue, repo, tickRepository, task.ID.String())
 	return w
+}
+
+// runCheck plays the machine running the check Kuayle queued: it ends with
+// exit and output, through the manual check runner's own records.
+func (w *tickWorld) runCheck(exit int, output string) {
+	w.t.Helper()
+	store := repository.NewDevMachineRepository(w.f.db)
+	ctx := context.Background()
+	ops, err := store.LeaseOperations(ctx, "tick-check-fixture", 1, time.Minute)
+	require.NoError(w.t, err)
+	require.Len(w.t, ops, 1)
+	op := ops[0]
+	require.Equal(w.t, domain.DevMachineOpRunCheck, op.Action)
+	step := uuid.MustParse(strings.TrimPrefix(op.IdempotencyKey, "task-check:"))
+	require.NoError(w.t, store.CreateRuntimeService(ctx, &domain.DevMachineService{ID: step, WorkspaceID: op.WorkspaceID, MachineID: op.MachineID, AgentRunID: op.AgentRunID, ServiceType: "agent",
+		ServiceKey: "check-" + step.String(), ContainerName: "check", ImageRef: "fixture", InternalHost: "check", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}))
+	require.NoError(w.t, store.StartManualCheck(ctx, op, "container"))
+	require.NoError(w.t, store.CreateManualCheckOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: op.WorkspaceID, MachineID: op.MachineID, AgentRunID: op.AgentRunID, ServiceID: &step, Stream: "stdout", Sequence: 1, Content: output, SourceKey: "check"}))
+	require.NoError(w.t, store.CompleteManualCheck(ctx, op, exit))
+	require.NoError(w.t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
+}
+
+// checks are the script checks Kuayle queued for the root task, oldest first.
+func (w *tickWorld) checks() []string {
+	w.t.Helper()
+	var argv []string
+	require.NoError(w.t, w.f.db.Select(&argv, `SELECT s.command_argv::text FROM dev_machine_agent_run_steps s JOIN dev_machine_agent_runs r ON r.id=s.agent_run_id WHERE r.task_id=$1 AND s.step_type='manual_check' ORDER BY s.created_at`, w.root))
+	return argv
 }
 
 func (w *tickWorld) exec(query string, args ...any) {
@@ -176,8 +226,13 @@ func (w *tickWorld) exec(query string, args ...any) {
 func (w *tickWorld) drain() {
 	w.t.Helper()
 	for range 300 {
-		w.exec(`UPDATE agent_tasks SET next_poll_at=now()`)
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		// A turn the test holds is left alone while its agent works.
+		held := []string{}
+		for run := range w.runtime.held {
+			held = append(held, run.String())
+		}
+		w.exec(`UPDATE agent_tasks SET next_poll_at=CASE WHEN run_id::text=ANY($1) AND state<>'cancelling' THEN now()+interval '1 hour' ELSE now() END`, pq.Array(held))
+		ctx, cancel := context.WithTimeout(context.Background(), w.step)
 		task, err := w.f.tasks.Repo.Claim(ctx)
 		require.NoError(w.t, err)
 		if task == nil {
@@ -301,6 +356,28 @@ type tickRuntime struct {
 	commits map[uuid.UUID]string
 	turns   map[string]int
 	prompts map[string][]string
+	// held are the runs whose agent still works, by role.
+	held map[uuid.UUID]string
+}
+
+// finish ends the held turn of a role as turn says.
+func (w *tickWorld) finish(role string, turn tickTurn) {
+	w.t.Helper()
+	for run, held := range w.runtime.held {
+		if held != role {
+			continue
+		}
+		status := domain.DevMachineAgentRunStatusSucceeded
+		if turn.fail != "" {
+			status = domain.DevMachineAgentRunStatusFailed
+			w.runtime.runs[run].FailureCause = &turn.fail
+		}
+		w.exec(`UPDATE dev_machine_agent_runs SET status=$2,summary=$3,completed_at=now() WHERE id=$1`, run, status, turn.final)
+		w.runtime.runs[run].Status = status
+		delete(w.runtime.held, run)
+		return
+	}
+	w.t.Fatalf("no turn of the @%s is held", role)
 }
 
 func (r *tickRuntime) role(task domain.AgentTask) string {
@@ -345,8 +422,12 @@ func (r *tickRuntime) Attempt(ctx context.Context, task domain.AgentTask) (*doma
 	if turn.fail != "" {
 		status = domain.DevMachineAgentRunStatusFailed
 	}
-	r.w.exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,started_at,completed_at,summary,worktree_changed)
- VALUES($1,$2,$3,$4,$5,$6,'autonomous',$7,'["agent"]',60,$8,now(),now(),$9,$10)`, task.RunID, task.WorkspaceID, r.w.machine, task.ID, task.CreatorID, task.Provider, task.Prompt, status, turn.final, turn.commit != "")
+	if turn.hold {
+		status = domain.DevMachineAgentRunStatusRunning
+		r.held[task.RunID] = role
+	}
+	r.w.exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,started_at,completed_at,summary,worktree_changed,encrypted_output_secrets)
+ VALUES($1,$2,$3,$4,$5,$6,'autonomous',$7,'["agent"]',60,$8,now(),now(),$9,$10,'sealed')`, task.RunID, task.WorkspaceID, r.w.machine, task.ID, task.CreatorID, task.Provider, task.Prompt, status, turn.final, turn.commit != "")
 	r.commits[task.RunID] = turn.commit
 	now := time.Now()
 	run := &domain.DevMachineAgentRun{ID: task.RunID, TaskID: &task.ID, Status: status, StartedAt: &now, Prompt: task.Prompt}
@@ -371,6 +452,11 @@ func (r *tickRuntime) Publish(_ context.Context, task domain.AgentTask) (*domain
 
 // Cancel stops the task's run, as the machine confirms it.
 func (r *tickRuntime) Cancel(_ context.Context, task domain.AgentTask) error {
+	if _, ok := r.held[task.RunID]; ok {
+		delete(r.held, task.RunID)
+		r.runs[task.RunID].Status = domain.DevMachineAgentRunStatusCancelled
+		r.w.exec(`UPDATE dev_machine_agent_runs SET status='cancelled',completed_at=now() WHERE id=$1`, task.RunID)
+	}
 	r.w.exec(`INSERT INTO dev_machine_operations(workspace_id,machine_id,agent_run_id,action,status,generation,idempotency_key)
  SELECT workspace_id,machine_id,id,'cancel_agent','completed',1,$2 FROM dev_machine_agent_runs WHERE id=$1 ON CONFLICT DO NOTHING`, task.RunID, "task-cancel:"+task.ID.String()+":"+task.RunID.String())
 	return nil
@@ -513,7 +599,7 @@ func TestTickScenario05ConflictReachesTheWriter(t *testing.T) {
 func TestTickScenario06MigrationCollisionIsAFact(t *testing.T) {
 	w := newTickWorld(t, nil)
 	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
-		if role == "implementer" && turn == 2 {
+		if role == "implementer" && turn > 1 {
 			return tickTurn{final: "Renumbering."}
 		}
 		return w.writesAndApproves(role, turn, task)
@@ -521,81 +607,96 @@ func TestTickScenario06MigrationCollisionIsAFact(t *testing.T) {
 	// Another task merged a migration with the same number first.
 	const repair = "Migration 000208 of this branch has the number of 000208_other_feature on main. Next step: renumber it to 000209."
 	w.github.status.migrationRepair = repair
-	w.throughReview()
+	w.drain()
+	w.github.ci("passed", "")
+	w.later()
 	collision := w.facts("migration_collision")
 	require.Len(t, collision, 1)
 	require.JSONEq(t, `true`, string(collision[0].Data.Value))
 	require.Contains(t, collision[0].Body, repair)
-	// The merge gate refuses it, and the reason reaches the writer.
-	require.NoError(t, w.decide(WorkflowDecisionApprove))
-	w.drain()
-	require.Empty(t, w.github.merged)
+	// The pipeline requires no collision: the reason reaches the writer, and
+	// nothing is merged.
+	require.Equal(t, "integrate", w.phase())
 	require.Contains(t, w.prompt("implementer", 2), repair)
+	require.Empty(t, w.github.merged)
 }
 
 func TestTickScenario07QuestionAndAnswerResumeSessions(t *testing.T) {
 	w := newTickWorld(t, nil)
-	var asked int64
+	asked := map[int]int64{}
 	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
 		switch {
 		case role == "implementer" && turn == 1:
 			return tickTurn{commit: sha(1), final: "Added the toggle.", posts: []string{`{"to":"@reviewer","kind":"ask","body":"Should the toggle persist per user or per device?"}`}}
+		case role == "implementer" && turn == 2:
+			return tickTurn{final: "Stored it per user.", posts: []string{`{"to":"@reviewer","kind":"ask","body":"Is the profile the right store?"}`}}
 		case role == "reviewer":
 			for _, m := range w.room() {
 				if m.Kind == domain.RoomAsk {
-					asked = m.Seq
+					asked[turn] = m.Seq
 				}
 			}
-			return tickTurn{final: "Verdict: approve\nFine.", posts: []string{fmt.Sprintf(`{"to":"@implementer","body":"Per user: store it in the profile.","reply_to":%d}`, asked)}}
+			answer := map[int]string{1: "Per user: store it in the profile.", 2: "Yes, the profile."}[turn]
+			return tickTurn{final: "Verdict: approve\nFine.", posts: []string{fmt.Sprintf(`{"to":"@implementer","body":%q,"reply_to":%d}`, answer, asked[turn])}}
 		}
-		return tickTurn{final: "Stored it per user."}
+		return tickTurn{final: "Done."}
 	}
 	w.drain()
 	require.Contains(t, w.prompt("reviewer", 1), "Should the toggle persist per user or per device?")
 	answer := w.prompt("implementer", 2)
 	require.Contains(t, answer, "Per user: store it in the profile.")
-	require.Contains(t, answer, fmt.Sprintf("replying to #%d", asked))
+	require.Contains(t, answer, fmt.Sprintf("replying to #%d", asked[1]))
+	require.Contains(t, w.prompt("reviewer", 2), "Is the profile the right store?")
+	require.Contains(t, w.prompt("implementer", 3), "Yes, the profile.")
 
-	// Each next turn continues its session, on every harness that writes or
-	// reviews in a team (the launch carries its resume flag).
+	// Each of these next turns continues its session: launched again on
+	// Claude Code, Codex and OpenCode, the reviewer's second turn and the
+	// writer's third carry the harness's resume flag and the session of
+	// the turn before.
+	reviewer := w.member("reviewer")
+	implementer, _, err := w.f.workflows.builtinProfileIDs(w.f.ctx, w.f.ws)
+	require.NoError(t, err)
+	w.exec(`UPDATE agent_profiles SET instructions='Keep every commit small.' WHERE id=$1`, implementer)
 	for provider, resume := range map[string][]string{
 		"claude-code": {"--resume", "0c9a6c1e-0000-4000-8000-000000000001"},
 		"codex":       {"resume", "0199a213-81c0-7800-8aa1-bbab2a035a53"},
 		"opencode":    {"--session", "ses_df21986abffefn2FxDuH6uZGLA"},
 	} {
-		for _, member := range []bool{true, false} {
-			run := turnRun(t, provider, resume[1], member)
+		for role, id := range map[string]uuid.UUID{"reviewer": *reviewer.MemberTaskID, "implementer": w.root} {
+			run := w.relaunch(id, provider, resume[1])
 			var argv []string
 			require.NoError(t, json.Unmarshal(run.CommandArgv, &argv))
-			require.Subset(t, argv, resume, "%s (member %v) launches with its resume flag", provider, member)
+			require.Subset(t, argv, resume, "the @%s's next turn on %s resumes its session", role, provider)
+			require.Contains(t, run.Prompt, "this continues your previous session")
+			if role == "implementer" && provider == "claude-code" {
+				require.Contains(t, string(run.ProfileFiles), "Keep every commit small.", "the writer's profile is its instructions file")
+			}
 		}
 	}
 }
 
-// turnRun is the run Kuayle launches for a task's second turn on provider,
-// after a first one in session: a member's turn, or the writer's.
-func turnRun(t *testing.T, provider, session string, member bool) domain.DevMachineAgentRun {
-	t.Helper()
-	if member {
-		run, _ := reviewTurn(t, provider, session, true)
-		return run
-	}
-	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+// relaunch builds, on provider, the launch of the task's current turn as
+// Kuayle starts it on its machine, with session as the session of the
+// task's turn before: the real launch path (devMachineTaskRuntime.Attempt)
+// over the scenario's own records.
+func (w *tickWorld) relaunch(id uuid.UUID, provider, session string) domain.DevMachineAgentRun {
+	w.t.Helper()
+	var task domain.AgentTask
+	require.NoError(w.t, w.f.db.Get(&task, `SELECT * FROM agent_tasks WHERE id=$1`, id))
+	w.exec(`UPDATE dev_machine_agent_runs SET native_session_id=$3,provider_id=$4 WHERE id=(SELECT id FROM dev_machine_agent_runs WHERE task_id=$1 AND id<>$2 ORDER BY created_at DESC,id LIMIT 1)`, id, task.RunID, session, provider)
+	task.State, task.Provider = "preparing", provider
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
-		policy:        testPolicy(ws),
-		machine:       &domain.DevMachine{ID: machine, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
+		policy:        testPolicy(task.WorkspaceID),
+		machine:       &domain.DevMachine{ID: w.machine, WorkspaceID: task.WorkspaceID, CreatedByUserID: &task.CreatorID, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
 		agentProvider: &domain.DevMachineAgentProvider{ProviderID: provider, Enabled: true, RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`)},
-		checkouts:     []domain.DevMachineCheckout{{ID: checkout, WorkspaceID: ws, MachineID: machine, Status: "ready", WorkspacePath: "/workspace/tasks/eng-1", RepositoryFullName: "example/test", BaseBranch: "main", WorkingBranch: "kuayle/eng-1"}},
+		checkouts:     []domain.DevMachineCheckout{{ID: task.CheckoutID, WorkspaceID: task.WorkspaceID, MachineID: w.machine, Status: "ready", WorkspacePath: "/workspace/tasks/eng-1", RepositoryFullName: tickRepository, BaseBranch: "main", WorkingBranch: "kuayle/eng-1"}},
 	}}
 	store.policy.AllowedProviders = json.RawMessage(`["opencode","codex","claude-code"]`)
 	machines := newTestDevMachineService(store)
 	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""))
-	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, NativeSessionID: session}}
-	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: provider,
-		Prompt: "Add a dark mode toggle", Kind: domain.AgentTaskKindImplement, Generation: 2, Pipeline: true}
-	_, err := (&devMachineTaskRuntime{machines: machines, tasks: tasks}).Attempt(context.Background(), task)
-	require.NoError(t, err)
-	require.Len(t, store.agentRuns, 1)
+	_, err := (&devMachineTaskRuntime{machines: machines, tasks: w.f.tasks.Repo}).Attempt(w.f.ctx, task)
+	require.NoError(w.t, err)
+	require.Len(w.t, store.agentRuns, 1)
 	return store.agentRuns[0]
 }
 
@@ -733,6 +834,18 @@ func TestTickScenario12UnreadableFactWaits(t *testing.T) {
 	w.later()
 	require.Len(t, w.facts("head_sha"), 1)
 	require.Equal(t, 1, w.runtime.turns["reviewer"])
+
+	// GitHub answers too slowly for the worker's step: the read gives up in
+	// time to save, and the pass waits as for an error, however often.
+	w.github.slow, w.step = time.Minute, 2*time.Second
+	for range 6 {
+		w.later()
+	}
+	slow := w.task()
+	require.Equal(t, "awaiting_review", slow.State)
+	require.Zero(t, slow.FailureCount)
+	require.NotNil(t, slow.WorkflowWakeAt)
+	require.Len(t, w.facts("head_sha"), 1, "nothing more is posted")
 }
 
 // A wake that lands while a pass runs (a webhook, a member's turn ending)
@@ -793,4 +906,345 @@ func TestTickPullRequestMergedOnGitHubCompletesTheTask(t *testing.T) {
 	task := w.task()
 	require.Equal(t, "completed", task.State)
 	require.Equal(t, domain.WorkflowStatusDone, *task.WorkflowStatus)
+}
+
+// A member's turn a person cancelled is taken again: after Continue, the
+// reviewer takes its next turn on its own task.
+func TestTickACancelledMemberTurnIsTakenAgain(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		switch {
+		case role == "reviewer" && turn == 1:
+			return tickTurn{hold: true}
+		case role == "implementer" && turn > 1:
+			return tickTurn{final: "Waiting for the review."}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	require.NoError(t, w.f.tasks.Repo.RequestCancel(w.f.ctx, w.f.ws, *w.member("reviewer").MemberTaskID))
+	w.drain()
+	require.Equal(t, domain.WorkflowStatusPaused, *w.task().WorkflowStatus, "nobody reviews")
+	require.Len(t, w.facts("turn"), 1, "the cancelled turn is a fact")
+	require.NoError(t, w.decide(WorkflowDecisionContinue))
+	w.drain()
+	require.Equal(t, 2, w.runtime.turns["reviewer"])
+	require.Equal(t, "integrate", w.phase())
+}
+
+// The unmet checks of a phase a role other than the writer owns reach that
+// role as a turn; a phase a person owns waits for the person.
+func TestTickAStallReachesThePhaseOwner(t *testing.T) {
+	t.Run("a role", func(t *testing.T) {
+		w := newTickWorld(t, func(p *domain.Pipeline) { p.Phases[2].Owner = "reviewer" })
+		w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+			if role == "reviewer" && turn == 1 {
+				return tickTurn{final: "Looks fine to me."} // no verdict
+			}
+			return w.writesAndApproves(role, turn, task)
+		}
+		w.drain()
+		require.Equal(t, 2, w.runtime.turns["reviewer"])
+		require.Contains(t, w.prompt("reviewer", 2), "has not reviewed")
+		require.Equal(t, 1, w.runtime.turns["implementer"])
+		require.Equal(t, "integrate", w.phase())
+	})
+	t.Run("a person", func(t *testing.T) {
+		w := newTickWorld(t, func(p *domain.Pipeline) { p.Phases[3].Owner = domain.PipelineOwnerHuman })
+		w.agent = w.writesAndApproves
+		w.drain()
+		w.github.ci("failed", "TestDarkMode failed")
+		w.later()
+		waiting := w.task()
+		require.Equal(t, "awaiting_review", waiting.State)
+		require.NotNil(t, waiting.WorkflowHeldSince, "a person is awaited")
+		summaries := w.posts(domain.RoomSummary)
+		require.Len(t, summaries, 1)
+		require.Equal(t, []string{"human"}, []string(summaries[0].ToRoles))
+		require.Equal(t, 1, w.runtime.turns["implementer"])
+	})
+}
+
+// A head the writer published while the reviewer still reviewed the one
+// before is asked for once that review ends.
+func TestTickAsksForAHeadPublishedDuringAReview(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "reviewer" && turn == 1 {
+			return tickTurn{hold: true}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Also follow the system theme.", ToRoles: []string{"implementer"}})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, sha(2), w.github.status.HeadSHA)
+	w.finish("reviewer", tickTurn{final: "Verdict: approve\nGood."})
+	w.drain()
+	reviewer := w.member("reviewer")
+	require.Equal(t, 2, reviewer.Turns)
+	require.Equal(t, sha(2), *reviewer.PinnedCommit)
+}
+
+// An approval holds for the head it was given on: a new commit is not
+// merged until the owner approves it.
+func TestTickAnApprovalOfAnOlderHeadDoesNotMerge(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	w.throughReview()
+	// The writer adds a commit; the reviewer approves it and CI passes.
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "One more thing.", ToRoles: []string{"implementer"}})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, sha(2), w.github.status.HeadSHA)
+	require.Equal(t, "approval", w.phase())
+	// The owner's approval was given on the first head.
+	approved := fmt.Sprintf(`{"head":%q,"by":%q}`, sha(1), w.f.user)
+	w.exec(`UPDATE agent_tasks SET pipeline_state=jsonb_set(pipeline_state,'{approved}',$2::jsonb),workflow_wake_at=now() WHERE id=$1`, w.root, approved)
+	w.drain()
+	require.Equal(t, "approval", w.phase())
+	require.Empty(t, w.github.merged, "the approval of the first head does not merge the second")
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	w.drain()
+	require.Equal(t, []string{sha(2)}, w.github.merged)
+}
+
+// An approver who can no longer decide the task does not merge it: a
+// person is asked.
+func TestTickAnApproverWhoLostTheRightDoesNotMerge(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	w.throughReview()
+	admin := uuid.New()
+	w.exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Admin','hash')`, admin, admin.String()+"@test.invalid")
+	w.exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'admin')`, w.f.ws, admin)
+	_, err := w.f.workflows.Decide(domain.WithAccess(context.Background(), domain.Access{WorkspaceID: w.f.ws, UserID: admin}), w.f.ws, w.root, w.task().WorkflowSequence, WorkflowDecisionApprove)
+	require.NoError(t, err)
+	w.exec(`UPDATE workspace_members SET role='member' WHERE workspace_id=$1 AND user_id=$2`, w.f.ws, admin)
+	w.drain()
+	w.later()
+	require.Empty(t, w.github.merged)
+	paused := w.task()
+	require.Equal(t, domain.WorkflowStatusPaused, *paused.WorkflowStatus)
+	require.Contains(t, paused.Reason, "can no longer merge")
+}
+
+// A merge wait left from an earlier head (Kuayle was bringing it up to
+// date) does not stand in the way of merging a newer head.
+func TestTickAStaleMergeWaitDoesNotBlockANewHead(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	w.throughReview()
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	stale := fmt.Sprintf(`{"approved":%q,"head":%q,"updating":true,"updates":1,"since":"2026-11-24T10:00:00Z","deadline":"2099-01-01T00:00:00Z"}`, sha(9), sha(9))
+	w.exec(`UPDATE agent_tasks SET pipeline_state=jsonb_set(pipeline_state,'{merge}',$2::jsonb) WHERE id=$1`, w.root, stale)
+	w.drain()
+	require.Equal(t, []string{sha(1)}, w.github.merged)
+}
+
+// A role whose profile was archived cannot take its turn: that is a fact,
+// and the task asks a person instead of failing.
+func TestTickARoleThatCannotTakeATurnAsksAPerson(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	_, reviewer, err := w.f.workflows.builtinProfileIDs(w.f.ctx, w.f.ws)
+	require.NoError(t, err)
+	w.exec(`UPDATE agent_profiles SET archived_at=now() WHERE id=$1`, reviewer)
+	w.drain()
+	task := w.task()
+	require.Equal(t, "blocked", task.State)
+	require.Equal(t, domain.WorkflowStatusPaused, *task.WorkflowStatus)
+	require.Zero(t, task.FailureCount)
+	turn := w.facts("turn")
+	require.Len(t, turn, 1)
+	require.Contains(t, turn[0].Body, "cannot take a turn")
+}
+
+// Ending the task stops the turns its members are taking.
+func TestTickEndingTheTaskStopsItsMembersTurns(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "reviewer" {
+			return tickTurn{hold: true}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	completed, err := w.f.tasks.Repo.CompleteMergedPullRequest(context.Background(), w.f.ws, tickRepository, 12)
+	require.NoError(t, err)
+	require.Equal(t, 1, completed)
+	var state string
+	require.NoError(t, w.f.db.Get(&state, `SELECT state FROM agent_tasks WHERE id=$1`, *w.member("reviewer").MemberTaskID))
+	require.Equal(t, "cancelling", state)
+	w.drain()
+	require.NoError(t, w.f.db.Get(&state, `SELECT state FROM agent_tasks WHERE id=$1`, *w.member("reviewer").MemberTaskID))
+	require.Equal(t, "cancelled", state)
+}
+
+// Checks that never report are not waited for forever: after a bound the
+// phase's owner is sent them like any unmet check.
+func TestTickChecksThatNeverReportAreSentOn(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "implementer" && turn > 1 {
+			return tickTurn{final: "CI does not start."}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	// The base's tip has CI; the head reports none.
+	w.github.checks = nil
+	w.github.commitChecks = map[string][]PullRequestCheck{tickBase: {{Name: "unit", State: "passed"}}}
+	w.drain()
+	require.Equal(t, "integrate", w.phase())
+	require.NotNil(t, w.task().WorkflowWakeAt, "waiting for CI")
+	require.Equal(t, 1, w.runtime.turns["implementer"])
+	later := time.Now().Add(3 * time.Hour)
+	w.f.tasks.Workflow().now = func() time.Time { return later }
+	w.later()
+	require.GreaterOrEqual(t, w.runtime.turns["implementer"], 2)
+	require.Contains(t, w.prompt("implementer", 2), "No checks have reported")
+}
+
+// A writer's turn that cannot start yet (its last attempt is still being
+// wound down) waits for the next poll instead of passing again at once.
+func TestTickAWriterTurnThatCannotStartYetWaits(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "reviewer" {
+			return tickTurn{hold: true}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	run := w.task().RunID
+	w.exec(`INSERT INTO dev_machine_operations(workspace_id,machine_id,agent_run_id,action,status,generation,idempotency_key) VALUES($1,$2,$3,'cancel_agent','pending',1,'test-pending')`, w.f.ws, w.machine, run)
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Also follow the system theme.", ToRoles: []string{"implementer"}})
+	require.NoError(t, err)
+	w.drain()
+	waiting := w.task()
+	require.Equal(t, "awaiting_review", waiting.State)
+	require.NotNil(t, waiting.WorkflowWakeAt)
+	require.True(t, waiting.WorkflowWakeAt.After(time.Now().Add(30*time.Second)), "the next pass is a poll away")
+	w.exec(`UPDATE dev_machine_operations SET status='completed' WHERE idempotency_key='test-pending'`)
+	w.later()
+	require.Equal(t, 2, w.runtime.turns["implementer"])
+}
+
+// A waiver holds for the head the room last named when the task's creator
+// gave it, and only from the creator: a role's waiver is refused.
+func TestTickAWaiverHoldsForItsHeadAndOnlyFromTheCreator(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		switch {
+		case role == "reviewer":
+			return tickTurn{hold: true}
+		case turn == 1:
+			return tickTurn{commit: sha(1), final: "Added the toggle.", posts: []string{`{"to":"@all","kind":"waiver","data":{"check":"reviewer"}}`}}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	require.Equal(t, "review", w.phase(), "the writer's waiver is refused")
+	refused := w.posts(domain.RoomWaiver)
+	require.Len(t, refused, 1)
+	require.NotNil(t, refused[0].RejectReason)
+
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomWaiver, Data: domain.TaskRoomData{Check: "reviewer"}})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, "integrate", w.phase(), "the owner waived the review of this head")
+
+	_, err = w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Also follow the system theme.", ToRoles: []string{"implementer"}})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, sha(2), w.github.status.HeadSHA)
+	require.Equal(t, "review", w.phase(), "the waiver was for the head before")
+}
+
+// A required script check runs in the root task's worktree, through the
+// manual check runner, once per head: exit 0 meets it, another exit sends
+// its output's end to the writer, and a new head runs it again.
+func TestTickRunsScriptChecksOncePerHead(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) {
+		p.Phases[3].Checks = append(p.Phases[3].Checks, domain.PipelineCheck{ID: "tests", Fact: domain.PipelineFactScript, Script: "make test", Required: true})
+	})
+	w.agent = w.writesAndApproves
+	w.drain()
+	require.Equal(t, "integrate", w.phase())
+	require.Equal(t, []string{`["sh", "-c", "make test"]`}, w.checks())
+	require.NotNil(t, w.task().WorkflowWakeAt, "it waits for the check")
+
+	w.runCheck(0, "ok\n")
+	w.drain()
+	w.later()
+	require.Len(t, w.checks(), 1, "once per head")
+	passed := w.facts("script")
+	require.Len(t, passed, 1)
+	require.Contains(t, passed[0].Body, "passed")
+	w.github.ci("passed", "")
+	w.later()
+	require.Equal(t, "approval", w.phase())
+
+	// A new head runs it again; a failure goes to the writer with its output.
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Also follow the system theme.", ToRoles: []string{"implementer"}})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, sha(2), w.github.status.HeadSHA)
+	require.Len(t, w.checks(), 2, "a new head is checked again")
+	w.runCheck(1, "--- FAIL: TestToggle\nexpected dark\n")
+	w.drain()
+	failed := w.facts("script")
+	require.Len(t, failed, 2)
+	require.Contains(t, failed[1].Body, "FAIL: TestToggle")
+	prompt := w.prompt("implementer", 3)
+	require.Contains(t, prompt, "Check tests exited 1")
+	require.Contains(t, prompt, "expected dark")
+}
+
+// A script check that cannot run (the worktree is not on a running
+// machine) is not known yet, never unmet: the task waits and tries again.
+func TestTickAScriptCheckThatCannotRunWaits(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) {
+		p.Phases[3].Checks = append(p.Phases[3].Checks, domain.PipelineCheck{ID: "tests", Fact: domain.PipelineFactScript, Script: "make test", Required: true})
+	})
+	w.agent = w.writesAndApproves
+	w.github.ci("passed", "")
+	w.exec(`UPDATE dev_machine_checkouts SET status='queued' WHERE id=$1`, w.task().CheckoutID)
+	w.drain()
+	waiting := w.task()
+	require.Equal(t, "integrate", w.phase())
+	require.Equal(t, "awaiting_review", waiting.State)
+	require.Contains(t, waiting.Reason, "could not run check tests")
+	require.NotNil(t, waiting.WorkflowWakeAt)
+	require.Empty(t, w.posts(domain.RoomSummary), "nobody is sent it")
+	require.Empty(t, w.checks())
+	w.exec(`UPDATE dev_machine_checkouts SET status='ready' WHERE id=$1`, waiting.CheckoutID)
+	w.later()
+	require.Len(t, w.checks(), 1)
+}
+
+// An advisory script check never holds the task up: its failure is a fact
+// sent to the owner of its phase.
+func TestTickAnAdvisoryScriptCheckInformsThePhaseOwner(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) {
+		p.Phases[3].Checks = append(p.Phases[3].Checks, domain.PipelineCheck{ID: "lint", Fact: domain.PipelineFactScript, Script: "make lint"})
+	})
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "implementer" && turn > 1 {
+			return tickTurn{final: "Noted the lint warnings."}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.github.ci("passed", "")
+	w.drain()
+	require.Equal(t, []string{`["sh", "-c", "make lint"]`}, w.checks())
+	require.Equal(t, "approval", w.phase(), "it does not wait for an advisory check")
+	w.runCheck(2, "3 lint warnings\n")
+	w.drain()
+	lint := w.facts("script")
+	require.Len(t, lint, 1)
+	require.Equal(t, []string{"implementer"}, []string(lint[0].ToRoles))
+	require.Contains(t, w.prompt("implementer", 2), "3 lint warnings")
+	require.Equal(t, "approval", w.phase())
 }

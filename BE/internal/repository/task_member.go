@@ -24,6 +24,9 @@ var (
 	// ErrMemberWrites is the role that writes code: its turns are
 	// iterations of the root task, not turns of a member task.
 	ErrMemberWrites = errors.New("the role that writes code takes its turns on the root task")
+	// ErrMemberUnavailable is a role that cannot take its first turn: the
+	// agent profile that plays it was archived.
+	ErrMemberUnavailable = errors.New("the agent profile that plays the role was archived")
 )
 
 // memberTurnPosts bounds the posts one turn reads (a page of the room);
@@ -166,7 +169,7 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		if err = tx.GetContext(ctx, task, `SELECT * FROM agent_tasks WHERE id=$1 AND workspace_id=$2 FOR UPDATE`, member.MemberTaskID, root.WorkspaceID); err != nil {
 			return nil, err
 		}
-		if member.State != domain.MemberIdle || (task.State != "blocked" && task.State != "failed") || task.UsageLimitMessage != nil {
+		if member.State != domain.MemberIdle || (task.State != "blocked" && task.State != "failed" && task.State != "cancelled") || task.UsageLimitMessage != nil {
 			return nil, ErrMemberBusy
 		}
 	case errors.Is(err, sql.ErrNoRows):
@@ -182,7 +185,7 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		return nil, err
 	}
 	if member == nil && profile.ArchivedAt != nil {
-		return nil, ErrConversationInvalid
+		return nil, ErrMemberUnavailable
 	}
 
 	posts, err := unreadPosts(ctx, tx, *root, role)
@@ -300,9 +303,9 @@ func publishedTarget(ctx context.Context, q sqlx.QueryerContext, root domain.Age
 // pipeline task, or with commit "" on any commit. A verdict counts for the
 // commit it names only: whether it also holds for a head that merely merged
 // the base is the tick's call.
-func (r *AgentTaskRepository) LatestVerdicts(ctx context.Context, rootID uuid.UUID, commit string) (map[string]domain.TaskVerdict, error) {
+func (r *AgentTaskRepository) LatestVerdicts(ctx context.Context, root domain.AgentTask, commit string) (map[string]domain.TaskVerdict, error) {
 	var verdicts []domain.TaskVerdict
-	if err := r.db.SelectContext(ctx, &verdicts, `SELECT DISTINCT ON (role) * FROM task_verdicts WHERE task_id=$1 AND ($2='' OR commit_sha=$2) ORDER BY role,seq DESC`, rootID, commit); err != nil {
+	if err := r.db.SelectContext(ctx, &verdicts, `SELECT DISTINCT ON (role) * FROM task_verdicts WHERE task_id=$1 AND workspace_id=$3 AND ($2='' OR commit_sha=$2) ORDER BY role,seq DESC`, root.ID, commit, root.WorkspaceID); err != nil {
 		return nil, err
 	}
 	byRole := make(map[string]domain.TaskVerdict, len(verdicts))

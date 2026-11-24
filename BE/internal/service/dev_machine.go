@@ -1046,14 +1046,14 @@ func (s *DevMachineService) resolveDevelopmentSetting(ctx context.Context, works
 func (s *DevMachineService) CheckoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest) (*domain.DevMachineCheckout, error) {
 	return s.checkoutIssue(ctx, workspaceID, machineID, userID, request, "", uuid.New(), 0, false)
 }
-func (s *DevMachineService) checkoutTask(ctx context.Context, task domain.AgentTask) (*domain.DevMachineCheckout, error) {
+
+// checkoutTask is the task's worktree on its machine. refresh fetches a
+// ready one again first, once per generation (a pipeline member's next turn
+// reads a commit published after its worktree was made).
+func (s *DevMachineService) checkoutTask(ctx context.Context, task domain.AgentTask, refresh bool) (*domain.DevMachineCheckout, error) {
 	if task.MachineID == nil {
 		return nil, ErrInvalidOperation
 	}
-	// A review task's next generation (a pipeline member's next turn) reads
-	// a commit published after its worktree was made: the worktree fetches
-	// again first, once per generation.
-	refresh := task.Kind == domain.AgentTaskKindReview && task.Generation > 1
 	return s.checkoutIssue(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CheckoutIssueRequest{IssueID: task.IssueID.String()}, task.ID.String(), task.CheckoutID, task.Generation, refresh)
 }
 func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, machineID, userID uuid.UUID, request dto.CheckoutIssueRequest, scope string, checkoutID uuid.UUID, retryGeneration int64, refresh bool) (*domain.DevMachineCheckout, error) {

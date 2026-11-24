@@ -20,6 +20,11 @@ func TestTeamPipelineIsValidAndRoundTrips(t *testing.T) {
 		ids = append(ids, phase.ID)
 	}
 	require.Equal(t, []string{"implement", "pr", "review", "integrate", "approval", "merge"}, ids)
+	var integrate []string
+	for _, check := range p.Phases[3].Checks {
+		integrate = append(integrate, check.Fact)
+	}
+	require.Equal(t, []string{"head_contains_base", "ci_green", "migration_collision"}, integrate, "a migration number taken on the base goes back to the writer")
 	require.Equal(t, []PipelineMember{{Role: "implementer", ProfileID: implementer, Writer: true}, {Role: "reviewer", ProfileID: reviewer}}, p.Roster)
 	require.Nil(t, p.Lead)
 	require.True(t, p.Phases[5].Guarded)
@@ -115,6 +120,12 @@ func TestPipelineValidationRejects(t *testing.T) {
 		{"an unknown owner", func(p *Pipeline) { p.Phases[0].Owner = "security" }, "invalid_owner"},
 		{"a guarded phase before the last", func(p *Pipeline) { phase(p, "pr").Guarded = true }, "invalid_guard"},
 		{"a guarded phase a role runs", func(p *Pipeline) { phase(p, "merge").Owner = "implementer" }, "invalid_guard"},
+		// The owner merges (A6): a guarded merge needs a person's approval first.
+		{"a merge nobody approves", func(p *Pipeline) { phase(p, "approval").Checks = nil }, "missing_approval"},
+		{"an advisory approval", func(p *Pipeline) { phase(p, "approval").Checks[0].Required = false }, "missing_approval"},
+		{"an approval only at the merge", func(p *Pipeline) {
+			phase(p, "merge").Checks, phase(p, "approval").Checks = phase(p, "approval").Checks, nil
+		}, "missing_approval"},
 		{"too many checks", func(p *Pipeline) {
 			for i := 0; i <= PipelineMaxChecks; i++ {
 				p.Phases[0].Checks = append(p.Phases[0].Checks, PipelineCheck{ID: "c" + string(rune('a'+i)), Fact: PipelineFactCIGreen})

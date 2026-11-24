@@ -108,8 +108,9 @@ func (r *AgentTaskRepository) ApplyPipeline(ctx context.Context, claimed domain.
 
 // DecidePipeline applies a person's decision on a pipeline task (an
 // approval, or continuing or stopping where it paused) for its creator or an
-// owner or admin who can see the issue, as DecideWorkflow does.
-func (r *AgentTaskRepository) DecidePipeline(ctx context.Context, ws, id uuid.UUID, apply PipelineApply) (*domain.AgentTask, error) {
+// owner or admin who can see the issue, as DecideWorkflow does. decide reads
+// the task as it is locked for the decision and says what the decision does.
+func (r *AgentTaskRepository) DecidePipeline(ctx context.Context, ws, id uuid.UUID, decide func(domain.AgentTask) (*PipelineApply, error)) (*domain.AgentTask, error) {
 	actor, err := conversationActor(ctx, ws)
 	if err != nil {
 		return nil, err
@@ -119,8 +120,12 @@ func (r *AgentTaskRepository) DecidePipeline(ctx context.Context, ws, id uuid.UU
 		return nil, err
 	}
 	defer tx.Rollback()
+	apply, err := decide(*task)
+	if err != nil {
+		return nil, err
+	}
 	apply.Actor, apply.ClaimedWake = &actor, task.WorkflowWakeAt
-	if err = applyPipelineTx(ctx, tx, task, apply); err != nil {
+	if err = applyPipelineTx(ctx, tx, task, *apply); err != nil {
 		return nil, err
 	}
 	if err = workflowAudit(ctx, tx, ws, &actor, "task_workflow", id, "decision", map[string]any{"sequence": apply.Sequence, "phase": apply.Phase}); err != nil {
@@ -153,7 +158,7 @@ func applyPipelineTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if state == "" {
 		state = "{}"
 	}
-	from, reason := task.State, task.Reason
+	from, reason, held := task.State, task.Reason, task.WorkflowHeldSince != nil
 	// A pass moves the sequence on only when what a person decides on
 	// changes (the phase or the status), or a person decided.
 	if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_sequence=workflow_sequence+CASE WHEN $2 IS DISTINCT FROM workflow_node OR $3 IS DISTINCT FROM workflow_status OR $12::boolean THEN 1 ELSE 0 END,
@@ -178,9 +183,10 @@ func applyPipelineTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	if err != nil {
 		return err
 	}
-	// A pass that changed nothing a person sees is not announced again.
+	// A pass that changed nothing a person sees is not announced again; a
+	// person newly awaited is.
 	moved := task.WorkflowSequence != apply.Sequence
-	if moved && task.State == "awaiting_review" {
+	if task.State == "awaiting_review" && (moved || (apply.Entry.NeedsPerson && !held)) {
 		if err = markWorkflowReviewNotice(ctx, tx, *task, apply.Entry.NeedsPerson, apply.Actor); err != nil {
 			return err
 		}

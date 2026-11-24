@@ -746,7 +746,11 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 	default:
 		return false, ErrInvalidOperation
 	}
-	checkout, err := s.checkoutTask(ctx, *task)
+	refresh, err := r.checkoutRefresh(ctx, *task)
+	if err != nil {
+		return false, err
+	}
+	checkout, err := s.checkoutTask(ctx, *task, refresh)
 	if err != nil {
 		return false, err
 	}
@@ -758,6 +762,17 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		return false, fmt.Errorf("%w: %s", ErrCheckoutFailed, cause)
 	}
 	return checkout.Status == "ready", nil
+}
+
+// checkoutRefresh reports whether the task's worktree is fetched again
+// before its attempt: on the next turn of a pipeline member, whose review
+// task is reused across turns. Any other task keeps its worktree as it is.
+func (r *devMachineTaskRuntime) checkoutRefresh(ctx context.Context, task domain.AgentTask) (bool, error) {
+	if task.Kind != domain.AgentTaskKindReview || task.Generation <= 1 {
+		return false, nil
+	}
+	member, err := r.tasks.TaskMember(ctx, task)
+	return member != nil, err
 }
 
 // ErrHostCapacityWait reports a task machine whose spawn or start waits for host
