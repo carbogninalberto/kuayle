@@ -24,6 +24,7 @@ var agentCLIVersionPackages = map[string]string{
 	"claude-code": "@anthropic-ai/claude-code",
 	"codex":       "@openai/codex",
 	"opencode":    "@opencode/cli",
+	"pi":          "@earendil-works/pi-coding-agent",
 	"qwen-code":   "@qwen-code/qwen-code",
 }
 

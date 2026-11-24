@@ -554,7 +554,7 @@ func TestDefaultPolicyAllowsAllBuiltInProviders(t *testing.T) {
 	policy, err := newTestDevMachineService(&devMachineStoreFake{}).GetPolicy(context.Background(), workspaceID)
 
 	require.NoError(t, err)
-	require.JSONEq(t, `["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`, string(policy.AllowedProviders))
+	require.JSONEq(t, `["claude-code","opencode","codex","pi","qwen-code","crush","kimi","goose"]`, string(policy.AllowedProviders))
 	require.Equal(t, 20, policy.MaxConcurrentMachines, "matches the column default of migration 79")
 	require.Equal(t, 20, policy.MaxMachinesPerUser)
 }
@@ -640,9 +640,10 @@ func TestCreateHeadlessMachineKeepsHeadlessDeveloperImage(t *testing.T) {
 func TestHeadlessProviderImagesUseHeadlessImage(t *testing.T) {
 	workspaceID := uuid.New()
 	policy := testPolicy(workspaceID)
-	policy.AllowedProviders = json.RawMessage(`["qwen-code","crush","kimi","goose"]`)
+	policy.AllowedProviders = json.RawMessage(`["pi","qwen-code","crush","kimi","goose"]`)
 	const headlessImage = "registry.example/headless:test"
 	registry := agent.NewRegistry(
+		agent.NewPiProvider(headlessImage),
 		agent.NewQwenCodeProvider(headlessImage),
 		agent.NewCrushProvider(headlessImage),
 		agent.NewKimiProvider(headlessImage),
@@ -654,6 +655,7 @@ func TestHeadlessProviderImagesUseHeadlessImage(t *testing.T) {
 	)
 
 	providers, err := service.buildProviders(uuid.New(), policy, []dto.DevMachineAgentInput{
+		{Provider: "pi", Mode: "autonomous"},
 		{Provider: "qwen-code", Mode: "autonomous"},
 		{Provider: "crush", Mode: "autonomous"},
 		{Provider: "kimi", Mode: "autonomous"},
@@ -661,7 +663,7 @@ func TestHeadlessProviderImagesUseHeadlessImage(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Len(t, providers, 4)
+	require.Len(t, providers, 5)
 	for _, provider := range providers {
 		require.Equal(t, headlessImage, provider.ImageRef)
 	}

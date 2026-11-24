@@ -12,8 +12,11 @@ import (
 // devmachine/common/check-agent-cli-flags.sh, which the images run against each
 // CLI's help; TestAgentCLIFlagContractMatchesTheAdapters keeps the two equal.
 type builtinProvider struct {
-	metadata    Metadata
-	build       func(RunInput) []string
+	metadata Metadata
+	build    func(RunInput) []string
+	// prompt, when set, ends an autonomous argv after the extra arguments,
+	// for a CLI whose prompt follows a "--" separator.
+	prompt      func(RunInput) []string
 	parseResult func(stdout, stderr string, exitCode int) RunResult
 	environment func(RunInput) map[string]string
 }
@@ -33,6 +36,9 @@ func (p *builtinProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	}
 	argv := p.build(input)
 	argv = append(argv, input.ExtraArgs...)
+	if p.prompt != nil && input.Mode == ModeAutonomous {
+		argv = append(argv, p.prompt(input)...)
+	}
 	if input.Session != nil && input.Mode == ModeAutonomous && (p.metadata.ID == "codex" || p.metadata.ID == "claude-code") {
 		for _, id := range []string{input.Session.ResumeID, input.Session.NewID} {
 			if id != "" && !ValidSessionID(id) {
@@ -475,6 +481,107 @@ func newStreamJSONBuiltinProvider(metadata Metadata, build func(RunInput) []stri
 	}
 }
 
+// Pi (@earendil-works/pi-coding-agent) runs one prompt with --print and
+// writes its events as JSON lines (--mode json). --no-session keeps no
+// session file: Kuayle does not resume Pi. --no-approve declines the
+// repository's own Pi settings, extensions and packages (.pi/), which an
+// unattended run cannot be asked to trust; AGENTS.md still loads. The model
+// is provider/model and the effort is Pi's thinking level, which has Kuayle's
+// names. The prompt follows "--", so one that begins with a dash is not read
+// as a flag.
+func NewPiProvider(image string) Provider {
+	return &builtinProvider{
+		metadata: Metadata{
+			ID:              "pi",
+			DisplayName:     "Pi",
+			DefaultImage:    headlessProviderImage(image),
+			RequiredSecrets: []string{},
+			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
+		},
+		build: func(input RunInput) []string {
+			if input.Mode == ModeInteractive {
+				return []string{"pi"}
+			}
+			argv := []string{"pi", "--print", "--mode", "json", "--no-session", "--no-approve"}
+			if input.Model != "" {
+				argv = append(argv, "--model", input.Model)
+			}
+			if input.Thinking != "" {
+				argv = append(argv, "--thinking", input.Thinking)
+			}
+			return argv
+		},
+		prompt:      func(input RunInput) []string { return []string{"--", input.Prompt} },
+		parseResult: parsePiResult,
+	}
+}
+
+// parsePiResult reads Pi's events. A completed message is a message_end
+// event; the run concluded when the last assistant message ended the turn
+// ("stop") with text and no tool call. Pi exits 0 also when the model
+// provider kept failing: that message ends with "error" or "aborted" and an
+// errorMessage, which is the failure when nothing concluded after it.
+func parsePiResult(stdout, stderr string, exitCode int) RunResult {
+	result := defaultResult(stdout, stderr, exitCode)
+	last, concluded, harnessError := "", false, ""
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var event struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role         string `json:"role"`
+				StopReason   string `json:"stopReason"`
+				ErrorMessage string `json:"errorMessage"`
+				Content      []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		// A user message's content may be a string; only assistant ones matter.
+		if json.Unmarshal([]byte(line), &event) != nil || event.Type != "message_end" || event.Message.Role != "assistant" {
+			continue
+		}
+		var texts []string
+		toolCall := false
+		for _, block := range event.Message.Content {
+			if block.Type == "toolCall" {
+				toolCall = true
+			} else if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+				texts = append(texts, strings.TrimSpace(block.Text))
+			}
+		}
+		text := strings.Join(texts, "\n\n")
+		if event.Message.StopReason == "error" || event.Message.StopReason == "aborted" {
+			concluded = false
+			harnessError = strings.Join(strings.Fields(event.Message.ErrorMessage), " ")
+			if harnessError == "" {
+				harnessError = event.Message.StopReason
+			}
+			continue
+		}
+		// The agent answered again, so an earlier error was recovered from.
+		harnessError = ""
+		if text != "" {
+			last = text
+		}
+		concluded = text != "" && event.Message.StopReason == "stop" && !toolCall
+	}
+	if last != "" && (concluded || !result.FinalMessage) {
+		result.Summary, result.FinalMessage, result.SummaryTruncated = truncateSummary(last), concluded, concluded && len(last) > MaxSummaryBytes
+	}
+	if harnessError != "" && !result.FinalMessage {
+		if len(harnessError) > 500 {
+			harnessError = strings.ToValidUTF8(harnessError[:500], "")
+		}
+		result.FailureReason = "The harness reported an error: " + harnessError
+	}
+	return requireFinalMessage(result, stdout)
+}
+
 func NewQwenCodeProvider(image string) Provider {
 	return newStreamJSONBuiltinProvider(Metadata{
 		ID:              "qwen-code",
@@ -572,7 +679,7 @@ var (
 // a flag. Only Codex runs on a model server URL. Providers that take no model
 // or effort ignore both.
 func validateModelOverrides(providerID string, input RunInput) error {
-	if providerID != "codex" && providerID != "claude-code" && providerID != "opencode" {
+	if providerID != "codex" && providerID != "claude-code" && providerID != "opencode" && providerID != "pi" {
 		return nil
 	}
 	if input.Model != "" && !modelOverridePattern.MatchString(input.Model) {

@@ -2235,7 +2235,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 		TaskMachineDiskGB:    domain.DefaultTaskMachineResources.DiskGB,
 		TaskMachineMaxTasks:  domain.DefaultTaskMachineMaxTasks,
 		MaxTemporaryMachines: domain.DefaultMaxTemporaryMachines,
-		AllowedProviders:     json.RawMessage(`["claude-code","opencode","codex","qwen-code","crush","kimi","goose"]`),
+		AllowedProviders:     json.RawMessage(`["claude-code","opencode","codex","pi","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories:  json.RawMessage(`[]`),
 	}, nil
 }
@@ -2633,13 +2633,13 @@ func (e *AgentModelError) Unwrap() error { return ErrInvalidMachineInput }
 // and an effort. Task starts, profile saves and the profile form (through the
 // profile list's model_harnesses) all follow it.
 func harnessAcceptsModel(provider string) bool {
-	return harnessRunsOnModelServer(provider) || provider == "opencode"
+	return harnessRunsOnModelServer(provider) || provider == "opencode" || provider == "pi"
 }
 
 // harnessRunsOnModelServer is the one rule for which coding agents can run on
-// a workspace model server. OpenCode takes a model and an effort but brings
-// its own providers, so a model server (the workspace default included) and
-// its default model and thinking level never apply to it.
+// a workspace model server. OpenCode and Pi take a model and an effort but
+// bring their own providers, so a model server (the workspace default
+// included) and its default model and thinking level never apply to them.
 func harnessRunsOnModelServer(provider string) bool {
 	return provider == "codex" || provider == "claude-code"
 }
@@ -2651,15 +2651,16 @@ type HarnessModelFormat struct {
 	Example string `json:"example"`
 }
 
-// harnessModelFormats is the one place that knows those forms. OpenCode names
-// a model by its provider and the provider's model ID.
+// harnessModelFormats is the one place that knows those forms. OpenCode and
+// Pi name a model by its provider and the provider's model ID.
 var harnessModelFormats = map[string]HarnessModelFormat{
 	"opencode": {Format: "provider/model", Example: "opencode-go/deepseek-v4.1-flash"},
+	"pi":       {Format: "provider/model", Example: "opencode-go/deepseek-v4.1-flash"},
 }
 
-// openCodeModelPattern is provider/model with both parts present; the model
+// providerModelPattern is provider/model with both parts present; the model
 // part may contain further slashes (openrouter/anthropic/claude-sonnet-5).
-var openCodeModelPattern = regexp.MustCompile(`^[^/]+/[^/].*$`)
+var providerModelPattern = regexp.MustCompile(`^[^/]+/[^/].*$`)
 
 // agentName is the coding agent's name for a person: its display name when
 // it is registered, else the harness name.
@@ -2698,8 +2699,7 @@ func (s *DevMachineService) validateAgentModel(ctx context.Context, workspaceID 
 	if model != "" && !modelNamePattern.MatchString(model) {
 		return &AgentModelError{"the model name is not valid"}
 	}
-	if provider == "opencode" && model != "" && !openCodeModelPattern.MatchString(model) {
-		format := harnessModelFormats[provider]
+	if format, ok := harnessModelFormats[provider]; ok && model != "" && !providerModelPattern.MatchString(model) {
 		return &AgentModelError{fmt.Sprintf("%s takes its model as %s, for example %s", s.agentName(provider), format.Format, format.Example)}
 	}
 	if !harnessRunsOnModelServer(provider) {
