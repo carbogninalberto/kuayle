@@ -237,7 +237,9 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	}
 	index, unmet := t.phase()
 	phase := p.Phases[index]
-	if phase.ID != deref(task.WorkflowNode) {
+	// Without a lead Kuayle names the phase; this version runs no lead, and
+	// the room takes a lead's phase moves only from the lead.
+	if phase.ID != deref(task.WorkflowNode) && p.Lead == nil {
 		if err = s.kuaylePost(ctx, task, domain.TaskRoomPost{Kind: domain.RoomPhase, Body: phase.Label, Data: domain.TaskRoomData{Phase: phase.ID},
 			DedupeKey: fmt.Sprintf("phase:%d:%s", t.st.Pass, phase.ID)}); err != nil {
 			return err

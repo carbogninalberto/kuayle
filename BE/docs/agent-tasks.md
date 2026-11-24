@@ -2941,8 +2941,9 @@ graph's.
   for any task marked `pipeline`; a person's post wakes the task's tick. The
   side panel names the pipeline and draws no graph.
 - **Tick** (KUA-273; `service/team_tick.go`, `repository/pipeline_tick.go`):
-  runs a task marked `pipeline` instead of the graph runner, without a lead and
-  with one writer. The root task is the writer: its turns are its iterations;
+  runs a task marked `pipeline` instead of the graph runner, with one writer
+  and without a lead (this version starts none: a pipeline's `lead` is
+  ignored, and Kuayle names the phase only when there is none). The root task is the writer: its turns are its iterations;
   when one ends (or fails: the failure is posted as a `turn` fact) the task
   waits in `awaiting_review`, where a pass runs on every wake. Its position is
   the workflow columns (`workflow_node` is the phase, `workflow_status`,
