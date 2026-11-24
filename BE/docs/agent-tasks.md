@@ -2834,8 +2834,38 @@ of at most 4,000 bytes). Bounds follow the graph's.
   newer than its last turn: posts for everyone or for the role, not its own,
   plus its own refused posts with their reasons. `domain.RoomTurnPrompt`
   renders them with number, author and kind, the text fenced as data, and how
-  to answer. Member turns and their read cursor come with the members and the
-  tick (P2.3, P2.5).
+  to answer.
+- **Members** (KUA-271; `domain/task_member.go`, `repository/task_member.go`,
+  table `task_members`): a role working on one pipeline task, its profile
+  pinned when the member is created, with its room cursor (`last_read_seq`),
+  `state` (`idle`, `queued`, `running`, kept in step with its task by every
+  transition), `turns` and `no_progress`. A member is an agent task: the
+  writer's turns are the root task's (`member_task_id` NULL, created by
+  `Members`); every other role gets one review task of the root
+  (`insertReviewAgentTask`: kind `review`, never published, no push
+  credential) the first time `StartMemberTurn` addresses it. Each later turn
+  is the next generation of that same task, so `Attempt` reads its previous
+  attempt and `taskSession` resumes its session; every other review
+  (assistant-requested or a graph reviewer step) still starts cold. Between
+  turns the member task rests in `blocked` (no notification, session kept;
+  `completed` would purge it). A turn reads the role's unread posts (a page of
+  200, within the 32 KiB prompt) and the newest commit Kuayle published from
+  the root's attempts (`pinned_commit`); it owes a verdict for that commit
+  when asked (the tick's `askVerdict`, or a `request` for a review in the
+  posts it reads). `MemberInbox`, `MarkMemberRead` and `LatestVerdicts` are
+  the tick's reads (P2.5). Starting a task on a pipeline is still refused.
+- **Verdicts** (table `task_verdicts`; `agent_reviews` stays for requested
+  reviews): a `verdict` post counts only from the member task of its role
+  (`author_member_id`), for the commit its turn reads or one Kuayle published
+  from the root's attempts (`dev_machine_git_refs`, source `published`: the
+  stored records of the task's branch, since Kuayle keeps no clone to ask
+  git). An abbreviated commit is stored whole; another commit is refused with
+  the reason. A turn that owes a verdict and posted none is asked once more in
+  its own session (`domain.VerdictClosingAsk`, through the closing
+  continuation, unless its final message has a `Verdict:` line); when it ends,
+  that line (`ParseAgentReview`) is posted as the member's verdict, and
+  without one Kuayle posts a `verdict` fact with `"verdict": "none"`. The end
+  of a member's turn wakes the root task (`workflow_wake_at`).
 
 ### Moving a task to a newer workflow version
 

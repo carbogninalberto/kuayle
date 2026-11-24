@@ -139,7 +139,11 @@ kuayle-say --to @reviewer --request review
   number.
 - A reviewer ends a review with `--verdict approve|request_changes|comment`
   for the commit it reviewed, with its findings as the text or `--file`.
-  Only a reviewer's own role may give a verdict.
+  Only a reviewer's own role may give a verdict, and only for a commit
+  Kuayle published on the task's branch (the one your prompt names). A
+  `Verdict:` line in your final message counts too. A turn asked for a
+  review that ends without a verdict is asked once more, then reported in
+  the room as having none.
 - The implementer may ask for a review with `--request review`.
 - Text is at most 4,000 characters; point to files instead of pasting them.
 

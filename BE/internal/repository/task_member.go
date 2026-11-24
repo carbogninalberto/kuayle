@@ -347,10 +347,9 @@ func memberOfTask(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) (*dom
 // completeMemberTurn ends a member's turn whose attempt succeeded with
 // output as its final message. A turn asked for a verdict that posted none
 // for its commit in the room gives the one its final message carries (the
-// Verdict: line),
-// posted as the member; a turn that gave neither is reported in the room by
-// Kuayle. The member task then rests, its session kept, until its next
-// turn, and the root task is woken.
+// Verdict: line), posted as the member; a turn that gave neither is reported
+// in the room by Kuayle. The member task then rests, its session kept, until
+// its next turn, and the root task is woken.
 func completeMemberTurn(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, member domain.TaskMember, output string) error {
 	root := domain.AgentTask{}
 	if err := tx.GetContext(ctx, &root, `SELECT * FROM agent_tasks WHERE id=$1 AND workspace_id=$2 FOR UPDATE`, member.TaskID, member.WorkspaceID); err != nil {
