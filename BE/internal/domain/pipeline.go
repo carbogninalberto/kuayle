@@ -35,19 +35,35 @@ const (
 )
 
 // Facts a check can require. The list is closed: Kuayle reads each one
-// without a model. These are the conditions of the plan's facts that a
-// merge can wait on; the others (head_sha, base_ref, conflict, the board,
-// ...) are read and reported, but a phase cannot require them. Adding a
-// name later is easy; removing one would invalidate saved versions.
-// script is the only fact that carries content the author wrote.
+// without a model (service/task_facts.go). Every fact with a defined "met"
+// can be required: yes for pr_exists, head_contains_base, ci_green,
+// approved and merged; no for pr_draft, conflict, migration_collision and
+// closed; no task ahead in the merge order changing the same files for
+// overlap; the role's approval of the head for verdict; exit 0 for script.
+// Values (head_sha, base_ref, the board) are reported, never required.
+// Removing a name would invalidate saved versions. script is the only fact
+// that carries content the author wrote.
 const (
-	PipelineFactPRExists         = "pr_exists"
-	PipelineFactHeadContainsBase = "head_contains_base"
-	PipelineFactCIGreen          = "ci_green"
-	PipelineFactVerdict          = "verdict"
-	PipelineFactApproved         = "approved"
-	PipelineFactScript           = "script"
+	PipelineFactPRExists           = "pr_exists"
+	PipelineFactPRDraft            = "pr_draft"
+	PipelineFactHeadContainsBase   = "head_contains_base"
+	PipelineFactConflict           = "conflict"
+	PipelineFactMigrationCollision = "migration_collision"
+	PipelineFactCIGreen            = "ci_green"
+	PipelineFactVerdict            = "verdict"
+	PipelineFactApproved           = "approved"
+	PipelineFactMerged             = "merged"
+	PipelineFactClosed             = "closed"
+	PipelineFactOverlap            = "overlap"
+	PipelineFactScript             = "script"
 )
+
+// PipelineConditionFacts are the facts a check requires without naming a
+// role or carrying a command.
+var PipelineConditionFacts = []string{
+	PipelineFactPRExists, PipelineFactPRDraft, PipelineFactHeadContainsBase, PipelineFactConflict, PipelineFactMigrationCollision,
+	PipelineFactCIGreen, PipelineFactApproved, PipelineFactMerged, PipelineFactClosed, PipelineFactOverlap,
+}
 
 // Pipeline bounds; the others are the graph's (WorkflowMaxNodes phases,
 // WorkflowMaxLabelRunes, WorkflowMaxPromptBytes, WorkflowMaxGraphBytes).
@@ -263,9 +279,10 @@ func pipelineCheckProblem(check PipelineCheck, roles map[string]PipelineMember) 
 		if strings.TrimSpace(check.Script) == "" || len(check.Script) > WorkflowMaxPromptBytes || !utf8.ValidString(check.Script) || strings.ContainsRune(check.Script, 0) {
 			return fmt.Sprintf("a script check runs a command of at most %d bytes", WorkflowMaxPromptBytes)
 		}
-	case PipelineFactPRExists, PipelineFactHeadContainsBase, PipelineFactCIGreen, PipelineFactApproved:
 	default:
-		return fmt.Sprintf("a check cannot require %q", check.Fact)
+		if !slices.Contains(PipelineConditionFacts, check.Fact) {
+			return fmt.Sprintf("a check cannot require %q", check.Fact)
+		}
 	}
 	if (check.Role != "" && check.Fact != PipelineFactVerdict) || (check.Script != "" && check.Fact != PipelineFactScript) {
 		return "only a verdict names a role, and only a script check carries a command"

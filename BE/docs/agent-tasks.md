@@ -2766,10 +2766,15 @@ ordered `phases` (`id`, `label`, `owner`: a roster role, `kuayle` or `human`,
 roles (`role`, `profile_id`, exactly one `writer` whose profile changes code,
 `on_call`), an optional `lead`, `autonomy` (`approve` and `waive` per check:
 `human`, or `lead` when there is one) and a `budget` (`max_turns`,
-`max_minutes`, `on_exhausted`). A check requires one fact from a closed list:
-`pr_exists`, `head_contains_base`, `ci_green`, `verdict` (with the `role` that
-gives it), `approved` and `script` (the only one with author content: a command
-of at most 4,000 bytes). Bounds follow the graph's.
+`max_minutes`, `on_exhausted`). A check requires one fact from a closed list,
+every fact with a defined "met": `pr_exists`, `head_contains_base`, `ci_green`,
+`approved` and `merged` (met when yes); `pr_draft`, `conflict`,
+`migration_collision` and `closed` (met when no); `overlap` (no task ahead in
+the merge order changes the same files); `verdict` (with the `role` that gives
+it: that role approved the head); and `script` (the only one with author
+content: a command of at most 4,000 bytes, met on exit 0). Values such as the
+head, the base and the board are reported, never required. Bounds follow the
+graph's.
 
 - Off by default: `WORKFLOW_PIPELINES_ENABLED=true` lets owners and admins save
   pipelines, including the built-in `template: "team"` of `POST /workflows`
