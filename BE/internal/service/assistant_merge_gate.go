@@ -140,77 +140,75 @@ func (g mergeGate) merge(ctx context.Context, ws, actor uuid.UUID, repository st
 	}
 }
 
-// check reads the pull request from GitHub now and decides whether wait.Head
-// may merge. A branch behind its base is updated here as the actor, pinned to
-// wait.Head, and held. Only a failure to reach GitHub is an error.
+// check reads the pull request's facts from GitHub now and decides whether
+// wait.Head may merge. A branch behind its base is updated here as the actor,
+// pinned to wait.Head, and held. Only a failure to reach GitHub is an error.
 func (g mergeGate) check(ctx context.Context, ws, actor uuid.UUID, repository string, number int, wait *domain.MergeWait) (mergeHold, error) {
-	status, err := g.pulls.PullRequestStatus(ctx, ws, repository, number)
-	if err != nil {
-		return mergeHold{}, err
+	facts := readTaskFacts(ctx, g.pulls, g.now, ws, repository, number)
+	if facts.Err != nil {
+		return mergeHold{}, facts.Err
 	}
 	switch {
-	case status.State == "merged" && status.HeadSHA == wait.Head:
+	case facts.Merged == FactYes && facts.HeadSHA == wait.Head:
 		return mergeHold{merged: true}, nil
-	case status.State == "merged":
-		return mergeHold{mergedElsewhere: true, reason: fmt.Sprintf("Pull request #%d was merged outside Kuayle at %s, not at the approved %s", number, shortSHA(status.HeadSHA), shortSHA(wait.Head))}, nil
-	case status.State != "open" || status.Draft:
+	case facts.Merged == FactYes:
+		return mergeHold{mergedElsewhere: true, reason: fmt.Sprintf("Pull request #%d was merged outside Kuayle at %s, not at the approved %s", number, shortSHA(facts.HeadSHA), shortSHA(wait.Head))}, nil
+	case facts.Closed == FactYes || facts.PRDraft == FactYes:
 		return mergeHold{}, nil // GitHub refuses the merge with its own reason
 	}
-	base := status.BaseRef
-	if status.HeadSHA != wait.Head {
+	base := facts.BaseRef
+	if facts.HeadSHA != wait.Head {
 		if !wait.Updating {
-			return mergeHold{reason: headMovedRefusal(status.HeadSHA)}, nil
+			return mergeHold{reason: headMovedRefusal(facts.HeadSHA)}, nil
 		}
 		// GitHub made the head Kuayle asked for, or someone pushed: only the
 		// exact update is merged.
-		why, err := g.verifyUpdate(ctx, ws, repository, base, wait.Head, status.HeadSHA)
+		why, err := g.verifyUpdate(ctx, ws, repository, base, wait.Head, facts.HeadSHA)
 		if err != nil {
 			return mergeHold{}, err
 		}
 		if why != "" {
-			return mergeHold{reason: updateNotVerifiedRefusal(status.HeadSHA, why)}, nil
+			return mergeHold{reason: updateNotVerifiedRefusal(facts.HeadSHA, why)}, nil
 		}
-		wait.Head, wait.Updating = status.HeadSHA, false
+		wait.Head, wait.Updating = facts.HeadSHA, false
 	} else if wait.Updating {
-		if status.Behind != 0 {
+		if facts.HeadContainsBase != FactYes {
 			return mergeHold{transient: true, reason: fmt.Sprintf("GitHub is still bringing pull request #%d up to date with %s", number, base)}, nil
 		}
 		wait.Updating = false
 	}
-	if status.migrationRepair != "" {
-		return mergeHold{migrationRepair: status.migrationRepair,
-			reason: status.migrationRepair + " Next step: update_pull_request_branch to send the repair to the task agent, then ask to merge again once its checks pass"}, nil
+	if facts.MigrationCollision == FactYes {
+		return mergeHold{migrationRepair: facts.MigrationRepair,
+			reason: facts.MigrationRepair + " Next step: update_pull_request_branch to send the repair to the task agent, then ask to merge again once its checks pass"}, nil
 	}
 	switch {
-	case status.Behind < 0:
+	case facts.HeadContainsBase == FactUnknown:
 		return mergeHold{transient: true, reason: fmt.Sprintf("GitHub did not report whether pull request #%d contains the latest %s, so it was not merged. Next step: ask to merge again in a moment", number, base)}, nil
-	case status.migrationCheckUnavailable:
+	case facts.MigrationCollision == FactUnknown:
 		return mergeHold{pending: true, reason: migrationCheckUnavailableReason + ". Kuayle will retry"}, nil
-	case status.Behind > 0:
-		if status.MergeableState == "dirty" || (status.Mergeable != nil && !*status.Mergeable) {
+	case facts.HeadContainsBase == FactNo:
+		if facts.Conflict == FactYes {
 			return mergeHold{reason: branchConflictRefusal(number, base)}, nil
 		}
 		if wait.Updates >= maxMergeUpdates {
 			return mergeHold{reason: fmt.Sprintf("Pull request #%d fell behind %s again after Kuayle brought it up to date %d times, so it was not merged. Next step: ask to merge again once %s is quieter", number, base, wait.Updates, base)}, nil
 		}
-		return g.updateBehindBranch(ctx, ws, actor, repository, number, wait, status)
+		return g.updateBehindBranch(ctx, ws, actor, repository, number, wait, facts)
 	}
-	head, checks, coverage, err := g.pulls.PullRequestChecks(ctx, ws, repository, number)
-	if err != nil {
-		return mergeHold{}, err
+	ci := facts.CI
+	if ci.Err != nil {
+		return mergeHold{}, ci.Err
 	}
-	if head != wait.Head {
-		return mergeHold{reason: headMovedRefusal(head)}, nil
+	if ci.Head != wait.Head {
+		return mergeHold{reason: headMovedRefusal(ci.Head)}, nil
 	}
-	summary, state, next := summarizeChecks(checks, coverage)
+	summary, state, next := summarizeChecks(ci.Checks, ci.Coverage)
 	at := shortSHA(wait.Head)
 	switch state {
 	case "failing":
 		var failed []string
-		for _, check := range checks {
-			if check.State == "failed" {
-				failed = append(failed, check.Name)
-			}
+		for _, check := range ci.failing() {
+			failed = append(failed, check.Name)
 		}
 		return mergeHold{reason: fmt.Sprintf("Pull request #%d was not merged: %d check(s) failed on %s: %s. Next step: get_pull_request_checks shows the logs; fix them with follow_up_task, then ask to merge again once they pass", number, len(failed), at, truncateRunes(strings.Join(failed, ", "), 300))}, nil
 	case "pending":
@@ -218,44 +216,14 @@ func (g mergeGate) check(ctx context.Context, ws, actor uuid.UUID, repository st
 	case "incomplete":
 		return mergeHold{transient: true, reason: fmt.Sprintf("Pull request #%d was not merged: it is not known that CI passed on %s. %s Then ask to merge again", number, at, next)}, nil
 	case "none":
-		return g.holdUncheckedHead(ctx, ws, repository, number, wait.Head, status)
+		// A head without checks merges only in a repository without CI
+		// (uncheckedHead). A hold is pending, so a waiting merge keeps
+		// waiting for the checks to appear; GitHub's required checks, if
+		// any, still refuse the merge.
+		if ci.Unchecked != "" {
+			return mergeHold{pending: true, reason: fmt.Sprintf("Pull request #%d was not merged: no checks have reported on %s yet, %s. Next step: follow them with get_pull_request_checks and ask to merge again once they pass; if the repository's CI never runs on this branch, merge it on GitHub", number, at, ci.Unchecked)}, nil
+		}
 	}
-	return mergeHold{}, nil
-}
-
-// mergeGraceWindow is how long a head without checks is assumed to be still
-// waiting for CI to register them.
-const mergeGraceWindow = 2 * time.Minute
-
-// holdUncheckedHead decides for an up-to-date head that reports no checks. A
-// branch update or push registers its checks only after a moment, so such a
-// head merges only in a repository without CI: none on the base's tip (which
-// the head contains) and committed longer than mergeGraceWindow ago. A hold is
-// pending, so a waiting merge keeps waiting for the checks to appear.
-func (g mergeGate) holdUncheckedHead(ctx context.Context, ws uuid.UUID, repository string, number int, commit string, status *PullRequestStatus) (mergeHold, error) {
-	waiting := fmt.Sprintf("Pull request #%d was not merged: no checks have reported on %s yet", number, shortSHA(commit))
-	next := ". Next step: follow them with get_pull_request_checks and ask to merge again once they pass; if the repository's CI never runs on this branch, merge it on GitHub"
-	if status.MergeBase == "" {
-		return mergeHold{pending: true, reason: waiting + fmt.Sprintf(", and the tip of %s it contains is unknown, so it is not known whether the repository has CI", status.BaseRef) + next}, nil
-	}
-	checks, coverage, err := g.pulls.CommitChecks(ctx, ws, repository, status.MergeBase)
-	if err != nil {
-		return mergeHold{}, err
-	}
-	if len(checks) > 0 {
-		return mergeHold{pending: true, reason: waiting + fmt.Sprintf(", though %s's tip has %d, so CI has not run on it", status.BaseRef, len(checks)) + next}, nil
-	}
-	if coverage.incomplete() {
-		return mergeHold{pending: true, reason: waiting + fmt.Sprintf(", and the checks of %s's tip could not all be read, so it is not known whether the repository has CI", status.BaseRef) + next}, nil
-	}
-	committed, err := g.pulls.CommitDate(ctx, ws, repository, commit)
-	if err != nil {
-		return mergeHold{}, err
-	}
-	if g.now().Sub(committed) < mergeGraceWindow {
-		return mergeHold{pending: true, reason: waiting + fmt.Sprintf(", and it was committed less than %s ago, so CI may not have started", mergeGraceWindow) + next}, nil
-	}
-	// No CI anywhere: GitHub's required checks, if any, still refuse the merge.
 	return mergeHold{}, nil
 }
 
@@ -263,9 +231,9 @@ func (g mergeGate) holdUncheckedHead(ctx context.Context, ws uuid.UUID, reposito
 // update-branch, pinned to wait.Head, and holds the merge until CI ran on the
 // new head. The new head is accepted only once verified as that update. A
 // conflict is sent back to be rebased.
-func (g mergeGate) updateBehindBranch(ctx context.Context, ws, actor uuid.UUID, repository string, number int, wait *domain.MergeWait, status *PullRequestStatus) (mergeHold, error) {
-	base := status.BaseRef
-	behind := fmt.Sprintf("Pull request #%d was %d commit(s) behind %s, and its CI never ran with the latest %s", number, status.Behind, base, base)
+func (g mergeGate) updateBehindBranch(ctx context.Context, ws, actor uuid.UUID, repository string, number int, wait *domain.MergeWait, facts TaskFacts) (mergeHold, error) {
+	base := facts.BaseRef
+	behind := fmt.Sprintf("Pull request #%d was %d commit(s) behind %s, and its CI never ran with the latest %s", number, facts.Behind, base, base)
 	waitFor := "Kuayle merges it once the checks on the new head pass"
 	from := wait.Head
 	head, err := g.pulls.UpdatePullRequestBranch(ctx, ws, repository, number, from)
@@ -275,7 +243,7 @@ func (g mergeGate) updateBehindBranch(ctx context.Context, ws, actor uuid.UUID, 
 		switch {
 		case errors.As(err, &unsynced):
 			// GitHub accepted the update; only reading the new head failed.
-			audit.Log("pull_request.branch_updated_before_merge", actor, map[string]interface{}{"workspace_id": ws, "repository": repository, "pull_request": number, "behind": status.Behind})
+			audit.Log("pull_request.branch_updated_before_merge", actor, map[string]interface{}{"workspace_id": ws, "repository": repository, "pull_request": number, "behind": facts.Behind})
 			wait.Updates, wait.Updating, wait.Base = wait.Updates+1, true, base
 			return mergeHold{updated: true, reason: behind + ". Kuayle asked GitHub to bring the branch up to date; " + waitFor}, nil
 		case errors.As(err, &api) && api.Status == http.StatusUnprocessableEntity && strings.Contains(strings.ToLower(api.Message), "conflict"):
@@ -291,7 +259,7 @@ func (g mergeGate) updateBehindBranch(ctx context.Context, ws, actor uuid.UUID, 
 		}
 		return mergeHold{}, err
 	}
-	audit.Log("pull_request.branch_updated_before_merge", actor, map[string]interface{}{"workspace_id": ws, "repository": repository, "pull_request": number, "behind": status.Behind, "head": head})
+	audit.Log("pull_request.branch_updated_before_merge", actor, map[string]interface{}{"workspace_id": ws, "repository": repository, "pull_request": number, "behind": facts.Behind, "head": head})
 	wait.Updates, wait.Base = wait.Updates+1, base
 	if head == from {
 		wait.Updating = true
