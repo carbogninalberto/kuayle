@@ -284,7 +284,9 @@
 		</MessageScroller.Item>
 	{/each}
 </ol>
-{#if loaded && !rows.length}<p class="text-sm text-muted-foreground">{m['tasks.room_empty']()}</p>{/if}
+{#if !rows.length && !failed}<p class="text-sm text-muted-foreground" role="status">
+		{loaded ? m['tasks.room_empty']() : m['assistant.loading']()}
+	</p>{/if}
 {#if failed}<div class="flex flex-wrap items-center gap-2">
 		<p role="alert" class="text-sm text-destructive">{m['tasks.load_error']()}</p>
 		<Button variant="ghost" size="sm" onclick={() => void load()}><RefreshCw />{m['tasks.refresh']()}</Button>

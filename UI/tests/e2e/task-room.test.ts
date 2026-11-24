@@ -284,7 +284,7 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	expect(state.reads).toContain(9);
 
 	// At phone width the room fits without scrolling sideways.
-	await page.setViewportSize({ width: 390, height: 844 });
+	await page.setViewportSize({ width: 320, height: 720 });
 	await expect.poll(() => room.evaluate((list) => list.scrollWidth <= list.clientWidth)).toBe(true);
 	await page.screenshot({ path: testInfo.outputPath('task-room-phone.png') });
 });
