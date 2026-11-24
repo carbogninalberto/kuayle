@@ -2067,6 +2067,7 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 		['claude-code', 'Claude Code'],
 		['opencode', 'OpenCode'],
 		['codex', 'Codex'],
+		['pi', 'Pi'],
 		['qwen-code', 'Qwen Code'],
 		['crush', 'Crush'],
 		['kimi', 'Kimi'],
@@ -2156,17 +2157,17 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 
 	const provider = dialog.getByRole('combobox', { name: 'Provider' });
 	await provider.click();
-	for (const displayName of ['Qwen Code', 'Crush', 'Kimi', 'Goose']) {
+	for (const displayName of ['Pi', 'Qwen Code', 'Crush', 'Kimi', 'Goose']) {
 		await expect(page.getByRole('option', { name: displayName, exact: true })).toBeVisible();
 	}
-	await page.getByRole('option', { name: 'Kimi', exact: true }).click();
+	await page.getByRole('option', { name: 'Pi', exact: true }).click();
 	await dialog.getByRole('button', { name: 'Create machine' }).click();
 
 	await expect.poll(() => createPayload).toBeTruthy();
 	expect(createPayload).toMatchObject({
 		profile: 'headless',
 		services: { ide: false, browser: false },
-		agents: [{ provider: 'kimi', mode: 'autonomous' }]
+		agents: [{ provider: 'pi', mode: 'autonomous' }]
 	});
 });
 

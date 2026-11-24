@@ -4,6 +4,7 @@ const agentNames: Record<string, string> = {
 	codex: 'Codex',
 	'claude-code': 'Claude Code',
 	opencode: 'OpenCode',
+	pi: 'Pi',
 	'qwen-code': 'Qwen Code',
 	crush: 'Crush',
 	kimi: 'Kimi',

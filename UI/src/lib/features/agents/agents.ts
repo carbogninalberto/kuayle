@@ -16,6 +16,7 @@ export const agents: AgentInfo[] = [
 	{ id: 'codex', name: 'Codex', monogram: 'Cx', protocol: 'openai' },
 	{ id: 'claude-code', name: 'Claude Code', icon: siClaude, monogram: 'CC', protocol: 'anthropic' },
 	{ id: 'opencode', name: 'OpenCode', icon: siOpencode, monogram: 'OC' },
+	{ id: 'pi', name: 'Pi', monogram: 'Pi' },
 	{ id: 'qwen-code', name: 'Qwen Code', icon: siQwen, monogram: 'Qw' },
 	{ id: 'crush', name: 'Crush', monogram: 'Cr' },
 	{ id: 'kimi', name: 'Kimi', icon: siKimi, monogram: 'Ki' },
