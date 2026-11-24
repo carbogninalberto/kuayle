@@ -75,6 +75,9 @@ type mergeHold struct {
 	// mergedElsewhere is set when someone merged it at another head; reason
 	// says so.
 	mergedElsewhere bool
+	// facts is what the gate read last, nil when it read nothing; a workflow
+	// stores them with a refusal (KUA-265).
+	facts *TaskFacts
 }
 
 // waits reports whether a merge keeps waiting: while CI or the migration
@@ -116,6 +119,7 @@ func (g mergeGate) merge(ctx context.Context, ws, actor uuid.UUID, repository st
 	if method == "" {
 		method = "squash"
 	}
+	var read *TaskFacts
 	for attempt := 1; ; attempt++ {
 		// Without the pull request reader nothing but GitHub's own rules
 		// stands between the approved commit and the merge.
@@ -124,6 +128,7 @@ func (g mergeGate) merge(ctx context.Context, ws, actor uuid.UUID, repository st
 			if err != nil || hold.reason != "" || hold.merged {
 				return hold, err
 			}
+			read = hold.facts
 		}
 		err := merger.MergeTaskPullRequest(ctx, ws, repository, number, wait.Head, method)
 		if err == nil {
@@ -134,23 +139,30 @@ func (g mergeGate) merge(ctx context.Context, ws, actor uuid.UUID, repository st
 			if baseMovedRefusal(refused.Reason) && g.pulls != nil && attempt < mergeAttempts {
 				continue
 			}
-			return mergeHold{reason: mergeRefusalMessage(refused.Reason, wait.Head)}, nil
+			return mergeHold{reason: mergeRefusalMessage(refused.Reason, wait.Head), facts: read}, nil
 		}
 		if message, disabled := disabledAbilityMessage(err); disabled {
-			return mergeHold{reason: message}, nil
+			return mergeHold{reason: message, facts: read}, nil
 		}
 		return mergeHold{}, err
 	}
 }
 
 // check reads the pull request's facts from GitHub now and decides whether
-// wait.Head may merge. A branch behind its base is updated here as the actor,
-// pinned to wait.Head, and held. Only a failure to reach GitHub is an error.
+// wait.Head may merge (decide). Only a failure to reach GitHub is an error.
 func (g mergeGate) check(ctx context.Context, ws, actor uuid.UUID, repository string, number int, wait *domain.MergeWait) (mergeHold, error) {
 	facts := readTaskFacts(ctx, g.pulls, g.now, ws, repository, number)
 	if facts.Err != nil {
 		return mergeHold{}, facts.Err
 	}
+	hold, err := g.decide(ctx, ws, actor, repository, number, wait, facts)
+	hold.facts = &facts
+	return hold, err
+}
+
+// decide is check on the facts it read. A branch behind its base is updated
+// here as the actor, pinned to wait.Head, and held.
+func (g mergeGate) decide(ctx context.Context, ws, actor uuid.UUID, repository string, number int, wait *domain.MergeWait, facts TaskFacts) (mergeHold, error) {
 	switch {
 	case facts.Merged == FactYes && facts.HeadSHA == wait.Head:
 		return mergeHold{merged: true}, nil

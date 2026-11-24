@@ -144,6 +144,7 @@ func (w *WorkflowRunner) judgeCI(ctx context.Context, task domain.AgentTask, ste
 		// The branch was brought up to date since the commit was published:
 		// CI on the commit is stale, and the update decides (KUA-264).
 		if update, ok := w.ciUpdate(ctx, task, branch, branch.facts.HeadSHA, published, record); ok {
+			judgedUpdate(update, branch, published, now)
 			record, adopted = update, true
 		}
 	}
@@ -260,34 +261,54 @@ func (w *WorkflowRunner) judgeChecks(ctx context.Context, task domain.AgentTask,
 // of the file. Anything else leaves v as it is.
 func (w *WorkflowRunner) ciBranch(ctx context.Context, task domain.AgentTask, branch *ciBranchRead, published string, v ciVerdict, now time.Time) (ciVerdict, error) {
 	target, facts, base := branch.target, branch.facts, branch.base
-	sendBack := func(why string) (ciVerdict, error) {
-		return ciVerdict{outcome: domain.WorkflowBranchConflict, detail: why, record: v.record}, nil
-	}
 	record := v.record
+	// What the step does on the facts is stored with it (KUA-265).
+	sendBack := func(action, why string) (ciVerdict, error) {
+		record.Branch = branchRecord(action, facts, base, now)
+		return ciVerdict{outcome: domain.WorkflowBranchConflict, detail: why, record: record}, nil
+	}
 	switch {
 	case facts.MigrationCollision == FactYes:
-		return sendBack(facts.MigrationRepair)
+		return sendBack(domain.WorkflowBranchMigrationCollision, facts.MigrationRepair)
 	case facts.Conflict == FactYes:
-		return sendBack(rebaseInstruction(base))
+		return sendBack(domain.WorkflowBranchConflicted, rebaseInstruction(base))
 	case facts.HeadSHA != record.Head:
 		if moved, ok := w.ciAdopt(ctx, task, branch, facts.HeadSHA, published, record, now); ok {
+			if moved.record.UpdateOf != "" {
+				judgedUpdate(moved.record, branch, published, now)
+			}
 			return moved, nil
 		}
 		return v, nil
-	case facts.HeadContainsBase != FactNo || facts.Conflict != FactNo || facts.MigrationCollision != FactNo || record.Updates >= maxMergeUpdates:
-		// Up to date, not known yet, or updated as often as a merge would.
+	case facts.HeadContainsBase != FactNo || facts.Conflict != FactNo || facts.MigrationCollision != FactNo:
+		// Up to date, or not known yet.
+		return v, nil
+	case record.Updates >= maxMergeUpdates:
+		// Updated as often as a merge would: the step says so, once.
+		limit := branchRecord(domain.WorkflowBranchUpdateLimit, facts, base, now)
+		limit.Updates = record.Updates
+		if !limit.Same(record.Branch) {
+			record.Branch, v.save = limit, true
+		}
 		return v, nil
 	}
 	// Behind its base, and it merges cleanly: every request counts.
 	record.Updates++
 	v.save = true
+	acted := branchRecord(domain.WorkflowBranchUpdated, facts, base, now)
+	acted.Updates = record.Updates
 	head, updated, conflicts := w.updateBranch(ctx, task, target, record.Head, facts.Behind)
 	switch {
 	case conflicts:
-		return sendBack(rebaseInstruction(base))
+		refused, err := sendBack(domain.WorkflowBranchConflicted, rebaseInstruction(base))
+		refused.record.Branch.Conflict = string(FactYes) // GitHub's update-branch said so
+		return refused, err
 	case !updated:
 		return v, nil
-	case head != "" && head != record.Head:
+	}
+	record.Branch = acted
+	if head != "" && head != record.Head {
+		acted.UpdatedTo = head
 		if moved, ok := w.ciAdopt(ctx, task, branch, head, published, record, now); ok {
 			return moved, nil
 		}
@@ -324,11 +345,20 @@ func (w *WorkflowRunner) ciUpdate(ctx context.Context, task domain.AgentTask, br
 	if err != nil || why != "" {
 		return nil, false
 	}
-	record := &domain.WorkflowCIRecord{Repository: from.Repository, Head: head, Updates: max(from.Updates, updates)}
+	record := &domain.WorkflowCIRecord{Repository: from.Repository, Head: head, Updates: max(from.Updates, updates), Branch: from.Branch}
 	if head != published {
 		record.UpdateOf = published
 	}
 	return record, true
+}
+
+// judgedUpdate records on record, a step that now judges its pull request's
+// head as Kuayle's update of the published commit, that it does so, with the
+// facts it read (KUA-265).
+func judgedUpdate(record *domain.WorkflowCIRecord, branch *ciBranchRead, published string, now time.Time) {
+	acted := branchRecord(domain.WorkflowBranchJudgedUpdate, branch.facts, branch.base, now)
+	acted.Published, acted.Updates = published, record.Updates
+	record.Branch = acted
 }
 
 // ciPrior reads what the task's earlier CI steps judged on the commit.

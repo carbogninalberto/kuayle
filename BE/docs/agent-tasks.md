@@ -966,6 +966,20 @@ to ship from a plan's approval, which also leads to agents. The runner
   branch that falls behind once more after that stays behind; approving it
   ends the merge with "fell behind again after Kuayle brought it up to date 3
   times", for a person.
+- **The step says why** (KUA-265). What a step does because of what Kuayle
+  read about the branch is stored with the step as `ci.branch`
+  (`domain.WorkflowBranchRecord`, no migration: any step's `ci` column can
+  carry it): the action (`updated`, `update_limit`, `conflict`,
+  `migration_collision`, `judged_update`, `merge_refused` with its refusal)
+  and the facts it acted on (pull request, head, base, commits behind,
+  conflict, migration collision, and CI on the head for a merge). The CI step
+  stores it in its CI record; a waiting step stores it with its wake-up
+  (`RecordWorkflowBranch`, fenced by the worker lease) or as it closes; an
+  approved merge's refusal stores it next to the merge, as do the conflict and
+  collision send-backs. The same decision on the same facts is not stored
+  again. The step's detail in the agent view shows it as a sentence built
+  from the facts. A refusal at a done end, which fails the task, keeps only
+  its reason.
 - **Approving** records the merge on the step that carries it out
   (`agent_task_workflow_steps.merge`, migration 171) with the approver and the
   commit the task published: on the approval itself when it leads to `done`, or

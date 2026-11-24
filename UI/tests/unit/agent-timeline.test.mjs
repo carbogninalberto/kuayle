@@ -165,6 +165,32 @@ test('step status follows the outcome, and the open step follows the task', () =
 	assert.equal(workflowTimeline(view({ steps: [step(1, 'ci', 'check', 0)], runs: [] }), task())[0].label, '');
 });
 
+// KUA-265: a step carries what it last did on its pull request's branch,
+// with the facts it read, for its detail to say why.
+test('a step carries what it did on its branch and the facts it read', () => {
+	const branch = {
+		action: 'updated',
+		at: at(5),
+		pull_request: 12,
+		head: '0123456789abcdef',
+		base: 'main',
+		behind: 2,
+		conflict: 'no',
+		updates: 1,
+		updated_to: 'fedcba9876543210'
+	};
+	const steps = workflowTimeline(
+		view({
+			steps: [step(1, 'ci', 'check', 0, { ci: { head: 'abc', branch } }), step(2, 'ci', 'check', 1, { ci: { head: 'abc' } }), step(3, 'ci', 'check', 2)],
+			runs: []
+		}),
+		task({ state: 'awaiting_review' })
+	);
+	assert.deepEqual(steps[0].branch, branch);
+	assert.equal(steps[1].branch, undefined);
+	assert.equal(steps[2].branch, undefined);
+});
+
 test('with nothing running the last agent step is the open one', () => {
 	const done = view({ status: 'done' });
 	done.steps = done.steps.slice(0, 4);

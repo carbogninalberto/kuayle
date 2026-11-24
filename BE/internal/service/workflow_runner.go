@@ -49,6 +49,8 @@ type workflowTaskStore interface {
 	// What CI steps judged on a commit (KUA-215).
 	WorkflowCIHistory(context.Context, domain.AgentTask, string) ([]domain.WorkflowStep, error)
 	RecordWorkflowCI(context.Context, domain.AgentTask, domain.WorkflowCIRecord, *time.Time) error
+	// What a waiting step did on its pull request's branch (KUA-265).
+	RecordWorkflowBranch(context.Context, domain.AgentTask, domain.WorkflowBranchRecord, *time.Time) error
 }
 
 type workflowDefinitionStore interface {
@@ -485,7 +487,7 @@ func (w *WorkflowRunner) enterNative(ctx context.Context, task domain.AgentTask,
 		if graph.ShipApproval(to, profiles) != "" {
 			// The go-ahead to merge: the pull request is made ready to merge
 			// first, or sent back when it conflicts (KUA-209).
-			done, conflict := w.prepareBranch(ctx, task, true)
+			done, conflict, _ := w.prepareBranch(ctx, task, true)
 			if conflict != "" {
 				return repository.WorkflowEntry{}, domain.WorkflowBranchConflict, conflict, nil
 			}
@@ -526,7 +528,7 @@ func (w *WorkflowRunner) enterAgent(ctx context.Context, task domain.AgentTask, 
 		}
 		// The review sees the branch with its base's newest commits; one
 		// that conflicts goes back as changes requested (KUA-209).
-		if _, conflict := w.prepareBranch(ctx, task, false); conflict != "" {
+		if _, conflict, _ := w.prepareBranch(ctx, task, false); conflict != "" {
 			return repository.WorkflowEntry{}, domain.WorkflowReviewChangesRequested, conflict, nil
 		}
 		// A review's focus is short, so the plan is not added to it
@@ -710,6 +712,8 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 	outcome, detail, waiting := "", "", ""
 	var wake *time.Time
 	var ci *ciVerdict
+	// branch is what a waiting step did on its pull request's branch.
+	var branch *domain.WorkflowBranchRecord
 	switch {
 	case node.Type == domain.WorkflowNodeAgent && step.ReviewTaskID != nil:
 		review, err := w.tasks.WorkflowReview(ctx, task, *step.ReviewTaskID)
@@ -742,10 +746,10 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 			}
 		default:
 			// The reviewer still works: its branch follows the base.
-			outcome, detail = w.followBase(ctx, task)
+			outcome, detail, branch = w.followBase(ctx, task)
 		}
 	case node.Type == domain.WorkflowNodeApproval && graph.ShipApproval(node, profiles) != "", node.Type == domain.WorkflowNodeMerge:
-		outcome, detail = w.followBase(ctx, task)
+		outcome, detail, branch = w.followBase(ctx, task)
 	case node.Type == domain.WorkflowNodeCheck && node.Check == domain.WorkflowCheckCI:
 		published, err := w.tasks.WorkflowCI(ctx, task)
 		if err != nil {
@@ -799,11 +803,18 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 			}
 			return nil
 		}
+		if branch != nil && !branch.Same(storedBranch(*step)) {
+			// What the step did on its branch, stored with the wake-up.
+			return w.tasks.RecordWorkflowBranch(ctx, task, *branch, wake)
+		}
 		return w.tasks.SetWorkflowWake(ctx, task, wake)
 	}
 	var record *domain.WorkflowCIRecord
-	if ci != nil {
+	switch {
+	case ci != nil:
 		record = ci.record
+	case branch != nil:
+		record = &domain.WorkflowCIRecord{Branch: branch}
 	}
 	return w.outcome(ctx, task, outcome, detail, "", record)
 }
@@ -817,11 +828,22 @@ func (w *WorkflowRunner) Evaluate(ctx context.Context, task domain.AgentTask) er
 // branch_conflict and the instruction that sends the work back to the step
 // that changes code. It acts only on what GitHub reports now, so waking again
 // on the same branch changes nothing.
-func (w *WorkflowRunner) followBase(ctx context.Context, task domain.AgentTask) (string, string) {
-	if _, conflict := w.prepareBranch(ctx, task, false); conflict != "" {
-		return domain.WorkflowBranchConflict, conflict
+// What it did on the facts it read is returned for the step to store
+// (KUA-265).
+func (w *WorkflowRunner) followBase(ctx context.Context, task domain.AgentTask) (string, string, *domain.WorkflowBranchRecord) {
+	_, conflict, acted := w.prepareBranch(ctx, task, false)
+	if conflict != "" {
+		return domain.WorkflowBranchConflict, conflict, acted
 	}
-	return "", ""
+	return "", "", acted
+}
+
+// storedBranch is the branch decision the step stored last, or nil.
+func storedBranch(step domain.WorkflowStep) *domain.WorkflowBranchRecord {
+	if record := step.CIRecord(); record != nil {
+		return record.Branch
+	}
+	return nil
 }
 
 func (w *WorkflowRunner) enterSwitchedStep(ctx context.Context, task domain.AgentTask, graph domain.WorkflowGraph, profiles map[uuid.UUID]domain.AgentProfile, node domain.WorkflowNode, reason string) error {

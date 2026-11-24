@@ -284,6 +284,28 @@ func (s worldStore) RecordWorkflowCI(_ context.Context, task domain.AgentTask, r
 	return nil
 }
 
+// RecordWorkflowBranch applies repository.RecordWorkflowBranch's checks and
+// writes: the branch record goes in the waiting step's ci.
+func (s worldStore) RecordWorkflowBranch(_ context.Context, task domain.AgentTask, branch domain.WorkflowBranchRecord, wake *time.Time) error {
+	step := s.w.steps[s.w.task.WorkflowSequence]
+	if task.WorkflowSequence != s.w.task.WorkflowSequence || *s.w.task.WorkflowStatus != domain.WorkflowStatusWaiting || step.FinishedAt != nil {
+		return repository.ErrAgentTaskConflict
+	}
+	s.w.setBranch(step, &branch)
+	s.w.task.WorkflowWakeAt = wake
+	return nil
+}
+
+// setBranch keeps a branch record in the step's ci, as jsonb_set does.
+func (w *workflowWorld) setBranch(step *domain.WorkflowStep, branch *domain.WorkflowBranchRecord) {
+	record := domain.WorkflowCIRecord{}
+	if stored := step.CIRecord(); stored != nil {
+		record = *stored
+	}
+	record.Branch = branch
+	step.CI = rawJSON(w.t, &record)
+}
+
 // DeferredShipMerge applies repository.DeferredShipMerge's rule.
 func (s worldStore) DeferredShipMerge(context.Context, domain.AgentTask) (*domain.MergeWait, error) {
 	for seq := s.w.task.WorkflowSequence; seq > 0; seq-- {

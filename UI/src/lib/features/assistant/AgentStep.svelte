@@ -17,7 +17,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
-	import type { WorkflowNodeType } from '$lib/api/workflows';
+	import type { WorkflowBranchRecord, WorkflowNodeType } from '$lib/api/workflows';
 	import { conditionLabel } from '$lib/features/workflows/labels';
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentReview from './AgentReview.svelte';
@@ -101,6 +101,27 @@
 	const findings = $derived(
 		reviewHref ? reviewSession?.review.findings || (step.status === 'done' || step.status === 'changes' ? step.detail : '') : ''
 	);
+	// What the step did on its pull request's branch, from the facts Kuayle
+	// read (KUA-265): why it moved or stayed without a person.
+	const branchText = (branch: WorkflowBranchRecord) => {
+		const facts = { head: (branch.head ?? '').slice(0, 7), base: branch.base ?? '', behind: branch.behind };
+		switch (branch.action) {
+			case 'updated':
+				return m['tasks.branch.updated'](facts);
+			case 'update_limit':
+				return m['tasks.branch.update_limit']({ ...facts, updates: branch.updates ?? 0 });
+			case 'conflict':
+				return m['tasks.branch.conflict'](facts);
+			case 'migration_collision':
+				return m['tasks.branch.migration_collision'](facts);
+			case 'judged_update':
+				return m['tasks.branch.judged_update']({ ...facts, published: (branch.published ?? '').slice(0, 7) });
+			case 'merge_refused':
+				return m['tasks.branch.merge_refused']({ ...facts, refusal: branch.refusal ?? '' });
+		}
+		return '';
+	};
+	const branchReason = $derived(step.branch ? branchText(step.branch) : '');
 </script>
 
 {#snippet status()}<StepStatus status={step.status} />{/snippet}
@@ -195,6 +216,9 @@
 						{#if step.detail && !step.plan && !findings}
 							<p class="text-sm break-words whitespace-pre-wrap text-muted-foreground">{step.detail}</p>
 						{/if}
+						{#if branchReason}<p class="text-sm break-words text-muted-foreground" data-branch={step.branch?.action}>
+								{branchReason}
+							</p>{/if}
 						{#if reviewHref}<a
 								href={reviewHref}
 								class="inline-flex w-fit items-center gap-1.5 rounded-sm text-sm text-muted-foreground underline-offset-4 outline-none hover:text-foreground hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -228,6 +252,7 @@
 					</div>
 					{#if step.question && step.question !== note}<p class="break-words whitespace-pre-wrap">{step.question}</p>{/if}
 					{#if note}<p class="break-words whitespace-pre-wrap">{note}</p>{/if}
+					{#if branchReason}<p class="break-words" data-branch={step.branch?.action}>{branchReason}</p>{/if}
 				</div>
 			</Collapsible.Content>
 		</Collapsible.Root>

@@ -77,32 +77,34 @@ func rebaseInstruction(base string) string {
 // approval or a review calls it, and so does every wake of a step that waits
 // (KUA-264). It returns what it did for the step's reason, or, when the branch
 // conflicts or shares a migration version with its base, the instruction that
-// sends it back. GitHub that cannot be reached, a fact it has not reported or
-// a refusal for another reason changes nothing: the next wake, or the merge's
-// own gate, decides later.
+// sends it back, and, when it acted on the facts, what it did with them for
+// the step to store (KUA-265). GitHub that cannot be reached, a fact it has
+// not reported or a refusal for another reason changes nothing: the next
+// wake, or the merge's own gate, decides later.
 //
 // Only the published commit or Kuayle's verified updates of it are updated,
-// and only while they are fewer than maxMergeUpdates (updateBound): every
-// step's updates and the merge's share that bound, so the merge never meets
-// a chain of updates longer than it verifies as Kuayle's.
-func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTask, ready bool) (done []string, conflict string) {
+// and only while they are fewer than maxMergeUpdates (publishedUpdates):
+// every step's updates and the merge's share that bound, so the merge never
+// meets a chain of updates longer than it verifies as Kuayle's.
+func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTask, ready bool) (done []string, conflict string, acted *domain.WorkflowBranchRecord) {
 	if w.pulls == nil {
-		return nil, ""
+		return nil, "", nil
 	}
 	target, err := w.tasks.WorkflowPullRequest(ctx, task)
 	if err != nil {
-		return nil, ""
+		return nil, "", nil
 	}
 	facts, _ := readBranchFacts(ctx, w.pulls, task.WorkspaceID, target.Repository, target.PullRequestNumber)
 	if facts.PRExists != FactYes || facts.Merged != FactNo || facts.Closed != FactNo {
-		return nil, ""
+		return nil, "", nil
 	}
 	base := facts.BaseRef
 	if base == "" {
 		base = target.BaseBranch
 	}
+	now := w.now()
 	if facts.MigrationCollision == FactYes {
-		return nil, facts.MigrationRepair
+		return nil, facts.MigrationRepair, branchRecord(domain.WorkflowBranchMigrationCollision, facts, base, now)
 	}
 	if ready && facts.PRDraft == FactYes {
 		if err := w.pulls.SetPullRequestDraft(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber, false); err != nil {
@@ -113,45 +115,65 @@ func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTas
 		}
 	}
 	if facts.Conflict == FactYes {
-		return done, rebaseInstruction(base)
+		return done, rebaseInstruction(base), branchRecord(domain.WorkflowBranchConflicted, facts, base, now)
 	}
 	// Behind and not known to conflict (GitHub's update-branch says if it
 	// does); a collision check GitHub could not run holds the update.
 	if facts.HeadContainsBase != FactNo || facts.MigrationCollision != FactNo {
-		return done, ""
+		return done, "", nil
 	}
-	if within, why := w.updateBound(ctx, task, target, base, facts.HeadSHA); !within {
-		if why != "" {
-			done = append(done, why)
-		}
-		return done, ""
+	updates := w.publishedUpdates(ctx, task, target, base, facts.HeadSHA)
+	switch {
+	case updates < 0:
+		return done, "", nil
+	case updates >= maxMergeUpdates:
+		done = append(done, fmt.Sprintf("left the branch behind %s: it already brought it up to date %d times", base, updates))
+		acted = branchRecord(domain.WorkflowBranchUpdateLimit, facts, base, now)
+		acted.Updates = updates
+		return done, "", acted
 	}
-	switch _, updated, conflicts := w.updateBranch(ctx, task, target, facts.HeadSHA, facts.Behind); {
+	switch head, updated, conflicts := w.updateBranch(ctx, task, target, facts.HeadSHA, facts.Behind); {
 	case conflicts:
-		return done, rebaseInstruction(base)
+		acted = branchRecord(domain.WorkflowBranchConflicted, facts, base, now)
+		acted.Conflict = string(FactYes) // GitHub's update-branch said so
+		return done, rebaseInstruction(base), acted
 	case updated:
 		done = append(done, "brought the branch up to date with "+base)
+		acted = branchRecord(domain.WorkflowBranchUpdated, facts, base, now)
+		acted.Updates = updates + 1
+		if head != facts.HeadSHA {
+			acted.UpdatedTo = head
+		}
+		return done, "", acted
 	}
-	return done, ""
+	return done, "", nil
 }
 
-// updateBound reports whether Kuayle may bring head, its pull request's
-// head, up to date: head is the published commit or a chain of Kuayle's
-// verified updates of it (verifiedUpdates) shorter than maxMergeUpdates. The
-// count is read from the commits themselves, so the CI step, the other steps
-// and the merge share it, across restarts. A head someone else pushed is not
-// Kuayle's to update (the merge refuses it), and a chain GitHub could not
-// show waits for the next pass. why says so for the step's reason when the
-// bound is reached.
-func (w *WorkflowRunner) updateBound(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, base, head string) (bool, string) {
+// publishedUpdates counts the updates Kuayle made of the published commit
+// that head, its pull request's head, is: 0 for the commit itself, or the
+// length of the chain of Kuayle's verified updates of it (verifiedUpdates).
+// The count is read from the commits themselves, so the CI step, the other
+// steps and the merge share it, across restarts. It is -1 for a head someone
+// else pushed, which is not Kuayle's to update (the merge refuses it), and
+// for a chain GitHub could not show, which waits for the next pass.
+func (w *WorkflowRunner) publishedUpdates(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, base, head string) int {
 	updates, refused, err := w.verifiedUpdates(ctx, task, target, base, head, target.CommitSHA)
-	switch {
-	case err != nil || refused != "":
-		return false, ""
-	case updates >= maxMergeUpdates:
-		return false, fmt.Sprintf("left the branch behind %s: it already brought it up to date %d times", base, updates)
+	if err != nil || refused != "" {
+		return -1
 	}
-	return true, ""
+	return updates
+}
+
+// branchRecord is what a step did (action, domain.WorkflowBranchRecord) on
+// the facts it read about its pull request's branch, to store with the step
+// (KUA-265). CI is set only when it was read (a merge).
+func branchRecord(action string, f TaskFacts, base string, at time.Time) *domain.WorkflowBranchRecord {
+	record := &domain.WorkflowBranchRecord{Action: action, At: at, PullRequest: f.PullRequest, Head: f.HeadSHA, Base: base, Behind: f.Behind,
+		Conflict: string(f.Conflict), MigrationCollision: string(f.MigrationCollision)}
+	if f.CI.State != "" || f.CI.Err != nil {
+		record.CI = string(f.CI.Green)
+	}
+	return record
 }
 
 // updateBranch asks GitHub to merge the base into the task's pull request
@@ -313,17 +335,31 @@ func (w *WorkflowRunner) driveMerge(ctx context.Context, task domain.AgentTask, 
 		outcome = domain.WorkflowMerged
 	}
 	before := *wait
+	// read is what the merge last read of the pull request; a refusal
+	// stores it with the step (KUA-265).
+	var read *TaskFacts
+	readBase := func() string {
+		if read.BaseRef != "" {
+			return read.BaseRef
+		}
+		return wait.BaseBranch
+	}
+	var refused *domain.WorkflowBranchRecord
 	record := func(reason string, wake *time.Time, needsPerson bool) error {
 		reason = domain.WorkflowReasonPrefix + node.Label + ": " + reason
 		if !needsPerson && reason == task.Reason && *wait == before {
 			// Nothing changed since the last pass: only the next one is set.
 			return w.tasks.SetWorkflowWake(ctx, task, wake)
 		}
-		_, err := w.tasks.RecordWorkflowMerge(ctx, task, repository.WorkflowMerge{Sequence: step.Sequence, Merge: wait, Reason: reason, Wake: wake, NeedsPerson: needsPerson})
+		_, err := w.tasks.RecordWorkflowMerge(ctx, task, repository.WorkflowMerge{Sequence: step.Sequence, Merge: wait, Reason: reason, Wake: wake, NeedsPerson: needsPerson, Branch: refused})
 		return err
 	}
 	fail := func(reason string) (bool, error) {
 		wait.Failure, wait.Waiting = truncateRunes(reason, 1000), ""
+		if read != nil {
+			refused = branchRecord(domain.WorkflowBranchMergeRefused, *read, readBase(), now)
+			refused.Refusal = wait.Failure
+		}
 		if node.Type == domain.WorkflowNodeEnd {
 			// Nobody decides at an end: the approved merge is refused, and the
 			// task fails with the reason (KUA-216). Retrying it, or merging on
@@ -369,15 +405,18 @@ func (w *WorkflowRunner) driveMerge(ctx context.Context, task domain.AgentTask, 
 		return true, record("approved; Kuayle could not reach GitHub to merge pull request #"+fmt.Sprint(target.PullRequestNumber)+" and tries again shortly", &at, false)
 	}
 	if wait.Head == "" {
-		why, err := w.pinMerge(ctx, task, target, wait)
+		why, pinned, err := w.pinMerge(ctx, task, target, wait)
 		if err != nil {
 			return backoff(err)
 		}
-		if why != "" {
+		if read = pinned; why != "" {
 			return fail(why)
 		}
 	}
 	hold, err := w.gate().merge(ctx, task.WorkspaceID, actor, target.Repository, target.PullRequestNumber, wait, w.merger)
+	if hold.facts != nil {
+		read = hold.facts
+	}
 	if err != nil {
 		if isGitHubPermissionDenied(err) {
 			return fail("GitHub refused: the Kuayle GitHub App lacks the permission to merge or update this pull request")
@@ -419,7 +458,7 @@ func (w *WorkflowRunner) driveMerge(ctx context.Context, task domain.AgentTask, 
 		at := now.Add(mergeWaitPoll)
 		return true, record("approved; "+lowerFirst(wait.Waiting), &at, false)
 	}
-	sendBack := hold.migrationRepair
+	sendBack, action := hold.migrationRepair, domain.WorkflowBranchMigrationCollision
 	if hold.conflict && node.Type != domain.WorkflowNodeEnd {
 		// The base moved into a conflict: back to the step that changes code
 		// at once, as entering the ship approval does (KUA-264), rather than
@@ -428,10 +467,17 @@ func (w *WorkflowRunner) driveMerge(ctx context.Context, task domain.AgentTask, 
 		if base == "" {
 			base = target.BaseBranch
 		}
-		sendBack = rebaseInstruction(base)
+		sendBack, action = rebaseInstruction(base), domain.WorkflowBranchConflicted
 	}
 	if sendBack != "" {
-		err := w.Outcome(ctx, task, domain.WorkflowBranchConflict, sendBack)
+		var acted *domain.WorkflowCIRecord
+		if read != nil {
+			acted = &domain.WorkflowCIRecord{Branch: branchRecord(action, *read, readBase(), now)}
+			if hold.conflict {
+				acted.Branch.Conflict = string(FactYes) // GitHub's update-branch may be what said so
+			}
+		}
+		err := w.outcome(ctx, task, domain.WorkflowBranchConflict, sendBack, "", acted)
 		if errors.Is(err, repository.ErrAgentTaskConflict) {
 			err = nil
 		}
@@ -458,38 +504,38 @@ func (w *WorkflowRunner) mergeTarget(ctx context.Context, task domain.AgentTask,
 // (AfterAgents, KUA-216), commits added on top of the approved commit: the
 // agent steps' work, which the gate merges only once its checks pass. A head
 // that no longer contains the approved commit is refused. It also resolves
-// the merge method.
-func (w *WorkflowRunner) pinMerge(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, wait *domain.MergeWait) (string, error) {
-	status, err := w.pulls.PullRequestStatus(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber)
-	if err != nil {
-		return "", err
+// the merge method, and returns the facts it read (nil when it could not).
+func (w *WorkflowRunner) pinMerge(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, wait *domain.MergeWait) (string, *TaskFacts, error) {
+	facts, _ := readBranchFacts(ctx, w.pulls, task.WorkspaceID, target.Repository, target.PullRequestNumber)
+	if facts.Err != nil {
+		return "", nil, facts.Err
 	}
-	head, base := status.HeadSHA, status.BaseRef
+	head, base := facts.HeadSHA, facts.BaseRef
 	if base == "" {
 		base = target.BaseBranch
 	}
 	updates, why, err := w.verifiedUpdates(ctx, task, target, base, head, wait.Approved)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if why != "" && wait.AfterAgents {
 		if why, err = w.addedOnTop(ctx, task, target, head, wait.Approved); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		updates = 0
 	}
 	if why != "" {
-		return why, nil
+		return why, &facts, nil
 	}
 	method, err := w.pulls.ResolveMergeMethod(ctx, task.WorkspaceID, target.Repository)
 	if errors.Is(err, ErrMergeMethodNotAllowed) {
-		return upperFirst(truncateRunes(err.Error(), 200)) + ". Choose a method the repository allows in the development settings", nil
+		return upperFirst(truncateRunes(err.Error(), 200)) + ". Choose a method the repository allows in the development settings", &facts, nil
 	}
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	wait.Head, wait.Updates, wait.Method, wait.Base = head, updates, method, base
-	return "", nil
+	return "", &facts, nil
 }
 
 // verifiedUpdates walks back from head to the approved commit through

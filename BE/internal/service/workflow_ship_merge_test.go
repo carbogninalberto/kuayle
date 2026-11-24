@@ -49,6 +49,9 @@ func (w *workflowWorld) recordMerge(merge repository.WorkflowMerge) (*domain.Age
 	}
 	raw := json.RawMessage(data)
 	step.Merge = &raw
+	if merge.Branch != nil {
+		w.setBranch(step, merge.Branch)
+	}
 	if merge.Actor != nil {
 		step.DecidedBy = merge.Actor
 	}

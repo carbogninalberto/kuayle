@@ -79,6 +79,9 @@ type WorkflowMerge struct {
 	// Actor is the person whose approval started the merge; nil for the runner.
 	Actor *uuid.UUID
 	Notes []domain.NotebookNote
+	// Branch is what the merge read and did, stored in the step's ci
+	// (KUA-265): set when it refused.
+	Branch *domain.WorkflowBranchRecord
 }
 
 // WorkflowApply closes the task's current step with Outcome and applies the
@@ -362,7 +365,13 @@ func recordWorkflowMergeTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentT
 	if err != nil {
 		return err
 	}
-	updated, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET merge=$3,decided_by=COALESCE($4,decided_by) WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, task.ID, merge.Sequence, data, merge.Actor)
+	branch, err := jsonOrNil(merge.Branch)
+	if err != nil {
+		return err
+	}
+	updated, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET merge=$3,decided_by=COALESCE($4,decided_by),
+ ci=CASE WHEN $5::jsonb IS NULL THEN ci ELSE jsonb_set(COALESCE(ci,'{}'::jsonb),'{branch}',$5::jsonb) END
+ WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, task.ID, merge.Sequence, data, merge.Actor, branch)
 	if err != nil {
 		return err
 	}
@@ -1245,6 +1254,37 @@ func (r *AgentTaskRepository) RecordWorkflowCI(ctx context.Context, claimed doma
 		return ErrAgentTaskConflict
 	}
 	res, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET ci=$3 WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL AND node_type='check'`, claimed.ID, claimed.WorkflowSequence, data)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAgentTaskConflict
+	}
+	return tx.Commit()
+}
+
+// RecordWorkflowBranch stores what the step the task waits on did on its
+// pull request's branch, with the facts it read (KUA-265), and when to
+// evaluate it again, fenced by the worker lease like SetWorkflowWake. Any
+// waiting step records it in its ci, next to what a CI step judged.
+func (r *AgentTaskRepository) RecordWorkflowBranch(ctx context.Context, claimed domain.AgentTask, branch domain.WorkflowBranchRecord, wake *time.Time) error {
+	data, err := json.Marshal(branch)
+	if err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=$3 WHERE id=$1 AND lease_token=$2 AND workflow_sequence=$4 AND workflow_status='waiting'`, claimed.ID, claimed.LeaseToken, wake, claimed.WorkflowSequence)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAgentTaskConflict
+	}
+	res, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET ci=jsonb_set(COALESCE(ci,'{}'::jsonb),'{branch}',$3::jsonb) WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, claimed.ID, claimed.WorkflowSequence, data)
 	if err != nil {
 		return err
 	}
