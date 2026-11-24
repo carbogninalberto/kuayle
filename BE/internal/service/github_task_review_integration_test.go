@@ -21,6 +21,18 @@ type mergedPullRequestRecorder struct {
 		repository string
 		number     int
 	}
+	wakes []baseBranchWake
+}
+
+type baseBranchWake struct {
+	workspace  uuid.UUID
+	repository string
+	branch     string
+}
+
+func (r *mergedPullRequestRecorder) WakeBaseBranchWaits(_ context.Context, workspace uuid.UUID, repository, branch string) (int, error) {
+	r.wakes = append(r.wakes, baseBranchWake{workspace, repository, branch})
+	return 1, nil
 }
 
 func (r *mergedPullRequestRecorder) ReviewPullRequests(context.Context, int) ([]repository.ReviewPullRequest, error) {
@@ -85,6 +97,73 @@ func TestMergedPullRequestWebhookCompletesAgentTasks(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", event("closed", true, 8)))
 	require.Len(t, recorder.calls, 1, "inactive repositories cannot complete tasks")
+}
+
+// KUA-257: a push to a branch of a linked, active repository, or a pull
+// request merged into it, wakes the workflow tasks waiting on a pull request
+// that targets that branch. The repository name comes from Kuayle's link.
+func TestBaseBranchWebhooksWakeWaitingWorkflowTasks(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL is not set")
+	}
+	db, err := repository.Open(dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	owner, ws := uuid.New(), uuid.New()
+	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Base wake test','hash')`, owner, owner.String()+"@test.invalid")
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, owner) })
+	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Base wake test',$2,$3)`, ws, ws.String(), owner)
+	require.NoError(t, err)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE id=$1`, ws) })
+	repo := repository.NewGitHubRepository(db)
+	inst := &domain.GitHubInstallation{ID: uuid.New(), WorkspaceID: ws, InstallationID: time.Now().UnixNano(), AccountLogin: "acme", AccountType: "Organization", InstalledBy: owner}
+	require.NoError(t, repo.CreateInstallation(ctx, inst))
+	linked := &domain.GitHubRepoModel{ID: uuid.New(), WorkspaceID: ws, InstallationID: inst.ID, GitHubRepoID: time.Now().UnixNano(), FullName: "acme/app", DefaultBranch: "main", IsActive: true}
+	require.NoError(t, repo.CreateRepo(ctx, linked))
+	recorder := &mergedPullRequestRecorder{}
+	svc := NewGitHubService(repo, repository.NewIssueRepository(db), nil, nil, nil, nil, nil, "https://kuayle.test", "", nil)
+	svc.SetTaskReviews(recorder)
+	push := func(ref string) []byte {
+		payload, err := json.Marshal(map[string]any{
+			"ref":          ref,
+			"commits":      []any{},
+			"repository":   map[string]any{"id": linked.GitHubRepoID, "full_name": "attacker/other"},
+			"installation": map[string]any{"id": inst.InstallationID},
+		})
+		require.NoError(t, err)
+		return payload
+	}
+	pullRequest := func(action string, merged bool, base string) []byte {
+		payload, err := json.Marshal(map[string]any{
+			"action": action,
+			"pull_request": map[string]any{"id": 9, "number": 9, "title": "No issue reference", "state": "closed", "merged": merged,
+				"html_url": "https://github.com/acme/app/pull/9", "head": map[string]any{"ref": "feature"}, "base": map[string]any{"ref": base},
+				"user": map[string]any{"login": "someone"}},
+			"repository":   map[string]any{"id": linked.GitHubRepoID, "full_name": "attacker/other"},
+			"installation": map[string]any{"id": inst.InstallationID},
+		})
+		require.NoError(t, err)
+		return payload
+	}
+
+	require.NoError(t, svc.HandleWebhookEvent(ctx, "push", push("refs/heads/main")))
+	require.Equal(t, []baseBranchWake{{ws, "acme/app", "main"}}, recorder.wakes)
+	require.NoError(t, svc.HandleWebhookEvent(ctx, "push", push("refs/tags/v1.0.0")))
+	require.Len(t, recorder.wakes, 1, "a tag is no base branch")
+
+	require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", pullRequest("closed", false, "release")))
+	require.Len(t, recorder.wakes, 1, "closing without merge moves no branch")
+	require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", pullRequest("closed", true, "release/2.0")))
+	require.Equal(t, []baseBranchWake{{ws, "acme/app", "main"}, {ws, "acme/app", "release/2.0"}}, recorder.wakes)
+
+	_, err = db.Exec(`UPDATE github_repos SET is_active=false WHERE id=$1`, linked.ID)
+	require.NoError(t, err)
+	require.NoError(t, svc.HandleWebhookEvent(ctx, "push", push("refs/heads/main")))
+	require.NoError(t, svc.HandleWebhookEvent(ctx, "pull_request", pullRequest("closed", true, "main")))
+	require.Len(t, recorder.wakes, 2, "an inactive repository wakes nothing")
 }
 
 type signalRecorder struct {
