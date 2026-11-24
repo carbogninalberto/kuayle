@@ -25,6 +25,7 @@ func NewAgentTaskHandler(svc *service.AgentTaskService) *AgentTaskHandler {
 }
 func agentTaskError(c *echo.Context, err error) error {
 	var merged *domain.MergedWorkError
+	var refused *repository.TaskRoomRefusedError
 	switch {
 	case errors.As(err, &merged):
 		return response.MergedWork(c, merged.Error(), merged.PullRequest)
@@ -50,6 +51,12 @@ func agentTaskError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "TASK_CLOSED", "The task no longer takes messages")
 	case errors.Is(err, repository.ErrAgentLiveMessageRateLimited):
 		return response.Error(c, http.StatusTooManyRequests, "LIVE_MESSAGE_LIMIT", "Too many messages for this task; try again later")
+	case errors.Is(err, repository.ErrTaskRoomUnavailable):
+		return response.Error(c, http.StatusConflict, "ROOM_UNAVAILABLE", "Only a task on a pipeline workflow has a room")
+	case errors.Is(err, repository.ErrTaskRoomRateLimited):
+		return response.Error(c, http.StatusTooManyRequests, "ROOM_MESSAGE_LIMIT", "Too many messages for this task; try again later")
+	case errors.As(err, &refused):
+		return response.Error(c, http.StatusBadRequest, "ROOM_POST_REFUSED", refused.Reason)
 	case errors.Is(err, service.ErrTaskTerminalBusy):
 		return response.Error(c, http.StatusConflict, "TASK_BUSY", "The agent is working on this task; open it in Claude Code when it stops")
 	case errors.Is(err, service.ErrTaskTerminalUnsupported):
@@ -597,6 +604,57 @@ func (h *AgentTaskHandler) SendLiveMessage(c *echo.Context) error {
 		return agentTaskError(c, err)
 	}
 	message, err := h.svc.SendLiveMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, input.Body, input.Mode, input.ConfirmMerged, input.AttachmentIDs...)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusCreated, message)
+}
+
+// Room lists the room of a pipeline task after a sequence number (?after=),
+// oldest first, for its creator. Text from agents is untrusted.
+func (h *AgentTaskHandler) Room(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	after, err := conversationCursor(c, "after")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	messages, err := h.svc.Repo.RoomMessages(c.Request().Context(), middleware.GetWorkspace(c).ID, id, after)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return response.Success(c, http.StatusOK, map[string]any{"messages": messages})
+}
+
+type roomPostRequest struct {
+	// RequestID makes a repeated post return the first one.
+	RequestID *uuid.UUID          `json:"request_id"`
+	Kind      string              `json:"kind"`
+	Body      string              `json:"body"`
+	To        []string            `json:"to"`
+	Data      domain.TaskRoomData `json:"data"`
+	ReplyTo   *int64              `json:"reply_to"`
+}
+
+// PostRoom posts the creator's say, ask, request, waiver or grant to the
+// room of a pipeline task.
+func (h *AgentTaskHandler) PostRoom(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	var input roomPostRequest
+	if err = bindTask(c, &input); err != nil {
+		return agentTaskError(c, err)
+	}
+	post := domain.TaskRoomPost{Kind: input.Kind, Body: input.Body, ToRoles: input.To, Data: input.Data, ReplyTo: input.ReplyTo}
+	if input.RequestID != nil {
+		post.DedupeKey = "request:" + input.RequestID.String()
+	}
+	message, err := h.svc.PostRoomMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, post)
 	if err != nil {
 		return agentTaskError(c, err)
 	}

@@ -2784,6 +2784,25 @@ of at most 4,000 bytes). Bounds follow the graph's.
   `workflow_kind`.
 - The editor shows a pipeline read only with a notice (`PipelineView.svelte`).
   A pipeline's roster and lead keep their profiles in use like graph steps do.
+- **Room** (`domain/task_room.go`, `repository/task_room.go`, table
+  `task_messages`): one ordered log per pipeline task. `seq` is allocated under
+  the task's workflow-runner advisory lock; a repeated `dedupe_key` returns the
+  first post. `TaskRoomRefusal` says who may post what: the creator `say`,
+  `ask`, `request`, `waiver`, `grant`; the writer `say`, `ask` and a `request`
+  for a review; other roles `say`, `ask` and a `verdict` for their own role;
+  the lead `say`, `ask`, `phase`, `request`, `summary` and waivers of checks
+  granted to it (`autonomy.waive` or a `grant`); Kuayle `fact`, `summary` and
+  `phase` when there is no lead. Text is at most 16 KiB, 4,000 characters from
+  agents. A role's refused post is stored with `reject_reason` and never
+  delivered; a person's or Kuayle's is refused (`400 ROOM_POST_REFUSED`). Each
+  sender has an hourly budget, refusals included: agent messages for roles,
+  live messages for the creator (`429 ROOM_MESSAGE_LIMIT`). Every stored post
+  writes a `task.room_message` conversation event in its transaction.
+- `GET /agent-tasks/:taskId/room?after=<seq>` and `POST /agent-tasks/:taskId/room`
+  are session-only, the creator's (`lockAgentTask`) and behind the demo guard;
+  the GET answers `Cache-Control: private, no-store`. A task not pinned to a
+  pipeline answers `409 ROOM_UNAVAILABLE`. Nothing delivers room posts to
+  agents yet.
 
 ### Moving a task to a newer workflow version
 

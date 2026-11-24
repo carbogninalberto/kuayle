@@ -652,6 +652,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/signals", h.agentTask.Signals)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/sessions", h.agentTask.Sessions)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/live-messages", h.agentTask.LiveMessages)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/room", h.agentTask.Room)
 	scoped(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue, domain.PermAgentTasksRead)
 	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/tasks", h.agentTask.MachineTasks)
 	if h.agentAutomation != nil {
@@ -675,6 +676,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 		sessionOnly(dm, http.MethodDelete, "/agent-message-holds/:holdId", h.agentMessage.ReleaseConversation)
 	}
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/live-messages", h.agentTask.SendLiveMessage)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/room", h.agentTask.PostRoom)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	// A task paused by its agent's usage limit: resume now, or don't resume.
