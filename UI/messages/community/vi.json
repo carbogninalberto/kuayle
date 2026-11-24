@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Mặc định của issue",
 	"workflows.composer_note": "Bước agent đầu tiên của quy trình tùy chỉnh quyết định agent lập trình và model.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Quy trình này là một pipeline: các giai đoạn có kiểm tra, do các vai trò tác tử thực hiện. Pipeline đang thử nghiệm: trang này hiển thị chúng ở chế độ chỉ đọc và tác vụ chưa thể chạy trên chúng.",
+	"workflows.pipeline_notice": "Quy trình này là một pipeline: các giai đoạn có kiểm tra, do các vai trò tác tử thực hiện. Pipeline đang thử nghiệm: trang này hiển thị chúng ở chế độ chỉ đọc, và tác vụ chỉ chạy được trên pipeline khi máy chủ đã bật pipeline.",
 	"workflows.pipeline_phases": "Giai đoạn",
 	"workflows.pipeline_roles": "Vai trò",
 	"workflows.pipeline_required": "bắt buộc",

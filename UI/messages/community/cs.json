@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Výchozí hodnota úkolu",
 	"workflows.composer_note": "První krok agenta ve vlastním workflow určuje programovacího agenta a model.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Tento pracovní postup je pipeline: fáze s kontrolami, které plní role agentů. Pipeline jsou experimentální: tato stránka je zobrazuje jen pro čtení a úlohy na nich zatím nelze spouštět.",
+	"workflows.pipeline_notice": "Tento pracovní postup je pipeline: fáze s kontrolami, které plní role agentů. Pipeline jsou experimentální: tato stránka je zobrazuje jen pro čtení a úloha na nich může běžet, jen když má server pipeline zapnuté.",
 	"workflows.pipeline_phases": "Fáze",
 	"workflows.pipeline_roles": "Role",
 	"workflows.pipeline_required": "povinná",

@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Predeterminado de la incidencia",
 	"workflows.composer_note": "El primer paso de agente de un workflow personalizado decide el agente de programación y el modelo.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Este flujo de trabajo es una pipeline: fases con comprobaciones, realizadas por roles de agentes. Las pipelines son experimentales: esta página las muestra en solo lectura y las tareas aún no pueden ejecutarse en ellas.",
+	"workflows.pipeline_notice": "Este flujo de trabajo es una pipeline: fases con comprobaciones, realizadas por roles de agentes. Las pipelines son experimentales: esta página las muestra en solo lectura, y una tarea solo puede ejecutarse en una si el servidor tiene las pipelines activadas.",
 	"workflows.pipeline_phases": "Fases",
 	"workflows.pipeline_roles": "Roles",
 	"workflows.pipeline_required": "obligatoria",

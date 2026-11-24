@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Predefinição da tarefa",
 	"workflows.composer_note": "O primeiro passo de agente de um workflow personalizado decide o agente de programação e o modelo.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Este fluxo de trabalho é um pipeline: fases com verificações, realizadas por papéis de agentes. Os pipelines são experimentais: esta página mostra-os apenas para leitura e as tarefas ainda não podem ser executadas neles.",
+	"workflows.pipeline_notice": "Este fluxo de trabalho é um pipeline: fases com verificações, realizadas por papéis de agentes. Os pipelines são experimentais: esta página mostra-os apenas para leitura, e uma tarefa só pode ser executada num deles se o servidor tiver os pipelines ativados.",
 	"workflows.pipeline_phases": "Fases",
 	"workflows.pipeline_roles": "Papéis",
 	"workflows.pipeline_required": "obrigatória",

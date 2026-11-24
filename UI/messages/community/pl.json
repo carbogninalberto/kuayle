@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Domyślny zgłoszenia",
 	"workflows.composer_note": "Pierwszy krok agenta we własnym workflow decyduje o agencie programistycznym i modelu.",
 	"workflows.pipeline": "Potok",
-	"workflows.pipeline_notice": "Ten przepływ pracy jest potokiem: fazy z kontrolami, realizowane przez role agentów. Potoki są eksperymentalne: ta strona pokazuje je tylko do odczytu, a zadania nie mogą jeszcze na nich działać.",
+	"workflows.pipeline_notice": "Ten przepływ pracy jest potokiem: fazy z kontrolami, realizowane przez role agentów. Potoki są eksperymentalne: ta strona pokazuje je tylko do odczytu, a zadanie może na nich działać tylko wtedy, gdy serwer ma włączone potoki.",
 	"workflows.pipeline_phases": "Fazy",
 	"workflows.pipeline_roles": "Role",
 	"workflows.pipeline_required": "wymagana",

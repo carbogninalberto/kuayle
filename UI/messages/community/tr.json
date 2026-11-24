@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Issue varsayılanı",
 	"workflows.composer_note": "Özel bir iş akışının ilk ajan adımı kodlama ajanını ve modeli belirler.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Bu iş akışı bir pipeline'dır: ajan rollerinin yürüttüğü, denetimli aşamalar. Pipeline'lar deneyseldir: bu sayfa onları salt okunur gösterir ve görevler henüz bunlarda çalışamaz.",
+	"workflows.pipeline_notice": "Bu iş akışı bir pipeline'dır: ajan rollerinin yürüttüğü, denetimli aşamalar. Pipeline'lar deneyseldir: bu sayfa onları salt okunur gösterir ve bir görev ancak sunucuda pipeline'lar açıksa bunlarda çalışabilir.",
 	"workflows.pipeline_phases": "Aşamalar",
 	"workflows.pipeline_roles": "Roller",
 	"workflows.pipeline_required": "zorunlu",

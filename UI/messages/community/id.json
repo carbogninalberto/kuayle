@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Default issue",
 	"workflows.composer_note": "Langkah agen pertama pada workflow kustom menentukan agen coding dan model.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Alur kerja ini adalah pipeline: fase dengan pemeriksaan, dikerjakan oleh peran agen. Pipeline masih eksperimental: halaman ini menampilkannya hanya-baca, dan tugas belum dapat dijalankan di atasnya.",
+	"workflows.pipeline_notice": "Alur kerja ini adalah pipeline: fase dengan pemeriksaan, dikerjakan oleh peran agen. Pipeline masih eksperimental: halaman ini menampilkannya hanya-baca, dan tugas hanya dapat berjalan di atasnya jika server mengaktifkan pipeline.",
 	"workflows.pipeline_phases": "Fase",
 	"workflows.pipeline_roles": "Peran",
 	"workflows.pipeline_required": "wajib",

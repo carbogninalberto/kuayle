@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "イシューのデフォルト",
 	"workflows.composer_note": "カスタムワークフローの最初のエージェントステップが、コーディングエージェントとモデルを決定します。",
 	"workflows.pipeline": "パイプライン",
-	"workflows.pipeline_notice": "このワークフローはパイプラインです。チェック付きのフェーズを、エージェントのロールが進めます。パイプラインは実験的な機能のため、このページでは読み取り専用で表示され、タスクはまだ実行できません。",
+	"workflows.pipeline_notice": "このワークフローはパイプラインです。チェック付きのフェーズを、エージェントのロールが進めます。パイプラインは実験的な機能のため、このページでは読み取り専用で表示されます。タスクは、サーバーでパイプラインが有効な場合にのみ実行できます。",
 	"workflows.pipeline_phases": "フェーズ",
 	"workflows.pipeline_roles": "ロール",
 	"workflows.pipeline_required": "必須",

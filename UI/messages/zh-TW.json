@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "議題預設",
 	"workflows.composer_note": "自訂工作流程的第一個代理步驟決定程式代理與模型。",
 	"workflows.pipeline": "管線",
-	"workflows.pipeline_notice": "此工作流程是一條管線：由代理角色完成、附有檢查的階段。管線仍屬實驗功能：本頁面以唯讀方式顯示，任務暫時無法在其上執行。",
+	"workflows.pipeline_notice": "此工作流程是一條管線：由代理角色完成、附有檢查的階段。管線仍屬實驗功能：本頁面以唯讀方式顯示；只有伺服器啟用了管線，任務才能在其上執行。",
 	"workflows.pipeline_phases": "階段",
 	"workflows.pipeline_roles": "角色",
 	"workflows.pipeline_required": "必要",

@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "이슈 기본값",
 	"workflows.composer_note": "사용자 지정 워크플로의 첫 번째 에이전트 단계가 코딩 에이전트와 모델을 결정합니다.",
 	"workflows.pipeline": "파이프라인",
-	"workflows.pipeline_notice": "이 워크플로는 파이프라인입니다. 검사가 포함된 단계를 에이전트 역할이 수행합니다. 파이프라인은 실험 기능이므로 이 페이지에서는 읽기 전용으로 표시되며 아직 작업을 실행할 수 없습니다.",
+	"workflows.pipeline_notice": "이 워크플로는 파이프라인입니다. 검사가 포함된 단계를 에이전트 역할이 수행합니다. 파이프라인은 실험 기능이므로 이 페이지에서는 읽기 전용으로 표시되며, 서버에서 파이프라인을 켠 경우에만 작업을 실행할 수 있습니다.",
 	"workflows.pipeline_phases": "단계",
 	"workflows.pipeline_roles": "역할",
 	"workflows.pipeline_required": "필수",

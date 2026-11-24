@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Issue-Standard",
 	"workflows.composer_note": "Der erste Agent-Schritt eines eigenen Workflows bestimmt den Coding-Agent und das Modell.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Dieser Workflow ist eine Pipeline: Phasen mit Prüfungen, bearbeitet von Agentenrollen. Pipelines sind experimentell: Diese Seite zeigt sie schreibgeschützt, und Aufgaben können noch nicht darauf laufen.",
+	"workflows.pipeline_notice": "Dieser Workflow ist eine Pipeline: Phasen mit Prüfungen, bearbeitet von Agentenrollen. Pipelines sind experimentell: Diese Seite zeigt sie schreibgeschützt, und eine Aufgabe läuft nur darauf, wenn der Server Pipelines aktiviert hat.",
 	"workflows.pipeline_phases": "Phasen",
 	"workflows.pipeline_roles": "Rollen",
 	"workflows.pipeline_required": "erforderlich",

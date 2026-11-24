@@ -8,7 +8,7 @@
 
 	// An experimental pipeline (KUA-252), read only: its phases in order with
 	// the checks each requires, and the roles of its roster. Pipelines have no
-	// editor yet, and the server starts no task on one.
+	// editor yet; a task runs on one only where the server turns them on.
 	let {
 		name,
 		pipeline,

@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Issuen oletus",
 	"workflows.composer_note": "Mukautetun työnkulun ensimmäinen agenttivaihe määrää koodausagentin ja mallin.",
 	"workflows.pipeline": "Putki",
-	"workflows.pipeline_notice": "Tämä työnkulku on putki: tarkistuksia sisältäviä vaiheita, joita agenttiroolit hoitavat. Putket ovat kokeellisia: tämä sivu näyttää ne vain luku -tilassa, eikä tehtäviä voi vielä ajaa niillä.",
+	"workflows.pipeline_notice": "Tämä työnkulku on putki: tarkistuksia sisältäviä vaiheita, joita agenttiroolit hoitavat. Putket ovat kokeellisia: tämä sivu näyttää ne vain luku -tilassa, ja tehtävä voi ajaa putkella vain, kun palvelimella on putket käytössä.",
 	"workflows.pipeline_phases": "Vaiheet",
 	"workflows.pipeline_roles": "Roolit",
 	"workflows.pipeline_required": "pakollinen",

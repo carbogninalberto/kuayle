@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Feladat alapértéke",
 	"workflows.composer_note": "Az egyéni munkafolyamat első agent lépése dönti el a kódoló agentet és a modellt.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Ez a munkafolyamat egy pipeline: ellenőrzésekkel ellátott fázisok, amelyeket ügynökszerepek végeznek. A pipeline-ok kísérletiek: ez az oldal csak olvashatóan mutatja őket, és feladatok még nem futhatnak rajtuk.",
+	"workflows.pipeline_notice": "Ez a munkafolyamat egy pipeline: ellenőrzésekkel ellátott fázisok, amelyeket ügynökszerepek végeznek. A pipeline-ok kísérletiek: ez az oldal csak olvashatóan mutatja őket, és feladat csak akkor futhat rajtuk, ha a szerveren be vannak kapcsolva a pipeline-ok.",
 	"workflows.pipeline_phases": "Fázisok",
 	"workflows.pipeline_roles": "Szerepek",
 	"workflows.pipeline_required": "kötelező",

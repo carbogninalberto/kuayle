@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Valor per defecte de la incidència",
 	"workflows.composer_note": "El primer pas d'agent d'un flux de treball personalitzat decideix l'agent de programació i el model.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Aquest flux de treball és una pipeline: fases amb comprovacions, fetes per rols d'agents. Les pipelines són experimentals: aquesta pàgina les mostra només de lectura i les tasques encara no s'hi poden executar.",
+	"workflows.pipeline_notice": "Aquest flux de treball és una pipeline: fases amb comprovacions, fetes per rols d'agents. Les pipelines són experimentals: aquesta pàgina les mostra només de lectura, i una tasca només s'hi pot executar si el servidor té les pipelines activades.",
 	"workflows.pipeline_phases": "Fases",
 	"workflows.pipeline_roles": "Rols",
 	"workflows.pipeline_required": "obligatòria",

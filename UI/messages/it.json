@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Predefinito issue",
 	"workflows.composer_note": "Nei workflow personalizzati il primo passaggio agente decide agente di programmazione e modello.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Questo workflow è una pipeline: fasi con controlli, svolte da ruoli di agenti. Le pipeline sono sperimentali: questa pagina le mostra in sola lettura e i task non possono ancora eseguirle.",
+	"workflows.pipeline_notice": "Questo workflow è una pipeline: fasi con controlli, svolte da ruoli di agenti. Le pipeline sono sperimentali: questa pagina le mostra in sola lettura e un task può eseguirne una solo se il server ha le pipeline attivate.",
 	"workflows.pipeline_phases": "Fasi",
 	"workflows.pipeline_roles": "Ruoli",
 	"workflows.pipeline_required": "obbligatorio",

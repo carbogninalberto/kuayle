@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Standard for saken",
 	"workflows.composer_note": "Det første agenttrinnet i en egendefinert arbeidsflyt bestemmer kodeagent og modell.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Denne arbeidsflyten er en pipeline: faser med kontroller, utført av agentroller. Pipelines er eksperimentelle: denne siden viser dem skrivebeskyttet, og oppgaver kan ikke kjøre på dem ennå.",
+	"workflows.pipeline_notice": "Denne arbeidsflyten er en pipeline: faser med kontroller, utført av agentroller. Pipelines er eksperimentelle: denne siden viser dem skrivebeskyttet, og en oppgave kan bare kjøre på en når serveren har slått på pipelines.",
 	"workflows.pipeline_phases": "Faser",
 	"workflows.pipeline_roles": "Roller",
 	"workflows.pipeline_required": "påkrevd",

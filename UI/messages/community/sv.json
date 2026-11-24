@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Ärendets standard",
 	"workflows.composer_note": "Ett eget arbetsflödes första agentsteg avgör kodningsagent och modell.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Det här arbetsflödet är en pipeline: faser med kontroller som utförs av agentroller. Pipelines är experimentella: den här sidan visar dem skrivskyddade, och uppgifter kan inte köras på dem ännu.",
+	"workflows.pipeline_notice": "Det här arbetsflödet är en pipeline: faser med kontroller som utförs av agentroller. Pipelines är experimentella: den här sidan visar dem skrivskyddade, och en uppgift kan bara köras på en när servern har slagit på pipelines.",
 	"workflows.pipeline_phases": "Faser",
 	"workflows.pipeline_roles": "Roller",
 	"workflows.pipeline_required": "obligatorisk",

@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Valeur par défaut du ticket",
 	"workflows.composer_note": "La première étape d'agent d'un workflow personnalisé détermine l'agent de codage et le modèle.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Ce workflow est un pipeline : des phases avec des vérifications, menées par des rôles d'agents. Les pipelines sont expérimentaux : cette page les affiche en lecture seule et aucune tâche ne peut encore s'y exécuter.",
+	"workflows.pipeline_notice": "Ce workflow est un pipeline : des phases avec des vérifications, menées par des rôles d'agents. Les pipelines sont expérimentaux : cette page les affiche en lecture seule, et une tâche ne peut s'y exécuter que si le serveur a activé les pipelines.",
 	"workflows.pipeline_phases": "Phases",
 	"workflows.pipeline_roles": "Rôles",
 	"workflows.pipeline_required": "requise",

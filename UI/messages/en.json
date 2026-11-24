@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Issue default",
 	"workflows.composer_note": "A custom workflow's first agent step decides the coding agent and model.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "This workflow is a pipeline: phases with checks, worked by agent roles. Pipelines are experimental: this page shows them read only, and tasks cannot run on them yet.",
+	"workflows.pipeline_notice": "This workflow is a pipeline: phases with checks, worked by agent roles. Pipelines are experimental: this page shows them read only, and a task runs on one only when the server has pipelines turned on.",
 	"workflows.pipeline_phases": "Phases",
 	"workflows.pipeline_roles": "Roles",
 	"workflows.pipeline_required": "required",

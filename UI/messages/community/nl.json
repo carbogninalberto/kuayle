@@ -3748,7 +3748,7 @@
 	"workflows.choose_default": "Standaard van issue",
 	"workflows.composer_note": "De eerste agentstap van een eigen workflow bepaalt de codeeragent en het model.",
 	"workflows.pipeline": "Pipeline",
-	"workflows.pipeline_notice": "Deze workflow is een pipeline: fasen met controles, uitgevoerd door agentrollen. Pipelines zijn experimenteel: deze pagina toont ze alleen-lezen en taken kunnen er nog niet op draaien.",
+	"workflows.pipeline_notice": "Deze workflow is een pipeline: fasen met controles, uitgevoerd door agentrollen. Pipelines zijn experimenteel: deze pagina toont ze alleen-lezen, en een taak kan er alleen op draaien als de server pipelines heeft ingeschakeld.",
 	"workflows.pipeline_phases": "Fasen",
 	"workflows.pipeline_roles": "Rollen",
 	"workflows.pipeline_required": "vereist",
