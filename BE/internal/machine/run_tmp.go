@@ -15,8 +15,9 @@ import (
 // when the container starts and removed when the run ends. XDG data and state
 // go there too: OpenCode keeps its SQLite database, session snapshots and logs
 // in ~/.local/share/opencode and ~/.local/state/opencode, which filled the
-// home tmpfs ("database or disk is full", KUA-187). OpenCode does not resume
-// a session across attempts, so a per-attempt directory loses nothing.
+// home tmpfs ("database or disk is full", KUA-187). A task attempt links the
+// session stores of OpenCode and Goose from there to the task's session
+// directory (agent/providers.go), so the next attempt continues them.
 const runTmpRoot = "/workspace/.kuayle/tmp"
 
 // runTmpDir is the run's directory; key is a container key such as

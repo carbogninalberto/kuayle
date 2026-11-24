@@ -39,3 +39,12 @@ func (s *AgentTaskService) SendLiveMessage(ctx context.Context, ws, id uuid.UUID
 func (s *AgentTaskService) LiveMessages(ctx context.Context, ws, id uuid.UUID, limit int) ([]domain.AgentLiveMessage, error) {
 	return s.Repo.LiveMessages(ctx, ws, id, limit)
 }
+
+// PostRoomMessage posts the creator's message to the room of a pipeline
+// task; RoomMessages lists the room for them (repository.RoomMessages).
+func (s *AgentTaskService) PostRoomMessage(ctx context.Context, ws, id uuid.UUID, post domain.TaskRoomPost) (*domain.TaskMessage, error) {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return nil, err
+	}
+	return s.Repo.PostRoomMessage(ctx, ws, id, post)
+}

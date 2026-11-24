@@ -23,7 +23,8 @@ type agentImageIdentity interface {
 var agentCLIVersionPackages = map[string]string{
 	"claude-code": "@anthropic-ai/claude-code",
 	"codex":       "@openai/codex",
-	"opencode":    "opencode-ai",
+	"opencode":    "@opencode/cli",
+	"pi":          "@earendil-works/pi-coding-agent",
 	"qwen-code":   "@qwen-code/qwen-code",
 }
 
@@ -62,7 +63,7 @@ func (m *Manager) runEnvironment(ctx context.Context, machine *domain.DevMachine
 	}
 	var argv []string
 	if json.Unmarshal(run.CommandArgv, &argv) == nil && len(argv) > 0 {
-		environment.HarnessCommand = argv[0]
+		environment.HarnessCommand = agent.HarnessArgv(argv)[0]
 	}
 	if run.NativeSessionID != nil {
 		environment.ResumedSession = *run.NativeSessionID

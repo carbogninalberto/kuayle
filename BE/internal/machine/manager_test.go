@@ -100,10 +100,17 @@ type managerStoreFake struct {
 	leaseMu       sync.Mutex
 	leased        []domain.DevMachineOperation
 	deferredCalls []deferredOperationCall
+	// nativeSessions are the harness session IDs the manager recorded.
+	nativeSessions []string
 }
 
 func (f *managerStoreFake) AssistantProcessesToCheck(context.Context) ([]domain.AssistantProcess, error) {
 	return nil, nil
+}
+
+func (f *managerStoreFake) RecordNativeSession(_ context.Context, _ uuid.UUID, sessionID string) error {
+	f.nativeSessions = append(f.nativeSessions, sessionID)
+	return nil
 }
 
 // deferredOperationCall is one DeferOperation call as the fakes record it.

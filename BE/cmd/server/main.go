@@ -84,6 +84,7 @@ func main() {
 		agent.NewClaudeCodeProvider(cfg.DevMachine.ClaudeCodeImage),
 		agent.NewOpenCodeProvider(cfg.DevMachine.OpenCodeImage),
 		agent.NewCodexProvider(cfg.DevMachine.CodexImage),
+		agent.NewPiProvider(cfg.DevMachine.HeadlessImage),
 		agent.NewQwenCodeProvider(cfg.DevMachine.HeadlessImage),
 		agent.NewCrushProvider(cfg.DevMachine.HeadlessImage),
 		agent.NewKimiProvider(cfg.DevMachine.HeadlessImage),
@@ -118,6 +119,7 @@ func main() {
 	// Tasks that pin a configurable workflow follow it (KUA-95).
 	workflowRepo := repository.NewWorkflowRepository(db)
 	agentTaskSvc.SetWorkflows(workflowRepo)
+	agentTaskSvc.SetPipelines(cfg.WorkflowPipelines)
 	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationRepo, agentTaskSvc)
 	if len(os.Args) == 2 && os.Args[1] == "automation-worker" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

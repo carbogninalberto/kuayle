@@ -17,15 +17,18 @@ until docker exec "$container" test -f /workspace/.kuayle-ready; do
 done
 
 docker exec "$container" curl --fail --silent --output /dev/null http://127.0.0.1:7681/
-for command in node npm claude opencode codex qwen crush goose kimi ttyd; do
+for command in node npm claude opencode codex pi qwen crush goose kimi ttyd; do
   docker exec "$container" "$command" --version
 done
+# Every flag Kuayle passes an agent CLI is still in its help.
+docker exec "$container" sh /usr/local/lib/kuayle/check-agent-cli-flags.sh
 docker exec "$container" go version
 docker exec "$container" sh -c 'kuayle-ports list | grep -Eq "^7681 +listening"'
 docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-agents/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-agents/SKILL.md
+docker exec "$container" test -f /home/kuayle/.config/opencode/skill/kuayle-agents/SKILL.md
 
 runner_output=$(docker run --rm \
   --tmpfs /run/kuayle-secrets:rw,uid=1000,gid=1000 \

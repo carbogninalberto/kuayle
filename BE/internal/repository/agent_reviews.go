@@ -206,7 +206,8 @@ func reviewUpdated(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) erro
 // the harness's final output, parsed from Kuayle's own record of the run. An
 // answer without a verdict is not a review: the task fails through runtime
 // cleanup and says so, and nothing is recorded as its verdict or findings
-// (KUA-227).
+// (KUA-227). The turn of a pipeline task's member ends in the room instead
+// (completeMemberTurn).
 func (r *AgentTaskRepository) CompleteReview(ctx context.Context, claimed domain.AgentTask) error {
 	tx, task, err := r.transaction(ctx, claimed.ID, true)
 	if err != nil {
@@ -230,6 +231,17 @@ func (r *AgentTaskRepository) CompleteReview(ctx context.Context, claimed domain
 	output := ""
 	if summary != nil {
 		output = *summary
+	}
+	// A member's turn ends in the room, and its task rests for the next one.
+	member, err := memberOfTask(ctx, tx, *task)
+	if err != nil {
+		return err
+	}
+	if member != nil {
+		if err = completeMemberTurn(ctx, tx, task, *member, output); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 	verdict, findings := domain.ParseAgentReview(output)
 	if verdict == domain.AgentReviewVerdictUnknown {

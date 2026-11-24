@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -167,6 +168,42 @@ func TestDeveloperImagesBuildCrushWithPatchedGo(t *testing.T) {
 	require.NotContains(t, string(headless), "build-essential")
 }
 
+// The images run check-agent-cli-flags.sh after installing the CLIs: it
+// passes when a CLI's help lists what Kuayle passes it, fails naming what is
+// missing (a longer flag that starts the same does not count), and removes
+// whatever the help command wrote.
+func TestAgentCLIFlagCheckNamesWhatAHelpLacks(t *testing.T) {
+	script := filepath.Join(repoRootFromCaller(t), "devmachine", "common", "check-agent-cli-flags.sh")
+	fakeBin, tmp := t.TempDir(), t.TempDir()
+	crushHelp := func(help string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(fakeBin, "crush"),
+			[]byte("#!/bin/sh\n[ \"$*\" = 'run --help' ] || exit 2\ntouch \"$HOME/settings\"\nprintf '%s\\n' '"+help+"'\n"), 0o700))
+	}
+	check := func() (string, error) {
+		t.Helper()
+		cmd := exec.Command("sh", script, "crush")
+		cmd.Env = []string{"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"), "TMPDIR=" + tmp}
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		return stderr.String(), err
+	}
+
+	crushHelp("  -y --yolo    Skip permission prompts\n  -q --quiet   Hide spinner")
+	stderr, err := check()
+	require.NoError(t, err, stderr)
+	require.Empty(t, stderr)
+
+	crushHelp("  -y --yolo    Skip permission prompts\n  --quiet-mode Hide spinner")
+	stderr, err = check()
+	require.Error(t, err)
+	require.Equal(t, "crush run --help: missing --quiet\n", stderr)
+	entries, err := os.ReadDir(tmp)
+	require.NoError(t, err)
+	require.Empty(t, entries, "the help command's files are removed")
+}
+
 func TestAgentCLIInstallerRejectsDigestMismatchBeforeExtraction(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	tempDir := t.TempDir()
@@ -213,9 +250,20 @@ func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
 
 	// Release publishing refreshes exact values; require concrete pins rather than
 	// freezing this test to the versions shipped when it was written.
-	for _, name := range []string{"CLAUDE_CODE", "OPENCODE", "CODEX", "QWEN", "GOOSE", "KIMI"} {
+	for _, name := range []string{"CLAUDE_CODE", "OPENCODE", "CODEX", "PI", "QWEN", "GOOSE", "KIMI"} {
 		require.Regexp(t, `(?m)^`+name+`_VERSION=\d+\.\d+\.\d+$`, installer)
 	}
+	// Pi's advisories (CVE-2026-54325 to -54328) are fixed from 0.79.0 and only
+	// under the @earendil-works scope; the @mariozechner package has no fix.
+	require.Contains(t, installer, `"@earendil-works/pi-coding-agent@${PI_VERSION}"`)
+	require.NotContains(t, installer, "@mariozechner")
+	pi := regexp.MustCompile(`(?m)^PI_VERSION=(\d+)\.(\d+)\.\d+$`).FindStringSubmatch(installer)
+	require.NotNil(t, pi)
+	major, err := strconv.Atoi(pi[1])
+	require.NoError(t, err)
+	minor, err := strconv.Atoi(pi[2])
+	require.NoError(t, err)
+	require.True(t, major > 0 || minor >= 79, "Pi is pinned at 0.79.0 or later")
 	for _, arch := range []string{"amd64", "arm64"} {
 		require.Regexp(t, `(?s)`+arch+`\).*?goose_sha256=[a-f0-9]{64}\n.*?kimi_sha256=[a-f0-9]{64}\n`, installer)
 	}
@@ -223,7 +271,7 @@ func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
 
 		"--allow-scripts=@anthropic-ai/claude-code",
 
-		"--allow-scripts=opencode-ai",
+		"--allow-scripts=@opencode/cli",
 
 		"@qwen-code/qwen-code",
 

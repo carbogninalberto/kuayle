@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -281,6 +282,28 @@ func (s worldStore) RecordWorkflowCI(_ context.Context, task domain.AgentTask, r
 	step.CI = rawJSON(s.w.t, &record)
 	s.w.task.WorkflowWakeAt = wake
 	return nil
+}
+
+// RecordWorkflowBranch applies repository.RecordWorkflowBranch's checks and
+// writes: the branch record goes in the waiting step's ci.
+func (s worldStore) RecordWorkflowBranch(_ context.Context, task domain.AgentTask, branch domain.WorkflowBranchRecord, wake *time.Time) error {
+	step := s.w.steps[s.w.task.WorkflowSequence]
+	if task.WorkflowSequence != s.w.task.WorkflowSequence || *s.w.task.WorkflowStatus != domain.WorkflowStatusWaiting || step.FinishedAt != nil {
+		return repository.ErrAgentTaskConflict
+	}
+	s.w.setBranch(step, &branch)
+	s.w.task.WorkflowWakeAt = wake
+	return nil
+}
+
+// setBranch keeps a branch record in the step's ci, as jsonb_set does.
+func (w *workflowWorld) setBranch(step *domain.WorkflowStep, branch *domain.WorkflowBranchRecord) {
+	record := domain.WorkflowCIRecord{}
+	if stored := step.CIRecord(); stored != nil {
+		record = *stored
+	}
+	record.Branch = branch
+	step.CI = rawJSON(w.t, &record)
 }
 
 // DeferredShipMerge applies repository.DeferredShipMerge's rule.
@@ -941,6 +964,197 @@ func TestWorkflowRunnerNeverPassesCIWithoutGitHub(t *testing.T) {
 	require.True(t, h.tick())
 	require.Equal(t, "failed", h.current().NodeID)
 	require.Contains(t, h.w.steps[h.w.task.WorkflowSequence-1].Detail, "cannot read this commit's checks")
+}
+
+// toReview runs the example workflow until its reviewer works on the
+// published commit, which GitHub reports as the pull request's head. It
+// returns that commit.
+func (h *workflowHarness) toReview() string {
+	h.t.Helper()
+	h.agentFinishes("Added a theme toggle")
+	h.pulls.status.HeadSHA = h.head()
+	h.published()
+	require.Equal(h.t, "review", h.current().NodeID)
+	return h.head()
+}
+
+// KUA-260: a CI step whose branch fell behind its base while it waits
+// brings the branch up to date, pinned to the commit it judges, and judges
+// CI on the verified new head: CI on the stale commit no longer decides, and
+// the ship merge takes the update.
+func TestCIStepBringsABranchBehindItsBaseUpToDate(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	merger := h.withGitHub()
+	published := h.toReview()
+	yes := true
+	h.pulls.status.Behind, h.pulls.status.Mergeable = 2, &yes
+	verifiedUpdate(h.pulls, published, "head2", "base2")
+	h.github(PullRequestCheck{Name: "Tests", State: "pending"})
+	h.review("approve", "Looks good")
+	require.Equal(t, "ci", h.current().NodeID)
+	require.Equal(t, []string{"update:" + published}, h.pulls.calls, "updated once, pinned to the published commit")
+	record := h.ciRecord()
+	require.Equal(t, "head2", record.Head, "the step judges the new head")
+	require.Equal(t, published, record.UpdateOf)
+	require.Equal(t, 1, record.Updates)
+	require.Equal(t, "Polling running checks", ciWaiting(h))
+
+	h.github(PullRequestCheck{Name: "Tests", State: "passed"})
+	h.w.shaChecks["head2"] = []PullRequestCheck{{Name: "Tests", State: "pending"}}
+	require.True(t, h.later(ciPoll))
+	require.Equal(t, "ci", h.current().NodeID, "CI that passed on the stale commit does not pass the step")
+	require.Len(t, h.pulls.calls, 1, "the update is made once")
+
+	h.w.shaChecks["head2"] = passingChecks
+	require.True(t, h.later(ciPoll))
+	require.Equal(t, "ship", h.current().NodeID)
+	require.Equal(t, "All 2 CI checks passed", h.w.steps[h.w.task.WorkflowSequence-1].Detail)
+	require.Equal(t, []string{"update:" + published, "ready"}, h.pulls.calls, "the branch is up to date at the ship approval")
+
+	h.pulls.checks = passingChecks
+	require.NoError(t, h.decideAs(WorkflowDecisionApprove))
+	require.True(t, h.tick())
+	require.Equal(t, []string{"acme/app#12@head2/squash"}, merger.merged, "the ship merge takes Kuayle's verified update")
+}
+
+// KUA-260: no CI starts on a branch that conflicts with its base, so the CI
+// step sends it back to the implementer at once instead of waiting for a
+// check until the step times out.
+func TestCIStepSendsAConflictingBranchBackAtOnce(t *testing.T) {
+	for _, when := range []string{"when entered", "while it waits"} {
+		t.Run(when, func(t *testing.T) {
+			h := newWorkflowHarness(t, domain.WorkflowBudget{})
+			h.withGitHub()
+			h.toReview()
+			conflict := func() {
+				no := false
+				h.pulls.status.Behind, h.pulls.status.Mergeable, h.pulls.status.MergeableState = 3, &no, "dirty"
+			}
+			iterations := h.w.task.WorkflowIterations
+			if when == "when entered" {
+				conflict()
+				h.review("approve", "Looks good")
+			} else {
+				h.github(PullRequestCheck{Name: "Tests", State: "pending"})
+				h.review("approve", "Looks good")
+				require.Equal(t, "ci", h.current().NodeID)
+				// The base moves into a conflict: CI on the branch stops.
+				conflict()
+				h.github()
+				require.True(t, h.later(ciPoll))
+			}
+			require.Equal(t, "implement", h.current().NodeID)
+			require.Equal(t, "queued", h.w.task.State)
+			require.Equal(t, iterations+1, h.w.task.WorkflowIterations, "the send-back counts as an iteration")
+			ci := h.w.steps[h.w.task.WorkflowSequence-1]
+			require.Equal(t, "ci", ci.NodeID)
+			require.Equal(t, domain.WorkflowBranchConflict, *ci.Outcome)
+			require.Contains(t, h.w.task.Prompt, "conflicts with main")
+			require.Contains(t, h.w.task.Prompt, "merge origin/main into the task branch")
+			require.Contains(t, h.current().Reason, "CI → Implementer")
+			require.Empty(t, h.pulls.calls, "GitHub's update-branch cannot resolve conflicts")
+		})
+	}
+}
+
+// KUA-260: a migration version the branch shares with its base goes back
+// from the CI step with the repair, as from the ship approval.
+func TestCIStepSendsAMigrationCollisionBack(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	h.withGitHub()
+	h.toReview()
+	const repair = "Migration number collision with main: BE/migrations/000178_bulk_issue_approvals.up.sql and BE/migrations/000178_saml_sso.up.sql. Renumber the task migration pair and update its references."
+	h.pulls.status.Behind, h.pulls.status.migrationRepair = 1, repair
+	h.github(PullRequestCheck{Name: "Tests", State: "pending"})
+	h.review("approve", "Looks good")
+	require.Equal(t, "implement", h.current().NodeID)
+	require.Equal(t, "queued", h.w.task.State)
+	require.Equal(t, domain.WorkflowBranchConflict, *h.w.steps[h.w.task.WorkflowSequence-1].Outcome)
+	require.Contains(t, h.w.task.Prompt, repair)
+	require.Empty(t, h.pulls.calls, "update-branch cannot repair a collision")
+}
+
+// KUA-260: on a branch that contains its base the CI step waits for and
+// judges CI exactly as before.
+func TestCIStepOnAnUpToDateBranchJudgesCIAsBefore(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	h.withGitHub()
+	h.toReview()
+	h.review("approve", "Looks good")
+	require.Equal(t, "ci", h.current().NodeID)
+	require.Equal(t, "Waiting for CI", ciWaiting(h), "no check has started")
+	h.github(PullRequestCheck{Name: "Tests", State: "pending"})
+	require.True(t, h.later(ciIdlePoll))
+	require.Equal(t, "Polling running checks", ciWaiting(h))
+	require.Nil(t, h.current().CIRecord(), "nothing new to record")
+	h.ci("success", "")
+	require.Equal(t, "ship", h.current().NodeID)
+	require.Equal(t, "All 1 CI checks passed", h.w.steps[h.w.task.WorkflowSequence-1].Detail)
+	require.Equal(t, []string{"ready"}, h.pulls.calls, "nothing was updated")
+}
+
+// KUA-260: a fact GitHub has not reported (the distance to the base, whether
+// it conflicts, the pull request itself) changes nothing: the step keeps
+// waiting for CI and acts once GitHub reports it.
+func TestCIStepWaitsOnBranchFactsGitHubHasNotReported(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		unknown func(*prGitHub)
+	}{
+		{"not compared", func(g *prGitHub) { g.status.Behind, g.status.migrationCheckUnavailable = -1, true }},
+		{"mergeability not computed", func(g *prGitHub) { g.status.Behind = 2 }},
+		{"unreadable", func(g *prGitHub) { g.readErr = errors.New("GitHub is unavailable") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newWorkflowHarness(t, domain.WorkflowBudget{})
+			h.withGitHub()
+			published := h.toReview()
+			tc.unknown(h.pulls)
+			h.github(PullRequestCheck{Name: "Tests", State: "pending"})
+			h.review("approve", "Looks good")
+			require.Equal(t, "ci", h.current().NodeID)
+			require.Empty(t, h.pulls.calls, "nothing is updated or sent back on a fact GitHub did not report")
+			require.Equal(t, "Polling running checks", ciWaiting(h), "the step waits as before")
+
+			yes := true
+			h.pulls.readErr = nil
+			h.pulls.status.Behind, h.pulls.status.Mergeable, h.pulls.status.migrationCheckUnavailable = 2, &yes, false
+			verifiedUpdate(h.pulls, published, "head2", "base2")
+			require.True(t, h.later(ciPoll))
+			require.Equal(t, []string{"update:" + published}, h.pulls.calls, "read again, and acted on once known")
+			require.Equal(t, "head2", h.ciRecord().Head)
+		})
+	}
+}
+
+// KUA-260: a base that keeps moving is followed at most maxMergeUpdates
+// times, as an approved merge follows it; the step then waits for CI on the
+// last head.
+func TestCIStepUpdatesABranchThatKeepsFallingBehindABoundedNumberOfTimes(t *testing.T) {
+	h := newWorkflowHarness(t, domain.WorkflowBudget{})
+	h.withGitHub()
+	published := h.toReview()
+	yes := true
+	h.pulls.status.Behind, h.pulls.status.Mergeable = 1, &yes
+	verifiedUpdate(h.pulls, published, "head2", "base2")
+	h.github(PullRequestCheck{Name: "Tests", State: "pending"})
+	h.review("approve", "Looks good")
+	heads := []string{published, "head2", "head3", "head4"}
+	for i := 2; i < len(heads); i++ {
+		h.w.shaChecks[heads[i-1]] = []PullRequestCheck{{Name: "Tests", State: "pending"}}
+		h.pulls.status.Behind = 1
+		verifiedUpdate(h.pulls, heads[i-1], heads[i], fmt.Sprintf("base%d", i+1))
+		require.True(t, h.later(ciPoll))
+		require.Equal(t, heads[i], h.ciRecord().Head)
+		require.Equal(t, i, h.ciRecord().Updates)
+	}
+	h.w.shaChecks["head4"] = []PullRequestCheck{{Name: "Tests", State: "pending"}}
+	h.pulls.status.Behind = 1
+	require.True(t, h.later(ciPoll))
+	require.Equal(t, "ci", h.current().NodeID)
+	require.Equal(t, []string{"update:" + published, "update:head2", "update:head3"}, h.pulls.calls)
+	require.Equal(t, "head4", h.ciRecord().Head)
+	require.Equal(t, "Polling running checks", ciWaiting(h))
 }
 
 func TestWorkflowInstructionsKeepProfileTextOnlyForHarnessesWithoutProfileFiles(t *testing.T) {

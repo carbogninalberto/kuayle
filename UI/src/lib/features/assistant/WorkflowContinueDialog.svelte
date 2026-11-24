@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { agentTasks, type AgentTask, type WorkflowSwitch } from '$lib/api/agent-tasks';
-	import { workflows, type WorkflowSummary } from '$lib/api/workflows';
+	import { isPipeline, workflows, type WorkflowSummary } from '$lib/api/workflows';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
@@ -32,9 +32,11 @@
 	let error = $state('');
 	const destination = $derived(choices.find((workflow) => workflow.id === workflowId));
 	const steps = $derived(
-		destination?.graph.nodes
-			.filter((step) => step.type !== 'start' && step.type !== 'end')
-			.map((step) => ({ value: step.id, label: step.label || step.id })) ?? []
+		destination && !isPipeline(destination.graph)
+			? destination.graph.nodes
+					.filter((step) => step.type !== 'start' && step.type !== 'end')
+					.map((step) => ({ value: step.id, label: step.label || step.id }))
+			: []
 	);
 	const continuation = $derived(plan?.continuation);
 
@@ -72,8 +74,13 @@
 		Promise.all([workflows.list(slug), workflows.task(slug, taskId)])
 			.then(([list, current]) => {
 				if (stale) return;
+				// A task never changes engine, so pipelines are not offered.
 				choices = list.workflows.filter(
-					(workflow) => !workflow.archived && workflow.latest_version > 0 && workflow.id !== current.workflow_id
+					(workflow) =>
+						!workflow.archived &&
+						workflow.latest_version > 0 &&
+						workflow.id !== current.workflow_id &&
+						!isPipeline(workflow.graph)
 				);
 			})
 			.catch((e) => {

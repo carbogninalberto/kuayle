@@ -131,12 +131,63 @@ func TestCodexThreadIDIsCapturedOnlyForTaskAttempts(t *testing.T) {
 	task := uuid.New()
 	run := &domain.DevMachineAgentRun{ProviderID: "codex", TaskID: &task}
 	started := agent.Event{Type: "thread.started", Payload: []byte(`{"type":"thread.started","thread_id":"0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}`)}
-	require.Equal(t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", codexThreadID(run, started))
-	require.Empty(t, codexThreadID(&domain.DevMachineAgentRun{ProviderID: "codex"}, started), "manual runs are not resumed")
-	require.Empty(t, codexThreadID(&domain.DevMachineAgentRun{ProviderID: "claude-code", TaskID: &task}, started))
-	require.Empty(t, codexThreadID(run, agent.Event{Type: "thread.started", Payload: []byte(`{"thread_id":"--last"}`)}))
-	require.Empty(t, codexThreadID(run, agent.Event{Type: "item.completed", Payload: started.Payload}))
+	require.Equal(t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", harnessSessionID(run, started))
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "codex"}, started), "manual runs are not resumed")
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "claude-code", TaskID: &task}, started))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "thread.started", Payload: []byte(`{"thread_id":"--last"}`)}))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "item.completed", Payload: started.Payload}))
 }
+
+// OpenCode 2.3.2 puts its session ID on every event as the top-level
+// sessionID (lines captured from a real run, see openCodeSessionStream).
+func TestOpenCodeSessionIDIsCapturedOnlyForTaskAttempts(t *testing.T) {
+	task := uuid.New()
+	run := &domain.DevMachineAgentRun{ProviderID: "opencode", TaskID: &task}
+	events := agent.NewOpenCodeProvider("").ParseEvents([]byte(openCodeSessionStream))
+	require.Len(t, events, 3)
+	for _, event := range events {
+		require.Equal(t, "ses_df21986abffefn2FxDuH6uZGLA", harnessSessionID(run, event), event.Type)
+	}
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "opencode"}, events[0]), "manual runs are not resumed")
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "codex", TaskID: &task}, events[0]))
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "claude-code", TaskID: &task}, events[0]))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "text", Payload: []byte(`{"type":"text","sessionID":"--last"}`)}))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "text", Payload: []byte(`{"type":"text","part":{"sessionID":"ses_nested"}}`)}), "only the top-level ID names the run's session")
+}
+
+// openCodeSessionStream is the start of a real OpenCode 2.3.2 run
+// (`opencode run --format json`), as P0.1 captured it.
+const openCodeSessionStream = `{"type":"step_start","timestamp":1795529543169,"sessionID":"ses_df21986abffefn2FxDuH6uZGLA","part":{"id":"prt_20de68e01001Y7x81k5RWOXABv","sessionID":"ses_df21986abffefn2FxDuH6uZGLA","messageID":"msg_20de67d16001dDwrKhGGS2YDg9","type":"step-start"}}
+{"type":"text","timestamp":1795529558098,"sessionID":"ses_df21986abffefn2FxDuH6uZGLA","part":{"id":"prt_20de6c8480019CYaJDvWLNZcw1","sessionID":"ses_df21986abffefn2FxDuH6uZGLA","messageID":"msg_20de68fc3001owH7lmaCOaOEk7","type":"text","text":"done","time":{"start":1795529558088,"end":1795529558098}}}
+{"type":"step_finish","timestamp":1795529558100,"sessionID":"ses_df21986abffefn2FxDuH6uZGLA","part":{"id":"prt_20de6c854002r30vkERr7EUbjH","sessionID":"ses_df21986abffefn2FxDuH6uZGLA","messageID":"msg_20de68fc3001owH7lmaCOaOEk7","type":"step-finish","reason":"stop","cost":0,"tokens":{"input":4220,"output":3,"reasoning":0,"cache":{"read":1920,"write":0}}}}
+`
+
+// Qwen Code 0.28.4 names its session in the system init event that starts
+// its stream-json output (and repeats it on every later event); a resumed
+// run reports the session it continued. The other harnesses' IDs are not
+// read from a Qwen-style line.
+func TestQwenSessionIDIsCapturedFromItsInitEvent(t *testing.T) {
+	task := uuid.New()
+	run := &domain.DevMachineAgentRun{ProviderID: "qwen-code", TaskID: &task}
+	events := agent.NewQwenCodeProvider("").ParseEvents([]byte(qwenSessionStream))
+	require.Len(t, events, 4)
+	require.Equal(t, "258fdb71-4e37-4a51-adb1-415e3ff0af9c", harnessSessionID(run, events[0]))
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "qwen-code"}, events[0]), "manual runs are not resumed")
+	for _, provider := range []string{"codex", "opencode", "claude-code", "kimi", "goose", "crush"} {
+		require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: provider, TaskID: &task}, events[0]), provider)
+	}
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "system", Payload: []byte(`{"type":"system","subtype":"init","session_id":"--last"}`)}))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "system", Payload: []byte(`{"type":"system","subtype":"notice","session_id":"258fdb71-4e37-4a51-adb1-415e3ff0af9c"}`)}), "only the init event names the run's session")
+}
+
+// qwenSessionStream is a real Qwen Code 0.28.4 run (`qwen --yolo
+// --output-format stream-json`, against a stand-in API), with the working
+// directory and the tool, command and agent lists shortened.
+const qwenSessionStream = `{"type":"system","subtype":"init","uuid":"258fdb71-4e37-4a51-adb1-415e3ff0af9c","session_id":"258fdb71-4e37-4a51-adb1-415e3ff0af9c","cwd":"/workspace/tasks/check","tools":["web_fetch","get_goal","update_goal"],"mcp_servers":[],"model":"fake-model","permission_mode":"yolo","slash_commands":["advisor","agent-delegation"],"qwen_code_version":"0.28.4","agents":["general-purpose"]}
+{"type":"stream_event","uuid":"4ec5a3dd-4c08-4ab0-8f83-d95a4e89934e","session_id":"258fdb71-4e37-4a51-adb1-415e3ff0af9c","parent_tool_use_id":null,"event":{"type":"goal_state","goal_state":{"v":2,"goal":null,"activity":"idle"}}}
+{"type":"assistant","uuid":"dbd1473b-b146-4a0d-8aed-3b85180f99fb","session_id":"258fdb71-4e37-4a51-adb1-415e3ff0af9c","parent_tool_use_id":null,"message":{"id":"dbd1473b-b146-4a0d-8aed-3b85180f99fb","type":"message","role":"assistant","model":"fake-model","content":[{"type":"text","text":"done"}],"stop_reason":null,"usage":{"input_tokens":100,"output_tokens":5,"cache_read_input_tokens":0,"total_tokens":105}}}
+{"type":"result","subtype":"success","uuid":"109b3c6a-591a-4ec4-a977-09a9ca09d79b","session_id":"258fdb71-4e37-4a51-adb1-415e3ff0af9c","is_error":false,"duration_ms":279,"duration_api_ms":261,"num_turns":1,"result":"done","usage":{"input_tokens":100,"output_tokens":5,"cache_read_input_tokens":0,"total_tokens":105},"permission_denials":[]}
+`
 
 type purgeRuntimeFake struct {
 	*runtimeFake

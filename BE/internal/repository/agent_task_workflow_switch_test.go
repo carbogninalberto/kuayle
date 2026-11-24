@@ -185,3 +185,32 @@ func jsonInt(v int64) string {
 	raw, _ := json.Marshal(v)
 	return string(raw)
 }
+
+// A task never changes engine: it is not moved onto a pipeline, neither to
+// another workflow nor to a newer version of its own.
+func TestWorkflowSwitchRefusesAnotherKind(t *testing.T) {
+	f := newPauseFixture(t)
+	pinned := *f.task.WorkflowVersionID
+	f.rest()
+	workflows := NewWorkflowRepository(f.db)
+	implementer, reviewer := builtinIDs(t, workflows, f.ws)
+	raw, err := json.Marshal(domain.TeamPipeline(implementer, reviewer))
+	require.NoError(t, err)
+	pipeline, err := workflows.CreateWorkflow(f.ctx, f.ws, f.task.CreatorID, "Team", "", raw, "created")
+	require.NoError(t, err)
+
+	plan, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{WorkflowID: pipeline.ID.String(), Node: "implement"}, true)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorkflowSwitchKind, plan.Refused)
+	require.Nil(t, moved)
+
+	var workflow domain.Workflow
+	require.NoError(t, f.db.Get(&workflow, `SELECT w.* FROM workflows w JOIN workflow_versions v ON v.workflow_id=w.id WHERE v.id=$1`, pinned))
+	_, err = workflows.SaveVersion(f.ctx, f.ws, workflow.ID, f.task.CreatorID, workflow.LatestVersion, workflow.Name, "", raw)
+	require.NoError(t, err)
+	plan, moved, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, true)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorkflowSwitchKind, plan.Refused)
+	require.Nil(t, moved)
+	require.Equal(t, pinned, *f.current().WorkflowVersionID)
+}

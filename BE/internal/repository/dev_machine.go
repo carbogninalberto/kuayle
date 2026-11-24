@@ -1430,19 +1430,36 @@ func (r *DevMachineRepository) UpdateAgentRunStarted(ctx context.Context, runID 
 }
 
 func (r *DevMachineRepository) CompleteAgentRun(ctx context.Context, run *domain.DevMachineAgentRun) error {
+	if run.UsageSessionTotal {
+		// The harness reported its session's running total (Codex): the
+		// run's share is that total less what the earlier runs of the task
+		// that continued the same session recorded.
+		var earlier domain.AgentRunUsage
+		if err := r.db.GetContext(ctx, &earlier, `SELECT sum(p.input_tokens)::bigint AS input_tokens,sum(p.output_tokens)::bigint AS output_tokens,
+ sum(p.cache_read_tokens)::bigint AS cache_read_tokens,sum(p.cache_write_tokens)::bigint AS cache_write_tokens,sum(p.cost_usd) AS cost_usd
+ FROM dev_machine_agent_runs r JOIN dev_machine_agent_runs p ON p.task_id=r.task_id AND p.workspace_id=r.workspace_id
+  AND p.provider_id=r.provider_id AND p.native_session_id=r.native_session_id AND (p.created_at,p.id)<(r.created_at,r.id)
+ WHERE r.id=$1`, run.ID); err != nil {
+			return err
+		}
+		run.AgentRunUsage, run.UsageSessionTotal = run.AgentRunUsage.Less(earlier), false
+	}
+	usage := run.AgentRunUsage
 	_, err := r.db.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET status=$1, result=$2, summary=$3,
 		changed_files=$4, commits=$5, branch=$6, pull_request_url=$7, tests_run=$8, test_status=$9,
 		risk_notes=$10, exit_code=$11, error_message=$12, diff=$14, diff_truncated=$15,
 		worktree_changed=$16,
 		worktree_changed_files=COALESCE($17, '[]'::jsonb), failure_class=$18, failure_rule=$19,
-		failure_cause=$20, environment=$21, output_cuts=COALESCE($22, '[]'::jsonb), completed_at=NOW()
+		failure_cause=$20, environment=$21, output_cuts=COALESCE($22, '[]'::jsonb),
+		input_tokens=$23, output_tokens=$24, cache_read_tokens=$25, cache_write_tokens=$26, cost_usd=$27, completed_at=NOW()
 		WHERE id=$13 AND (status NOT IN ('succeeded','failed','cancelled','timeout') OR status=$1)`,
 		run.Status, nullJSONPointer(run.Result), postgresTextPointer(run.Summary), sanitize.PostgresJSON(run.ChangedFiles),
 		sanitize.PostgresJSON(run.Commits), postgresTextPointer(run.Branch), postgresTextPointer(run.PullRequestURL),
 		sanitize.PostgresJSON(run.TestsRun), run.TestStatus, sanitize.PostgresJSON(run.RiskNotes), run.ExitCode,
 		postgresTextPointer(run.ErrorMessage), run.ID, sanitize.PostgresText(run.Diff), run.DiffTruncated,
 		run.WorktreeChanged, nullJSON(run.WorktreeChangedFiles),
-		run.FailureClass, run.FailureRule, postgresTextPointer(run.FailureCause), nullJSON(run.Environment), nullJSON(run.OutputCuts))
+		run.FailureClass, run.FailureRule, postgresTextPointer(run.FailureCause), nullJSON(run.Environment), nullJSON(run.OutputCuts),
+		usage.InputTokens, usage.OutputTokens, usage.CacheReadTokens, usage.CacheWriteTokens, usage.CostUSD)
 	return err
 }
 

@@ -53,6 +53,7 @@ type taskExecutionRuntime interface {
 type taskRuntimeStore interface {
 	ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error)
 	PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error)
+	TaskMember(context.Context, domain.AgentTask) (*domain.TaskMember, error)
 	CancelAttempt(context.Context, domain.AgentTask) error
 	EnsurePublication(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 	ProfileBundle(context.Context, domain.AgentTask) (*domain.AgentProfileBundle, error)
@@ -70,6 +71,9 @@ type AgentTaskService struct {
 	// SetWorkflows wires it, and tasks then keep the Standard flow.
 	workflow    *WorkflowRunner
 	definitions *repository.WorkflowRepository
+	// pipelines is the server's switch for the experimental pipeline
+	// workflows (SetPipelines); off, none is saved or started.
+	pipelines bool
 	// registry logs published pull requests in the wiki registry of the
 	// issue's project or team when that registry is on; nil until SetRegistry.
 	registry taskRegistry
@@ -267,6 +271,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if result == nil {
 			return nil
 		}
+		// A pipeline's tick reads what the publication did as a fact.
+		if task.Pipeline {
+			return s.pipelinePublished(ctx, task, result)
+		}
 		if reason := domain.PublicationCheckoutBlockReason(result.Summary); result.Status == domain.DevMachineAgentRunStepStatusFailed && reason != "" {
 			if task.RunsWorkflow() {
 				if s.workflow == nil {
@@ -299,7 +307,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		}
 		return nil
 	}
-	// A workflow step waiting for a review, CI or a timeout was woken.
+	// A pipeline's tick, or a workflow step waiting for a review, CI or a
+	// timeout, was woken.
+	if task.State == "awaiting_review" && task.Pipeline {
+		return s.pipelineTick(ctx, task)
+	}
 	if task.State == "awaiting_review" && task.RunsWorkflow() && s.workflow != nil {
 		return s.workflow.Evaluate(ctx, task)
 	}
@@ -354,6 +366,11 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 			if model, ok := domain.ParseModelNotFoundError(*run.ErrorMessage); ok {
 				return s.store.FailWithClass(ctx, task, domain.FailureProvider, modelNotFoundReason(task, model))
 			}
+		}
+		// A pipeline's writer whose turn failed: the failure is a fact its
+		// tick routes like any other.
+		if task.Pipeline && task.State == "running" {
+			return s.pipelineTurnEnded(ctx, task, runFailureDetail(run))
 		}
 		// An agent that stopped without concluding says so, in a workflow
 		// (which still decides what follows) and outside one.
@@ -429,7 +446,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if task.Kind == domain.AgentTaskKindReview {
 			return s.store.CompleteReview(ctx, task)
 		}
-		// A workflow decides what follows the agent step.
+		// A pipeline's tick, or a workflow, decides what follows the agent step.
+		if task.Pipeline {
+			return s.pipelineTurnEnded(ctx, task, "")
+		}
 		if task.RunsWorkflow() && s.workflow != nil {
 			return s.workflow.AgentFinished(ctx, task)
 		}
@@ -441,6 +461,20 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		return s.store.Transition(ctx, task, "publishing", reason)
 	}
 	return nil
+}
+
+// runFailureDetail is why a run failed: its recorded cause, or what it
+// reported, or that it failed or timed out.
+func runFailureDetail(run *domain.DevMachineAgentRun) string {
+	switch {
+	case run.FailureCause != nil && strings.TrimSpace(*run.FailureCause) != "":
+		return *run.FailureCause
+	case run.ErrorMessage != nil && strings.TrimSpace(*run.ErrorMessage) != "":
+		return *run.ErrorMessage
+	case run.Status == domain.DevMachineAgentRunStatusTimeout:
+		return "The agent's iteration reached its time limit"
+	}
+	return "The agent's iteration failed"
 }
 
 // runFailureClass is the class the machine recorded for the run, or the
@@ -712,7 +746,11 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 	default:
 		return false, ErrInvalidOperation
 	}
-	checkout, err := s.checkoutTask(ctx, *task)
+	refresh, err := r.checkoutRefresh(ctx, *task)
+	if err != nil {
+		return false, err
+	}
+	checkout, err := s.checkoutTask(ctx, *task, refresh)
 	if err != nil {
 		return false, err
 	}
@@ -724,6 +762,17 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		return false, fmt.Errorf("%w: %s", ErrCheckoutFailed, cause)
 	}
 	return checkout.Status == "ready", nil
+}
+
+// checkoutRefresh reports whether the task's worktree is fetched again
+// before its attempt: on the next turn of a pipeline member, whose review
+// task is reused across turns. Any other task keeps its worktree as it is.
+func (r *devMachineTaskRuntime) checkoutRefresh(ctx context.Context, task domain.AgentTask) (bool, error) {
+	if task.Kind != domain.AgentTaskKindReview || task.Generation <= 1 {
+		return false, nil
+	}
+	member, err := r.tasks.TaskMember(ctx, task)
+	return member != nil, err
 }
 
 // ErrHostCapacityWait reports a task machine whose spawn or start waits for host
@@ -772,8 +821,18 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	// take more than an hour.
 	const timeout = 3 * 60 * 60
 	review := task.Kind == domain.AgentTaskKindReview
+	// A review starts cold, except the turns of a pipeline task's member:
+	// one review task reused across turns, which continues its session.
+	resumes := !review
+	if review && task.Generation > 1 {
+		member, err := r.tasks.TaskMember(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		resumes = member != nil
+	}
 	var previous *domain.AgentHandoff
-	if task.Generation > 1 && !review {
+	if task.Generation > 1 && resumes {
 		if previous, err = r.tasks.PreviousAttempt(ctx, task); err != nil {
 			return nil, err
 		}
@@ -1135,9 +1194,10 @@ func neutralisePlan(plan string) string {
 }
 
 // taskSession places a task's harness transcripts in its own directory and
-// resumes natively only from a succeeded attempt on the same machine, where
-// those transcripts live. Otherwise the successor starts a fresh session and
-// relies on the recorded handoff, so a failed resume is never repeated.
+// resumes natively only from a succeeded attempt of the same harness on the
+// same machine, where those transcripts live. Otherwise the successor starts
+// a fresh session and relies on the recorded handoff, so a failed resume is
+// never repeated.
 func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.SessionInput {
 	session := &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + task.ID.String()}
 	// A failed attempt is resumed only when the user continued its session
@@ -1150,9 +1210,12 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 	// An attempt a person started to deliver a message continues the
 	// previous session however that attempt ended, under the same rule: only
 	// when the same profile ran it.
-	if previous != nil && task.MachineID != nil && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession || task.LiveResumed()) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
+	// Whatever the reason, a session is continued only by the harness that
+	// stored it: when the task's profile switched harness, the previous ID
+	// names the other harness's session.
+	if previous != nil && task.MachineID != nil && previous.Provider == task.Provider && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession || task.LiveResumed()) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
 		session.ResumeID = previous.NativeSessionID
-	} else if task.Provider == "claude-code" {
+	} else if agent.KuayleNamesSession(task.Provider) {
 		session.NewID = uuid.NewString()
 	}
 	return session

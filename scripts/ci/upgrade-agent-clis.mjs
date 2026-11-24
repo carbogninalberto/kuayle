@@ -2,9 +2,11 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// OpenCode 2 is published as @opencode/cli; opencode-ai keeps only the 1.x line.
+// Pi's patched releases are only under @earendil-works (CVE-2026-54325 to -54328).
 const npmPackages = {
-  CLAUDE_CODE: '@anthropic-ai/claude-code', OPENCODE: 'opencode-ai',
-  CODEX: '@openai/codex', QWEN: '@qwen-code/qwen-code',
+  CLAUDE_CODE: '@anthropic-ai/claude-code', OPENCODE: '@opencode/cli',
+  CODEX: '@openai/codex', PI: '@earendil-works/pi-coding-agent', QWEN: '@qwen-code/qwen-code',
 };
 const repositories = { CRUSH: 'charmbracelet/crush', GOOSE: 'block/goose', KIMI: 'MoonshotAI/kimi-cli' };
 // Same setting, default and range as the machine manager's runtime refresh.

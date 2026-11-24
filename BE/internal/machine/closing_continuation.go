@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,8 +31,9 @@ import (
 //
 // What it guarantees:
 //   - same session: the attempt's own harness session is continued (Claude
-//     Code with --resume, Codex with "exec resume"), from the command line
-//     stored when the run was created. A harness without one is not asked;
+//     Code with --resume, Codex with "exec resume", OpenCode, Qwen Code,
+//     Kimi and Goose by their own flags), from the command line stored when
+//     the run was created. A harness without one (Crush) is not asked;
 //   - once: closing_asked_at is taken before the container starts, so a
 //     manager that restarts does not ask again;
 //   - bounded: closingTimeout, never past closingMargin before the
@@ -43,7 +45,8 @@ import (
 //     "...-agent-<run>-closing", under the run's sandbox, mounts and
 //     authorization, without the live inbox. Its output is not the
 //     attempt's: summary and logs stay those of the work, except for a
-//     rewritten plan that fits;
+//     rewritten plan that fits. What its harness reported it spent is
+//     added to the run's usage;
 //   - cleaned up: that container is removed by its exact name on every
 //     path out, and one found left over by a crash is removed, not re-run.
 //     The attempt's own container is never touched from here;
@@ -129,30 +132,37 @@ type closingState struct {
 	unchangedRun func() bool
 	planTooLong  bool
 	parseReply   func(stdout, stderr string) agent.RunResult
+	// summary is the attempt's final message, which may carry a verdict.
+	summary string
 }
 
 // closingSettlement is what was still missing when the attempt closed. plan
-// is the shortened plan to use instead of a truncated one, empty when none.
+// is the shortened plan to use instead of a truncated one, empty when none;
+// usage is what the continuation's harness reported it spent.
 type closingSettlement struct {
 	replies              liveReplySettlement
 	notebookNotCollected bool
 	plan                 string
+	usage                agent.Usage
 }
 
 // closingReply is what the continuation wrote, kept only when an ask is
 // answered with its final message. complete is false when the stream did not
 // reach the result parser whole (a line was too long to keep, or was still
-// open when the continuation ended).
+// open when the continuation ended). usage is what its harness reported it
+// spent, read whatever was asked.
 type closingReply struct {
 	stdout, stderr string
 	complete       bool
+	usage          agent.Usage
 }
 
 // settleClosing is the one place that decides what an ended attempt is
 // asked for. After the outbox was collected it lists what is missing (a
 // reply to each delivered message of the task's owner, for an attempt that
 // ended well; a notebook update, for one that concluded; a shorter plan, for
-// a planning step whose plan was too long), asks for all of it in one closing
+// a planning step whose plan was too long; a verdict, for a pipeline member's
+// turn asked for one), asks for all of it in one closing
 // continuation, collects the outbox again and looks again. The plan ask is
 // the only one whose reply Kuayle reads: when it comes back whole and fits,
 // it is the plan the attempt hands on. Nothing is asked for what Kuayle
@@ -178,6 +188,9 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 	if planAsked {
 		asks = append(asks, domain.PlanClosingAsk())
 	}
+	if verdict := m.verdictAsk(ctx, run, collected, state); verdict != nil {
+		asks = append(asks, *verdict)
+	}
 	if len(asks) == 0 && run.ClosingAskedAt != nil {
 		// Asked before a crash, and by now nothing is missing: what the
 		// crash left is removed here, since nothing will be asked.
@@ -194,6 +207,7 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 			}
 		}
 		if ran {
+			settled.usage = reply.usage
 			collectCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 			err := m.collectOutbox(collectCtx, attempt.machine, state.services)
 			cancel()
@@ -218,6 +232,36 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 	return settled, nil
 }
 
+// verdictStore says which commit a pipeline member's turn was asked to
+// review and has not given a verdict for yet ("" when it owes none).
+type verdictStore interface {
+	MissingVerdict(ctx context.Context, runID uuid.UUID) (string, error)
+}
+
+// verdictAsk asks a member's turn that ended well, was asked for a verdict
+// and gave none, to post it in the room. A final message that carries a
+// verdict (the Verdict: line) is one: Kuayle records it when the turn ends.
+// It is judged only on an outbox that was really read.
+func (m *Manager) verdictAsk(ctx context.Context, run *domain.DevMachineAgentRun, collected bool, state closingState) *domain.ClosingAsk {
+	store, ok := m.store.(verdictStore)
+	if !ok || run.TaskID == nil || !state.succeeded || !collected {
+		return nil
+	}
+	if verdict, _ := domain.ParseAgentReview(state.summary); verdict != domain.AgentReviewVerdictUnknown {
+		return nil
+	}
+	commit, err := store.MissingVerdict(ctx, run.ID)
+	if err != nil {
+		log.WithField("agent_run_id", run.ID).WithError(err).Warn("whether the turn owes a verdict could not be read")
+		return nil
+	}
+	if commit == "" {
+		return nil
+	}
+	ask := domain.VerdictClosingAsk(commit)
+	return &ask
+}
+
 // closingStore keeps the continuation to once per attempt and records it.
 type closingStore interface {
 	MarkClosingAsked(ctx context.Context, runID uuid.UUID) (bool, error)
@@ -235,7 +279,8 @@ type closingRuntime interface {
 // when there is nothing to ask, the harness cannot continue a session, the
 // session is unknown, or the attempt was already asked. A stopping manager
 // returns errManagerShutdown before taking the mark, so the next manager asks.
-// Without a Reply ask the output is discarded, as before.
+// Without a Reply ask only the usage its harness reported is read from the
+// output.
 func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks []domain.ClosingAsk) (bool, closingReply, error) {
 	run := attempt.run
 	store, ok := m.store.(closingStore)
@@ -308,29 +353,22 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 	continuation := *run
 	continuation.CommandArgv, continuation.ContainerSuffix = command, closingSuffix
 	askCtx, cancel := context.WithDeadline(ctx, end)
-	output := func(string, []byte) error { return nil }
-	var buffer *agentOutputBuffer
+	// The output is read exactly like the attempt's own, so the plan Kuayle
+	// hands on is redacted the same way: a secret that reached the
+	// continuation must not reach the next agent's prompt. Nothing is
+	// persisted: the continuation's output is not the attempt's log.
+	buffer := newAgentOutputBuffer(attempt.secrets.Redactions, func(string, int64, string, string, bool) error { return nil })
+	answered := slices.ContainsFunc(asks, func(ask domain.ClosingAsk) bool { return ask.Reply })
 	reply := closingReply{}
-	for _, ask := range asks {
-		if !ask.Reply {
-			continue
-		}
-		// The reply is read exactly like the attempt's own output, so the
-		// plan Kuayle hands on is redacted the same way: a secret that reached
-		// the continuation must not reach the next agent's prompt. Nothing is
-		// persisted: the continuation's output is not the attempt's log.
-		buffer = newAgentOutputBuffer(attempt.secrets.Redactions, func(string, int64, string, string, bool) error { return nil })
-		output = buffer.WriteDocker
-		break
-	}
 	observer := &AgentObserver{
 		Authorize: func() error { return m.store.AuthorizeAgentRun(askCtx, run.ID) },
-		Output:    output,
+		Output:    buffer.WriteDocker,
 	}
 	started := time.Now()
 	_, runErr := m.runtime.RunAgent(askCtx, attempt.machine, &continuation, attempt.provider, attempt.checkout, environment, observer)
-	if buffer != nil {
-		finishErr := buffer.Finish()
+	finishErr := buffer.Finish()
+	reply.usage = agent.ParseUsage(run.ProviderID, buffer.ResultText("stdout"))
+	if answered {
 		reply.stdout, reply.stderr = buffer.ResultText("stdout"), buffer.ResultText("stderr")
 		reply.complete = finishErr == nil && !buffer.Incomplete("stdout")
 	}
@@ -348,7 +386,7 @@ func (m *Manager) askToClose(ctx context.Context, attempt closingAttempt, asks [
 		cancelReturn()
 	}
 	// That it ran, for how long and how it ended stay on the run and in the
-	// machine's events; its token usage is not the attempt's.
+	// machine's events; its token usage is added to the run's.
 	if err := store.RecordClosingSeconds(context.WithoutCancel(ctx), run.ID, seconds); err != nil {
 		log.WithField("agent_run_id", run.ID).WithError(err).Warn("the closing continuation's duration could not be recorded")
 	}

@@ -79,6 +79,9 @@ type WorkflowMerge struct {
 	// Actor is the person whose approval started the merge; nil for the runner.
 	Actor *uuid.UUID
 	Notes []domain.NotebookNote
+	// Branch is what the merge read and did, stored in the step's ci
+	// (KUA-265): set when it refused.
+	Branch *domain.WorkflowBranchRecord
 }
 
 // WorkflowApply closes the task's current step with Outcome and applies the
@@ -175,6 +178,9 @@ func transitionWorkflowTask(ctx context.Context, tx *sqlx.Tx, task *domain.Agent
 // startWorkflow pins the version on a new task and enters its first agent
 // step, which is the iteration delegation creates.
 func startWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, version domain.WorkflowVersion) error {
+	if domain.WorkflowKind(version.Graph) == domain.WorkflowKindPipeline {
+		return startPipeline(ctx, tx, task, version)
+	}
 	graph, err := domain.ParseWorkflowGraph(version.Graph)
 	if err != nil {
 		return err
@@ -362,7 +368,13 @@ func recordWorkflowMergeTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentT
 	if err != nil {
 		return err
 	}
-	updated, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET merge=$3,decided_by=COALESCE($4,decided_by) WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, task.ID, merge.Sequence, data, merge.Actor)
+	branch, err := jsonOrNil(merge.Branch)
+	if err != nil {
+		return err
+	}
+	updated, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET merge=$3,decided_by=COALESCE($4,decided_by),
+ ci=CASE WHEN $5::jsonb IS NULL THEN ci ELSE jsonb_set(COALESCE(ci,'{}'::jsonb),'{branch}',$5::jsonb) END
+ WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, task.ID, merge.Sequence, data, merge.Actor, branch)
 	if err != nil {
 		return err
 	}
@@ -875,12 +887,6 @@ func recordedReviewCI(ctx context.Context, q sqlx.QueryerContext, reviewed domai
 // insertReviewTask creates a review task of the reviewed task's published
 // work and its review record, in the caller's transaction.
 func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTask, conversation, creator uuid.UUID, input domain.AgentReviewRequest, published *domain.AgentReviewTarget) (*domain.AgentTask, *domain.AgentReview, error) {
-	if input.ModelServerID == nil {
-		var err error
-		if input.ModelServerID, err = defaultModelServer(ctx, tx, reviewed.WorkspaceID, input.Provider); err != nil {
-			return nil, nil, err
-		}
-	}
 	var attempt int
 	if err := tx.GetContext(ctx, &attempt, `SELECT COALESCE(max(attempt),0)+1 FROM agent_reviews WHERE reviewed_task_id=$1 AND commit_sha=$2 AND provider=$3`, reviewed.ID, published.CommitSHA, input.Provider); err != nil {
 		return nil, nil, err
@@ -896,11 +902,7 @@ func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTas
 			return nil, nil, err
 		}
 	}
-	prompt := domain.AgentReviewPrompt(*published, input.Focus, ci)
-	var task domain.AgentTask
-	err := tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,model_server_id,reason,issue_status_id,issue_updated_at,kind,review_of_task_id)
- SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Waiting for a machine to review the pull request',i.status_id,i.updated_at,'review',$12 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`,
-		reviewed.WorkspaceID, conversation, creator, reviewed.IssueID, reviewed.TeamID, input.RequestID, prompt, input.Provider, input.Model, input.Thinking, input.ModelServerID, reviewed.ID)
+	task, err := insertReviewAgentTask(ctx, tx, reviewed, conversation, creator, input, domain.AgentReviewPrompt(*published, input.Focus, ci), "Waiting for a machine to review the pull request")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -915,10 +917,33 @@ func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTas
 	if err != nil {
 		return nil, nil, err
 	}
-	if err = recordAgentTaskTransition(ctx, tx, task, "", &creator); err != nil {
+	if err = recordAgentTaskTransition(ctx, tx, *task, "", &creator); err != nil {
 		return nil, nil, err
 	}
-	return &task, review, nil
+	return task, review, nil
+}
+
+// insertReviewAgentTask inserts a review task of the reviewed task's work
+// with prompt: kind review (never published, no repository credentials) on
+// the same issue, in the creator's conversation, so that it runs with the
+// creator's permissions. Without a model server it runs on the workspace
+// default when that speaks the harness's protocol. The caller records its
+// creation (recordAgentTaskTransition) once what goes with it is stored.
+func insertReviewAgentTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTask, conversation, creator uuid.UUID, input domain.AgentReviewRequest, prompt, reason string) (*domain.AgentTask, error) {
+	if input.ModelServerID == nil {
+		var err error
+		if input.ModelServerID, err = defaultModelServer(ctx, tx, reviewed.WorkspaceID, input.Provider); err != nil {
+			return nil, err
+		}
+	}
+	var task domain.AgentTask
+	err := tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,model_server_id,reason,issue_status_id,issue_updated_at,kind,review_of_task_id)
+ SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,i.status_id,i.updated_at,'review',$13 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`,
+		reviewed.WorkspaceID, conversation, creator, reviewed.IssueID, reviewed.TeamID, input.RequestID, prompt, input.Provider, input.Model, input.Thinking, input.ModelServerID, reason, reviewed.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
 }
 
 // closeWorkflowOnFinish records the end of a workflow task that finished
@@ -938,6 +963,9 @@ func closeWorkflowOnFinish(ctx context.Context, tx *sqlx.Tx, task domain.AgentTa
 		return nil
 	}
 	if err := cancelWorkflowReviews(ctx, tx, task.ID, 0); err != nil {
+		return err
+	}
+	if err := cancelMemberTurns(ctx, tx, task); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET outcome=COALESCE(outcome,$2),finished_at=now() WHERE task_id=$1 AND finished_at IS NULL`, task.ID, "task_"+task.State); err != nil {
@@ -966,6 +994,30 @@ func cancelWorkflowReviews(ctx context.Context, tx *sqlx.Tx, taskID uuid.UUID, s
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET lease_token=NULL,lease_expires_at=NULL,next_poll_at=now() WHERE id=$1`, reviews[i].ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cancelMemberTurns asks the turns the members of a pipeline task that ended
+// are taking to stop, as cancelWorkflowReviews does for a graph's reviews:
+// nothing would read their result. A member task locked by its own
+// transition right now is skipped; its turn ends on its own.
+func cancelMemberTurns(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask) error {
+	if !root.Pipeline {
+		return nil
+	}
+	var turns []domain.AgentTask
+	if err := tx.SelectContext(ctx, &turns, `SELECT t.* FROM agent_tasks t JOIN task_members m ON m.member_task_id=t.id AND m.workspace_id=t.workspace_id
+ WHERE m.task_id=$1 AND m.workspace_id=$2 AND t.state IN ('queued','preparing','waiting_for_disk','running','waiting_input') FOR UPDATE OF t SKIP LOCKED`, root.ID, root.WorkspaceID); err != nil {
+		return err
+	}
+	for i := range turns {
+		if err := transitionAgentTask(ctx, tx, &turns[i], "cancelling", "The task ended before this turn did", nil); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET lease_token=NULL,lease_expires_at=NULL,next_poll_at=now() WHERE id=$1`, turns[i].ID); err != nil {
 			return err
 		}
 	}
@@ -1009,34 +1061,42 @@ func (r *AgentTaskRepository) WorkflowSteps(ctx context.Context, ws, id uuid.UUI
 // $3 is the completion time up to which the reader already has summaries.
 const stepRunColumns = `r.id,r.task_id,r.provider_id,COALESCE(r.model,'') AS model,r.status::text AS status,r.created_at,r.started_at,r.completed_at,
  CASE WHEN COALESCE(r.result->>'final_message','')='true' AND ($3::timestamptz IS NULL OR r.completed_at IS NULL OR r.completed_at>$3) THEN r.summary END AS summary,COALESCE(r.result->>'summary_truncated','')='true' AS summary_truncated,
- COALESCE(r.result->>'replies_unknown','')='true' AS replies_unknown`
+ COALESCE(r.result->>'replies_unknown','')='true' AS replies_unknown,
+ r.input_tokens,r.output_tokens,r.cache_read_tokens,r.cache_write_tokens,r.cost_usd`
 
 // StepRuns lists the task's agent runs for its timeline, oldest first, under
 // the task's authorization: its newest 200 runs, each on the agent step that
 // was the latest one entered when the run was created (a resumed step has
-// several), and the runs of the review tasks its reviewer steps created. A
-// review task has the creator, conversation and issue of the task it reviews,
-// so whoever reads the task reads its reviews. A finished run's summary never
-// changes: summariesSince leaves out those of runs that completed at or
-// before it, which a view polling the task already holds.
+// several), the runs of the review tasks its reviewer steps created, and on
+// a pipeline task the runs of its members' tasks, each with the role it
+// played (the root's own runs are its writer's). A review or member task has
+// the creator, conversation and issue of the task it reviews, so whoever
+// reads the task reads them. A finished run's summary never changes:
+// summariesSince leaves out those of runs that completed at or before it,
+// which a view polling the task already holds.
 func (r *AgentTaskRepository) StepRuns(ctx context.Context, ws, id uuid.UUID, summariesSince *time.Time) ([]domain.WorkflowStepRun, error) {
 	if _, err := conversationActor(ctx, ws); err != nil {
 		return nil, err
 	}
-	tx, _, err := r.transaction(ctx, id, true)
+	tx, task, err := r.transaction(ctx, id, true)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	runs := []domain.WorkflowStepRun{}
 	err = tx.SelectContext(ctx, &runs, `SELECT * FROM (
- (SELECT `+stepRunColumns+`,(SELECT max(s.sequence) FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.generation IS NOT NULL AND s.entered_at<=r.created_at)::int AS step
+ (SELECT `+stepRunColumns+`,(SELECT max(s.sequence) FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.generation IS NOT NULL AND s.entered_at<=r.created_at)::int AS step,
+  (SELECT m.role FROM task_members m WHERE m.task_id=$1 AND m.workspace_id=$2 AND m.member_task_id IS NULL) AS role
   FROM dev_machine_agent_runs r WHERE r.task_id=$1 AND r.workspace_id=$2 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
  UNION ALL
- (SELECT `+stepRunColumns+`,s.sequence AS step
+ (SELECT `+stepRunColumns+`,s.sequence AS step,NULL::text AS role
   FROM agent_task_workflow_steps s JOIN agent_tasks t ON t.id=s.review_task_id AND t.workspace_id=$2 AND t.kind='review' AND t.review_of_task_id=$1
   JOIN dev_machine_agent_runs r ON r.task_id=t.id AND r.workspace_id=$2 WHERE s.task_id=$1 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
- ) runs ORDER BY created_at,id`, id, ws, summariesSince)
+ UNION ALL
+ (SELECT `+stepRunColumns+`,NULL::int AS step,m.role
+  FROM task_members m JOIN agent_tasks t ON t.id=m.member_task_id AND t.workspace_id=$2 AND t.kind='review' AND t.review_of_task_id=$1 AND t.creator_id=$4
+  JOIN dev_machine_agent_runs r ON r.task_id=t.id AND r.workspace_id=$2 WHERE m.task_id=$1 AND m.workspace_id=$2 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
+ ) runs ORDER BY created_at,id`, id, ws, summariesSince, task.CreatorID)
 	return runs, err
 }
 
@@ -1254,6 +1314,37 @@ func (r *AgentTaskRepository) RecordWorkflowCI(ctx context.Context, claimed doma
 	return tx.Commit()
 }
 
+// RecordWorkflowBranch stores what the step the task waits on did on its
+// pull request's branch, with the facts it read (KUA-265), and when to
+// evaluate it again, fenced by the worker lease like SetWorkflowWake. Any
+// waiting step records it in its ci, next to what a CI step judged.
+func (r *AgentTaskRepository) RecordWorkflowBranch(ctx context.Context, claimed domain.AgentTask, branch domain.WorkflowBranchRecord, wake *time.Time) error {
+	data, err := json.Marshal(branch)
+	if err != nil {
+		return err
+	}
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=$3 WHERE id=$1 AND lease_token=$2 AND workflow_sequence=$4 AND workflow_status='waiting'`, claimed.ID, claimed.LeaseToken, wake, claimed.WorkflowSequence)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAgentTaskConflict
+	}
+	res, err = tx.ExecContext(ctx, `UPDATE agent_task_workflow_steps SET ci=jsonb_set(COALESCE(ci,'{}'::jsonb),'{branch}',$3::jsonb) WHERE task_id=$1 AND sequence=$2 AND finished_at IS NULL`, claimed.ID, claimed.WorkflowSequence, data)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrAgentTaskConflict
+	}
+	return tx.Commit()
+}
+
 // WorkflowCIHistory lists the task's CI check steps that judged the commit,
 // oldest first, the open one included (KUA-215).
 func (r *AgentTaskRepository) WorkflowCIHistory(ctx context.Context, task domain.AgentTask, head string) ([]domain.WorkflowStep, error) {
@@ -1293,6 +1384,13 @@ func (r *AgentTaskRepository) DeferredShipMerge(ctx context.Context, task domain
 func retryWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, actor uuid.UUID) error {
 	if !task.RunsWorkflow() {
 		return nil
+	}
+	if task.Pipeline {
+		// A pipeline task starts again with its writer's turn, on another
+		// budget of the same size; its tick asks every role again and counts
+		// stalls anew.
+		return tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_status='running',workflow_wake_at=NULL,workflow_sequence=workflow_sequence+1,workflow_iterations=workflow_iterations+1,
+ workflow_budget_extensions=workflow_budget_extensions+1,workflow_budget_from=now(),workflow_held_since=NULL,pipeline_state=pipeline_state-'stall'-'asked'-'merge' WHERE id=$1 RETURNING *`, task.ID)
 	}
 	// The step is looked up in the version the task runs now: a task moved to
 	// a newer version goes back to its latest implementing step that version
@@ -1403,17 +1501,27 @@ func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.Age
 		if err != nil {
 			return nil, err
 		}
-		var graph domain.WorkflowGraph
-		if err = json.Unmarshal(raw, &graph); err != nil {
-			return nil, err
-		}
-		node, ok := graph.Node(*task.WorkflowNode)
-		if !ok {
-			return nil, nil
-		}
-		profileID = node.ProfileID
-		if node.Supervised() {
-			stageInstructions = graph.StageInstructions(node)
+		if task.Pipeline {
+			// A pipeline task's turns are its writer's.
+			pipeline, err := domain.ParsePipeline(raw)
+			if err != nil {
+				return nil, err
+			}
+			writer, _ := pipeline.Writer()
+			profileID = &writer.ProfileID
+		} else {
+			var graph domain.WorkflowGraph
+			if err = json.Unmarshal(raw, &graph); err != nil {
+				return nil, err
+			}
+			node, ok := graph.Node(*task.WorkflowNode)
+			if !ok {
+				return nil, nil
+			}
+			profileID = node.ProfileID
+			if node.Supervised() {
+				stageInstructions = graph.StageInstructions(node)
+			}
 		}
 	}
 	if profileID == nil {

@@ -665,6 +665,16 @@ test('an OpenCode error without a name or message is still an error line', () =>
 	);
 });
 
+// OpenCode 2.3.2, recorded: the shell tool is "shell", its title is the tool's
+// name and its exit code is one level down, in state.metadata.metadata.
+test('an OpenCode 2 shell call is a command chip titled by its command and fails on its exit code', () => {
+	const [entry] = parseAgentSession([chunk('{"type":"tool_use","timestamp":1795530098082,"sessionID":"ses_df2115153ffemDwcMmKNuIwQkr","part":{"partID":"prt_20def053d0016beaClWxTIj1DE","sessionID":"ses_df2115153ffemDwcMmKNuIwQkr","messageID":"msg_20deeb103001iVSTmTh7hMCUat","type":"tool","id":"call_00_hohq4illorkuiufwqgoys8q0","tool":"shell","state":{"status":"completed","input":{"command":"kuayle-missing-tool --version"},"output":"zsh:1: command not found: kuayle-missing-tool\\n","title":"shell","metadata":{"metadata":{"status":"completed","truncated":false,"exit":127},"content":[{"type":"text","text":"zsh:1: command not found: kuayle-missing-tool\\n"},{"type":"text","text":"Exit code: 127"}],"providerCall":{"executed":false},"providerResult":{"executed":false},"rawInput":"{\\"command\\": \\"kuayle-missing-tool --version\\"}"},"time":{"start":1795530097981,"end":1795530098082}}}}')]);
+	assert.equal(entry.kind, 'tool');
+	assert.equal(entry.tool.command, true);
+	assert.equal(entry.tool.title, 'kuayle-missing-tool --version');
+	assert.equal(entry.tool.status, 'failed');
+});
+
 test('an OpenCode call is one chip without an id, and a finished chip is never reopened', () => {
 	const anonymous = (offset, state) =>
 		chunk({

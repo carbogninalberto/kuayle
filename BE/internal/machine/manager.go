@@ -372,6 +372,7 @@ func (m *Manager) drainOperations() bool {
 
 func (m *Manager) Run(ctx context.Context) error {
 	m.reconcileHostDiskFloor(ctx)
+	m.checkAgentCLIs(ctx)
 	// Leased operations run under work, which outlives the signal: a stopping
 	// manager lets them end their own way and hands them over.
 	work, stopWork := context.WithCancelCause(context.WithoutCancel(ctx))
@@ -1538,17 +1539,20 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	m.recordRunEnvironment(ctx, run, startEnvironment)
 	runContext, cancel := context.WithTimeout(ctx, time.Duration(run.MaxRuntimeSeconds)*time.Second)
 	defer cancel()
+	// OpenCode names its session on every event: it is recorded once.
+	sessionRecorded := false
 	output := newAgentOutputBuffer(secrets.Redactions, func(stream string, sequence int64, source string, content string, truncated bool) error {
 		var events []domain.DevMachineEvent
 		if stream == "stdout" && !truncated {
 			for _, parsed := range provider.ParseEvents([]byte(content)) {
-				if id := codexThreadID(run, parsed); id != "" {
+				if id := harnessSessionID(run, parsed); !sessionRecorded && id != "" {
 					err := retryAgentWrite(runContext, func(writeCtx context.Context) error {
 						return m.store.RecordNativeSession(writeCtx, run.ID, id)
 					})
 					if err != nil {
 						return fmt.Errorf("agent_session_persistence_failed: %w", err)
 					}
+					sessionRecorded = true
 				}
 				eventType, payload := agentEventRecord(parsed)
 				events = append(events, domain.DevMachineEvent{WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: &run.ID, Source: "agent", EventType: eventType, Payload: payload})
@@ -1676,8 +1680,8 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	closing, closingErr := m.settleClosing(ctx,
 		closingAttempt{machine: machine, run: run, provider: providerRecord, checkout: checkout, secrets: secrets, deadline: limit},
 		closingState{services: services, collectErr: collectErr, exited: exited, concluded: ended && status != "failed", succeeded: ended && status == "succeeded", unchangedRun: unchangedRun,
-			planTooLong: run.WorktreeReadOnly && first.FinalMessage && first.SummaryTruncated,
-			parseReply:  func(stdout, stderr string) agent.RunResult { return provider.ParseResult(stdout, stderr, 0) }})
+			planTooLong: run.WorktreeReadOnly && first.FinalMessage && first.SummaryTruncated, summary: first.Summary,
+			parseReply: func(stdout, stderr string) agent.RunResult { return provider.ParseResult(stdout, stderr, 0) }})
 	if closingErr != nil {
 		// The attempt's container has exited; the next manager re-adopts it,
 		// replays its log and asks then, since closing_asked_at was not taken.
@@ -1694,6 +1698,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	cancelOutbox()
 	stdout, stderr := output.ResultText("stdout"), output.ResultText("stderr")
 	result := provider.ParseResult(stdout, stderr, execution.ExitCode)
+	// What the harness reported the attempt spent, with what its closing
+	// continuation spent; the store keeps the run's share of a session total.
+	usage := agent.ParseUsage(run.ProviderID, stdout).Then(closing.usage)
+	run.AgentRunUsage, run.UsageSessionTotal = domain.AgentRunUsage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+		CacheReadTokens: usage.CacheReadTokens, CacheWriteTokens: usage.CacheWriteTokens, CostUSD: usage.CostUSD}, usage.SessionTotal
 	// A final message Kuayle may not have seen is not a missing one.
 	if result.NoFinalMessage && output.Incomplete("stdout") {
 		result.Status, result.NoFinalMessage = "succeeded", false
@@ -2458,19 +2467,42 @@ func (m *Manager) cancelUnauthorizedRun(ctx context.Context, run *domain.DevMach
 	return nil
 }
 
-// codexThreadID returns the native session a task attempt's Codex harness
+// harnessSessionID returns the native session a task attempt's harness
 // reported in its own event stream, if valid. Only task attempts are resumed.
-func codexThreadID(run *domain.DevMachineAgentRun, event agent.Event) string {
-	if run.TaskID == nil || run.ProviderID != "codex" || event.Type != "thread.started" {
+// Codex names its thread in thread.started; OpenCode puts its session ID on
+// every event, as the top-level sessionID (a part's own is not read); Qwen
+// Code names its session in the system init event that starts its stream.
+// Claude Code's, Kimi's and Goose's sessions are named by Kuayle when the
+// run is created (agent.KuayleNamesSession).
+func harnessSessionID(run *domain.DevMachineAgentRun, event agent.Event) string {
+	if run.TaskID == nil {
 		return ""
 	}
-	var started struct {
-		ThreadID string `json:"thread_id"`
+	var reported struct {
+		ThreadID  string `json:"thread_id"`
+		SessionID string `json:"sessionID"`
+		Subtype   string `json:"subtype"`
+		Session   string `json:"session_id"`
 	}
-	if json.Unmarshal(event.Payload, &started) != nil || !agent.ValidSessionID(started.ThreadID) {
+	var id string
+	switch {
+	case run.ProviderID == "codex" && event.Type == "thread.started":
+		if json.Unmarshal(event.Payload, &reported) == nil {
+			id = reported.ThreadID
+		}
+	case run.ProviderID == "opencode":
+		if json.Unmarshal(event.Payload, &reported) == nil {
+			id = reported.SessionID
+		}
+	case run.ProviderID == "qwen-code" && event.Type == "system":
+		if json.Unmarshal(event.Payload, &reported) == nil && reported.Subtype == "init" {
+			id = reported.Session
+		}
+	}
+	if !agent.ValidSessionID(id) {
 		return ""
 	}
-	return started.ThreadID
+	return id
 }
 
 // purgeTaskSession removes a finished task's harness transcripts from the

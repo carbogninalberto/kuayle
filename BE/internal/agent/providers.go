@@ -8,11 +8,20 @@ import (
 	"strings"
 )
 
+// The flags and fixed values the built-in adapters pass are listed in
+// devmachine/common/check-agent-cli-flags.sh, which the images run against each
+// CLI's help; TestAgentCLIFlagContractMatchesTheAdapters keeps the two equal.
 type builtinProvider struct {
-	metadata    Metadata
-	build       func(RunInput) []string
+	metadata Metadata
+	build    func(RunInput) []string
+	// prompt, when set, ends an autonomous argv after the extra arguments,
+	// for a CLI whose prompt follows a "--" separator.
+	prompt      func(RunInput) []string
 	parseResult func(stdout, stderr string, exitCode int) RunResult
 	environment func(RunInput) map[string]string
+	// sessionScript links the harness's session store to a task's session
+	// directory; a harness without one never continues a session.
+	sessionScript string
 }
 
 func (p *builtinProvider) Metadata() Metadata { return p.metadata }
@@ -30,13 +39,11 @@ func (p *builtinProvider) BuildInvocation(input RunInput) (Invocation, error) {
 	}
 	argv := p.build(input)
 	argv = append(argv, input.ExtraArgs...)
-	if input.Session != nil && input.Mode == ModeAutonomous && (p.metadata.ID == "codex" || p.metadata.ID == "claude-code") {
-		for _, id := range []string{input.Session.ResumeID, input.Session.NewID} {
-			if id != "" && !ValidSessionID(id) {
-				return Invocation{}, fmt.Errorf("invalid agent session ID")
-			}
-		}
-		wrapped, err := sessionWrapper(input.Session.Dir, argv)
+	if p.prompt != nil && input.Mode == ModeAutonomous {
+		argv = append(argv, p.prompt(input)...)
+	}
+	if input.Session != nil && input.Mode == ModeAutonomous && p.sessionScript != "" {
+		wrapped, err := withSession(p.sessionScript, input.Session, argv)
 		if err != nil {
 			return Invocation{}, err
 		}
@@ -70,7 +77,7 @@ func (p *builtinProvider) ParseResult(stdout, stderr string, exitCode int) RunRe
 
 func NewClaudeCodeProvider(image string) Provider {
 	if image == "" {
-		image = "ghcr.io/anthropics/claude-code:2.1.14"
+		image = "ghcr.io/kuayle/dev-machine-agent-claude:0.1.0"
 	}
 	return &builtinProvider{
 		metadata: Metadata{
@@ -110,6 +117,7 @@ func NewClaudeCodeProvider(image string) Provider {
 			}
 			return map[string]string{"CLAUDE_CODE_EFFORT_LEVEL": input.Thinking}
 		},
+		sessionScript: sessionScript,
 	}
 }
 
@@ -119,22 +127,35 @@ type openCodeProvider struct {
 
 // openCodeRunConfig is OpenCode's inline configuration for an unattended run:
 // its git snapshots are off, as Kuayle never undoes an edit there and their
-// copy of the worktree spends the workspace volume.
+// copy of the worktree spends the workspace volume. OpenCode 2 still reads the
+// 1.x key "snapshot" (its own is "snapshots").
 const openCodeRunConfig = `{"snapshot":false}`
 
 func (p *openCodeProvider) Metadata() Metadata { return p.metadata }
 
-// OpenCode takes its model as --model provider/model and Kuayle's effort as
-// --variant (its name for a model's reasoning effort; "off" leaves it to
-// OpenCode). The terminal UI has no variant flag. The prompt follows "--" as
+// OpenCode 2 takes its model as --model provider/model and Kuayle's effort as
+// the model's variant, provider/model#variant ("off" leaves it to OpenCode);
+// without a model there is no variant to select, so the effort is dropped. A
+// variant the model lacks fails the run. The terminal UI has neither flag: it
+// reads the model from OPENCODE_CONFIG_CONTENT. The prompt follows "--" as
 // one argument: without it OpenCode's argument parser reads a prompt that
 // begins with a dash as its own flags (--help, --auto), so extra arguments
 // go before it. Unattended runs cannot answer OpenCode's permission prompts,
-// which it auto-rejects and then ends the session, so autonomous runs pass
-// --auto; the container is the boundary, as for Claude Code's bypassPermissions.
-// In autonomous runs OpenCode keeps its log at $XDG_DATA_HOME/opencode/log
-// in the per-run directory. It also prints warnings and errors to standard
-// error so the run's failure cause can quote them after cleanup.
+// which it rejects, so autonomous runs pass --auto; the container is the
+// boundary, as for Claude Code's bypassPermissions. --standalone runs a private
+// server for the run instead of looking for a background service.
+// In autonomous runs OpenCode keeps its log at $XDG_DATA_HOME/opencode/log,
+// in the per-run directory or, for a task attempt, the task's session
+// directory. It also prints warnings and errors to standard
+// error so the run's failure cause can quote them after cleanup: --log-level
+// sets the client's level and OPENCODE_LOG_LEVEL the private server's, which
+// otherwise prints every INFO line.
+//
+// A task attempt keeps OpenCode's session store in the task's session
+// directory (openCodeSessionScript) and continues the previous attempt's
+// session with --session <id>. OpenCode reports the session ID on every
+// event (sessionID), which the manager records; Kuayle never assigns one,
+// although OpenCode would create a session under an unknown ID it is given.
 //
 // Autonomous runs also start with OpenCode's git snapshots off, through
 // OPENCODE_CONFIG_CONTENT, which OpenCode merges over the project's
@@ -154,22 +175,38 @@ func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 		workingDir = "/workspace"
 	}
 	argv := []string{"opencode"}
+	var environment map[string]string
+	session := input.Session
+	if input.Mode != ModeAutonomous {
+		session = nil
+	}
 	if input.Mode == ModeAutonomous {
-		argv = append(argv, "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN")
-	}
-	if input.Model != "" {
-		argv = append(argv, "--model", input.Model)
-	}
-	if input.Mode == ModeAutonomous && input.Thinking != "" && input.Thinking != "off" {
-		argv = append(argv, "--variant", input.Thinking)
+		argv = append(argv, "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone")
+		if input.Model != "" {
+			model := input.Model
+			if input.Thinking != "" && input.Thinking != "off" {
+				model += "#" + input.Thinking
+			}
+			argv = append(argv, "--model", model)
+		}
+		if session != nil && session.ResumeID != "" {
+			argv = append(argv, "--session", session.ResumeID)
+		}
+		environment = map[string]string{"OPENCODE_CONFIG_CONTENT": openCodeRunConfig, "OPENCODE_LOG_LEVEL": "WARN"}
+	} else if input.Model != "" {
+		config, _ := json.Marshal(map[string]string{"model": input.Model})
+		environment = map[string]string{"OPENCODE_CONFIG_CONTENT": string(config)}
 	}
 	argv = append(argv, input.ExtraArgs...)
 	if input.Mode == ModeAutonomous {
 		argv = append(argv, "--", input.Prompt)
 	}
-	var environment map[string]string
-	if input.Mode == ModeAutonomous {
-		environment = map[string]string{"OPENCODE_CONFIG_CONTENT": openCodeRunConfig}
+	if session != nil {
+		wrapped, err := withSession(openCodeSessionScript, session, argv)
+		if err != nil {
+			return Invocation{}, err
+		}
+		argv = wrapped
 	}
 	return Invocation{
 		Image:       p.metadata.DefaultImage,
@@ -284,13 +321,17 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 				lastAssistantText, concluded, harnessError = text, true, ""
 			}
 		}
-		// OpenCode's top-level error ({"type":"error","error":{"name","data":
-		// {"message"}}}) ends the session, also with exit code 0.
+		// OpenCode's top-level error ends the session, also with exit code 0:
+		// 1.x writes {"name","data":{"message"}}, 2.x {"type","message"}.
 		if failure, ok := evt["error"].(map[string]any); ok && typ == "error" {
 			concluded = false
 			name, _ := failure["name"].(string)
 			data, _ := failure["data"].(map[string]any)
 			message, _ := data["message"].(string)
+			if name == "" && message == "" {
+				name, _ = failure["type"].(string)
+				message, _ = failure["message"].(string)
+			}
 			harnessError = strings.TrimSpace(strings.Trim(name+": "+strings.Join(strings.Fields(message), " "), ": "))
 			if harnessError == "" {
 				harnessError = "unknown error"
@@ -337,9 +378,19 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 		if typ == "tool_use" {
 			state, _ := part["state"].(map[string]any)
 			metadata, _ := state["metadata"].(map[string]any)
+			// OpenCode 2 nests the tool's own metadata one level down.
+			if nested, ok := metadata["metadata"].(map[string]any); ok {
+				metadata = nested
+			}
 			exitCode, hasExitCode := metadata["exit"].(float64)
 			tool, _ := part["tool"].(string)
 			title, _ := state["title"].(string)
+			// OpenCode 2's title is the tool's name; the command says more.
+			if input, _ := state["input"].(map[string]any); title == "" || title == tool {
+				if command, ok := input["command"].(string); ok && command != "" {
+					title = command
+				}
+			}
 			if title == "" {
 				title = tool
 			}
@@ -388,7 +439,7 @@ var shellTools = map[string]bool{"bash": true, "shell": true, "sh": true}
 
 func NewOpenCodeProvider(image string) Provider {
 	if image == "" {
-		image = "ghcr.io/anomalyco/opencode:1.1.25"
+		image = "ghcr.io/kuayle/dev-machine-agent-opencode:0.1.0"
 	}
 	return &openCodeProvider{
 		metadata: Metadata{
@@ -403,7 +454,7 @@ func NewOpenCodeProvider(image string) Provider {
 
 func NewCodexProvider(image string) Provider {
 	if image == "" {
-		image = "ghcr.io/openai/codex:0.80.0"
+		image = "ghcr.io/kuayle/dev-machine-agent-codex:0.1.0"
 	}
 	return &builtinProvider{
 		metadata: Metadata{
@@ -432,6 +483,7 @@ func NewCodexProvider(image string) Provider {
 			argv := appendCodexOverrides(append([]string{"codex", "exec", "--json"}, limits...), input)
 			return append(argv, input.Prompt)
 		},
+		sessionScript: sessionScript,
 	}
 }
 
@@ -442,14 +494,121 @@ func headlessProviderImage(image string) string {
 	return image
 }
 
-func newStreamJSONBuiltinProvider(metadata Metadata, build func(RunInput) []string) Provider {
+func newStreamJSONBuiltinProvider(metadata Metadata, sessionScript string, build func(RunInput) []string) Provider {
 	return &builtinProvider{
-		metadata:    metadata,
-		build:       build,
-		parseResult: parseAssistantJSONResult,
+		metadata:      metadata,
+		build:         build,
+		parseResult:   parseAssistantJSONResult,
+		sessionScript: sessionScript,
 	}
 }
 
+// Pi (@earendil-works/pi-coding-agent) runs one prompt with --print and
+// writes its events as JSON lines (--mode json). --no-session keeps no
+// session file: Kuayle does not resume Pi. --no-approve declines the
+// repository's own Pi settings, extensions and packages (.pi/), which an
+// unattended run cannot be asked to trust; AGENTS.md still loads. The model
+// is provider/model and the effort is Pi's thinking level, which has Kuayle's
+// names. The prompt follows "--", so one that begins with a dash is not read
+// as a flag.
+func NewPiProvider(image string) Provider {
+	return &builtinProvider{
+		metadata: Metadata{
+			ID:              "pi",
+			DisplayName:     "Pi",
+			DefaultImage:    headlessProviderImage(image),
+			RequiredSecrets: []string{},
+			SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
+		},
+		build: func(input RunInput) []string {
+			if input.Mode == ModeInteractive {
+				return []string{"pi"}
+			}
+			argv := []string{"pi", "--print", "--mode", "json", "--no-session", "--no-approve"}
+			if input.Model != "" {
+				argv = append(argv, "--model", input.Model)
+			}
+			if input.Thinking != "" {
+				argv = append(argv, "--thinking", input.Thinking)
+			}
+			return argv
+		},
+		prompt:      func(input RunInput) []string { return []string{"--", input.Prompt} },
+		parseResult: parsePiResult,
+	}
+}
+
+// parsePiResult reads Pi's events. A completed message is a message_end
+// event; the run concluded when the last assistant message ended the turn
+// ("stop") with text and no tool call. Pi exits 0 also when the model
+// provider kept failing: that message ends with "error" or "aborted" and an
+// errorMessage, which is the failure when nothing concluded after it.
+func parsePiResult(stdout, stderr string, exitCode int) RunResult {
+	result := defaultResult(stdout, stderr, exitCode)
+	last, concluded, harnessError := "", false, ""
+	for _, line := range strings.Split(stdout, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var event struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role         string `json:"role"`
+				StopReason   string `json:"stopReason"`
+				ErrorMessage string `json:"errorMessage"`
+				Content      []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		// A user message's content may be a string; only assistant ones matter.
+		if json.Unmarshal([]byte(line), &event) != nil || event.Type != "message_end" || event.Message.Role != "assistant" {
+			continue
+		}
+		var texts []string
+		toolCall := false
+		for _, block := range event.Message.Content {
+			if block.Type == "toolCall" {
+				toolCall = true
+			} else if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+				texts = append(texts, strings.TrimSpace(block.Text))
+			}
+		}
+		text := strings.Join(texts, "\n\n")
+		if event.Message.StopReason == "error" || event.Message.StopReason == "aborted" {
+			concluded = false
+			harnessError = strings.Join(strings.Fields(event.Message.ErrorMessage), " ")
+			if harnessError == "" {
+				harnessError = event.Message.StopReason
+			}
+			continue
+		}
+		// The agent answered again, so an earlier error was recovered from.
+		harnessError = ""
+		if text != "" {
+			last = text
+		}
+		concluded = text != "" && event.Message.StopReason == "stop" && !toolCall
+	}
+	if last != "" && (concluded || !result.FinalMessage) {
+		result.Summary, result.FinalMessage, result.SummaryTruncated = truncateSummary(last), concluded, concluded && len(last) > MaxSummaryBytes
+	}
+	if harnessError != "" && !result.FinalMessage {
+		if len(harnessError) > 500 {
+			harnessError = strings.ToValidUTF8(harnessError[:500], "")
+		}
+		result.FailureReason = "The harness reported an error: " + harnessError
+	}
+	return requireFinalMessage(result, stdout)
+}
+
+// A task attempt of Qwen Code keeps its chats in the task's session
+// directory (qwenSessionScript) and continues the previous attempt's with
+// --resume <id>. Qwen Code reports the session ID on every stream-json
+// event (session_id, first in the system init event), which the manager
+// records; an unknown ID fails the run, as it does for Claude Code.
 func NewQwenCodeProvider(image string) Provider {
 	return newStreamJSONBuiltinProvider(Metadata{
 		ID:              "qwen-code",
@@ -457,14 +616,21 @@ func NewQwenCodeProvider(image string) Provider {
 		DefaultImage:    headlessProviderImage(image),
 		RequiredSecrets: []string{},
 		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
-	}, func(input RunInput) []string {
+	}, qwenSessionScript, func(input RunInput) []string {
 		if input.Mode == ModeInteractive {
 			return []string{"qwen"}
 		}
-		return []string{"qwen", "--yolo", "--output-format", "stream-json", input.Prompt}
+		argv := []string{"qwen", "--yolo", "--output-format", "stream-json"}
+		if input.Session != nil && input.Session.ResumeID != "" {
+			argv = append(argv, "--resume", input.Session.ResumeID)
+		}
+		return append(argv, input.Prompt)
 	})
 }
 
+// Crush keeps no session across attempts: `crush run` prints only the
+// agent's text, never the session's ID, and --session continues only a
+// session that exists, so Kuayle can neither record nor name one.
 func NewCrushProvider(image string) Provider {
 	return &builtinProvider{
 		metadata: Metadata{
@@ -483,6 +649,11 @@ func NewCrushProvider(image string) Provider {
 	}
 }
 
+// A task attempt of Kimi keeps its share directory, with its sessions, in
+// the task's session directory (kimiSessionScript) and runs in the session
+// Kuayle names: --session <id> resumes that session and, as Kimi documents,
+// creates it when there is none. Kimi prints the ID only as text on
+// standard error.
 func NewKimiProvider(image string) Provider {
 	return newStreamJSONBuiltinProvider(Metadata{
 		ID:              "kimi",
@@ -490,14 +661,25 @@ func NewKimiProvider(image string) Provider {
 		DefaultImage:    headlessProviderImage(image),
 		RequiredSecrets: []string{},
 		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
-	}, func(input RunInput) []string {
+	}, kimiSessionScript, func(input RunInput) []string {
 		if input.Mode == ModeInteractive {
 			return []string{"kimi"}
 		}
-		return []string{"kimi", "--print", "--yolo", "--output-format", "stream-json", "--prompt", input.Prompt}
+		argv := []string{"kimi", "--print", "--yolo", "--output-format", "stream-json"}
+		if input.Session != nil && input.Session.ResumeID != "" {
+			argv = append(argv, "--session", input.Session.ResumeID)
+		} else if input.Session != nil && input.Session.NewID != "" {
+			argv = append(argv, "--session", input.Session.NewID)
+		}
+		return append(argv, "--prompt", input.Prompt)
 	})
 }
 
+// A task attempt of Goose keeps a session, in the task's session directory
+// (gooseSessionScript), instead of running without one (--no-session): it
+// names a new session with --name <id> and continues it with --resume
+// --name <id>. Goose's own session IDs (20261124_1) are not in its
+// stream-json output and --session-id only resumes, so Kuayle names it.
 func NewGooseProvider(image string) Provider {
 	return newStreamJSONBuiltinProvider(Metadata{
 		ID:              "goose",
@@ -505,11 +687,19 @@ func NewGooseProvider(image string) Provider {
 		DefaultImage:    headlessProviderImage(image),
 		RequiredSecrets: []string{},
 		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
-	}, func(input RunInput) []string {
+	}, gooseSessionScript, func(input RunInput) []string {
 		if input.Mode == ModeInteractive {
 			return []string{"goose", "session"}
 		}
-		return []string{"goose", "run", "--no-session", "--quiet", "--output-format", "stream-json", "--text", input.Prompt}
+		argv := []string{"goose", "run"}
+		if input.Session != nil && input.Session.ResumeID != "" {
+			argv = append(argv, "--resume", "--name", input.Session.ResumeID)
+		} else if input.Session != nil && input.Session.NewID != "" {
+			argv = append(argv, "--name", input.Session.NewID)
+		} else {
+			argv = append(argv, "--no-session")
+		}
+		return append(argv, "--quiet", "--output-format", "stream-json", "--text", input.Prompt)
 	})
 }
 
@@ -547,7 +737,7 @@ var (
 // a flag. Only Codex runs on a model server URL. Providers that take no model
 // or effort ignore both.
 func validateModelOverrides(providerID string, input RunInput) error {
-	if providerID != "codex" && providerID != "claude-code" && providerID != "opencode" {
+	if providerID != "codex" && providerID != "claude-code" && providerID != "opencode" && providerID != "pi" {
 		return nil
 	}
 	if input.Model != "" && !modelOverridePattern.MatchString(input.Model) {
@@ -676,7 +866,10 @@ func (p *CustomCLIProvider) ParseResult(stdout, stderr string, exitCode int) Run
 
 var (
 	sessionDirPattern = regexp.MustCompile(`^/workspace/\.kuayle/agent-sessions/[0-9a-f-]{36}$`)
-	sessionIDPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,127}$`)
+	// Codex thread IDs and Claude Code session IDs are UUIDs; OpenCode's are
+	// ses_ followed by letters and digits. The database checks the same
+	// pattern (migration 203).
+	sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 )
 
 // sessionScript links only the harnesses' transcript directories to the task's
@@ -691,11 +884,100 @@ ln -s "$dir/claude" "$HOME/.claude/projects"
 exec "$@"
 `
 
-func sessionWrapper(dir string, argv []string) ([]string, error) {
-	if !sessionDirPattern.MatchString(dir) {
+// openCodeSessionScript links OpenCode's data and state directories (its
+// SQLite session store, logs and state) to the task's session directory, so
+// the next attempt and the closing continuation open the same store. They
+// are in the attempt's run directory on the workspace volume (XDG_DATA_HOME
+// and XDG_STATE_HOME, see machine/run_tmp.go), which the manager removes
+// when the attempt ends, or under the home when that directory could not be
+// prepared; the task's directory keeps them off the home tmpfs (KUA-187).
+// Only OpenCode's own directories persist, not other tools' XDG data; its
+// configuration stays in the home and its API key in the environment.
+const openCodeSessionScript = `set -eu
+dir=$1
+shift
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+state=${XDG_STATE_HOME:-$HOME/.local/state}
+mkdir -p "$dir/opencode/data" "$dir/opencode/state" "$data" "$state"
+rm -rf "$data/opencode" "$state/opencode"
+ln -s "$dir/opencode/data" "$data/opencode"
+ln -s "$dir/opencode/state" "$state/opencode"
+exec "$@"
+`
+
+// qwenSessionScript links Qwen Code's per-project store (its chats, by
+// session ID, and its project memory) under the home tmpfs to the task's
+// session directory; settings and credentials stay on the tmpfs.
+const qwenSessionScript = `set -eu
+dir=$1
+shift
+mkdir -p "$dir/qwen" "$HOME/.qwen"
+rm -rf "$HOME/.qwen/projects"
+ln -s "$dir/qwen" "$HOME/.qwen/projects"
+exec "$@"
+`
+
+// kimiSessionScript points Kimi's share directory (KIMI_SHARE_DIR, by
+// default ~/.kimi on the home tmpfs) at the task's session directory. Kimi
+// finds a session through its index of working directories, kimi.json,
+// which it replaces on every write (a link to it would not survive), so its
+// whole share directory moves: the index, the sessions, logs and the
+// default config.toml it writes. An attempt's home starts empty and Kimi
+// takes its provider from the environment, so no credentials are there.
+const kimiSessionScript = `set -eu
+dir=$1
+shift
+mkdir -p "$dir/kimi"
+KIMI_SHARE_DIR=$dir/kimi
+export KIMI_SHARE_DIR
+exec "$@"
+`
+
+// gooseSessionScript links Goose's session store (a SQLite database under
+// its XDG data directory, which is the attempt's run directory or the home
+// when that could not be prepared) to the task's session directory; the
+// rest of its data, its configuration and its keys stay where they are.
+const gooseSessionScript = `set -eu
+dir=$1
+shift
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+mkdir -p "$dir/goose" "$data/goose"
+rm -rf "$data/goose/sessions"
+ln -s "$dir/goose" "$data/goose/sessions"
+exec "$@"
+`
+
+// KuayleNamesSession reports whether a task attempt of the harness runs in
+// a session Kuayle names (SessionInput.NewID), recorded when the run is
+// created: Claude Code (--session-id), Kimi (--session) and Goose (--name).
+// Codex, OpenCode and Qwen Code report their own, which the manager
+// records from their events.
+func KuayleNamesSession(provider string) bool {
+	return provider == "claude-code" || provider == "kimi" || provider == "goose"
+}
+
+// withSession runs a task attempt's argv in script, which links the
+// harness's session store to the task's session directory. The directory
+// and the session IDs are checked: they reach the CLI as arguments.
+func withSession(script string, session *SessionInput, argv []string) ([]string, error) {
+	for _, id := range []string{session.ResumeID, session.NewID} {
+		if id != "" && !ValidSessionID(id) {
+			return nil, fmt.Errorf("invalid agent session ID")
+		}
+	}
+	if !sessionDirPattern.MatchString(session.Dir) {
 		return nil, fmt.Errorf("invalid agent session directory")
 	}
-	return append([]string{"/bin/sh", "-c", sessionScript, "kuayle-session", dir}, argv...), nil
+	return append([]string{"/bin/sh", "-c", script, "kuayle-session", session.Dir}, argv...), nil
+}
+
+// HarnessArgv returns a task attempt's argv without the session wrapper it
+// runs in (withSession), so argv[0] is the harness.
+func HarnessArgv(argv []string) []string {
+	if len(argv) > 5 && argv[0] == "/bin/sh" && argv[1] == "-c" && argv[3] == "kuayle-session" {
+		return argv[5:]
+	}
+	return argv
 }
 
 // ValidSessionID reports whether a native session ID is safe to pass to a CLI.

@@ -2,7 +2,7 @@ FROM node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627c
 
 FROM golang:1.27.4-bookworm AS crush-build
 # Release binaries embed an older Go standard library with known CVEs; build with patched Go.
-ARG CRUSH_VERSION=0.101.0
+ARG CRUSH_VERSION=0.102.0
 # golang.org/x/net is raised past CVE-2026-78661 (GO-2026-6860), which the
 # release still carries, by building Crush from a local module that requires it.
 ARG CRUSH_XNET_VERSION=v0.62.0
@@ -33,7 +33,7 @@ COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-ports common/kuayle-service-entrypoint /usr/local/bin/
-COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md common/kuayle-agent-sign-in.sh common/kuayle-claude-config.cjs /usr/local/lib/kuayle/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md common/kuayle-agent-sign-in.sh common/kuayle-claude-config.cjs common/check-agent-cli-flags.sh /usr/local/lib/kuayle/
 COPY ide/patch-security.cjs ide/test-zod-security.cjs ide/test-body-parser-security.cjs /usr/local/lib/kuayle/
 COPY ide/start.sh /usr/local/bin/kuayle-ide-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
@@ -41,6 +41,7 @@ COPY ide/checkout.sh /usr/local/bin/kuayle-checkout
 COPY ide/terminal-session.sh /usr/local/bin/kuayle-terminal-session
 COPY common/kuayle-task-claude /usr/local/bin/kuayle-task-claude
 COPY ide/command-event.js /usr/local/lib/kuayle-command-event.js
+COPY --chmod=0755 common/kuayle-say.cjs /usr/local/bin/kuayle-say
 COPY ide/tmux.conf /etc/tmux.conf
 # Passwordless sudo for the machine user stays inert: containers run with
 # no-new-privileges and without capabilities unless the workspace allows sudo
@@ -63,6 +64,7 @@ RUN rm -f /usr/bin/pebble \
     && chmod 0755 /usr/local/bin/ttyd \
     && npm install -g "npm@${NPM_VERSION}" \
     && sh /usr/local/bin/install-agent-clis.sh "$TARGETARCH" \
+    && sh /usr/local/lib/kuayle/check-agent-cli-flags.sh \
     && sh /usr/local/bin/install-docker-cli.sh "$TARGETARCH" \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs /usr/lib/code-server \
     && npm install --prefix /tmp/code-server-patches --ignore-scripts --package-lock=false \
@@ -99,6 +101,7 @@ RUN rm -f /usr/bin/pebble \
     && opencode --version \
     && claude --version \
     && codex --version \
+    && pi --version \
     && qwen --version \
     && crush --version \
     && goose --version \

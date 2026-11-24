@@ -96,7 +96,8 @@ func TestIssueContentHistoryPostgres(t *testing.T) {
 	require.NoError(t, err)
 	var pid int
 	require.NoError(t, tx.Get(&pid, `SELECT pg_backend_pid()`))
-	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// The deadline only guards against a hang; the test never relies on timing.
+	deadline, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	writer, err := db.Connx(deadline)
 	require.NoError(t, err)
@@ -108,11 +109,18 @@ func TestIssueContentHistoryPostgres(t *testing.T) {
 		_, e := writer.ExecContext(deadline, `UPDATE issues SET title='Second concurrent edit' WHERE id=$1`, id)
 		done <- e
 	}()
-	require.Eventually(t, func() bool {
-		var blocked bool
-		e := db.Get(&blocked, `SELECT $1=ANY(pg_blocking_pids($2))`, pid, writerPID)
-		return e == nil && blocked
-	}, 2*time.Second, 10*time.Millisecond)
+	// Commit only once Postgres reports the second writer waiting on our lock.
+	// The writer cannot finish before then, so finishing early is a failure.
+	for blocked := false; !blocked; {
+		select {
+		case e := <-done:
+			t.Fatalf("second writer finished without waiting for the row lock: %v", e)
+		case <-deadline.Done():
+			t.Fatalf("second writer never blocked on the row lock: %v", deadline.Err())
+		case <-time.After(10 * time.Millisecond):
+		}
+		require.NoError(t, db.GetContext(deadline, &blocked, `SELECT $1=ANY(pg_blocking_pids($2))`, pid, writerPID))
+	}
 	require.NoError(t, tx.Commit())
 	require.NoError(t, <-done)
 	entries = read()

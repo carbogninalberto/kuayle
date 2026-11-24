@@ -52,11 +52,14 @@ var (
 
 	// The providers' wording for a model they do not offer. Each captures the
 	// model's name. OpenCode: ProviderModelNotFoundError ("Model not found:
-	// provider/model"). Anthropic's API: a not_found_error whose message is
+	// provider/model"); OpenCode 2: "Model unavailable: provider/model" (its
+	// "Variant unavailable for <model>: <variant>" names a model that exists).
+	// Anthropic's API: a not_found_error whose message is
 	// "model: <name>". Claude Code: "There's an issue with the selected model
 	// (<name>)". OpenAI's API (Codex): "The model `<name>` does not exist or
 	// you do not have access to it", code model_not_found.
 	openCodeModelNotFound  = regexp.MustCompile(`ProviderModelNotFoundError(?:[^\n]*?\bModel not found:\s*([A-Za-z0-9][\w.:/@+-]*))?`)
+	openCode2ModelMissing  = regexp.MustCompile(`\bModel unavailable:\s*([A-Za-z0-9][\w.:/@+-]*)`)
 	anthropicModelNotFound = regexp.MustCompile(`"type"\s*:\s*"not_found_error"\s*,\s*"message"\s*:\s*"model:\s*([^"\s]+)"`)
 	claudeSelectedModel    = regexp.MustCompile(`(?i)there's an issue with the selected model \(([^()\s]+)\)`)
 	openAIModelNotFound    = regexp.MustCompile("(?i)\\bthe model [`'\"]?([A-Za-z0-9][\\w.:/@+-]*)[`'\"]? does not exist or you do not have access to it")
@@ -113,7 +116,7 @@ func DetectModelNotFound(harnessError, stdout, stderr string) (string, bool) {
 	}
 	found, model := false, ""
 	for _, text := range texts {
-		for _, pattern := range []*regexp.Regexp{openCodeModelNotFound, anthropicModelNotFound, claudeSelectedModel, openAIModelNotFound, modelNotFoundCode} {
+		for _, pattern := range []*regexp.Regexp{openCodeModelNotFound, openCode2ModelMissing, anthropicModelNotFound, claudeSelectedModel, openAIModelNotFound, modelNotFoundCode} {
 			match := pattern.FindStringSubmatch(text)
 			if match == nil {
 				continue
@@ -145,7 +148,8 @@ func ParseModelNotFoundError(text string) (string, bool) {
 
 // harnessErrorEvents collects the errors a harness reported in its JSON
 // output: OpenCode's {"type":"error","error":{"name","data":{"message"}}}
-// (a model it does not know carries data.providerID and data.modelID), Codex's
+// (a model it does not know carries data.providerID and data.modelID) and
+// OpenCode 2's {"type":"error","error":{"type","message"}}, Codex's
 // {"type":"error","message"} and {"type":"turn.failed","error":{"message"}},
 // and a Claude Code result with is_error. Tool output, assistant text and a
 // successful result are the agent's work, never the provider's error.

@@ -251,6 +251,26 @@ func (r *AgentTaskRepository) RecordCIDetails(ctx context.Context, ws uuid.UUID,
 	return followUps, nil
 }
 
+// WakeBaseBranchWaits wakes the waiting workflow tasks of the workspace whose
+// published pull request in the repository targets the branch, which just
+// moved (a push, or a pull request merged into it), so a waiting step looks at
+// its pull request again. A wake already due earlier is kept. The pull request
+// and its base are the ones the review target reads (a checkout without a base
+// is read as main); a pipeline's is on its last run that published
+// (pipelinePublicationRun). It returns how many tasks it woke.
+func (r *AgentTaskRepository) WakeBaseBranchWaits(ctx context.Context, ws uuid.UUID, repository, branch string) (int, error) {
+	res, err := r.db.ExecContext(ctx, `UPDATE agent_tasks t SET workflow_wake_at=LEAST(t.workflow_wake_at,now())
+ WHERE t.workspace_id=$1 AND t.kind='implement' AND t.workflow_version_id IS NOT NULL AND t.state='awaiting_review' AND t.workflow_status='waiting'
+ AND EXISTS(SELECT 1 FROM dev_machine_git_refs g WHERE g.agent_run_id=CASE WHEN t.pipeline THEN `+pipelinePublicationRun+` ELSE `+reviewPublicationRun+` END AND g.workspace_id=t.workspace_id
+  AND g.ref_type='pull_request' AND g.source='published' AND g.pull_request_number IS NOT NULL AND LOWER(g.repository_full_name)=LOWER($2))
+ AND COALESCE((SELECT NULLIF(k.base_branch,'') FROM dev_machine_checkouts k WHERE k.id=t.checkout_id AND k.workspace_id=t.workspace_id),'main')=$3`, ws, repository, branch)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
 // recordWorkflowCIDetails stores a details read on the CI step the task
 // still waits on, under the task lock, and wakes the task to read it.
 func (r *AgentTaskRepository) recordWorkflowCIDetails(ctx context.Context, taskID uuid.UUID, sequence int, summary string) error {

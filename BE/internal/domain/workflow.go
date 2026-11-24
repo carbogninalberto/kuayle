@@ -63,11 +63,11 @@ const (
 
 	// Older workflow versions can continue past a retired local check.
 	WorkflowChecksSkipped = "checks_skipped"
-	// WorkflowBranchConflict is a ship approval's outcome without a condition
-	// of its own: entering it, Kuayle found the pull request conflicting with
-	// its base, so no transition of the graph follows it. The work goes back to
-	// the step that changes code (WorkflowGraph.SendBack), as an iteration
-	// limited like any other (KUA-209).
+	// WorkflowBranchConflict is a ship approval's or a CI check's outcome
+	// without a condition of its own: Kuayle found the pull request
+	// conflicting with its base (KUA-209, KUA-260), so no transition of the
+	// graph follows it. The work goes back to the step that changes code
+	// (WorkflowGraph.SendBack), as an iteration limited like any other.
 	WorkflowBranchConflict = "branch_conflict"
 	// WorkflowCheckoutBlocked sends a publication that needs local changes back to the implementer.
 	WorkflowCheckoutBlocked = "checkout_sync_blocked"
@@ -242,8 +242,10 @@ const (
 	WorkflowScopeWorkspace = "workspace"
 )
 
-// WorkflowGraph is the JSON document a version stores.
+// WorkflowGraph is the JSON document a version stores. Kind is absent or
+// "graph"; a pipeline is another document (pipeline.go).
 type WorkflowGraph struct {
+	Kind   string         `json:"kind,omitempty"`
 	Nodes  []WorkflowNode `json:"nodes"`
 	Edges  []WorkflowEdge `json:"edges"`
 	Budget WorkflowBudget `json:"budget"`
@@ -340,9 +342,18 @@ func (e *WorkflowInvalidError) Error() string {
 }
 
 // ParseWorkflowGraph decodes a graph strictly: unknown fields are refused.
+// A pipeline is refused too, so the graph engine never runs one; callers
+// that accept both kinds dispatch on WorkflowKind first.
 func ParseWorkflowGraph(raw []byte) (*WorkflowGraph, error) {
 	if len(raw) > WorkflowMaxGraphBytes {
 		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "too_large", Message: "the workflow is too large"}}}
+	}
+	switch WorkflowKind(raw) {
+	case WorkflowKindGraph:
+	case WorkflowKindPipeline:
+		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "pipeline", Message: "the workflow is a pipeline, not a graph"}}}
+	default:
+		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "invalid_kind", Message: "a workflow is a graph or a pipeline"}}}
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
@@ -1416,8 +1427,16 @@ func (s WorkflowStep) CIRecord() *WorkflowCIRecord {
 // nothing after CI failed is not sent the same failure again.
 type WorkflowCIRecord struct {
 	Repository string `json:"repository,omitempty"`
-	// Head is the published commit the step judged.
+	// Head is the commit the step judged: the published commit, or the
+	// head of its pull request after Kuayle brought the branch up to date
+	// with its base (KUA-260).
 	Head string `json:"head"`
+	// UpdateOf is the published commit when Head is a verified update of it
+	// (merges of the base, as GitHub's update-branch makes), and Updates how
+	// many such updates of it Kuayle asked for or found, at most as many as
+	// an approved merge makes.
+	UpdateOf string `json:"update_of,omitempty"`
+	Updates  int    `json:"updates,omitempty"`
 	// Failed identifies the failed checks the step saw on Head: a check's
 	// link (an Actions job's link changes when it is run again), or its name
 	// and when it was reported.
@@ -1435,6 +1454,71 @@ type WorkflowCIRecord struct {
 	RerunAt   *time.Time `json:"rerun_at,omitempty"`
 	Rerun     []string   `json:"rerun,omitempty"`
 	RerunRuns []int64    `json:"rerun_runs,omitempty"`
+	// Branch is what the step last did on its pull request's branch, with
+	// the facts it acted on (KUA-265). Any step can carry one: on a step that
+	// is not a CI check, ci holds only Branch.
+	Branch *WorkflowBranchRecord `json:"branch,omitempty"`
+}
+
+// What a step did on its pull request's branch (WorkflowBranchRecord.Action).
+const (
+	// WorkflowBranchUpdated: Kuayle brought the branch up to date with its
+	// base (GitHub's update-branch).
+	WorkflowBranchUpdated = "updated"
+	// WorkflowBranchUpdateLimit: the branch is behind its base, but Kuayle
+	// already updated the published commit as often as it may.
+	WorkflowBranchUpdateLimit = "update_limit"
+	// WorkflowBranchConflicted and WorkflowBranchMigrationCollision: the
+	// branch conflicts with its base, or shares a migration version with it,
+	// so the work went back to the step that changes code.
+	WorkflowBranchConflicted         = "conflict"
+	WorkflowBranchMigrationCollision = "migration_collision"
+	// WorkflowBranchJudgedUpdate: a CI step judged the pull request's head,
+	// Kuayle's update of the published commit, instead of that commit.
+	WorkflowBranchJudgedUpdate = "judged_update"
+	// WorkflowBranchMergeRefused: an approved merge did not happen; Refusal
+	// says why.
+	WorkflowBranchMergeRefused = "merge_refused"
+)
+
+// WorkflowBranchRecord is what a step did because of what Kuayle read about
+// its pull request's branch, and those facts as read (KUA-265): the CI
+// step's updates and send-backs, a waiting step's, an approved merge's
+// refusals. The step's detail shows it, so a run that moved or stayed without
+// a person says why.
+type WorkflowBranchRecord struct {
+	Action string    `json:"action"`
+	At     time.Time `json:"at"`
+	// The facts: the pull request, its head and base, how many of the base's
+	// commits the head lacks (-1 when GitHub did not compare them), and
+	// yes, no or unknown for a conflict, a migration collision and CI passing
+	// on the head (CI is read for a merge only).
+	PullRequest        int    `json:"pull_request,omitempty"`
+	Head               string `json:"head,omitempty"`
+	Base               string `json:"base,omitempty"`
+	Behind             int    `json:"behind"`
+	Conflict           string `json:"conflict,omitempty"`
+	MigrationCollision string `json:"migration_collision,omitempty"`
+	CI                 string `json:"ci,omitempty"`
+	// Updates is how many updates of the published commit Kuayle had made,
+	// Published that commit (for a judged update), and UpdatedTo the head an
+	// update made, when GitHub reported it.
+	Updates   int    `json:"updates,omitempty"`
+	Published string `json:"published,omitempty"`
+	UpdatedTo string `json:"updated_to,omitempty"`
+	// Refusal is why an approved merge did not happen.
+	Refusal string `json:"refusal,omitempty"`
+}
+
+// Same reports whether r records the same action on the same facts as
+// other, whenever it was read: storing it again would change nothing.
+func (r *WorkflowBranchRecord) Same(other *WorkflowBranchRecord) bool {
+	if r == nil || other == nil {
+		return r == other
+	}
+	a, b := *r, *other
+	a.At, b.At = time.Time{}, time.Time{}
+	return a == b
 }
 
 // DetailsAwaited reports whether the step still waits for Head's failed check
@@ -1481,11 +1565,14 @@ type WorkflowPauseEvent struct {
 // WorkflowStepRun is one agent run of a task as its timeline shows it, placed
 // on the workflow step that started it: an agent step's own runs, or the
 // runs of the review task a reviewer step created (TaskID is then that
-// review task). Step is nil for a task that follows no workflow.
+// review task). Step is nil for a task that follows no workflow, and for a
+// pipeline, whose runs carry the Role of the member that ran them (TaskID is
+// the member's task).
 type WorkflowStepRun struct {
 	ID       uuid.UUID `json:"id" db:"id"`
 	TaskID   uuid.UUID `json:"task_id" db:"task_id"`
 	Step     *int      `json:"step,omitempty" db:"step"`
+	Role     *string   `json:"role,omitempty" db:"role"`
 	Provider string    `json:"provider" db:"provider_id"`
 	Model    string    `json:"model" db:"model"`
 	Status   string    `json:"status" db:"status"`
@@ -1495,10 +1582,12 @@ type WorkflowStepRun struct {
 	SummaryTruncated bool    `json:"summary_truncated,omitempty" db:"summary_truncated"`
 	// RepliesUnknown: the agent's last messages could not be collected when
 	// the run ended, so whether it replied to its owner is not known.
-	RepliesUnknown bool       `json:"replies_unknown,omitempty" db:"replies_unknown"`
-	CreatedAt      time.Time  `json:"created_at" db:"created_at"`
-	StartedAt      *time.Time `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt    *time.Time `json:"completed_at,omitempty" db:"completed_at"`
+	RepliesUnknown bool `json:"replies_unknown,omitempty" db:"replies_unknown"`
+	// AgentRunUsage is what the run's harness reported it spent.
+	AgentRunUsage
+	CreatedAt   time.Time  `json:"created_at" db:"created_at"`
+	StartedAt   *time.Time `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty" db:"completed_at"`
 }
 
 // Workflow runner statuses stored on the task.

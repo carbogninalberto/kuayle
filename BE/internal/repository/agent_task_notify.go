@@ -24,6 +24,14 @@ func notifyTaskTelegram(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask)
 	if !notify || task.ConversationID == nil {
 		return nil
 	}
+	// A pipeline member's task resting between its turns is not news; one
+	// paused by a usage limit is.
+	if task.State == "blocked" && task.Kind == domain.AgentTaskKindReview && task.UsageLimitMessage == nil {
+		var member bool
+		if err := tx.GetContext(ctx, &member, `SELECT EXISTS(SELECT 1 FROM task_members WHERE member_task_id=$1)`, task.ID); err != nil || member {
+			return err
+		}
+	}
 	var linked bool
 	if err := tx.GetContext(ctx, &linked, `SELECT EXISTS(SELECT 1 FROM telegram_links l JOIN telegram_settings s ON s.workspace_id=l.workspace_id WHERE l.workspace_id=$1 AND l.user_id=$2 AND s.enabled)`, task.WorkspaceID, task.CreatorID); err != nil || !linked {
 		return err

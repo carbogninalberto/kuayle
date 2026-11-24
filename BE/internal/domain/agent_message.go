@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -57,8 +59,39 @@ type AgentOutboxMessage struct {
 	Kind    string
 	Body    string
 	// ReplyTo is the sequence number of the owner's message this answers
-	// (messages to the orchestrator only).
+	// (messages to the orchestrator), or of the room post (room messages).
 	ReplyTo *int64
+	// Room is set on a message for the room of the sender's pipeline task
+	// ("to":"@role" or "@all").
+	Room *AgentOutboxRoom
+}
+
+// AgentOutboxRoom is the room part of an outbox message: who it is for (no
+// roles: everyone), its kind and its structured part. The room decides
+// whether the sender may post it (TaskRoomRefusal).
+type AgentOutboxRoom struct {
+	ToRoles []string
+	Kind    string
+	Data    TaskRoomData
+}
+
+var (
+	// agentRoomRecipient is "@" and a role, or "@all".
+	agentRoomRecipient = regexp.MustCompile(`^@[a-z][a-z0-9_-]{0,31}$`)
+	// agentRoomFile finds a room recipient in a file that may not parse.
+	agentRoomFile = regexp.MustCompile(`"to"\s*:\s*"\s*@`)
+)
+
+// IsRoomOutbox says whether an outbox file is addressed to the room ("to"
+// starts with "@"), also when it is cut short or does not parse.
+func IsRoomOutbox(data []byte) bool {
+	var raw struct {
+		To string `json:"to"`
+	}
+	if json.Unmarshal(data, &raw) == nil {
+		return strings.HasPrefix(strings.TrimSpace(raw.To), "@")
+	}
+	return agentRoomFile.Match(data)
 }
 
 // ParseAgentOutboxMessage reads {"to","channel","kind","reply_to","body"} strictly: one
@@ -67,7 +100,8 @@ type AgentOutboxMessage struct {
 // tabs and newlines. Messages to the orchestrator use the live channel
 // ("internal" is accepted as the default), may be a "question" and may name
 // the owner's message they answer ("reply_to", its sequence number); kind and
-// reply_to are refused for other recipients.
+// reply_to are refused for other recipients. A recipient starting with "@"
+// ("@role", "@all") is a post for the task's room (parseRoomOutbox).
 func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 	if len(data) > AgentOutboxFileMaxBytes {
 		return AgentOutboxMessage{}, errors.New("message file is too large")
@@ -76,19 +110,33 @@ func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 		return AgentOutboxMessage{}, errors.New("message is not valid UTF-8")
 	}
 	var raw struct {
-		To      *string `json:"to"`
-		Channel *string `json:"channel"`
-		Kind    *string `json:"kind"`
-		ReplyTo *int64  `json:"reply_to"`
-		Body    *string `json:"body"`
+		To      *string       `json:"to"`
+		Channel *string       `json:"channel"`
+		Kind    *string       `json:"kind"`
+		ReplyTo *int64        `json:"reply_to"`
+		Body    *string       `json:"body"`
+		Data    *TaskRoomData `json:"data"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&raw); err != nil || raw.To == nil || raw.Body == nil {
+	if err := decoder.Decode(&raw); err != nil || raw.To == nil {
 		return AgentOutboxMessage{}, errors.New("invalid JSON message")
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
 		return AgentOutboxMessage{}, errors.New("invalid JSON message")
+	}
+	if to := strings.ToLower(strings.TrimSpace(*raw.To)); strings.HasPrefix(to, "@") {
+		body := ""
+		if raw.Body != nil {
+			body = *raw.Body
+		}
+		return parseRoomOutbox(to, raw.Channel, raw.Kind, raw.ReplyTo, body, raw.Data)
+	}
+	if raw.Body == nil {
+		return AgentOutboxMessage{}, errors.New("invalid JSON message")
+	}
+	if raw.Data != nil {
+		return AgentOutboxMessage{}, errors.New("data is only for messages to the room")
 	}
 	message := AgentOutboxMessage{To: strings.ToUpper(strings.TrimSpace(*raw.To)), Channel: AgentMessageInternal}
 	if raw.Channel != nil {
@@ -135,6 +183,51 @@ func ParseAgentOutboxMessage(data []byte) (AgentOutboxMessage, error) {
 		return AgentOutboxMessage{}, err
 	}
 	message.Body = body
+	return message, nil
+}
+
+// parseRoomOutbox reads a message for the room: "@role" or "@all", a known
+// kind (say by default), no channel, an optional reply_to and data. Say and
+// ask need text; other kinds may carry it.
+func parseRoomOutbox(to string, channel, kind *string, replyTo *int64, body string, data *TaskRoomData) (AgentOutboxMessage, error) {
+	if !agentRoomRecipient.MatchString(to) {
+		return AgentOutboxMessage{}, errors.New(`invalid recipient: use "@" and a role of the task, or "@all"`)
+	}
+	if channel != nil {
+		return AgentOutboxMessage{}, errors.New("a room message has no channel")
+	}
+	room := AgentOutboxRoom{Kind: RoomSay}
+	if to != "@all" {
+		room.ToRoles = []string{strings.TrimPrefix(to, "@")}
+	}
+	if kind != nil {
+		room.Kind = strings.TrimSpace(*kind)
+	}
+	if !slices.Contains(RoomKinds, room.Kind) {
+		return AgentOutboxMessage{}, fmt.Errorf("unknown kind (%s)", strings.Join(RoomKinds, ", "))
+	}
+	if replyTo != nil && *replyTo <= 0 {
+		return AgentOutboxMessage{}, errors.New("reply_to is not a message number")
+	}
+	if data != nil {
+		room.Data = *data
+	}
+	message := AgentOutboxMessage{To: to, Channel: AgentMessageInternal, ReplyTo: replyTo, Room: &room}
+	if room.Kind == RoomSay || room.Kind == RoomAsk {
+		cleaned, err := CleanAgentLiveMessage(body)
+		if err != nil {
+			return AgentOutboxMessage{}, err
+		}
+		message.Body = cleaned
+		return message, nil
+	}
+	if !utf8.ValidString(body) {
+		return AgentOutboxMessage{}, errors.New("message is not valid UTF-8")
+	}
+	message.Body = cleanAgentMessage(body)
+	if utf8.RuneCountInString(message.Body) > AgentMessageMaxRunes {
+		return AgentOutboxMessage{}, errors.New("message is too long")
+	}
 	return message, nil
 }
 

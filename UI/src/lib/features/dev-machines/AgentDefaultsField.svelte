@@ -15,6 +15,7 @@
 		{ value: 'codex', label: 'Codex' },
 		{ value: 'claude-code', label: 'Claude Code' },
 		{ value: 'opencode', label: 'OpenCode' },
+		{ value: 'pi', label: 'Pi' },
 		{ value: 'qwen-code', label: 'Qwen Code' },
 		{ value: 'crush', label: 'Crush' },
 		{ value: 'kimi', label: 'Kimi' },

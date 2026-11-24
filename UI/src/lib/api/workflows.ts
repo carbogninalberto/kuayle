@@ -1,5 +1,6 @@
 import { api } from './client';
 import type { MergeWait } from './conversations';
+import type { RunUsage } from '$lib/types/dev-machine';
 
 // Configurable workflows (KUA-95): agent profiles, workflows (immutable
 // versions of a state machine graph), defaults and a task's workflow run.
@@ -109,9 +110,56 @@ export interface WorkflowBudget {
 }
 
 export interface WorkflowGraph {
+	kind?: 'graph';
 	nodes: WorkflowNode[];
 	edges: WorkflowEdge[];
 	budget: WorkflowBudget;
+}
+
+/** A check of a pipeline phase: a fact Kuayle reads, required or advisory. */
+export interface PipelineCheck {
+	id: string;
+	fact: string;
+	/** The role whose verdict it is. */
+	role?: string;
+	/** The command a script check runs. */
+	script?: string;
+	required?: boolean;
+}
+
+export interface PipelinePhase {
+	id: string;
+	label: string;
+	/** A role of the roster, "kuayle" or "human". */
+	owner: string;
+	prompt?: string;
+	checks?: PipelineCheck[];
+	guarded?: boolean;
+}
+
+export interface PipelineMember {
+	role: string;
+	profile_id: string;
+	writer?: boolean;
+	on_call?: boolean;
+}
+
+/**
+ * An experimental pipeline (KUA-252): ordered phases with checks, worked by a
+ * roster of roles. It is shown read only; with the server's switch on, tasks
+ * run on it.
+ */
+export interface PipelineDefinition {
+	kind: 'pipeline';
+	phases: PipelinePhase[];
+	roster: PipelineMember[];
+	lead?: { profile_id: string };
+	autonomy?: { approve?: string; waive?: Record<string, string> };
+	budget?: { max_turns?: number; max_minutes?: number; on_exhausted?: 'fail' | 'ask' };
+}
+
+export function isPipeline(graph: WorkflowGraph | PipelineDefinition | null | undefined): graph is PipelineDefinition {
+	return graph?.kind === 'pipeline';
 }
 
 /** A validation error located on a node or a transition. */
@@ -133,7 +181,7 @@ export interface WorkflowSummary {
 	latest_version: number;
 	version_id?: string | null;
 	archived: boolean;
-	graph: WorkflowGraph;
+	graph: WorkflowGraph | PipelineDefinition;
 	updated_at?: string;
 }
 
@@ -163,6 +211,8 @@ export interface WorkflowList {
 	workflows: WorkflowSummary[];
 	defaults: WorkflowDefault[];
 	can_manage: boolean;
+	/** The server's switch for pipelines: off (or absent), none can start a task. */
+	pipelines_enabled?: boolean;
 }
 
 export interface WorkflowStep {
@@ -191,6 +241,37 @@ export interface WorkflowStep {
 	 * (KUA-209); `failure` says why it ended without merging.
 	 */
 	merge?: (MergeWait & { actor_id?: string; method?: string; failure?: string }) | null;
+	/**
+	 * What a CI step judged (KUA-215); on any step, `branch` is what it last
+	 * did on its pull request's branch (KUA-265).
+	 */
+	ci?: { head?: string; update_of?: string; updates?: number; branch?: WorkflowBranchRecord | null } | null;
+}
+
+/**
+ * What a step did because of what Kuayle read about its pull request's
+ * branch, and those facts as read (KUA-265).
+ */
+export interface WorkflowBranchRecord {
+	action: 'updated' | 'update_limit' | 'conflict' | 'migration_collision' | 'judged_update' | 'merge_refused';
+	at: string;
+	pull_request?: number;
+	head?: string;
+	base?: string;
+	/** Commits of the base the head lacks; -1 when GitHub did not compare them. */
+	behind: number;
+	conflict?: 'yes' | 'no' | 'unknown';
+	migration_collision?: 'yes' | 'no' | 'unknown';
+	/** CI passing on the head, read for a merge only. */
+	ci?: 'yes' | 'no' | 'unknown';
+	/** Updates of the published commit Kuayle had made. */
+	updates?: number;
+	/** The published commit a judged update was made from. */
+	published?: string;
+	/** The head an update made, when GitHub reported it. */
+	updated_to?: string;
+	/** Why an approved merge did not happen. */
+	refusal?: string;
 }
 
 /**
@@ -220,7 +301,7 @@ export interface WorkflowPauseEvent {
  * step's own runs, or the runs of the review task a reviewer step created
  * (task_id is then that review task).
  */
-export interface WorkflowStepRun {
+export interface WorkflowStepRun extends RunUsage {
 	id: string;
 	task_id: string;
 	/** The step's sequence; absent for a task that follows no workflow. */
@@ -236,6 +317,8 @@ export interface WorkflowStepRun {
 	created_at: string;
 	started_at?: string | null;
 	completed_at?: string | null;
+	/** On a pipeline task: the role whose turn the run was. */
+	role?: string | null;
 }
 
 export type WorkflowStatus = 'entering' | 'running' | 'waiting' | 'paused' | 'done' | 'failed';
@@ -246,6 +329,7 @@ export interface TaskWorkflow {
 	name: string;
 	version: number;
 	builtin: boolean;
+	/** A task on a pipeline gets the pipeline here instead (TaskRun.pipeline). */
 	graph: WorkflowGraph;
 	node: string;
 	/** A workflow status, or for Standard tasks the task's state. */
@@ -256,6 +340,8 @@ export interface TaskWorkflow {
 	steps: WorkflowStep[];
 	/** Every run on its step, oldest first; absent on older servers. */
 	runs?: WorkflowStepRun[];
+	/** The task's own usage, summed over its runs; absent on older servers. */
+	usage?: RunUsage;
 	profiles: AgentProfile[];
 	can_decide: boolean;
 	task_state: string;

@@ -52,7 +52,8 @@ func (r *AgentTaskRepository) completeMerged(ctx context.Context, id, workspaceI
 	}
 	// A merged transition into a supervised end still has work to do. Let
 	// the runner enter that end under its usual lease, including on redelivery.
-	if task.RunsWorkflow() {
+	// A pipeline's tick needs nothing more: the merge completes its task.
+	if task.RunsWorkflow() && !task.Pipeline {
 		var raw json.RawMessage
 		if err = tx.GetContext(ctx, &raw, `SELECT graph FROM workflow_versions WHERE id=$1 AND workspace_id=$2`, task.WorkflowVersionID, workspaceID); err != nil {
 			return false, err

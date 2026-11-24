@@ -177,8 +177,9 @@ async function fixture(page: Page) {
 		requests: [] as string[],
 		// Runs whose records do not exist (yet, or any more).
 		missing: [] as string[],
-		// A task without a workflow lists its attempts.
+		// A task without a workflow lists its attempts, with the task's usage.
 		runs: [] as any[],
+		usage: {} as any,
 		logs: {} as Record<string, any[]>,
 		sessions: [] as any[],
 		sockets: [] as WebSocketRoute[],
@@ -231,7 +232,8 @@ async function fixture(page: Page) {
 				state.task = { ...state.task, state: 'cancelling', reason: 'Stopping native execution' };
 				return route.fulfill({ status: 204 });
 			}
-			if (rest === '/runs') return route.fulfill({ json: { runs: id === state.task.id ? state.runs : [] } });
+			if (rest === '/runs')
+				return route.fulfill({ json: { runs: id === state.task.id ? state.runs : [], usage: id === state.task.id ? state.usage : {} } });
 			const logs = rest.match(/^\/runs\/([^/]+)\/logs$/);
 			if (logs) {
 				if (state.missing.includes(logs[1]))
@@ -543,6 +545,47 @@ test('a ship migration collision shows both paths on the way back to the impleme
 	await page.screenshot({ path: testInfo.outputPath('ship-migration-collision.png') });
 });
 
+// KUA-265: a step that acted on what Kuayle read about its pull request's
+// branch says what it did and on which facts: a reviewer's branch brought up
+// to date under it, a ship approval that sent a conflict back.
+test('a step says what Kuayle did on its branch and the facts it read', async ({ page }) => {
+	const { state } = await fixture(page);
+	workflowFixture(state);
+	const view = workflow();
+	view.graph.nodes.push(node('ship', 'approval', 'Ready to ship'));
+	const facts = { at: at(19), pull_request: 12, head: '0123456789abcdef', base: 'main', migration_collision: 'no' };
+	view.steps[4] = {
+		...view.steps[4],
+		ci: { head: '', branch: { ...facts, action: 'updated', behind: 2, conflict: 'no', updates: 1, updated_to: 'fedcba9876543210' } }
+	};
+	view.steps.splice(
+		5,
+		0,
+		step(6, 'ship', 'approval', 18, {
+			outcome: 'branch_conflict',
+			detail: 'The pull request conflicts with main, so it cannot be reviewed or merged.',
+			finished_at: at(19),
+			ci: { head: '', branch: { ...facts, action: 'conflict', behind: 3, conflict: 'yes' } }
+		})
+	);
+	view.steps[6].sequence = view.runs[3].step = view.sequence = 7;
+	view.runs[3].status = 'queued';
+	view.task_state = 'queued';
+	state.workflow = view;
+	state.task = { ...state.task, state: 'queued' };
+
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1#step-6');
+	await expect(page.locator('#step-6').getByText('0123456 conflicts with main, so Kuayle sent the work back to resolve it.')).toBeVisible();
+	const review = page.locator('#step-5');
+	const updated = 'Kuayle brought the branch up to date with main: 0123456 was 2 commit(s) behind it.';
+	await expect(review.getByText(updated)).toHaveCount(0);
+	await stepButton(page, 5).click();
+	await expect(review.getByText(updated)).toBeVisible();
+	// A step that read nothing about its branch says nothing about it.
+	await stepButton(page, 4).click();
+	await expect(page.locator('#step-4 [data-branch]')).toHaveCount(0);
+});
+
 // A running task can be stopped from where it is watched: one click, one
 // confirmation. It reads as cancelling until the task reports cancelled.
 test('a running task is stopped from the agent view in two clicks', async ({ page }) => {
@@ -636,6 +679,38 @@ test('a task without a workflow is one step per attempt', async ({ page }) => {
 	await expect(thread.getByText('The build is broken.')).toHaveCount(0);
 	await older.getByRole('button').first().click();
 	await expect(older.getByText('The build is broken.')).toBeVisible();
+});
+
+test('each attempt and the task say what the harness reported they spent', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	state.task = baseTask({ state: 'awaiting_review', reason: 'Ready for review', provider: 'codex', model: 'gpt-5', run_id: 'run-2', generation: 2 });
+	state.runs = [
+		{ id: 'run-2', provider_id: 'codex', model: 'gpt-5', status: 'succeeded', created_at: at(9), started_at: at(10), completed_at: at(13),
+			input_tokens: 315, output_tokens: 122, cache_read_tokens: 24448 },
+		{ id: 'run-1', provider_id: 'claude-code', model: '', status: 'failed', created_at: at(1), started_at: at(2), completed_at: at(5) }
+	];
+	state.usage = { input_tokens: 315, output_tokens: 122, cache_read_tokens: 24448, cost_usd: 0.4182 };
+	state.logs = {
+		'run-1': lines('run-1', 2, [text('The build is broken.')]),
+		'run-2': lines('run-2', 10, [text('Fixed the **build**.')])
+	};
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	const steps = thread.getByRole('list', { name: 'Path taken' }).getByRole('listitem');
+	await expect(steps).toHaveCount(2);
+	await expect(steps.nth(1).getByTestId('usage-line')).toHaveText('Usage · 315 input · 122 output · 24.4K cache read');
+	// An attempt whose harness reported nothing says nothing about it.
+	await steps.nth(0).getByRole('button').first().click();
+	await expect(steps.nth(0).getByText('The build is broken.')).toBeVisible();
+	await expect(steps.nth(0).getByTestId('usage-line')).toHaveCount(0);
+	// The task's sum is in its details, out of the way until they are opened.
+	const details = thread.getByRole('region', { name: 'Execution details' });
+	await expect(details.getByTestId('usage-line')).toHaveCount(0);
+	await thread.getByRole('button', { name: 'Expand' }).click();
+	await expect(details.getByTestId('usage-line')).toHaveText(
+		'Usage, all iterations · 315 input · 122 output · 24.4K cache read · $0.42 estimated'
+	);
+	await page.screenshot({ path: testInfo.outputPath('usage-desktop.png'), fullPage: true });
 });
 
 test('the timeline fits a phone', async ({ page }, testInfo) => {

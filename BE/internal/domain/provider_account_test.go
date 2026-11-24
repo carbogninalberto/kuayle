@@ -118,6 +118,10 @@ func TestDetectModelNotFoundFromTheOtherHarnesses(t *testing.T) {
 			harnessError: "The harness reported an error: ProviderModelNotFoundError: Model not found: opencode-go/kimi-k9.",
 			model:        "opencode-go/kimi-k9",
 		},
+		"OpenCode 2's error event": {
+			stdout: `{"type":"error","timestamp":1795529998608,"sessionID":"ses_df21281bffferMg74LvzPhProP","error":{"type":"provider.no-route","message":"Model unavailable: opencode/no-such-model-kuayle"}}`,
+			model:  "opencode/no-such-model-kuayle",
+		},
 		"the Anthropic API": {
 			stdout: `{"type":"result","is_error":true,"result":"API Error: 404 {\"type\":\"error\",\"error\":{\"type\":\"not_found_error\",\"message\":\"model: claude-sonnet-9\"}}"}`,
 			model:  "claude-sonnet-9",
@@ -152,6 +156,8 @@ func TestDetectModelNotFoundIgnoresOrdinaryOutput(t *testing.T) {
 		"a tool's output":                  {stdout: `{"type":"tool_use","part":{"state":{"output":"Model not found: gpt-9"}}}`},
 		"a successful result":              {stdout: `{"type":"result","is_error":false,"result":"Handled model_not_found in the client"}`},
 		"an unknown error without a model": {harnessError: openCodeModelHarnessError, stderr: "timestamp=2026-11-17T15:02:44.120Z level=ERROR run=ses_02 message=failed"},
+		// OpenCode 2 refuses a variant the model lacks: the model exists.
+		"a variant the model lacks": {stdout: `{"type":"error","timestamp":1795530065201,"sessionID":"ses_df2117c42ffeDkt9IWFB5nCr2p","error":{"type":"provider.no-route","message":"Variant unavailable for opencode/deepseek-v4.1-flash-free: ultra"}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, ok := DetectModelNotFound(tc.harnessError, tc.stdout, tc.stderr)

@@ -124,6 +124,11 @@ type AgentTask struct {
 	// current step has an outcome).
 	WorkflowPauseRequest *string    `json:"workflow_pause_request,omitempty" db:"workflow_pause_request"`
 	WorkflowPausedAt     *time.Time `json:"workflow_paused_at,omitempty" db:"workflow_paused_at"`
+	// Pipeline is set on a task that runs a pipeline workflow (KUA-252): its
+	// tick, not the graph runner, moves it. PipelineState is the tick's
+	// memory between passes; the phase is WorkflowNode.
+	Pipeline      bool            `json:"pipeline,omitempty" db:"pipeline"`
+	PipelineState json.RawMessage `json:"-" db:"pipeline_state"`
 	// LiveResumeGeneration is the attempt a person started to deliver a
 	// message (see LiveResumed); one more than the generation while the
 	// attempt they interrupted is still being stopped (LiveInterrupting).
@@ -261,6 +266,11 @@ type AgentTaskTransition struct {
 // validates, publishes or awaits review, so it can never push.
 func ValidAgentTaskKindTransition(kind, from, to string) bool {
 	if kind == AgentTaskKindReview {
+		// A pipeline member's task takes its next turn after one that was
+		// cancelled, as after one that failed (StartMemberTurn).
+		if from == "cancelled" && to == "queued" {
+			return true
+		}
 		switch to {
 		case "validating", "publishing", "awaiting_review":
 			return false
@@ -364,6 +374,9 @@ type AgentTaskHistory struct {
 type AgentTaskRuns struct {
 	Runs       []DevMachineAgentRun `json:"runs"`
 	NextBefore *uuid.UUID           `json:"next_before,omitempty"`
+	// Usage is the task's usage, the sum over all of its runs, whatever the
+	// page.
+	Usage AgentRunUsage `json:"usage"`
 }
 type AgentTaskLogs struct {
 	Logs      []DevMachineLogChunk `json:"logs"`
@@ -539,8 +552,11 @@ type AgentTaskFollowUp struct {
 // harness sessions are not restored across attempts, so a successor receives
 // this explicit handoff instead of hidden context.
 type AgentHandoff struct {
-	AttemptID        uuid.UUID
-	MachineID        uuid.UUID
+	AttemptID uuid.UUID
+	MachineID uuid.UUID
+	// Provider is the harness that ran the previous attempt. Its native
+	// session is that harness's: another harness never continues it.
+	Provider         string
 	NativeSessionID  string
 	Status           string
 	Summary          string

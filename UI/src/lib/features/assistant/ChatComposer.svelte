@@ -82,19 +82,26 @@
 	let textarea = $state<HTMLTextAreaElement | null>(null);
 	const options = $derived(targetTask && sendOptions(targetTask, authState.user?.id));
 	const toAgent = $derived(!!options?.open);
-	const question = $derived(targetTask && chat.agentQuestion?.taskId === targetTask.id ? chat.agentQuestion : null);
+	// A task on a pipeline is written to in its room (KUA-252), which
+	// everyone working on it reads: text only, and no "now" to send it with.
+	// The task says it runs one; a room already loaded says so too.
+	const room = $derived(toAgent && !!targetTask && (!!targetTask.pipeline || !!chat.taskRooms[targetTask.id]));
+	const now = $derived(room ? null : (options?.now ?? null));
+	const question = $derived(
+		!room && targetTask && chat.agentQuestion?.taskId === targetTask.id ? chat.agentQuestion : null
+	);
 	const agentBody = $derived(question ? answerTo(question.body, text.trim()) : text.trim());
 	let confirming = $state(false),
 		merged = $state<MergedPullRequest | null>(null);
 	const mod = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
-	const nowLabel = $derived(
-		options?.now === 'interrupt' ? m['tasks.live_interrupt_send']() : m['tasks.live_start_send']()
-	);
+	const nowLabel = $derived(now === 'interrupt' ? m['tasks.live_interrupt_send']() : m['tasks.live_start_send']());
 	const agentName = (task: AgentTask) => agentInfo(task.provider).name;
 	const targetLabel = $derived(
-		toAgent && targetTask
-			? m['assistant.target_agent']({ identifier: chat.issue?.identifier ?? '', agent: agentName(targetTask) })
-			: m['assistant.target_assistant']()
+		room
+			? m['tasks.room_target']({ identifier: chat.issue?.identifier ?? '' })
+			: toAgent && targetTask
+				? m['assistant.target_agent']({ identifier: chat.issue?.identifier ?? '', agent: agentName(targetTask) })
+				: m['assistant.target_assistant']()
 	);
 	$effect(() => {
 		void chat.composerFocus;
@@ -214,9 +221,13 @@
 		return Array.from(list ?? []).filter((file) => file.type.startsWith('image/'));
 	}
 	const composerDisabled = $derived(chat.unavailable || (!toAgent && (!initialized || !status.configured)));
-	const agentTooLong = $derived(toAgent && [...agentBody].length > 4000);
+	// The room takes no attachments.
+	const attachable = $derived(!composerDisabled && !room);
+	const agentTooLong = $derived(
+		toAgent && (room ? new TextEncoder().encode(agentBody).length > 16384 : [...agentBody].length > 4000)
+	);
 	const canSend = $derived(
-		(!!text.trim() || attachments.ids.length > 0) &&
+		(!!text.trim() || (!room && attachments.ids.length > 0)) &&
 			!attachments.uploading &&
 			!attachments.failed &&
 			!sending &&
@@ -287,9 +298,39 @@
 		notice = '';
 	});
 	function sendNow() {
-		if (!canSend || !options?.now || !targetTask) return;
-		if (options.confirm) confirming = true;
-		else void sendToAgent(targetTask, options.now);
+		if (!canSend || !now || !targetTask) return;
+		if (options?.confirm) confirming = true;
+		else void sendToAgent(targetTask, now);
+	}
+	// A post sent again after it failed keeps its request id while its text
+	// is the same, so the room keeps one of them.
+	let roomRequest: { body: string; id: string } | null = null;
+	async function postToRoom(task: AgentTask) {
+		if (!canSend) return;
+		const typed = text,
+			body = agentBody;
+		if (roomRequest?.body !== body) roomRequest = { body, id: crypto.randomUUID() };
+		const request = roomRequest.id;
+		sending = true;
+		error = '';
+		notice = '';
+		followLatest();
+		try {
+			const message = await agentTasks.postRoom(slug, task.id, { kind: 'say', body, request_id: request });
+			chat.acceptRoomMessages(task.id, [message]);
+			if (roomRequest?.id === request) roomRequest = null;
+			if (disposed) return;
+			if (text === typed) text = '';
+			if (targetTask?.id !== task.id) return;
+			notice = m['tasks.room_sent']({ identifier: chat.issue?.identifier ?? '' });
+			await tick();
+			textarea?.focus();
+		} catch (e) {
+			if (disposed || targetTask?.id !== task.id) return;
+			error = getErrorMessage(e, m['tasks.live_send_error']());
+		} finally {
+			sending = false;
+		}
 	}
 	async function sendToAgent(task: AgentTask, mode?: LiveSendMode, confirmMerged = false) {
 		confirming = false;
@@ -333,7 +374,7 @@
 	async function send(event?: SubmitEvent) {
 		event?.preventDefault();
 		if (!canSend) return;
-		if (toAgent && targetTask) return sendToAgent(targetTask);
+		if (toAgent && targetTask) return room ? postToRoom(targetTask) : sendToAgent(targetTask);
 		sending = true;
 		error = '';
 		notice = '';
@@ -414,7 +455,7 @@
 					dragging = true;
 					return;
 				}
-				if (composerDisabled || !event.dataTransfer?.types.includes('Files')) return;
+				if (!attachable || !event.dataTransfer?.types.includes('Files')) return;
 				event.preventDefault();
 				dragging = true;
 			}}
@@ -431,7 +472,7 @@
 				}
 
 				const files = imageFiles(event.dataTransfer?.files);
-				if (composerDisabled || !files.length) return;
+				if (!attachable || !files.length) return;
 				event.preventDefault();
 				attachments.add(files);
 			}}
@@ -477,14 +518,16 @@
 				<InputGroup.Textarea
 					bind:ref={textarea}
 					bind:value={text}
-					aria-label={toAgent ? m['tasks.live_composer']() : m['assistant.message']()}
+					aria-label={room ? m['tasks.room_composer']() : toAgent ? m['tasks.live_composer']() : m['assistant.message']()}
 					aria-invalid={agentTooLong || undefined}
-					placeholder={toAgent && targetTask
-						? m['assistant.placeholder_agent']({
-								identifier: chat.issue?.identifier ?? '',
-								agent: agentName(targetTask)
-							})
-						: m['assistant.placeholder']()}
+					placeholder={room
+						? m['tasks.room_placeholder']({ identifier: chat.issue?.identifier ?? '' })
+						: toAgent && targetTask
+							? m['assistant.placeholder_agent']({
+									identifier: chat.issue?.identifier ?? '',
+									agent: agentName(targetTask)
+								})
+							: m['assistant.placeholder']()}
 					maxlength={16000}
 					disabled={composerDisabled}
 					class="max-h-48 min-h-11"
@@ -515,13 +558,13 @@
 						}
 						if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 							event.preventDefault();
-							if ((event.metaKey || event.ctrlKey) && options?.now) sendNow();
+							if ((event.metaKey || event.ctrlKey) && now) sendNow();
 							else void send();
 						}
 					}}
 					onpaste={(event) => {
 						const files = imageFiles(event.clipboardData?.files);
-						if (composerDisabled || !files.length) return;
+						if (!attachable || !files.length) return;
 						event.preventDefault();
 						attachments.add(files);
 					}}
@@ -533,7 +576,7 @@
 								size="icon-sm"
 								aria-label={m['assistant.attach']()}
 								title={m['assistant.attach']()}
-								disabled={composerDisabled}
+								disabled={!attachable}
 								onclick={() => fileInput?.click()}><Plus size={16} /></InputGroup.Button
 							>
 						</div>
@@ -593,7 +636,7 @@
 							}}
 						/>
 						<Tooltip.Provider delayDuration={300}>
-							{#if options?.now}<Tooltip.Root>
+							{#if now}<Tooltip.Root>
 									<Tooltip.Trigger>
 										{#snippet child({ props })}<InputGroup.Button
 												{...props}
@@ -604,7 +647,7 @@
 												aria-keyshortcuts="Control+Enter Meta+Enter"
 												onclick={sendNow}
 											>
-												{#if options?.now === 'interrupt'}<Zap />{:else}<Play />{/if}
+												{#if now === 'interrupt'}<Zap />{:else}<Play />{/if}
 											</InputGroup.Button>{/snippet}
 									</Tooltip.Trigger>
 									<Tooltip.Content>{nowLabel}<KbdGroup><Kbd>{mod}</Kbd><Kbd>↵</Kbd></KbdGroup></Tooltip.Content>

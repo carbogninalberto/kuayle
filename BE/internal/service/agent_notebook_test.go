@@ -44,9 +44,10 @@ func notebookAttempt(t *testing.T, provider string, notebook *domain.Notebook, b
 		agentProvider: &domain.DevMachineAgentProvider{ProviderID: provider, Enabled: true, RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`)},
 		checkouts:     []domain.DevMachineCheckout{{ID: checkout, WorkspaceID: ws, MachineID: machine, Status: "ready", WorkspacePath: "/workspace/tasks/check", RepositoryFullName: "example/test", BaseBranch: "main", WorkingBranch: "task/check"}},
 	}}
-	store.policy.AllowedProviders = json.RawMessage(`["opencode","codex","claude-code","qwen-code"]`)
+	store.policy.AllowedProviders = json.RawMessage(`["opencode","codex","claude-code","qwen-code","kimi","goose","crush"]`)
 	machines := newTestDevMachineService(store)
-	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""), agent.NewQwenCodeProvider(""))
+	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""), agent.NewQwenCodeProvider(""),
+		agent.NewKimiProvider(""), agent.NewGooseProvider(""), agent.NewCrushProvider(""))
 	runtime := &devMachineTaskRuntime{machines: machines, profiles: profileSourceFake{bundle}}
 	if notebook != nil {
 		runtime.notebooks = &notebookSourceFake{*notebook}
@@ -128,8 +129,9 @@ func TestAttemptReceivesTheWholeNotebookOnEachHarnessInstructionPath(t *testing.
 
 // The command of the closing continuation, which continues an attempt's
 // session to ask for what is missing, exists only where the harness can
-// continue a session: Claude Code (--resume) and Codex (exec resume). The
-// others are never asked.
+// continue a session: Claude Code (--resume), Codex (exec resume), OpenCode
+// (--session), Qwen Code (--resume), Kimi (--session) and Goose (--resume
+// --name). Crush is never asked.
 func TestOnlyHarnessesThatResumeASessionGetAContinuationCommand(t *testing.T) {
 	notebook := recordedNotebook()
 	argv := func(provider string) []string {
@@ -140,6 +142,7 @@ func TestOnlyHarnessesThatResumeASessionGetAContinuationCommand(t *testing.T) {
 		}
 		return command
 	}
+	require.True(t, agent.ValidSessionID(domain.ClosingSessionPlaceholder), "the placeholder passes the adapters' session ID check")
 	claude := strings.Join(argv("claude-code"), " ")
 	require.Contains(t, claude, "--resume "+domain.ClosingSessionPlaceholder)
 	require.Contains(t, claude, "-p "+domain.ClosingPromptPlaceholder)
@@ -147,8 +150,26 @@ func TestOnlyHarnessesThatResumeASessionGetAContinuationCommand(t *testing.T) {
 	codex := strings.Join(argv("codex"), " ")
 	require.Contains(t, codex, "codex exec resume")
 	require.True(t, strings.HasSuffix(codex, domain.ClosingSessionPlaceholder+" "+domain.ClosingPromptPlaceholder))
-	require.Empty(t, argv("opencode"))
-	require.Empty(t, argv("qwen-code"))
+	// OpenCode's continuation runs in the same wrapper as the attempt, so it
+	// opens the session store in the task's session directory.
+	opencode := argv("opencode")
+	require.GreaterOrEqual(t, len(opencode), 5)
+	require.Equal(t, "kuayle-session", opencode[3])
+	require.True(t, strings.HasPrefix(opencode[4], "/workspace/.kuayle/agent-sessions/"), opencode[4])
+	require.True(t, strings.HasSuffix(strings.Join(opencode, " "), "--session "+domain.ClosingSessionPlaceholder+" -- "+domain.ClosingPromptPlaceholder))
+	// So do Qwen Code's, Kimi's and Goose's, each continuing the attempt's
+	// session by the ID recorded for it.
+	for provider, tail := range map[string]string{
+		"qwen-code": "--resume " + domain.ClosingSessionPlaceholder + " " + domain.ClosingPromptPlaceholder,
+		"kimi":      "--session " + domain.ClosingSessionPlaceholder + " --prompt " + domain.ClosingPromptPlaceholder,
+		"goose":     "goose run --resume --name " + domain.ClosingSessionPlaceholder + " --quiet --output-format stream-json --text " + domain.ClosingPromptPlaceholder,
+	} {
+		command := argv(provider)
+		require.GreaterOrEqual(t, len(command), 5, provider)
+		require.Equal(t, "kuayle-session", command[3], provider)
+		require.True(t, strings.HasSuffix(strings.Join(command, " "), tail), provider)
+	}
+	require.Empty(t, argv("crush"))
 	// The command belongs to the attempt, whatever may be asked of it.
 	review := notebookAttempt(t, "codex", &notebook, nil, func(task *domain.AgentTask) { task.Kind = domain.AgentTaskKindReview })
 	require.NotEmpty(t, review.ClosingContinuation)

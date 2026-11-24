@@ -5,13 +5,13 @@ target_arch=${1:-${TARGETARCH:-}}
 case "$target_arch" in
   amd64)
     goose_arch=x86_64
-    goose_sha256=0327b1857f8030343f59b77503e0455629bbf472c2901cb94b88389d6278635a
+    goose_sha256=5f6e463621a8428617ae4870eecee7a00a253e9bbfccb6340dfaa4f0ec2aaf32
     kimi_arch=x86_64
     kimi_sha256=a676204f7804ed5dae87652a9d66f578e0718d5026c9cb1bfa32b9a5eace4208
     ;;
   arm64)
     goose_arch=aarch64
-    goose_sha256=6a962a0ba55829e00f6f297dff736d53b9bdc8da84f0f49c4768e2557ac39cbe
+    goose_sha256=7e74d796e93b89df374715dc669149cb634f74d778de0b87bb7c031b5b093731
     kimi_arch=aarch64
     kimi_sha256=9e06eea96273600aed485b1f0bedda95b7084db4f22cf28614fe20138933507a
     ;;
@@ -21,17 +21,20 @@ case "$target_arch" in
     ;;
 esac
 
-CLAUDE_CODE_VERSION=2.1.328
-OPENCODE_VERSION=1.19.6
-CODEX_VERSION=0.170.0
-QWEN_VERSION=0.28.0
-GOOSE_VERSION=1.60.1
+CLAUDE_CODE_VERSION=2.1.330
+OPENCODE_VERSION=2.3.2
+CODEX_VERSION=0.171.0
+PI_VERSION=1.6.0
+QWEN_VERSION=0.28.4
+GOOSE_VERSION=1.60.2
 KIMI_VERSION=1.52.0
 
 # Crush is built from source in the image (see the crush-build stage) and only verified here.
 npm install --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-npm install --global --allow-scripts=opencode-ai "opencode-ai@${OPENCODE_VERSION}"
+npm install --global --allow-scripts=@opencode/cli "@opencode/cli@${OPENCODE_VERSION}"
 npm install --global "@openai/codex@${CODEX_VERSION}"
+# Pi moved to the @earendil-works scope; only it has the fixes for CVE-2026-54325 to -54328.
+npm install --global "@earendil-works/pi-coding-agent@${PI_VERSION}"
 npm install --global --allow-scripts=@qwen-code/qwen-code "@qwen-code/qwen-code@${QWEN_VERSION}"
 # qwen-code 0.26.1 bundles sharp 0.35.4 (GHSA-wq5f-xc86-pv6w); 0.35.5 is the patch release.
 (cd "$(npm root --global)/@qwen-code/qwen-code" && npm install --no-save --no-audit --no-fund --ignore-scripts "sharp@0.35.5")
@@ -88,6 +91,6 @@ download_and_verify kimi \
 extract_and_install goose
 extract_and_install kimi
 
-for cli in claude opencode codex qwen crush goose kimi; do
+for cli in claude opencode codex pi qwen crush goose kimi; do
   "$cli" --version
 done

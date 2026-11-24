@@ -201,10 +201,20 @@ func (r *DevMachineRepository) CompleteManualCheck(ctx context.Context, op domai
 	if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_services SET status='stopped',health_status='stopped',stopped_at=now() WHERE id=$1`, step.ID); err != nil {
 		return err
 	}
+	if err = wakePipelineTick(ctx, tx, *task); err != nil {
+		return err
+	}
 	if err = validationEvent(ctx, tx, *task, step); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+// wakePipelineTick asks the tick of a pipeline task waiting for a check of
+// its own to read the result.
+func wakePipelineTick(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
+	_, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND pipeline AND state='awaiting_review'`, task.ID)
+	return err
 }
 func (r *DevMachineRepository) CreateManualCheckOutput(ctx context.Context, op domain.DevMachineOperation, chunk *domain.DevMachineLogChunk) error {
 	tx, _, step, err := r.manualCheckTransaction(ctx, op)

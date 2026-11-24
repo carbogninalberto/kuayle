@@ -16,6 +16,17 @@ const (
 	openCodeError      = `{"type":"error","timestamp":1762855203000,"sessionID":"ses_1","error":{"name":"APIError","data":{"message":"429 The model is overloaded, try again later","statusCode":429,"isRetryable":true}}}`
 )
 
+// OpenCode 2.3.2's events, recorded with `opencode run --format json`: the
+// envelope is unchanged, but an error carries {"type","message"}, a shell
+// tool's exit code moved to state.metadata.metadata.exit and its title is the
+// tool's name.
+const (
+	openCode2Error       = `{"type":"error","timestamp":1795529441353,"sessionID":"ses_df21b00e8ffekWT27Y4U2wGBaH","error":{"type":"provider.no-route","message":"Model unavailable: bogus/model"}}`
+	openCode2MissingTool = `{"type":"tool_use","timestamp":1795530098082,"sessionID":"ses_df2115153ffemDwcMmKNuIwQkr","part":{"partID":"prt_20def053d0016beaClWxTIj1DE","sessionID":"ses_df2115153ffemDwcMmKNuIwQkr","messageID":"msg_20deeb103001iVSTmTh7hMCUat","type":"tool","id":"call_00_hohq4illorkuiufwqgoys8q0","tool":"shell","state":{"status":"completed","input":{"command":"kuayle-missing-tool --version"},"output":"zsh:1: command not found: kuayle-missing-tool\n","title":"shell","metadata":{"metadata":{"status":"completed","truncated":false,"exit":127},"content":[{"type":"text","text":"zsh:1: command not found: kuayle-missing-tool\n"},{"type":"text","text":"Exit code: 127"}],"providerCall":{"executed":false},"providerResult":{"executed":false},"rawInput":"{\"command\": \"kuayle-missing-tool --version\"}"},"time":{"start":1795530097981,"end":1795530098082}}}}`
+	openCode2StepFinish  = `{"type":"step_finish","timestamp":1795530098084,"sessionID":"ses_df2115153ffemDwcMmKNuIwQkr","part":{"id":"prt_20def05a4001E9mroAWF2dDoGa","sessionID":"ses_df2115153ffemDwcMmKNuIwQkr","messageID":"msg_20deeb103001iVSTmTh7hMCUat","type":"step-finish","reason":"tool-calls","cost":0,"tokens":{"input":4004,"output":45,"reasoning":0,"cache":{"read":2048,"write":0}}}}`
+	openCode2Text        = `{"type":"text","timestamp":1795529558098,"sessionID":"ses_df21986abffefn2FxDuH6uZGLA","part":{"id":"prt_20de6c8480019CYaJDvWLNZcw1","sessionID":"ses_df21986abffefn2FxDuH6uZGLA","messageID":"msg_20de68fc3001owH7lmaCOaOEk7","type":"text","text":"done","time":{"start":1795529558088,"end":1795529558098}}}`
+)
+
 func openCodeText(text string) string {
 	return `{"type":"text","timestamp":1762855204000,"sessionID":"ses_1","part":{"id":"prt_4","sessionID":"ses_1","messageID":"msg_2","type":"text","text":"` + text + `","time":{"start":1762855203000,"end":1762855204000}}}`
 }
@@ -60,6 +71,25 @@ func TestOpenCodeRunWithAFinalTextSucceedsWithItAsTheSummary(t *testing.T) {
 	require.True(t, result.FinalMessage)
 	require.False(t, result.NoFinalMessage)
 	require.Equal(t, "Added the column and its test; go test ./... passes.", result.Summary)
+}
+
+func TestOpenCode2ErrorEventSaysWhichError(t *testing.T) {
+	result := NewOpenCodeProvider("").ParseResult(openCode2Error+"\n", "", 1)
+	require.Equal(t, "failed", result.Status)
+	require.Equal(t, "The harness reported an error: provider.no-route: Model unavailable: bogus/model", result.FailureReason)
+}
+
+func TestOpenCode2MissingCommandIsARiskNoteNamingTheCommand(t *testing.T) {
+	stdout := strings.Join([]string{openCodeStepStart, openCode2MissingTool, openCode2StepFinish, openCodeStepStart, openCode2Text}, "\n") + "\n"
+	result := NewOpenCodeProvider("").ParseResult(stdout, "", 0)
+	require.Equal(t, "succeeded", result.Status, "the agent concluded after the failing command")
+	require.Equal(t, "done", result.Summary)
+	require.Equal(t, []string{"tool command unavailable: kuayle-missing-tool --version"}, result.RiskNotes)
+
+	// Without a conclusion the unavailable command fails the run.
+	result = NewOpenCodeProvider("").ParseResult(strings.Join([]string{openCodeStepStart, openCode2MissingTool, openCode2StepFinish}, "\n"), "", 0)
+	require.Equal(t, "failed", result.Status)
+	require.Equal(t, []string{"tool command unavailable: kuayle-missing-tool --version"}, result.RiskNotes)
 }
 
 // Every harness whose final-message event Kuayle knows fails a run that

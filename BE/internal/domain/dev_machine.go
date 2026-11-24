@@ -458,10 +458,16 @@ type DevMachineAgentRun struct {
 	FailureCause *string         `json:"failure_cause,omitempty" db:"failure_cause"`
 	Environment  NullJSON        `json:"-" db:"environment"`
 	OutputCuts   json.RawMessage `json:"-" db:"output_cuts"`
-	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
-	StartedAt    *time.Time      `json:"started_at,omitempty" db:"started_at"`
-	CompletedAt  *time.Time      `json:"completed_at,omitempty" db:"completed_at"`
-	CancelledAt  *time.Time      `json:"cancelled_at,omitempty" db:"cancelled_at"`
+	// AgentRunUsage is what the run's harness reported it spent, its
+	// closing continuation included. UsageSessionTotal (set by the manager
+	// only) says the harness reported its session's running total, so
+	// CompleteAgentRun stores the run's share of it.
+	AgentRunUsage
+	UsageSessionTotal bool       `json:"-" db:"-"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	StartedAt         *time.Time `json:"started_at,omitempty" db:"started_at"`
+	CompletedAt       *time.Time `json:"completed_at,omitempty" db:"completed_at"`
+	CancelledAt       *time.Time `json:"cancelled_at,omitempty" db:"cancelled_at"`
 }
 
 type DevMachineAgentRunStep struct {

@@ -6,7 +6,7 @@ import test from 'node:test';
 import { upgradeAgentClis } from './upgrade-agent-clis.mjs';
 
 const files = ['devmachine/common/install-agent-clis.sh', 'devmachine/agent/Dockerfile', 'devmachine/ide/Dockerfile', 'devmachine/headless/Dockerfile'];
-const names = ['CLAUDE_CODE', 'OPENCODE', 'CODEX', 'QWEN', 'CRUSH', 'GOOSE', 'KIMI'];
+const names = ['CLAUDE_CODE', 'OPENCODE', 'CODEX', 'PI', 'QWEN', 'CRUSH', 'GOOSE', 'KIMI'];
 const now = Date.parse('2026-11-10T12:00:00Z');
 const hoursAgo = hours => new Date(now - hours * 3600000).toISOString();
 function fixture(t) {
@@ -45,7 +45,7 @@ const respond = build => async (url) => ({ ok: true, json: async () => build(url
 const checksums = (installer, name) => [...installer.matchAll(new RegExp(`${name}_sha256=(\\w+)`, 'g'))].map(m => m[1]);
 function assertPins(root, expected) {
   const [installer, agent, ide, headless] = read(root);
-  for (const name of ['CLAUDE_CODE', 'OPENCODE', 'CODEX', 'QWEN', 'GOOSE', 'KIMI']) {
+  for (const name of ['CLAUDE_CODE', 'OPENCODE', 'CODEX', 'PI', 'QWEN', 'GOOSE', 'KIMI']) {
     assert.match(installer, new RegExp(`^${name}_VERSION=${expected}$`, 'm'));
   }
   for (const name of ['CLAUDE_CODE', 'OPENCODE', 'CODEX']) assert.match(agent, new RegExp(`^ARG ${name}_VERSION=${expected}$`, 'm'));
@@ -53,7 +53,7 @@ function assertPins(root, expected) {
   return installer;
 }
 
-test('updates all seven CLIs, synchronized Dockerfile pins and both archive checksums', async (t) => {
+test('updates all eight CLIs, synchronized Dockerfile pins and both archive checksums', async (t) => {
   const root = fixture(t);
   const versions = await upgradeAgentClis(root, respond(metadata), { now });
   assert.deepEqual(versions, Object.fromEntries(names.map(name => [name, '9.8.7'])));
@@ -72,7 +72,7 @@ test('skips a version published an hour ago for the newest one older than the ga
   const installer = assertPins(root, '9.8.6');
   // Checksums come from the chosen release, not from the newest one.
   for (const name of ['goose', 'kimi']) assert.deepEqual(checksums(installer, name), ['61'.repeat(32), '62'.repeat(32)]);
-  assert.equal(lines.length, 7);
+  assert.equal(lines.length, 8);
   for (const line of lines) assert.match(line, /9\.8\.6.*9\.8\.7.*48 hours/);
 });
 
@@ -129,7 +129,7 @@ test('never downgrades and keeps the pins when nothing newer is old enough', asy
   assert.deepEqual(read(root), before);
   const pinned = name => before.join('\n').match(new RegExp(`^(?:ARG )?${name}_VERSION=(.+)$`, 'm'))[1];
   assert.deepEqual(versions, Object.fromEntries(names.map(name => [name, pinned(name)])));
-  assert.equal(lines.length, 7);
+  assert.equal(lines.length, 8);
   for (const line of lines) assert.match(line, /keeping .*9\.8\.7.*48 hours/);
 });
 
@@ -153,3 +153,24 @@ for (const scenario of ['http', 'version', 'no-stable-release', 'tag', 'asset', 
     assert.deepEqual(existing.map(file => readFileSync(join(root, file), 'utf8')), before);
   });
 }
+
+// A CLI that moves to a new npm package (OpenCode 2 is @opencode/cli) must be
+// resolved from the package the images install, or the pin follows a frozen line.
+test('resolves each npm CLI from the package the images install', async (t) => {
+  const root = fixture(t);
+  const requested = [];
+  await upgradeAgentClis(root, async (url) => {
+    requested.push(url);
+    return { ok: true, json: async () => metadata(url) };
+  }, { now });
+  const [installer, agent] = read(root);
+  const registry = 'https://registry.npmjs.org/';
+  const packages = requested.filter(url => url.startsWith(registry)).map(url => decodeURIComponent(url.slice(registry.length)));
+  assert.equal(packages.length, 5);
+  assert.ok(packages.includes('@earendil-works/pi-coding-agent'), 'Pi is resolved from its patched scope');
+  for (const pkg of packages) assert.ok(installer.includes(`"${pkg}@\${`), `install-agent-clis.sh installs ${pkg}`);
+  // The agent image's CLIs, not npm itself.
+  const agentPackages = [...agent.matchAll(/"([^"]+)@\$\{(?!NPM_)[A-Z_]+_VERSION\}"/g)].map(match => match[1]);
+  assert.equal(agentPackages.length, 3);
+  for (const pkg of agentPackages) assert.ok(packages.includes(pkg), `the agent image's ${pkg} is resolved`);
+});

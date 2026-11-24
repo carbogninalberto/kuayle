@@ -31,19 +31,19 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 	}
 	svc := newTestDevMachineService(store)
 	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, IssueID: issueID, MachineID: &machineID, CheckoutID: uuid.New()}
-	first, err := svc.checkoutTask(context.Background(), task)
+	first, err := svc.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	require.Equal(t, task.CheckoutID, first.ID)
 	require.NotEqual(t, manual.WorkspacePath, first.WorkspacePath)
 	require.NotEqual(t, manual.WorkingBranch, first.WorkingBranch)
-	recovered, err := svc.checkoutTask(context.Background(), task)
+	recovered, err := svc.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	require.Equal(t, first.ID, recovered.ID)
 	require.Len(t, store.checkouts, 2)
 	second := task
 	second.ID = uuid.New()
 	second.CheckoutID = uuid.New()
-	other, err := svc.checkoutTask(context.Background(), second)
+	other, err := svc.checkoutTask(context.Background(), second, false)
 	require.NoError(t, err)
 	require.NotEqual(t, first.WorkspacePath, other.WorkspacePath)
 	require.NotEqual(t, first.WorkingBranch, other.WorkingBranch)
@@ -53,12 +53,12 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 	// Task recovery never silently retries an exhausted checkout operation.
 	store.checkouts[1].Status = "failed"
 	store.createCheckoutCalled = false
-	failed, err := svc.checkoutTask(context.Background(), task)
+	failed, err := svc.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	require.Equal(t, "failed", failed.Status)
 	require.False(t, store.createCheckoutCalled)
 	task.Generation = 2
-	retried, err := svc.checkoutTask(context.Background(), task)
+	retried, err := svc.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	require.True(t, store.createCheckoutCalled)
 	require.Equal(t, first.WorkspacePath, retried.WorkspacePath)
@@ -68,7 +68,7 @@ func TestAgentTaskCheckoutsAreIsolatedAndRecoverable(t *testing.T) {
 	store.createCheckoutCalled = false
 	store.queuedOperation = store.checkoutOperation
 	store.queuedOperation.Status = domain.DevMachineOpStatusFailed
-	exhausted, err := svc.checkoutTask(context.Background(), task)
+	exhausted, err := svc.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	require.Equal(t, "failed", exhausted.Status)
 	require.False(t, store.createCheckoutCalled)
@@ -150,13 +150,23 @@ func (f *taskRuntimeFake) Cancel(context.Context, domain.AgentTask) error {
 type taskRuntimeStoreFake struct {
 	reservation repository.MachineReservation
 	err         error
+	// previous is what PreviousAttempt reports about the attempt before;
+	// previousCalls counts the reads.
+	previous      *domain.AgentHandoff
+	previousCalls int
+	// member is the pipeline member whose turns the task runs, if any.
+	member *domain.TaskMember
 }
 
 func (f *taskRuntimeStoreFake) ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error) {
 	return f.reservation, f.err
 }
 func (f *taskRuntimeStoreFake) PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error) {
-	return nil, nil
+	f.previousCalls++
+	return f.previous, nil
+}
+func (f *taskRuntimeStoreFake) TaskMember(context.Context, domain.AgentTask) (*domain.TaskMember, error) {
+	return f.member, nil
 }
 func (f *taskRuntimeStoreFake) CancelAttempt(context.Context, domain.AgentTask) error { return nil }
 func (f *taskRuntimeStoreFake) EnsurePublication(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
@@ -648,16 +658,16 @@ func TestSuccessorAttemptsReceiveABoundedRecordedHandoff(t *testing.T) {
 func TestTaskSessionResumesOnlyASucceededAttemptOnTheSameMachine(t *testing.T) {
 	machine, other := uuid.New(), uuid.New()
 	task := domain.AgentTask{ID: uuid.New(), Provider: "codex", MachineID: &machine}
-	resumable := &domain.AgentHandoff{Status: "succeeded", MachineID: machine, NativeSessionID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}
+	resumable := &domain.AgentHandoff{Provider: "codex", Status: "succeeded", MachineID: machine, NativeSessionID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}
 	session := taskSession(task, resumable)
 	require.Equal(t, "/workspace/.kuayle/agent-sessions/"+task.ID.String(), session.Dir)
 	require.Equal(t, resumable.NativeSessionID, session.ResumeID)
 	for name, previous := range map[string]*domain.AgentHandoff{
 		"first_attempt":  nil,
-		"failed":         {Status: "failed", MachineID: machine, NativeSessionID: resumable.NativeSessionID},
-		"other_machine":  {Status: "succeeded", MachineID: other, NativeSessionID: resumable.NativeSessionID},
-		"no_session":     {Status: "succeeded", MachineID: machine},
-		"unsafe_session": {Status: "succeeded", MachineID: machine, NativeSessionID: "--last"},
+		"failed":         {Provider: "codex", Status: "failed", MachineID: machine, NativeSessionID: resumable.NativeSessionID},
+		"other_machine":  {Provider: "codex", Status: "succeeded", MachineID: other, NativeSessionID: resumable.NativeSessionID},
+		"no_session":     {Provider: "codex", Status: "succeeded", MachineID: machine},
+		"unsafe_session": {Provider: "codex", Status: "succeeded", MachineID: machine, NativeSessionID: "--last"},
 	} {
 		require.Empty(t, taskSession(task, previous).ResumeID, name)
 	}
@@ -665,7 +675,7 @@ func TestTaskSessionResumesOnlyASucceededAttemptOnTheSameMachine(t *testing.T) {
 	fresh := taskSession(claude, nil)
 	require.Empty(t, fresh.ResumeID)
 	require.NotEmpty(t, fresh.NewID, "Claude sessions get a Kuayle-assigned ID")
-	resumed := taskSession(claude, &domain.AgentHandoff{Status: "succeeded", MachineID: machine, NativeSessionID: fresh.NewID})
+	resumed := taskSession(claude, &domain.AgentHandoff{Provider: "claude-code", Status: "succeeded", MachineID: machine, NativeSessionID: fresh.NewID})
 	require.Equal(t, fresh.NewID, resumed.ResumeID)
 	require.Empty(t, resumed.NewID)
 }
@@ -677,11 +687,11 @@ func TestTaskSessionResumesAFailedAttemptTheUserContinued(t *testing.T) {
 	machine, other := uuid.New(), uuid.New()
 	native := uuid.NewString()
 	claude := domain.AgentTask{ID: uuid.New(), Provider: "claude-code", MachineID: &machine}
-	resumed := taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native, ContinuedInteractively: true})
+	resumed := taskSession(claude, &domain.AgentHandoff{Provider: "claude-code", Status: "failed", MachineID: machine, NativeSessionID: native, ContinuedInteractively: true})
 	require.Equal(t, native, resumed.ResumeID)
 	require.Empty(t, resumed.NewID)
-	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: other, NativeSessionID: native, ContinuedInteractively: true}).ResumeID)
-	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native}).ResumeID, "a failed attempt alone is not resumed")
+	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Provider: "claude-code", Status: "failed", MachineID: other, NativeSessionID: native, ContinuedInteractively: true}).ResumeID)
+	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Provider: "claude-code", Status: "failed", MachineID: machine, NativeSessionID: native}).ResumeID, "a failed attempt alone is not resumed")
 }
 
 func TestProjectInstructionsPrecedeTheTaskWithinTheLimit(t *testing.T) {
@@ -770,14 +780,14 @@ func TestTaskCheckoutUsesAMachineThatServedAnotherRepository(t *testing.T) {
 	store, runtime, task := reusedMachineFixture(domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	previous := uuid.New()
 	store.machine.RepositoryAffinityID = &previous
-	checkout, err := runtime.machines.checkoutTask(context.Background(), task)
+	checkout, err := runtime.machines.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	require.Equal(t, "kuayle/web", checkout.RepositoryFullName)
 	require.Equal(t, "/workspace/tasks/eng-9-"+task.ID.String(), checkout.WorkspacePath)
 
 	store.policy.AllowedRepositories = json.RawMessage(`["kuayle/api"]`)
 	store.checkouts = nil
-	_, err = runtime.machines.checkoutTask(context.Background(), task)
+	_, err = runtime.machines.checkoutTask(context.Background(), task, false)
 	require.ErrorIs(t, err, ErrRepositoryNotAllowed)
 
 	// Manual checkouts keep the machine's own repository.
@@ -794,7 +804,7 @@ func TestTaskUsesTheTeamRepositoryAndExplainsAMissingOne(t *testing.T) {
 	setting := store.scopeSettings[scopeKey(nil, nil, &task.IssueID)]
 	delete(store.scopeSettings, scopeKey(nil, nil, &task.IssueID))
 	store.scopeSettings[scopeKey(&issue.TeamID, nil, nil)] = setting
-	checkout, err := runtime.machines.checkoutTask(context.Background(), task)
+	checkout, err := runtime.machines.checkoutTask(context.Background(), task, false)
 	require.NoError(t, err)
 	require.Equal(t, "kuayle/web", checkout.RepositoryFullName)
 
