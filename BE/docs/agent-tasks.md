@@ -590,8 +590,9 @@ failed resume is never repeated. Either
 way the prompt keeps the task instructions and appends a bounded handoff naming
 the previous attempt, its native outcome, a recorded pull request, up to 50 changed files and the previous agent's
 summary fenced as unverified text, because the harness never saw Kuayle's publication. An older handoff is replaced, not accumulated,
-and the prompt stays within the attempt limit. Crush and custom harnesses
-always start new sessions with the handoff: `crush run` prints only the
+and the prompt stays within the attempt limit. Pi, Crush and custom harnesses
+always start new sessions with the handoff: Pi runs with `--no-session`;
+`crush run` prints only the
 agent's text (no session ID) and `--session` continues only a session that
 exists, so Kuayle can neither record nor name one. An unknown ID fails a
 Claude Code, Qwen Code or Goose run; Kimi and OpenCode start a new session
@@ -2171,7 +2172,7 @@ Kuayle asks for the reply, not only the prompt:
   reply is asked for the replies in its
   [closing continuation](#closing-continuation), the one extra turn an
   attempt gets for whatever is missing (`domain.ReplyClosingAsk`; every
-  built-in harness but Crush, whose session Kuayle does not continue). The outbox is
+  built-in harness but Pi and Crush, whose sessions Kuayle does not continue). The outbox is
   collected again afterwards. It happens once; there is no loop.
 - **A missing reply never fails the attempt.** If there is still no reply the
   attempt stays as it ended: the work is checked and published as usual, with
@@ -2228,7 +2229,7 @@ message as above and, in the same transaction, acts on `mode`:
   (nothing is counted), with `resume_native_session` (so `claude --resume`,
   `codex exec resume`, `opencode run --session`, `qwen --resume`,
   `kimi --session` or `goose run --resume --name` continue the session, when
-  the same harness ran the interrupted attempt; Crush and custom harnesses get
+  the same harness ran the interrupted attempt; Pi, Crush and custom harnesses get
   the handoff) and the
   message in its prompt; the handoff says a person interrupted the attempt to
   say something and that the worktree is unchanged. It is not a pause: a

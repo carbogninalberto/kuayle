@@ -22,10 +22,11 @@ import (
 
 // agentCLITestImage are the image's pinned versions in these tests.
 var agentCLITestImage = map[string]string{
-	"@anthropic-ai/claude-code": "2.1.330",
-	"@opencode/cli":             "2.3.2",
-	"@openai/codex":             "0.171.0",
-	"@qwen-code/qwen-code":      "0.28.4",
+	"@anthropic-ai/claude-code":       "2.1.330",
+	"@opencode/cli":                   "2.3.2",
+	"@openai/codex":                   "0.171.0",
+	"@earendil-works/pi-coding-agent": "1.6.0",
+	"@qwen-code/qwen-code":            "0.28.4",
 }
 
 type cliVolumeFixture struct {
@@ -244,7 +245,7 @@ func TestAgentCLICheckSetsAsideAVolumeThatDoesNotFitTheImage(t *testing.T) {
 	}{
 		{
 			name:    "older than the image",
-			release: []string{"@anthropic-ai/claude-code@2.1.300", "@opencode/cli@2.3.2", "@openai/codex@0.171.0", "@qwen-code/qwen-code@0.28.4"},
+			release: []string{"@anthropic-ai/claude-code@2.1.300", "@opencode/cli@2.3.2", "@openai/codex@0.171.0", "@earendil-works/pi-coding-agent@1.6.0", "@qwen-code/qwen-code@0.28.4"},
 			publish: func(v *cliVolumeFixture) {
 				v.publish("@anthropic-ai/claude-code", "claude", "2.1.300", agentCLITestNow.Add(-60*24*time.Hour), "")
 			},
@@ -252,7 +253,7 @@ func TestAgentCLICheckSetsAsideAVolumeThatDoesNotFitTheImage(t *testing.T) {
 		},
 		{
 			name:    "the package was renamed",
-			release: []string{"@anthropic-ai/claude-code@2.1.330", "opencode-ai@1.19.6", "@openai/codex@0.171.0", "@qwen-code/qwen-code@0.28.4"},
+			release: []string{"@anthropic-ai/claude-code@2.1.330", "opencode-ai@1.19.6", "@openai/codex@0.171.0", "@earendil-works/pi-coding-agent@1.6.0", "@qwen-code/qwen-code@0.28.4"},
 			publish: func(v *cliVolumeFixture) {
 				v.publish("opencode-ai", "opencode", "1.19.6", agentCLITestNow.Add(-60*24*time.Hour), "")
 			},
@@ -260,7 +261,7 @@ func TestAgentCLICheckSetsAsideAVolumeThatDoesNotFitTheImage(t *testing.T) {
 		},
 		{
 			name:    "a newer version fails the flag contract",
-			release: []string{"@anthropic-ai/claude-code@2.1.330", "@opencode/cli@2.4.0", "@openai/codex@0.171.0", "@qwen-code/qwen-code@0.28.4"},
+			release: []string{"@anthropic-ai/claude-code@2.1.330", "@opencode/cli@2.4.0", "@openai/codex@0.171.0", "@earendil-works/pi-coding-agent@1.6.0", "@qwen-code/qwen-code@0.28.4"},
 			publish: func(v *cliVolumeFixture) {
 				v.publish("@opencode/cli", "opencode", "2.4.0", agentCLITestNow.Add(-3*24*time.Hour), "--auto")
 			},
@@ -282,7 +283,8 @@ func TestAgentCLICheckSetsAsideAVolumeThatDoesNotFitTheImage(t *testing.T) {
 			require.Empty(t, volume.link("current"), "PATH falls through to the image's CLIs")
 			require.Equal(t, agentCLITestImage, map[string]string{
 				"@anthropic-ai/claude-code": volume.machineRuns("claude"), "@opencode/cli": volume.machineRuns("opencode"),
-				"@openai/codex": volume.machineRuns("codex"), "@qwen-code/qwen-code": volume.machineRuns("qwen"),
+				"@openai/codex": volume.machineRuns("codex"), "@earendil-works/pi-coding-agent": volume.machineRuns("pi"),
+				"@qwen-code/qwen-code": volume.machineRuns("qwen"),
 			})
 			require.Equal(t, "releases/20261101000000", volume.link("rejected"))
 			require.DirExists(t, old, "a run that started from it keeps its files")
@@ -300,7 +302,7 @@ func TestAgentCLICheckKeepsAVolumeThatFitsTheImage(t *testing.T) {
 	volume := newCLIVolumeFixture(t)
 	volume.publishImageVersions()
 	volume.publish("@openai/codex", "codex", "0.172.1", agentCLITestNow.Add(-3*24*time.Hour), "")
-	volume.release("20261120000000", "@anthropic-ai/claude-code@2.1.330", "@opencode/cli@2.3.2", "@openai/codex@0.172.1", "@qwen-code/qwen-code@0.28.4")
+	volume.release("20261120000000", "@anthropic-ai/claude-code@2.1.330", "@opencode/cli@2.3.2", "@openai/codex@0.172.1", "@earendil-works/pi-coding-agent@1.6.0", "@qwen-code/qwen-code@0.28.4")
 
 	result, stderr, err := volume.helper("check", agentCLITestNow)
 	require.NoError(t, err, stderr)
@@ -325,7 +327,7 @@ func TestAgentCLIRefreshUpgradesAnOldVolume(t *testing.T) {
 	volume.publishImageVersions()
 	volume.publish("@anthropic-ai/claude-code", "claude", "2.1.300", agentCLITestNow.Add(-60*24*time.Hour), "")
 	volume.publish("opencode-ai", "opencode", "1.19.6", agentCLITestNow.Add(-60*24*time.Hour), "")
-	old := volume.release("20261101000000", "@anthropic-ai/claude-code@2.1.300", "opencode-ai@1.19.6", "@openai/codex@0.171.0", "@qwen-code/qwen-code@0.28.4")
+	old := volume.release("20261101000000", "@anthropic-ai/claude-code@2.1.300", "opencode-ai@1.19.6", "@openai/codex@0.171.0", "@earendil-works/pi-coding-agent@1.6.0", "@qwen-code/qwen-code@0.28.4")
 	volume.publish("@opencode/cli", "opencode", "2.3.5", agentCLITestNow.Add(-3*24*time.Hour), "")
 	volume.publish("@opencode/cli", "opencode", "2.3.6", agentCLITestNow.Add(-time.Hour), "") // too new
 
@@ -333,7 +335,8 @@ func TestAgentCLIRefreshUpgradesAnOldVolume(t *testing.T) {
 	require.NoError(t, err, stderr)
 	require.Equal(t, "changed", result.State)
 	require.Equal(t, map[string]string{
-		"@anthropic-ai/claude-code": "2.1.330", "@opencode/cli": "2.3.5", "@openai/codex": "0.171.0", "@qwen-code/qwen-code": "0.28.4",
+		"@anthropic-ai/claude-code": "2.1.330", "@opencode/cli": "2.3.5", "@openai/codex": "0.171.0",
+		"@earendil-works/pi-coding-agent": "1.6.0", "@qwen-code/qwen-code": "0.28.4",
 	}, result.Versions)
 	require.Equal(t, "2.3.5", volume.machineRuns("opencode"))
 	require.Equal(t, "2.1.330", volume.machineRuns("claude"))
@@ -368,7 +371,7 @@ func TestAgentCLIRefreshDiscardsVersionsThatFailTheFlagContract(t *testing.T) {
 		volume := newCLIVolumeFixture(t)
 		volume.publishImageVersions()
 		volume.publish("@opencode/cli", "opencode", "2.3.5", agentCLITestNow.Add(-5*24*time.Hour), "")
-		current := volume.release("20261120000000", "@anthropic-ai/claude-code@2.1.330", "@opencode/cli@2.3.5", "@openai/codex@0.171.0", "@qwen-code/qwen-code@0.28.4")
+		current := volume.release("20261120000000", "@anthropic-ai/claude-code@2.1.330", "@opencode/cli@2.3.5", "@openai/codex@0.171.0", "@earendil-works/pi-coding-agent@1.6.0", "@qwen-code/qwen-code@0.28.4")
 		volume.publish("@opencode/cli", "opencode", "2.5.0", agentCLITestNow.Add(-3*24*time.Hour), "--auto")
 
 		result, stderr, err := volume.helper("refresh", agentCLITestNow.Add(-48*time.Hour))
@@ -384,7 +387,7 @@ func TestAgentCLIRefreshDiscardsVersionsThatFailTheFlagContract(t *testing.T) {
 		volume := newCLIVolumeFixture(t)
 		volume.publishImageVersions()
 		volume.publish("opencode-ai", "opencode", "1.19.6", agentCLITestNow.Add(-60*24*time.Hour), "")
-		volume.release("20261101000000", "@anthropic-ai/claude-code@2.1.330", "opencode-ai@1.19.6", "@openai/codex@0.171.0", "@qwen-code/qwen-code@0.28.4")
+		volume.release("20261101000000", "@anthropic-ai/claude-code@2.1.330", "opencode-ai@1.19.6", "@openai/codex@0.171.0", "@earendil-works/pi-coding-agent@1.6.0", "@qwen-code/qwen-code@0.28.4")
 		volume.publish("@opencode/cli", "opencode", "2.5.0", agentCLITestNow.Add(-3*24*time.Hour), "--auto")
 
 		result, stderr, err := volume.helper("refresh", agentCLITestNow.Add(-48*time.Hour))
