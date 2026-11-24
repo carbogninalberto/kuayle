@@ -23,7 +23,7 @@ type agentImageIdentity interface {
 var agentCLIVersionPackages = map[string]string{
 	"claude-code": "@anthropic-ai/claude-code",
 	"codex":       "@openai/codex",
-	"opencode":    "opencode-ai",
+	"opencode":    "@opencode/cli",
 	"qwen-code":   "@qwen-code/qwen-code",
 }
 

@@ -2364,8 +2364,10 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   and, in `model_formats`, the form and an example of a harness's model
   names when they are not bare names, which the profile form shows.
   OpenCode's model is `provider/model` (`opencode-go/deepseek-v4.1-flash`)
-  and its effort is passed on as the model's variant; a task start accepts
-  any of Kuayle's levels. A profile save also checks a model of OpenCode's
+  and its effort is passed on as the model's variant
+  (`provider/model#level`; without a model the effort is not passed); a
+  task start accepts any of Kuayle's levels, and OpenCode fails a run whose
+  model lacks that variant. A profile save also checks a model of OpenCode's
   Go plan (`opencode-go/…`) and its effort against the
   [model catalog](../../TECHNICAL.md#agent-model-catalog) when that list is
   in memory (`validateCatalogModel`): an unknown model or an effort the
@@ -3365,9 +3367,10 @@ a resume forgets the pause and starts a new visit, as a retry always does.
 **Unknown model.** When the provider does not offer the run's model, the run
 error is `model_not_found: <model>` and the rule `provider` / `model_not_found`.
 The model is read from OpenCode's `ProviderModelNotFoundError` ("Model not
-found: <model>"), which OpenCode reports as "UnknownError: Unexpected server
-error" in its event and names only in its `level=ERROR` log line on standard
-error, from Anthropic's `not_found_error` ("model: <model>"), Claude Code's
+found: <model>"), which OpenCode 1.x reports as "UnknownError: Unexpected
+server error" in its event and names only in its `level=ERROR` log line on
+standard error, from OpenCode 2's error event ("Model unavailable: <model>",
+type `provider.no-route`), from Anthropic's `not_found_error` ("model: <model>"), Claude Code's
 "There's an issue with the selected model (<model>)", and OpenAI's "The model
 `<model>` does not exist or you do not have access to it" or `model_not_found`.
 The task fails at once with class `provider` and a reason naming the model and

@@ -224,12 +224,14 @@ func TestOpenCodeProviderBuildInvocation(t *testing.T) {
 	p := NewOpenCodeProvider("")
 	inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix bug"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--", "fix bug"}, inv.Argv)
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone", "--", "fix bug"}, inv.Argv)
 	require.Equal(t, "/workspace", inv.WorkingDir)
 	require.False(t, inv.Interactive)
 	// An unattended run never undoes an edit, so it starts with OpenCode's git
 	// snapshots off; the inline configuration is merged over the project's file.
-	require.Equal(t, map[string]string{"OPENCODE_CONFIG_CONTENT": `{"snapshot":false}`}, inv.Environment)
+	// OpenCode 2's private server reads its log level only from the
+	// environment: without it --print-logs streams every INFO line.
+	require.Equal(t, map[string]string{"OPENCODE_CONFIG_CONTENT": `{"snapshot":false}`, "OPENCODE_LOG_LEVEL": "WARN"}, inv.Environment)
 }
 
 // The terminal is the user's own session, where undo works: it keeps
@@ -241,10 +243,18 @@ func TestOpenCodeInteractiveSessionKeepsSnapshots(t *testing.T) {
 	require.True(t, inv.Interactive)
 	require.NotContains(t, inv.Environment, "OPENCODE_CONFIG_CONTENT")
 	require.Empty(t, inv.Environment)
+
+	// OpenCode 2's terminal UI has no --model flag: the model is its
+	// configuration's, still without the snapshot setting.
+	inv, err = p.BuildInvocation(RunInput{Mode: ModeInteractive, Prompt: "fix bug", Model: "opencode-go/deepseek-v4.1-flash"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"opencode"}, inv.Argv)
+	require.Equal(t, map[string]string{"OPENCODE_CONFIG_CONTENT": `{"model":"opencode-go/deepseek-v4.1-flash"}`}, inv.Environment)
 }
 
-// OpenCode takes its model as --model provider/model and Kuayle's effort as
-// --variant; "off" and an empty effort leave the variant to OpenCode.
+// OpenCode 2 takes its model as --model provider/model and Kuayle's effort
+// as the model's variant, provider/model#variant; "off" and an empty effort
+// leave the variant to OpenCode. Without a model there is no variant to pick.
 func TestOpenCodeProviderPassesModelAndEffort(t *testing.T) {
 	p := NewOpenCodeProvider("")
 	const model = "opencode-go/deepseek-v4.1-flash"
@@ -255,18 +265,16 @@ func TestOpenCodeProviderPassesModelAndEffort(t *testing.T) {
 		require.NoError(t, err)
 		return inv.Argv
 	}
+	run := []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone"}
+	with := func(args ...string) []string { return append(append([]string(nil), run...), args...) }
 
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--variant", "high", "--", "fix bug"},
-		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "high"}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--", "fix bug"},
-		argv(RunInput{Mode: ModeAutonomous, Model: model}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--", "fix bug"},
-		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "off"}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--variant", "max", "--", "fix bug"},
-		argv(RunInput{Mode: ModeAutonomous, Thinking: "max"}))
+	require.Equal(t, with("--model", model+"#high", "--", "fix bug"), argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "high"}))
+	require.Equal(t, with("--model", model, "--", "fix bug"), argv(RunInput{Mode: ModeAutonomous, Model: model}))
+	require.Equal(t, with("--model", model, "--", "fix bug"), argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "off"}))
+	require.Equal(t, with("--", "fix bug"), argv(RunInput{Mode: ModeAutonomous, Thinking: "max"}))
 
-	// The terminal UI takes a model but has no variant flag.
-	require.Equal(t, []string{"opencode", "--model", model}, argv(RunInput{Mode: ModeInteractive, Model: model, Thinking: "high"}))
+	// The terminal UI takes neither flag.
+	require.Equal(t, []string{"opencode"}, argv(RunInput{Mode: ModeInteractive, Model: model, Thinking: "high"}))
 	require.Equal(t, []string{"opencode"}, argv(RunInput{Mode: ModeInteractive}))
 }
 
@@ -277,7 +285,7 @@ func TestOpenCodeProviderKeepsThePromptOutOfItsFlags(t *testing.T) {
 	for _, prompt := range []string{"--auto fix the build", "-m other/model", "--help"} {
 		inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: prompt, Model: "opencode-go/deepseek-v4.1-flash", ExtraArgs: []string{"--agent", "build"}})
 		require.NoError(t, err)
-		require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
+		require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
 	}
 }
 

@@ -471,12 +471,19 @@ function openCodePart(
 		case 'tool_use': {
 			const state = isObject(part.state) ? part.state : {};
 			const name = str(part.tool) || 'tool';
-			const command = name === 'bash';
+			// OpenCode 2 names its shell tool "shell" and titles a call with the
+			// tool's name; it keeps the tool's own metadata one level down.
+			const command = name === 'bash' || name === 'shell';
 			const input = isObject(state.input) ? state.input : {};
-			const title = str(state.title).trim();
+			const title = str(state.title).trim() === name ? '' : str(state.title).trim();
 			const argument = primaryArgument(input);
 			const status = str(state.status);
-			const exit = isObject(state.metadata) ? num(state.metadata.exit) : undefined;
+			const metadata = isObject(state.metadata)
+				? isObject(state.metadata.metadata)
+					? state.metadata.metadata
+					: state.metadata
+				: {};
+			const exit = num(metadata.exit);
 			const failed = status === 'error' || (exit !== undefined && exit !== 0);
 			const next: ToolStatus = failed ? 'failed' : status === 'completed' ? 'done' : 'running';
 			const clock = isObject(state.time) ? state.time : {};

@@ -13,7 +13,7 @@ ARG PROVIDER
 ARG TARGETARCH
 ARG NPM_VERSION=12.2.0
 ARG CLAUDE_CODE_VERSION=2.1.330
-ARG OPENCODE_VERSION=1.19.6
+ARG OPENCODE_VERSION=2.3.2
 ARG CODEX_VERSION=0.171.0
 
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
@@ -27,7 +27,7 @@ RUN apk upgrade --no-cache \
     && npm install -g "npm@${NPM_VERSION}" \
     && case "$PROVIDER" in \
          claude-code) npm install -g --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" ;; \
-         opencode) npm install -g --allow-scripts=opencode-ai "opencode-ai@${OPENCODE_VERSION}" ;; \
+         opencode) npm install -g --allow-scripts=@opencode/cli "@opencode/cli@${OPENCODE_VERSION}" ;; \
          codex) npm install -g "@openai/codex@${CODEX_VERSION}" ;; \
          *) echo "unsupported provider: $PROVIDER" >&2; exit 1 ;; \
        esac \

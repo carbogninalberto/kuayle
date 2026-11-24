@@ -223,7 +223,7 @@ func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
 
 		"--allow-scripts=@anthropic-ai/claude-code",
 
-		"--allow-scripts=opencode-ai",
+		"--allow-scripts=@opencode/cli",
 
 		"@qwen-code/qwen-code",
 

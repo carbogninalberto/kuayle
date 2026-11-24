@@ -38,7 +38,7 @@ func runAgentForTrace(t *testing.T, execution *AgentExecution, configure func(*d
 		configure(run, store, runtime)
 	}
 	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/opencode:test")), nil, make([]byte, 32), make([]byte, 32), "test")
-	manager.agentCLIVersions = map[string]string{"opencode-ai": "1.2.3"}
+	manager.agentCLIVersions = map[string]string{"@opencode/cli": "1.2.3"}
 	require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
 		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID, Action: domain.DevMachineOpRunAgent, Generation: 1,
 	}))
@@ -277,7 +277,7 @@ func TestAnAuthorizationFailureMidRunIsPolicy(t *testing.T) {
 // The harness version is recorded once, when the run starts. A run's end may
 // be long after a shared CLI refresh, so it never replaces what started.
 func TestTheHarnessVersionIsRecordedOnceAtTheStart(t *testing.T) {
-	manager := &Manager{agentCLIVersions: map[string]string{"opencode-ai": "2.0.0"}}
+	manager := &Manager{agentCLIVersions: map[string]string{"@opencode/cli": "2.0.0"}}
 	run := &domain.DevMachineAgentRun{
 		ProviderID:  "opencode",
 		Environment: domain.NullJSON([]byte(`{"harness_version":"1.0.0","harness_version_from":"shared agent CLI refresh"}`)),

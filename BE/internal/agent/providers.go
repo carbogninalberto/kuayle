@@ -119,22 +119,28 @@ type openCodeProvider struct {
 
 // openCodeRunConfig is OpenCode's inline configuration for an unattended run:
 // its git snapshots are off, as Kuayle never undoes an edit there and their
-// copy of the worktree spends the workspace volume.
+// copy of the worktree spends the workspace volume. OpenCode 2 still reads the
+// 1.x key "snapshot" (its own is "snapshots").
 const openCodeRunConfig = `{"snapshot":false}`
 
 func (p *openCodeProvider) Metadata() Metadata { return p.metadata }
 
-// OpenCode takes its model as --model provider/model and Kuayle's effort as
-// --variant (its name for a model's reasoning effort; "off" leaves it to
-// OpenCode). The terminal UI has no variant flag. The prompt follows "--" as
+// OpenCode 2 takes its model as --model provider/model and Kuayle's effort as
+// the model's variant, provider/model#variant ("off" leaves it to OpenCode);
+// without a model there is no variant to select, so the effort is dropped. A
+// variant the model lacks fails the run. The terminal UI has neither flag: it
+// reads the model from OPENCODE_CONFIG_CONTENT. The prompt follows "--" as
 // one argument: without it OpenCode's argument parser reads a prompt that
 // begins with a dash as its own flags (--help, --auto), so extra arguments
 // go before it. Unattended runs cannot answer OpenCode's permission prompts,
-// which it auto-rejects and then ends the session, so autonomous runs pass
-// --auto; the container is the boundary, as for Claude Code's bypassPermissions.
+// which it rejects, so autonomous runs pass --auto; the container is the
+// boundary, as for Claude Code's bypassPermissions. --standalone runs a private
+// server for the run instead of looking for a background service.
 // In autonomous runs OpenCode keeps its log at $XDG_DATA_HOME/opencode/log
 // in the per-run directory. It also prints warnings and errors to standard
-// error so the run's failure cause can quote them after cleanup.
+// error so the run's failure cause can quote them after cleanup: --log-level
+// sets the client's level and OPENCODE_LOG_LEVEL the private server's, which
+// otherwise prints every INFO line.
 //
 // Autonomous runs also start with OpenCode's git snapshots off, through
 // OPENCODE_CONFIG_CONTENT, which OpenCode merges over the project's
@@ -154,22 +160,24 @@ func (p *openCodeProvider) BuildInvocation(input RunInput) (Invocation, error) {
 		workingDir = "/workspace"
 	}
 	argv := []string{"opencode"}
+	var environment map[string]string
 	if input.Mode == ModeAutonomous {
-		argv = append(argv, "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN")
-	}
-	if input.Model != "" {
-		argv = append(argv, "--model", input.Model)
-	}
-	if input.Mode == ModeAutonomous && input.Thinking != "" && input.Thinking != "off" {
-		argv = append(argv, "--variant", input.Thinking)
+		argv = append(argv, "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone")
+		if input.Model != "" {
+			model := input.Model
+			if input.Thinking != "" && input.Thinking != "off" {
+				model += "#" + input.Thinking
+			}
+			argv = append(argv, "--model", model)
+		}
+		environment = map[string]string{"OPENCODE_CONFIG_CONTENT": openCodeRunConfig, "OPENCODE_LOG_LEVEL": "WARN"}
+	} else if input.Model != "" {
+		config, _ := json.Marshal(map[string]string{"model": input.Model})
+		environment = map[string]string{"OPENCODE_CONFIG_CONTENT": string(config)}
 	}
 	argv = append(argv, input.ExtraArgs...)
 	if input.Mode == ModeAutonomous {
 		argv = append(argv, "--", input.Prompt)
-	}
-	var environment map[string]string
-	if input.Mode == ModeAutonomous {
-		environment = map[string]string{"OPENCODE_CONFIG_CONTENT": openCodeRunConfig}
 	}
 	return Invocation{
 		Image:       p.metadata.DefaultImage,
@@ -284,13 +292,17 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 				lastAssistantText, concluded, harnessError = text, true, ""
 			}
 		}
-		// OpenCode's top-level error ({"type":"error","error":{"name","data":
-		// {"message"}}}) ends the session, also with exit code 0.
+		// OpenCode's top-level error ends the session, also with exit code 0:
+		// 1.x writes {"name","data":{"message"}}, 2.x {"type","message"}.
 		if failure, ok := evt["error"].(map[string]any); ok && typ == "error" {
 			concluded = false
 			name, _ := failure["name"].(string)
 			data, _ := failure["data"].(map[string]any)
 			message, _ := data["message"].(string)
+			if name == "" && message == "" {
+				name, _ = failure["type"].(string)
+				message, _ = failure["message"].(string)
+			}
 			harnessError = strings.TrimSpace(strings.Trim(name+": "+strings.Join(strings.Fields(message), " "), ": "))
 			if harnessError == "" {
 				harnessError = "unknown error"
@@ -337,9 +349,19 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 		if typ == "tool_use" {
 			state, _ := part["state"].(map[string]any)
 			metadata, _ := state["metadata"].(map[string]any)
+			// OpenCode 2 nests the tool's own metadata one level down.
+			if nested, ok := metadata["metadata"].(map[string]any); ok {
+				metadata = nested
+			}
 			exitCode, hasExitCode := metadata["exit"].(float64)
 			tool, _ := part["tool"].(string)
 			title, _ := state["title"].(string)
+			// OpenCode 2's title is the tool's name; the command says more.
+			if input, _ := state["input"].(map[string]any); title == "" || title == tool {
+				if command, ok := input["command"].(string); ok && command != "" {
+					title = command
+				}
+			}
 			if title == "" {
 				title = tool
 			}

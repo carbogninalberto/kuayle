@@ -22,7 +22,7 @@ case "$target_arch" in
 esac
 
 CLAUDE_CODE_VERSION=2.1.330
-OPENCODE_VERSION=1.19.6
+OPENCODE_VERSION=2.3.2
 CODEX_VERSION=0.171.0
 QWEN_VERSION=0.28.4
 GOOSE_VERSION=1.60.2
@@ -30,7 +30,7 @@ KIMI_VERSION=1.52.0
 
 # Crush is built from source in the image (see the crush-build stage) and only verified here.
 npm install --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
-npm install --global --allow-scripts=opencode-ai "opencode-ai@${OPENCODE_VERSION}"
+npm install --global --allow-scripts=@opencode/cli "@opencode/cli@${OPENCODE_VERSION}"
 npm install --global "@openai/codex@${CODEX_VERSION}"
 npm install --global --allow-scripts=@qwen-code/qwen-code "@qwen-code/qwen-code@${QWEN_VERSION}"
 # qwen-code 0.26.1 bundles sharp 0.35.4 (GHSA-wq5f-xc86-pv6w); 0.35.5 is the patch release.
