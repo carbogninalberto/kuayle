@@ -145,7 +145,8 @@ export interface PipelineMember {
 
 /**
  * An experimental pipeline (KUA-252): ordered phases with checks, worked by a
- * roster of roles. It is shown read only, and no task runs on one yet.
+ * roster of roles. It is shown read only; with the server's switch on, tasks
+ * run on it.
  */
 export interface PipelineDefinition {
 	kind: 'pipeline';
@@ -282,6 +283,8 @@ export interface WorkflowStepRun {
 	created_at: string;
 	started_at?: string | null;
 	completed_at?: string | null;
+	/** On a pipeline task: the role whose turn the run was. */
+	role?: string | null;
 }
 
 export type WorkflowStatus = 'entering' | 'running' | 'waiting' | 'paused' | 'done' | 'failed';

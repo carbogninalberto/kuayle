@@ -22,15 +22,16 @@ const list = {
 };
 const labels = { default: 'Issue default', standard: 'Standard' };
 
-test('only workflows a task can start on are offered (no pipeline yet)', () => {
+test('only workflows a task can start on are offered, pipelines among them', () => {
 	assert.deepEqual(
 		customWorkflows(list).map((w) => w.id),
-		['loop']
+		['loop', 'team']
 	);
 	assert.deepEqual(workflowOptions(list, labels), [
 		{ value: 'default', label: 'Issue default' },
 		{ value: 'standard', label: 'Standard' },
-		{ value: 'loop', label: 'Review loop' }
+		{ value: 'loop', label: 'Review loop' },
+		{ value: 'team', label: 'Team' }
 	]);
 	assert.deepEqual(customWorkflows(null), []);
 });
@@ -38,8 +39,8 @@ test('only workflows a task can start on are offered (no pipeline yet)', () => {
 test('a proposed workflow the list no longer offers keeps its own option', () => {
 	const options = workflowOptions(list, labels, { id: 'old', name: 'Old flow' });
 	assert.deepEqual(options.at(-1), { value: 'old', label: 'Old flow' });
-	assert.equal(workflowOptions(list, labels, { id: 'loop', name: 'Review loop' }).length, 3);
-	assert.equal(workflowOptions(list, labels, { id: 'standard', name: 'Standard' }).length, 3);
+	assert.equal(workflowOptions(list, labels, { id: 'loop', name: 'Review loop' }).length, 4);
+	assert.equal(workflowOptions(list, labels, { id: 'standard', name: 'Standard' }).length, 4);
 });
 
 test('a custom choice and a custom default are told apart from Standard', () => {

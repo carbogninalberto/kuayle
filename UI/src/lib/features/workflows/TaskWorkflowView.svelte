@@ -42,9 +42,11 @@
 	// the agent view, and this only what it runs on.
 	const graphRun = $derived(shared.pipeline ? null : run);
 	const overlay = $derived(graphRun ? runOverlay(graphRun) : null);
-	const decision = $derived(graphRun ? pendingDecision(graphRun) : null);
+	// A pipeline's owner approves the head, or continues or stops where its
+	// tick paused; it has nothing to deny.
+	const decision = $derived(run ? pendingDecision(run) : null);
 	const nodeLabel = (id: string | null | undefined) =>
-		(id && run?.graph.nodes.find((n) => n.id === id)?.label) || id || '';
+		(id && (shared.pipeline?.phases.find((p) => p.id === id) ?? run?.graph.nodes?.find((n) => n.id === id))?.label) || id || '';
 
 	// The chart runs left to right at a readable size, opens on the step the
 	// task is at and pans when the panel is narrower; Expand shows it full-screen.
@@ -120,9 +122,9 @@
 				<div class="flex flex-wrap gap-2">
 					{#if decision.kind === 'approval'}
 						<Button size="sm" disabled={deciding} onclick={() => decide('approve')}>{m['workflows.task.approve']()}</Button>
-						<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('deny')}
-							>{m['workflows.task.deny']()}</Button
-						>
+						{#if !shared.pipeline}<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('deny')}
+								>{m['workflows.task.deny']()}</Button
+							>{/if}
 					{:else}
 						<Button size="sm" disabled={deciding} onclick={() => decide('continue')}
 							>{m['workflows.task.continue']()}</Button

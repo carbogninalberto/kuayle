@@ -2845,11 +2845,14 @@ graph's.
   (implement, pull request, review, CI checks, approval, merge; the built-in
   implementer and reviewer; no lead). Off, creating, saving or duplicating one
   answers `403 PIPELINES_DISABLED`.
-- No task runs on a pipeline yet, even with the switch on: starting one, or
-  making it a default, answers `409 PIPELINE_NOT_RUNNABLE`.
-  `ParseWorkflowGraph` refuses a pipeline, so the graph engine never runs one.
-  Standard stays a graph, the task composer and **Continue on another
-  workflow…** do not offer pipelines, and a move between kinds is refused as
+- With the switch on, a task starts on a pipeline (chosen in the task
+  composer, or as a scope default): its first turn is the writer's, with the
+  writer's profile (every role's profile is checked against the workspace
+  policy first), and the task is marked `pipeline` (also in its JSON, so every
+  view knows) and run by its tick, below. Off, starting one answers
+  `403 PIPELINES_DISABLED`. `ParseWorkflowGraph` refuses a pipeline, so the
+  graph engine never runs one. Standard stays a graph, **Continue on another
+  workflow…** does not offer pipelines, and a move between kinds is refused as
   `workflow_kind`.
 - The editor shows a pipeline read only with a notice (`PipelineView.svelte`).
   A pipeline's roster and lead keep their profiles in use like graph steps do.
@@ -2911,7 +2914,10 @@ graph's.
   (`GET /agent-tasks/:taskId/workflow`, `StepRuns`) lists the runs of its
   members' tasks with the `role` each played (its own runs are its writer's);
   a member run's transcript is read through its `task_id`, the member task,
-  which has the root's creator. Starting a task on a pipeline is still refused.
+  which has the root's creator. A member's next turn fetches its worktree
+  again first (a review task's later generation re-queues its checkout once),
+  so it reads the newest head; a member's turn that ends in any way (failed or
+  cancelled too) wakes the root's tick.
 - **Verdicts** (table `task_verdicts`; `agent_reviews` stays for requested
   reviews): a `verdict` post counts only from the member task of its role
   (`author_member_id`), for the commit its turn reads or one Kuayle published
@@ -2931,8 +2937,72 @@ graph's.
   reason. The room is read once, kept by `task.room_message` events
   (`ConversationState.taskRooms`, once per `seq`) and read on from the last
   unbroken `seq` when the task's run is read again or a post arrives after a
-  gap. The composer posts a `say` there (text only, with a `request_id`). The
+  gap. The composer posts a `say` there (text only, with a `request_id`)
+  for any task marked `pipeline`; a person's post wakes the task's tick. The
   side panel names the pipeline and draws no graph.
+- **Tick** (KUA-273; `service/team_tick.go`, `repository/pipeline_tick.go`):
+  runs a task marked `pipeline` instead of the graph runner, without a lead and
+  with one writer. The root task is the writer: its turns are its iterations;
+  when one ends (or fails: the failure is posted as a `turn` fact) the task
+  waits in `awaiting_review`, where a pass runs on every wake. Its position is
+  the workflow columns (`workflow_node` is the phase, `workflow_status`,
+  `workflow_wake_at`, `workflow_sequence`, `workflow_iterations` counts the
+  turns charged, the budget clock), and its memory between passes is
+  `agent_tasks.pipeline_state` (migration 000208). Every save is fenced by the
+  worker lease, the task's `workflow-runner` advisory lock and its sequence. A
+  pass:
+  1. reads the newest pull request Kuayle published from the root's attempts
+     (`PublishedWork`) with `readTaskFacts`, each role's verdict (one on an
+     older commit counts for the head only when the head is that commit plus
+     merges of the base Kuayle verified, `verifiedUpdates`), the owner's
+     approval (bound the same way), the board's overlap and the room since the
+     last pass (a creator's `waiver` holds for the head the room last named).
+     A pull request that cannot be read is waited for: nothing is posted or
+     sent, and the pass runs again in a minute;
+  2. posts a Kuayle `fact` for each fact whose value changed (failing CI with
+     its checks' details; a blocking fact with its reason and next step);
+  3. takes the first phase with a required check that does not hold (and is
+     not waived for the head) as the current one, and posts `phase` when it
+     changes;
+  4. acts through the existing code, each action once per head or turn:
+     publishes the writer's finished turn when it changed the work or nothing
+     is published; asks each role whose verdict the current phase requires and
+     that has none for the head (`StartMemberTurn(..., askVerdict)`; Kuayle may
+     not post `request`); brings a branch behind its base that merges cleanly
+     up to date (`updateBranch`, at most `maxMergeUpdates` per published
+     commit); runs failed Actions jobs once more when CI still fails on a head
+     the writer was sent and did not change; waits for the owner's approval at
+     a phase with an unmet `approved` check (the creator, or an owner or admin
+     who can see the issue, approves the head with `POST .../workflow/decision`
+     `approve`, offered in the task's workflow panel; the time budget is held
+     meanwhile); and at the guarded last
+     phase merges through the merge gate as the approver, who must still be
+     allowed to decide. A merged pull request completes the task, as does a
+     pipeline without a guarded phase once every check holds; a merge the gate
+     refuses is a fact, not retried on that head;
+  5. starts a turn for every idle role whose unread posts call for one
+     (`domain.RoomWakes`: a post addressed to it, or a `say`, `ask` or
+     `request` a person or another role wrote to everyone);
+  6. when nobody works, nothing is under way and nothing changes by itself
+     (CI running, a fact not readable, the owner's approval), posts the current
+     phase's unmet checks with their reasons as a `summary` to its owner (the
+     writer for a phase Kuayle owns), which starts the writer's turn; after
+     three such passes in a row on the same head and checks it pauses
+     (`blocked`, status `paused`) and asks a person (the workflow panel's
+     Continue and Stop): `continue` asks every role
+     again and counts anew (with another budget when it is used up), `stop`
+     fails the task;
+  7. charges every turn it starts, and the working time, to the pipeline's
+     budget like a graph workflow's iterations: used up, `ask` pauses and
+     `fail` fails;
+  8. waits for the next event, or polls in a minute while something changes by
+     itself. A wake that lands while a pass runs (a webhook, a member's turn
+     ending, a person's post) is kept: the pass stores the earlier of it and
+     its own.
+
+  A retried pipeline task starts again with its writer's turn, on another
+  budget. The tick has no branch for a particular failure: a new situation is
+  a fact with a reason, sent to whoever owns the phase.
 
 ### Moving a task to a newer workflow version
 

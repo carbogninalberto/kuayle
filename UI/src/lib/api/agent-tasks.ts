@@ -65,6 +65,9 @@ export interface AgentTask {
 	// itself: the task reads "cancelling" but is not being cancelled.
 	interrupting?: boolean;
 	workflow_pause_request?: WorkflowPauseMode | null;
+	// Set on a task that runs a pipeline workflow (KUA-252): it is written
+	// to in its room, and its tick moves it through the pipeline's phases.
+	pipeline?: boolean;
 	// The task's own app process (its preview command), when one was started.
 	preview?: TaskPreview | null;
 	created_at: string;

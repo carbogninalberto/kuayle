@@ -27,6 +27,7 @@ const task = {
 	kind: 'implement',
 	workflow_version_id: 'version-1',
 	workflow_status: 'running',
+	pipeline: true,
 	created_at: at(0),
 	updated_at: at(1)
 };
@@ -112,7 +113,7 @@ const room = () => [
 	})
 ];
 
-async function fixture(page: Page) {
+async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 	const conversation = {
 		id: 'chat-1',
 		workspace_id: 'workspace-1',
@@ -127,6 +128,7 @@ async function fixture(page: Page) {
 	const state = {
 		room: room(),
 		posts: [] as any[],
+		decisions: [] as any[],
 		// Room reads, as their ?after= values.
 		reads: [] as number[],
 		sockets: [] as WebSocketRoute[],
@@ -165,7 +167,11 @@ async function fixture(page: Page) {
 		const match = path.match(/\/agent-tasks\/([^/]+)(\/.*)?$/);
 		if (match) {
 			const [, id, rest = ''] = match;
-			if (rest === '/workflow') return route.fulfill({ json: view });
+			if (rest === '/workflow') return route.fulfill({ json: workflow });
+			if (rest === '/workflow/decision') {
+				state.decisions.push(route.request().postDataJSON());
+				return route.fulfill({ json: { task_id: id, state: 'awaiting_review', workflow_sequence: 10 } });
+			}
 			if (rest === '/room' && route.request().method() === 'POST') {
 				const input = route.request().postDataJSON();
 				state.posts.push(input);
@@ -287,4 +293,33 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	await page.setViewportSize({ width: 320, height: 720 });
 	await expect.poll(() => room.evaluate((list) => list.scrollWidth <= list.clientWidth)).toBe(true);
 	await page.screenshot({ path: testInfo.outputPath('task-room-phone.png') });
+});
+
+// The owner approves the head where the pipeline waits for it (its tick then
+// merges through the gate); a pipeline has nothing to deny.
+test('the owner approves a pipeline task waiting for approval', async ({ page }) => {
+	const approval = {
+		...view,
+		graph: {
+			...view.graph,
+			phases: [
+				...view.graph.phases.slice(0, 2),
+				{ id: 'approval', label: 'Approval', owner: 'human', checks: [{ id: 'owner', fact: 'approved', required: true }] },
+				view.graph.phases[2]
+			]
+		},
+		node: 'approval',
+		status: 'waiting',
+		sequence: 9,
+		can_decide: true,
+		task_state: 'awaiting_review'
+	};
+	const { state } = await fixture(page, approval);
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const decision = page.getByTestId('task-workflow-decision');
+	await expect(decision).toContainText('Waiting for an approval: Approval');
+	await expect(decision.getByRole('button', { name: 'Deny' })).toHaveCount(0);
+	await decision.getByRole('button', { name: 'Approve' }).click();
+	await expect.poll(() => state.decisions).toEqual([{ sequence: 9, decision: 'approve' }]);
 });

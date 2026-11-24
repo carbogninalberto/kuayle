@@ -84,7 +84,8 @@
 	const toAgent = $derived(!!options?.open);
 	// A task on a pipeline is written to in its room (KUA-252), which
 	// everyone working on it reads: text only, and no "now" to send it with.
-	const room = $derived(toAgent && !!targetTask && !!chat.taskRooms[targetTask.id]);
+	// The task says it runs one; a room already loaded says so too.
+	const room = $derived(toAgent && !!targetTask && (!!targetTask.pipeline || !!chat.taskRooms[targetTask.id]));
 	const now = $derived(room ? null : (options?.now ?? null));
 	const question = $derived(
 		!room && targetTask && chat.agentQuestion?.taskId === targetTask.id ? chat.agentQuestion : null
