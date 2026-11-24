@@ -690,6 +690,18 @@ CI it cannot see or a run on the commit that has not finished; its prompt lists
 each check's state on the reviewed commit when Kuayle knows it, and otherwise
 says CI is unknown.
 
+A task on an experimental [team workflow](BE/docs/agent-tasks.md#team-workflows-experimental)
+(a pipeline, KUA-252; off unless `WORKFLOW_PIPELINES_ENABLED` is set) runs
+its roles as members. The writer's turns are the task's own attempts. Every
+other role, such as the reviewer, gets one review task of it, created at its
+first turn and run again as the next generation for each later turn, so each
+role keeps one session for the task: a turn resumes it (`claude --resume`,
+`codex exec resume`, `opencode run --session`) when the role's previous turn
+succeeded on the same machine, and otherwise starts with the handoff. Other
+reviews still start cold. The roles and Kuayle talk in the task's room
+(migrations 206 and 207), and a tick on the task worker, not the graph
+runner, moves the task from the facts it reads (migration 208).
+
 A failed CI suite on a task's pull request carries what GitHub reported about
 its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),
 migration 170): the checks' names, failed steps, annotations and an excerpt of

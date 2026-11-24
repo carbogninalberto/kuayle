@@ -17,8 +17,9 @@ import (
 // roles, instead of a graph of steps: each phase names what must be true to
 // move on (checks over facts Kuayle reads), and the roles decide how. Absent
 // or "graph" is the graph engine of workflow.go. ParseWorkflowGraph refuses a
-// pipeline, so the graph engine can never run one; nothing runs pipelines
-// yet. This file holds the definition and its validation, and no I/O.
+// pipeline, so the graph engine can never run one; the tick
+// (service/team_tick.go) runs pipeline tasks. This file holds the definition
+// and its validation, and no I/O.
 
 // Workflow kinds: the top-level "kind" of a version's JSON.
 const (
