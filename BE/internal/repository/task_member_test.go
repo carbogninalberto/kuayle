@@ -378,3 +378,25 @@ func TestAMemberTaskPostsToTheRootRoomAsItsRole(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, writer.ID, *f.room()[3].AuthorMemberID, "the root task posts as the writer's member")
 }
+
+// A member's task is not a review the root task waits for: the root reaching
+// awaiting_review is announced while a member rests between its turns.
+func TestAMembersTaskIsNotTheRootsOwnPendingReview(t *testing.T) {
+	f := newMemberFixture(t)
+	_, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("implementer", domain.RoomAsk, "Is v1 still used?", domain.TaskRoomData{}))
+	require.NoError(t, err)
+	member, err := f.repo.StartMemberTurn(f.ctx, f.task.ID, "reviewer", false)
+	require.NoError(t, err)
+	f.runTurn(member, "0c9a6c1e-0000-4000-8000-000000000004", "Yes.", nil)
+
+	_, err = f.db.Exec(`UPDATE agent_tasks SET state='publishing' WHERE id=$1`, f.task.ID)
+	require.NoError(t, err)
+	tx, root, err := f.repo.transaction(f.ctx, f.task.ID, true)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	require.NoError(t, transitionAgentTask(f.ctx, tx, root, "awaiting_review", "Pull request opened", nil))
+	require.NoError(t, tx.Commit())
+	var pending bool
+	require.NoError(t, f.db.Get(&pending, `SELECT notification_pending FROM agent_task_transitions WHERE task_id=$1 AND to_state='awaiting_review'`, f.task.ID))
+	require.True(t, pending)
+}
