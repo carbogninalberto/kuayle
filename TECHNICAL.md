@@ -332,20 +332,52 @@ Claude Code, OpenCode (`@opencode/cli`, the 2.x line), Codex and Qwen Code publi
 `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` ago (default 48; `npm install --before`,
 so a compromised release has time to be withdrawn; install scripts only for the
 packages the images allow) into a new release directory of the
-`kuayle-agent-clis` volume, checks that each CLI starts (`--version`), and
-atomically switches the volume's `current` link to it, keeping the previous
-release. Unchanged versions are discarded. The helper runs as root (the volume's
+`kuayle-agent-clis` volume, checks that each CLI starts (`--version`) and fits
+the release (below), and atomically switches the volume's `current` link to it,
+keeping the previous release. Unchanged versions are discarded. The helper runs as root (the volume's
 owner) without capabilities, with `no-new-privileges` and a read-only root
 filesystem, on the shared `kuayle-machine-egress` network, with no machine data
-or secrets. Agent runs of built-in providers and the developer terminal and IDE
+or secrets: the CLI volume is its only mount. Agent runs of built-in providers and the developer terminal and IDE
 created afterwards mount the volume read-only at `/opt/kuayle/agent-clis` with
 `/opt/kuayle/agent-clis/current/node_modules/.bin` ahead of the image's CLIs on
 `PATH` (after `/workspace/.kuayle/npm-global/bin` in developer containers, which
 agents do not have), so neither an agent nor a person can change what other runs
 execute; a switch applies to containers that already mount it. Crush, Goose and
 Kimi are release binaries with pinned checksums and keep the image's versions;
-custom agents keep their configured image. Failures are logged and retried after
-an hour; machines keep the CLIs they have (`BE/internal/machine/agent_clis.go`).
+custom agents keep their configured image (`BE/internal/machine/agent_clis.go`).
+
+The volume outlives releases, so its CLIs are used only while they **fit the
+release**: every package installed at the headless image's version or newer,
+each command linked from its own package (an old or renamed package such as
+OpenCode 1's `opencode-ai` does not count), and the headless image's
+`check-agent-cli-flags.sh` passing with the volume's CLIs first on `PATH`. The
+manager checks this when it starts, before it leases any work, so a deploy (the
+release updater or `update.sh` restarting it with new images) never runs this
+release's argv on CLIs a previous release installed. The check runs the same
+helper with no network and installs nothing, after removing any refresh helper
+a previous manager left running. Every refresh checks the current
+release again first, and checks the new CLIs before it switches: new CLIs that
+do not fit are discarded, and a current release that does not fit is set aside
+(the `current` link is renamed `rejected`), so `PATH` falls through to the
+image's CLIs at once, also in containers that are already running. A set-aside
+release stays on the volume until the next switch, for runs that started from
+it. Agent runs put the volume on `PATH` only while this manager's last check or
+refresh found it to fit, so until the first check, after a set-aside, or when
+the check could not run, they use their image's CLIs; the run trace then
+records no shared CLI version. Failures are logged and retried after an hour;
+machines keep the current CLIs while they fit, and their image's otherwise.
+
+An upgrade replaces only CLIs. What machines keep: everything on the workspace
+volume (repositories and task worktrees, task sessions under
+`/workspace/.kuayle/agent-sessions/<task>` with Claude Code transcripts and
+OpenCode's session store, the Codex package cache in
+`/workspace/.kuayle/codex-packages`, and a person's own global npm installs in
+`/workspace/.kuayle/npm-global`, which stay first on their terminal's `PATH`
+and are never used by agent runs); the sign-ins Kuayle stores, written into the
+in-memory home on every start (a login made only in a terminal lives in that
+home, as before); and notebooks and agent settings, which are in the
+database. Only `releases/`, `current` and `rejected` on the
+`kuayle-agent-clis` volume change.
 
 **Environment status.** Both developer images delete apt's package index
 (`/var/lib/apt/lists`) at the end of their build to stay small, so `apt install`
@@ -1735,7 +1767,7 @@ Required configuration when enabled:
 | `DEV_MACHINE_DOCKER_ROOT` | Host path of Docker's data root, mounted read-only into the manager (default `/var/lib/docker`) |
 | `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
 | `DEV_MACHINE_HOST_RESERVED_CPU_MILLIS`, `DEV_MACHINE_HOST_RESERVED_MEMORY_MB`, `DEV_MACHINE_CPU_OVERCOMMIT` | Host admission for spawning/starting machines (defaults 1000, 2048, 2): Docker host CPU/memory minus these reserves bounds the sum of live machines' requests; memory is never overcommitted, CPU up to the factor. Machines that do not fit wait in the queue without consuming retries |
-| `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS`, `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` | Agent CLI updates (defaults 6 and 48, each 0-720): how often the manager installs the latest npm-distributed agent CLIs into the shared read-only volume, and how long a version must have been published; a refresh interval of 0 turns updates off. See [Sudo in machines](#sudo-in-machines), "Agent CLI updates" |
+| `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS`, `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` | Agent CLI updates (defaults 6 and 48, each 0-720): how often the manager installs the latest npm-distributed agent CLIs into the shared read-only volume, and how long a version must have been published; the manager also checks the volume on every start. A refresh interval of 0 turns updates off and machines use their image's CLIs. See [Sudo in machines](#sudo-in-machines), "Agent CLI updates" |
 | `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` | How long a stopping machine manager lets operations other than agent runs and checks finish before stopping them (default 90 seconds, 0 stops immediately). Interrupted assistant commands are marked failed. Other operations are handed to the next manager. Agent runs and checks are not bounded by it: they keep running and the next manager re-adopts them. Keep it at least 60 seconds below the manager's Compose `stop_grace_period` (150s), so cleanups finish. See [machine manager restarts](BE/docs/agent-tasks.md#machine-manager-restarts) |
 | `DEV_MACHINE_SLICES`, `DEV_MACHINE_SWAP_PERCENT` | Shared machine resources (defaults `auto`, 50): with `auto`, new machines on hosts with Docker's systemd cgroup driver and cgroup v2 share their CPU and memory in one systemd slice, with a swap ceiling of the given percentage of the machine's memory (0-100); `off` keeps per-container shares. See [shared machine resources](#shared-machine-resources) |
 | `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Default commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`). A workspace can override it with a username and verified email in its coding-agent policy (migration 70), so GitHub attributes agent commits to that account. Pull requests are opened by the GitHub App installation. Control characters and angle brackets are rejected |
