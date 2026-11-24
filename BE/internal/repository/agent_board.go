@@ -25,7 +25,7 @@ import (
 const boardColumns = `t.id,t.state,t.workflow_node,t.workflow_status,t.updated_at,i.identifier_text,i.title,
  COALESCE(p.repository_full_name,k.repository_full_name) AS repository_full_name,COALESCE(p.pull_request_number,0) AS pull_request_number,
  COALESCE(k.base_branch,'') AS base_branch,COALESCE(head.sha,'') AS head_sha,
- COALESCE((SELECT r.changed_files FROM dev_machine_agent_runs r WHERE r.task_id=t.id AND r.workspace_id=t.workspace_id AND jsonb_typeof(r.changed_files)='array' AND jsonb_array_length(r.changed_files)>0 ORDER BY r.created_at DESC,r.id DESC LIMIT 1),'[]') AS changed_files,
+ COALESCE((SELECT r.changed_files FROM dev_machine_agent_runs r WHERE r.task_id=t.id AND r.workspace_id=t.workspace_id AND jsonb_typeof(r.changed_files)='array' AND r.changed_files<>'[]'::jsonb ORDER BY r.created_at DESC,r.id DESC LIMIT 1),'[]') AS changed_files,
  COALESCE((SELECT jsonb_agg(DISTINCT s.outcome) FROM agent_task_signals s WHERE s.task_id=t.id AND s.kind='ci' AND s.head_sha=head.sha AND s.head_sha<>''),'[]') AS ci_outcomes,
  COALESCE((SELECT (w.merge->>'since')::timestamptz FROM agent_task_workflow_steps w WHERE w.task_id=t.id AND w.sequence=t.workflow_sequence AND w.finished_at IS NULL
    AND w.merge IS NOT NULL AND COALESCE(w.merge->>'failure','')='' AND NOT COALESCE((w.merge->>'deferred')::boolean,false)),

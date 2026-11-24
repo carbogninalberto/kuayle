@@ -74,10 +74,13 @@ func TestBoardListsTheActorsActiveTasksOfOneRepository(t *testing.T) {
 	require.NoError(t, err)
 
 	second := addBoardTask(t, db, repo, ctx, task.TeamID, machine, 2, "fixture/repo", 13, strings.Repeat("b", 40), `["`+migration+`"]`)
-	// A later attempt that recorded no files does not hide the branch's.
-	_, err = db.Exec(`INSERT INTO dev_machine_agent_runs(workspace_id,machine_id,task_id,checkout_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,completed_at,created_at) VALUES($1,$2,$3,$4,$5,'codex','autonomous','Board','["codex"]',60,'failed',now(),now()+interval '1 minute')`,
-		ws, machine, second.ID, second.CheckoutID, task.CreatorID)
-	require.NoError(t, err)
+	// Later attempts that recorded no files (none, or a JSON null) do not
+	// hide the branch's.
+	for i, files := range []string{`[]`, `null`} {
+		_, err = db.Exec(`INSERT INTO dev_machine_agent_runs(workspace_id,machine_id,task_id,checkout_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,completed_at,created_at,changed_files) VALUES($1,$2,$3,$4,$5,'codex','autonomous','Board','["codex"]',60,'failed',now(),now()+make_interval(mins=>$6),$7)`,
+			ws, machine, second.ID, second.CheckoutID, task.CreatorID, i+1, files)
+		require.NoError(t, err)
+	}
 	_, err = repo.RecordSignal(context.Background(), ws, "fixture/repo", 13, ci("2", "failure", strings.Repeat("b", 40)))
 	require.NoError(t, err)
 	addBoardTask(t, db, repo, ctx, task.TeamID, machine, 3, "other/repo", 14, strings.Repeat("c", 40), `["`+migration+`"]`)
