@@ -57,7 +57,7 @@ func TestAnInterruptedAttemptResumesItsSessionForTheMessage(t *testing.T) {
 	generation := int64(2)
 	task := domain.AgentTask{ID: uuid.New(), Provider: "claude-code", MachineID: &machine, Generation: 2, ResumeNativeSession: true, LiveResumeGeneration: &generation}
 	session := uuid.NewString()
-	interrupted := &domain.AgentHandoff{AttemptID: uuid.New(), MachineID: machine, NativeSessionID: session, Status: "cancelled", OtherProfile: true}
+	interrupted := &domain.AgentHandoff{AttemptID: uuid.New(), Provider: "claude-code", MachineID: machine, NativeSessionID: session, Status: "cancelled", OtherProfile: true}
 	require.Equal(t, session, taskSession(task, interrupted).ResumeID, "the step's own session, whoever ran the step before it")
 	prompt := withLiveHandoff("Add dark mode", interrupted, true, task.ResumeNativeSession, task.LiveResumed())
 	require.Contains(t, prompt, "this continues your previous session")
@@ -79,17 +79,17 @@ func TestAnAttemptStartedForAMessageContinuesTheSessionOfTheSameProfileOnly(t *t
 	generation := int64(4)
 	task := domain.AgentTask{ID: uuid.New(), Provider: "codex", MachineID: &machine, Generation: 4, LiveResumeGeneration: &generation}
 	for _, status := range []string{"failed", "succeeded", "timeout", "cancelled"} {
-		previous := &domain.AgentHandoff{AttemptID: uuid.New(), Status: status, MachineID: machine, NativeSessionID: native}
+		previous := &domain.AgentHandoff{AttemptID: uuid.New(), Provider: "codex", Status: status, MachineID: machine, NativeSessionID: native}
 		require.Equal(t, native, taskSession(task, previous).ResumeID, status)
 	}
-	failed := &domain.AgentHandoff{AttemptID: uuid.New(), Status: "failed", MachineID: machine, NativeSessionID: native}
+	failed := &domain.AgentHandoff{AttemptID: uuid.New(), Provider: "codex", Status: "failed", MachineID: machine, NativeSessionID: native}
 	prompt := withLiveHandoff("Fix it", failed, true, false, true)
 	require.Contains(t, prompt, "started this attempt to tell you something")
 	require.Contains(t, prompt, "building on the work already in this worktree")
 
-	other := &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native, OtherProfile: true}
+	other := &domain.AgentHandoff{Provider: "codex", Status: "failed", MachineID: machine, NativeSessionID: native, OtherProfile: true}
 	require.Empty(t, taskSession(task, other).ResumeID, "another profile's conversation is not continued")
-	require.Empty(t, taskSession(task, &domain.AgentHandoff{Status: "failed", MachineID: uuid.New(), NativeSessionID: native}).ResumeID, "the session lives on its machine")
+	require.Empty(t, taskSession(task, &domain.AgentHandoff{Provider: "codex", Status: "failed", MachineID: uuid.New(), NativeSessionID: native}).ResumeID, "the session lives on its machine")
 
 	// Without the message the same failed attempt is not resumed.
 	ordinary := task

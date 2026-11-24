@@ -326,7 +326,7 @@ func TestResumedAttemptContinuesThePausedSession(t *testing.T) {
 	machine := uuid.New()
 	task := domain.AgentTask{ID: uuid.New(), Provider: "claude-code", MachineID: &machine, Generation: 2, ResumeNativeSession: true}
 	session := uuid.NewString()
-	paused := &domain.AgentHandoff{AttemptID: uuid.New(), MachineID: machine, NativeSessionID: session, Status: "cancelled"}
+	paused := &domain.AgentHandoff{AttemptID: uuid.New(), MachineID: machine, Provider: "claude-code", NativeSessionID: session, Status: "cancelled"}
 	require.Equal(t, session, taskSession(task, paused).ResumeID)
 	prompt := withHandoff("Add dark mode", paused, true, task.ResumeNativeSession)
 	require.Contains(t, prompt, "this continues your previous session")
@@ -335,8 +335,8 @@ func TestResumedAttemptContinuesThePausedSession(t *testing.T) {
 
 	// A harness that recorded no session, or a machine that was replaced.
 	for _, previous := range []*domain.AgentHandoff{
-		{AttemptID: uuid.New(), MachineID: machine, Status: "cancelled"},
-		{AttemptID: uuid.New(), MachineID: uuid.New(), NativeSessionID: session, Status: "cancelled"},
+		{AttemptID: uuid.New(), MachineID: machine, Provider: "claude-code", Status: "cancelled"},
+		{AttemptID: uuid.New(), MachineID: uuid.New(), Provider: "claude-code", NativeSessionID: session, Status: "cancelled"},
 	} {
 		fresh := taskSession(task, previous)
 		require.Empty(t, fresh.ResumeID)

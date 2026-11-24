@@ -376,11 +376,11 @@ func TestAStepRunByAnotherProfileStartsAFreshSession(t *testing.T) {
 	machine := uuid.New()
 	native := "0199a213-81c0-7800-8aa1-bbab2a035a53"
 	task := domain.AgentTask{ID: uuid.New(), Provider: "codex", MachineID: &machine}
-	same := &domain.AgentHandoff{Status: "succeeded", MachineID: machine, NativeSessionID: native}
+	same := &domain.AgentHandoff{Provider: "codex", Status: "succeeded", MachineID: machine, NativeSessionID: native}
 	require.Equal(t, native, taskSession(task, same).ResumeID, "the same profile continues its session")
-	other := &domain.AgentHandoff{Status: "succeeded", MachineID: machine, NativeSessionID: native, OtherProfile: true}
+	other := &domain.AgentHandoff{Provider: "codex", Status: "succeeded", MachineID: machine, NativeSessionID: native, OtherProfile: true}
 	require.Empty(t, taskSession(task, other).ResumeID)
-	continued := &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native, ContinuedInteractively: true, OtherProfile: true}
+	continued := &domain.AgentHandoff{Provider: "codex", Status: "failed", MachineID: machine, NativeSessionID: native, ContinuedInteractively: true, OtherProfile: true}
 	require.Empty(t, taskSession(task, continued).ResumeID)
 	claude := task
 	claude.Provider = "claude-code"

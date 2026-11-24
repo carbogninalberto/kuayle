@@ -80,6 +80,6 @@ func TestWorkerPausesAndResumesATaskAtTheUsageLimit(t *testing.T) {
 	// The resumed attempt continues the paused attempt's session.
 	machine := uuid.New()
 	resumed.MachineID = &machine
-	previous := &domain.AgentHandoff{AttemptID: blocked.RunID, Status: "failed", MachineID: machine, NativeSessionID: "ae361499-0008-48b7-b8a7-d9df1193e4d3"}
+	previous := &domain.AgentHandoff{AttemptID: blocked.RunID, Provider: "claude-code", Status: "failed", MachineID: machine, NativeSessionID: "ae361499-0008-48b7-b8a7-d9df1193e4d3"}
 	require.Equal(t, previous.NativeSessionID, taskSession(*resumed, previous).ResumeID)
 }

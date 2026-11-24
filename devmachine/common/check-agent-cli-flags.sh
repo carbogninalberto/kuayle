@@ -18,11 +18,11 @@ opencode run --help: --format json --auto --print-logs --log-level warn --standa
 codex --help: -c
 codex exec --help: --json -c
 codex exec resume --help: --json -c
-qwen --help: --yolo --output-format stream-json
+qwen --help: --yolo --output-format stream-json --resume
 crush run --help: --yolo --quiet
-kimi --help: --print --yolo --output-format stream-json --prompt
+kimi --help: --print --yolo --output-format stream-json --prompt --session
 goose --help: session
-goose run --help: --no-session --quiet --output-format stream-json --text
+goose run --help: --no-session --quiet --output-format stream-json --text --name --resume
 FLAGS
 }
 

@@ -51,8 +51,8 @@ type RunInput struct {
 type SessionInput struct {
 	Dir string
 	// ResumeID resumes that native session; NewID names a new one when the
-	// harness lets Kuayle choose (Claude Code). Codex and OpenCode report
-	// their own IDs.
+	// harness lets Kuayle choose (Claude Code, Kimi, Goose; see
+	// KuayleNamesSession). Codex, OpenCode and Qwen Code report their own IDs.
 	ResumeID string
 	NewID    string
 }

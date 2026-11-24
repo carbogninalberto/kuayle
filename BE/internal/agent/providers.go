@@ -488,14 +488,20 @@ func headlessProviderImage(image string) string {
 	return image
 }
 
-func newStreamJSONBuiltinProvider(metadata Metadata, build func(RunInput) []string) Provider {
+func newStreamJSONBuiltinProvider(metadata Metadata, sessionScript string, build func(RunInput) []string) Provider {
 	return &builtinProvider{
-		metadata:    metadata,
-		build:       build,
-		parseResult: parseAssistantJSONResult,
+		metadata:      metadata,
+		build:         build,
+		parseResult:   parseAssistantJSONResult,
+		sessionScript: sessionScript,
 	}
 }
 
+// A task attempt of Qwen Code keeps its chats in the task's session
+// directory (qwenSessionScript) and continues the previous attempt's with
+// --resume <id>. Qwen Code reports the session ID on every stream-json
+// event (session_id, first in the system init event), which the manager
+// records; an unknown ID fails the run, as it does for Claude Code.
 func NewQwenCodeProvider(image string) Provider {
 	return newStreamJSONBuiltinProvider(Metadata{
 		ID:              "qwen-code",
@@ -503,14 +509,21 @@ func NewQwenCodeProvider(image string) Provider {
 		DefaultImage:    headlessProviderImage(image),
 		RequiredSecrets: []string{},
 		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
-	}, func(input RunInput) []string {
+	}, qwenSessionScript, func(input RunInput) []string {
 		if input.Mode == ModeInteractive {
 			return []string{"qwen"}
 		}
-		return []string{"qwen", "--yolo", "--output-format", "stream-json", input.Prompt}
+		argv := []string{"qwen", "--yolo", "--output-format", "stream-json"}
+		if input.Session != nil && input.Session.ResumeID != "" {
+			argv = append(argv, "--resume", input.Session.ResumeID)
+		}
+		return append(argv, input.Prompt)
 	})
 }
 
+// Crush keeps no session across attempts: `crush run` prints only the
+// agent's text, never the session's ID, and --session continues only a
+// session that exists, so Kuayle can neither record nor name one.
 func NewCrushProvider(image string) Provider {
 	return &builtinProvider{
 		metadata: Metadata{
@@ -529,6 +542,11 @@ func NewCrushProvider(image string) Provider {
 	}
 }
 
+// A task attempt of Kimi keeps its share directory, with its sessions, in
+// the task's session directory (kimiSessionScript) and runs in the session
+// Kuayle names: --session <id> resumes that session and, as Kimi documents,
+// creates it when there is none. Kimi prints the ID only as text on
+// standard error.
 func NewKimiProvider(image string) Provider {
 	return newStreamJSONBuiltinProvider(Metadata{
 		ID:              "kimi",
@@ -536,14 +554,25 @@ func NewKimiProvider(image string) Provider {
 		DefaultImage:    headlessProviderImage(image),
 		RequiredSecrets: []string{},
 		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
-	}, func(input RunInput) []string {
+	}, kimiSessionScript, func(input RunInput) []string {
 		if input.Mode == ModeInteractive {
 			return []string{"kimi"}
 		}
-		return []string{"kimi", "--print", "--yolo", "--output-format", "stream-json", "--prompt", input.Prompt}
+		argv := []string{"kimi", "--print", "--yolo", "--output-format", "stream-json"}
+		if input.Session != nil && input.Session.ResumeID != "" {
+			argv = append(argv, "--session", input.Session.ResumeID)
+		} else if input.Session != nil && input.Session.NewID != "" {
+			argv = append(argv, "--session", input.Session.NewID)
+		}
+		return append(argv, "--prompt", input.Prompt)
 	})
 }
 
+// A task attempt of Goose keeps a session, in the task's session directory
+// (gooseSessionScript), instead of running without one (--no-session): it
+// names a new session with --name <id> and continues it with --resume
+// --name <id>. Goose's own session IDs (20261124_1) are not in its
+// stream-json output and --session-id only resumes, so Kuayle names it.
 func NewGooseProvider(image string) Provider {
 	return newStreamJSONBuiltinProvider(Metadata{
 		ID:              "goose",
@@ -551,11 +580,19 @@ func NewGooseProvider(image string) Provider {
 		DefaultImage:    headlessProviderImage(image),
 		RequiredSecrets: []string{},
 		SupportedModes:  []Mode{ModeInteractive, ModeAutonomous},
-	}, func(input RunInput) []string {
+	}, gooseSessionScript, func(input RunInput) []string {
 		if input.Mode == ModeInteractive {
 			return []string{"goose", "session"}
 		}
-		return []string{"goose", "run", "--no-session", "--quiet", "--output-format", "stream-json", "--text", input.Prompt}
+		argv := []string{"goose", "run"}
+		if input.Session != nil && input.Session.ResumeID != "" {
+			argv = append(argv, "--resume", "--name", input.Session.ResumeID)
+		} else if input.Session != nil && input.Session.NewID != "" {
+			argv = append(argv, "--name", input.Session.NewID)
+		} else {
+			argv = append(argv, "--no-session")
+		}
+		return append(argv, "--quiet", "--output-format", "stream-json", "--text", input.Prompt)
 	})
 }
 
@@ -760,6 +797,57 @@ ln -s "$dir/opencode/data" "$data/opencode"
 ln -s "$dir/opencode/state" "$state/opencode"
 exec "$@"
 `
+
+// qwenSessionScript links Qwen Code's per-project store (its chats, by
+// session ID, and its project memory) under the home tmpfs to the task's
+// session directory; settings and credentials stay on the tmpfs.
+const qwenSessionScript = `set -eu
+dir=$1
+shift
+mkdir -p "$dir/qwen" "$HOME/.qwen"
+rm -rf "$HOME/.qwen/projects"
+ln -s "$dir/qwen" "$HOME/.qwen/projects"
+exec "$@"
+`
+
+// kimiSessionScript points Kimi's share directory (KIMI_SHARE_DIR, by
+// default ~/.kimi on the home tmpfs) at the task's session directory. Kimi
+// finds a session through its index of working directories, kimi.json,
+// which it replaces on every write (a link to it would not survive), so its
+// whole share directory moves: the index, the sessions, logs and the
+// default config.toml it writes. An attempt's home starts empty and Kimi
+// takes its provider from the environment, so no credentials are there.
+const kimiSessionScript = `set -eu
+dir=$1
+shift
+mkdir -p "$dir/kimi"
+KIMI_SHARE_DIR=$dir/kimi
+export KIMI_SHARE_DIR
+exec "$@"
+`
+
+// gooseSessionScript links Goose's session store (a SQLite database under
+// its XDG data directory, which is the attempt's run directory or the home
+// when that could not be prepared) to the task's session directory; the
+// rest of its data, its configuration and its keys stay where they are.
+const gooseSessionScript = `set -eu
+dir=$1
+shift
+data=${XDG_DATA_HOME:-$HOME/.local/share}
+mkdir -p "$dir/goose" "$data/goose"
+rm -rf "$data/goose/sessions"
+ln -s "$dir/goose" "$data/goose/sessions"
+exec "$@"
+`
+
+// KuayleNamesSession reports whether a task attempt of the harness runs in
+// a session Kuayle names (SessionInput.NewID), recorded when the run is
+// created: Claude Code (--session-id), Kimi (--session) and Goose (--name).
+// Codex, OpenCode and Qwen Code report their own, which the manager
+// records from their events.
+func KuayleNamesSession(provider string) bool {
+	return provider == "claude-code" || provider == "kimi" || provider == "goose"
+}
 
 // withSession runs a task attempt's argv in script, which links the
 // harness's session store to the task's session directory. The directory

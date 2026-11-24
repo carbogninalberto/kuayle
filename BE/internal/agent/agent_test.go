@@ -601,6 +601,137 @@ func TestOpenCodeSessionStoreOutlivesTheAttemptsRunDirectory(t *testing.T) {
 	require.Equal(t, "first\nsecond\nthird\n", string(store))
 }
 
+// Qwen Code reports its session (session_id, captured from its events) and
+// continues it with --resume; Kimi and Goose take a session Kuayle names:
+// Kimi creates the session it is given with --session when there is none,
+// Goose names a new one with --name and continues it with --resume --name.
+// Each runs in its own wrapper, which links only its session store. Crush
+// neither reports nor accepts a session ID, so it never continues one.
+func TestQwenKimiAndGooseContinueTheirTaskSessions(t *testing.T) {
+	dir := "/workspace/.kuayle/agent-sessions/0b6f3c55-8ad4-4f0e-9a0c-5a7dbf0e2d11"
+	const named = "11111111-2222-4333-8444-555555555555"
+	for _, harness := range []struct {
+		provider        Provider
+		script          string
+		started, resume []string
+		new             string
+	}{
+		{NewQwenCodeProvider(""), qwenSessionScript,
+			[]string{"qwen", "--yolo", "--output-format", "stream-json", "Fix it"},
+			[]string{"qwen", "--yolo", "--output-format", "stream-json", "--resume", named, "Address review"}, ""},
+		{NewKimiProvider(""), kimiSessionScript,
+			[]string{"kimi", "--print", "--yolo", "--output-format", "stream-json", "--session", named, "--prompt", "Fix it"},
+			[]string{"kimi", "--print", "--yolo", "--output-format", "stream-json", "--session", named, "--prompt", "Address review"}, named},
+		{NewGooseProvider(""), gooseSessionScript,
+			[]string{"goose", "run", "--name", named, "--quiet", "--output-format", "stream-json", "--text", "Fix it"},
+			[]string{"goose", "run", "--resume", "--name", named, "--quiet", "--output-format", "stream-json", "--text", "Address review"}, named},
+	} {
+		id := harness.provider.Metadata().ID
+		require.Equal(t, harness.new != "", KuayleNamesSession(id), id)
+		started, err := harness.provider.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir, NewID: harness.new}})
+		require.NoError(t, err)
+		require.Equal(t, append([]string{"/bin/sh", "-c", harness.script, "kuayle-session", dir}, harness.started...), started.Argv, id)
+		continued, err := harness.provider.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Address review", Session: &SessionInput{Dir: dir, ResumeID: named}})
+		require.NoError(t, err)
+		require.Equal(t, append([]string{"/bin/sh", "-c", harness.script, "kuayle-session", dir}, harness.resume...), continued.Argv, id)
+		for _, bad := range []RunInput{
+			{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: "/home/kuayle"}},
+			{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, ResumeID: "--yolo"}},
+			{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, NewID: "id; rm -rf /"}},
+		} {
+			_, err = harness.provider.BuildInvocation(bad)
+			require.Error(t, err, id)
+		}
+		// A run outside a task and an interactive session are unchanged.
+		manual, err := harness.provider.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it"})
+		require.NoError(t, err)
+		require.Equal(t, harness.started[0], manual.Argv[0], id)
+		require.NotContains(t, manual.Argv, "--resume", id)
+		require.NotContains(t, manual.Argv, "--session", id)
+		require.NotContains(t, manual.Argv, "--name", id)
+		interactive, err := harness.provider.BuildInvocation(RunInput{Mode: ModeInteractive, Prompt: "Fix it", Session: &SessionInput{Dir: dir, ResumeID: named}})
+		require.NoError(t, err)
+		require.Equal(t, harness.started[0], interactive.Argv[0], id)
+	}
+	// Goose outside a task keeps running without a session.
+	manual, err := NewGooseProvider("").BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"goose", "run", "--no-session", "--quiet", "--output-format", "stream-json", "--text", "Fix it"}, manual.Argv)
+
+	crush, err := NewCrushProvider("").BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir, ResumeID: named}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"crush", "--yolo", "run", "--quiet", "Fix it"}, crush.Argv)
+	require.False(t, KuayleNamesSession("crush"))
+	require.True(t, KuayleNamesSession("claude-code"))
+	require.False(t, KuayleNamesSession("qwen-code"), "Qwen Code reports its own")
+}
+
+// Qwen Code and Kimi keep their sessions under the home, which is a tmpfs
+// of the attempt's container; Goose keeps its SQLite store under its XDG
+// data directory, the attempt's run directory. Qwen Code's and Goose's
+// wrappers link only that store to the task's session directory, so the
+// next attempt (a new home and run directory) finds it while configuration
+// and credentials stay behind. Kimi's moves its whole share directory
+// there, with the index (kimi.json) it finds sessions by.
+func TestQwenKimiAndGooseSessionStoresOutliveTheAttempt(t *testing.T) {
+	for _, harness := range []struct {
+		name, script, write, stored string
+	}{
+		{"qwen", qwenSessionScript,
+			`mkdir -p "$HOME/.qwen/projects/-workspace-tasks-x/chats" && echo "$1" >> "$HOME/.qwen/projects/-workspace-tasks-x/chats/s.jsonl" && echo '{}' > "$HOME/.qwen/settings.json"`,
+			"-workspace-tasks-x/chats/s.jsonl"},
+		{"kimi", kimiSessionScript,
+			`share=${KIMI_SHARE_DIR:-$HOME/.kimi} && mkdir -p "$share/sessions/0f3c/s" && echo "$1" >> "$share/sessions/0f3c/s/context.jsonl" && echo "$1" > "$share/kimi.json.tmp" && mv "$share/kimi.json.tmp" "$share/kimi.json"`,
+			"sessions/0f3c/s/context.jsonl"},
+		{"goose", gooseSessionScript,
+			`echo "$1" >> "$XDG_DATA_HOME/goose/sessions/sessions.db" && mkdir -p "$XDG_DATA_HOME/goose/model_catalog" "$HOME/.config/goose" && echo 'x: 1' > "$HOME/.config/goose/config.yaml"`,
+			"sessions.db"},
+	} {
+		t.Run(harness.name, func(t *testing.T) {
+			root := t.TempDir()
+			sessions := filepath.Join(root, "agent-sessions", "task")
+			attempt := func(run, line string) {
+				t.Helper()
+				home, data := filepath.Join(root, "home-"+run), filepath.Join(root, "tmp", run, "data")
+				require.NoError(t, os.MkdirAll(data, 0o700))
+				cmd := exec.Command("/bin/sh", "-c", harness.script, "kuayle-session", sessions, "/bin/sh", "-c", harness.write, "kuayle-test", line)
+				cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_DATA_HOME=" + data}
+				output, err := cmd.CombinedOutput()
+				require.NoError(t, err, string(output))
+				// The container's home and the run directory end with the attempt.
+				require.NoError(t, os.RemoveAll(home))
+				require.NoError(t, os.RemoveAll(filepath.Join(root, "tmp", run)))
+			}
+			attempt("agent-1", "first")
+			attempt("agent-2", "second")
+			store, err := os.ReadFile(filepath.Join(sessions, harness.name, harness.stored))
+			require.NoError(t, err)
+			require.Equal(t, "first\nsecond\n", string(store), "the second attempt wrote to the first one's store")
+			entries, err := os.ReadDir(sessions)
+			require.NoError(t, err)
+			require.Len(t, entries, 1, "only the harness's store is kept")
+			entries, err = os.ReadDir(filepath.Join(sessions, harness.name))
+			require.NoError(t, err)
+			if harness.name == "kimi" {
+				// The index, replaced on each write, is the second attempt's.
+				index, err := os.ReadFile(filepath.Join(sessions, "kimi", "kimi.json"))
+				require.NoError(t, err)
+				require.Equal(t, "second\n", string(index))
+				return
+			}
+			require.Len(t, entries, 1, "configuration and other data stay behind")
+		})
+	}
+	// Without a run directory Goose's default under the home is linked.
+	root := t.TempDir()
+	sessions := filepath.Join(root, "agent-sessions", "task")
+	cmd := exec.Command("/bin/sh", "-c", gooseSessionScript, "kuayle-session", sessions, "/bin/sh", "-c", `echo bare >> "$HOME/.local/share/goose/sessions/sessions.db"`)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(root, "home")}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	require.FileExists(t, filepath.Join(sessions, "goose", "sessions.db"))
+}
+
 func TestResultSummaryIsTheAgentsFinalMessageNotRawEvents(t *testing.T) {
 	codex := strings.Join([]string{
 		`{"type":"thread.started","thread_id":"t1"}`,

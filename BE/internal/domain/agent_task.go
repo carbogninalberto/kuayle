@@ -539,8 +539,11 @@ type AgentTaskFollowUp struct {
 // harness sessions are not restored across attempts, so a successor receives
 // this explicit handoff instead of hidden context.
 type AgentHandoff struct {
-	AttemptID        uuid.UUID
-	MachineID        uuid.UUID
+	AttemptID uuid.UUID
+	MachineID uuid.UUID
+	// Provider is the harness that ran the previous attempt. Its native
+	// session is that harness's: another harness never continues it.
+	Provider         string
 	NativeSessionID  string
 	Status           string
 	Summary          string

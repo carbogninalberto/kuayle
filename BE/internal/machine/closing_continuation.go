@@ -30,8 +30,9 @@ import (
 //
 // What it guarantees:
 //   - same session: the attempt's own harness session is continued (Claude
-//     Code with --resume, Codex with "exec resume"), from the command line
-//     stored when the run was created. A harness without one is not asked;
+//     Code with --resume, Codex with "exec resume", OpenCode, Qwen Code,
+//     Kimi and Goose by their own flags), from the command line stored when
+//     the run was created. A harness without one (Crush) is not asked;
 //   - once: closing_asked_at is taken before the container starts, so a
 //     manager that restarts does not ask again;
 //   - bounded: closingTimeout, never past closingMargin before the
