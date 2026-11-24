@@ -478,7 +478,7 @@ function openCodePart(
 			const title = str(state.title).trim() === name ? '' : str(state.title).trim();
 			const argument = primaryArgument(input);
 			const status = str(state.status);
-			const metadata = isObject(state.metadata)
+			const metadata: Json = isObject(state.metadata)
 				? isObject(state.metadata.metadata)
 					? state.metadata.metadata
 					: state.metadata
