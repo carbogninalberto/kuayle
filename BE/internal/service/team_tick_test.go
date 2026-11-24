@@ -1248,3 +1248,71 @@ func TestTickAnAdvisoryScriptCheckInformsThePhaseOwner(t *testing.T) {
 	require.Contains(t, w.prompt("implementer", 2), "3 lint warnings")
 	require.Equal(t, "approval", w.phase())
 }
+
+// tickBusyBase moves the base ahead of from: GitHub's update-branch of from
+// makes to, on which CI then runs; a push to the base wakes the task.
+func (w *tickWorld) tickBusyBase(from, to string) {
+	w.t.Helper()
+	w.update(from, to)
+	w.github.status.Behind, w.github.updateHead = 1, to
+	w.github.onUpdate = func() {
+		w.github.status.Behind = 0
+		w.head(to)
+		w.github.ci("pending", "")
+	}
+	w.exec(`UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1`, w.root)
+	w.drain()
+}
+
+// toApprovalOnABusyBase runs the team pipeline to its approval while the
+// base moves three times: Kuayle brings the branch up to date each time,
+// every update the published commit has before the owner approves.
+func (w *tickWorld) toApprovalOnABusyBase() string {
+	w.t.Helper()
+	w.drain()
+	head := sha(1)
+	for i := 1; i <= maxMergeUpdates; i++ {
+		next := sha(0x300 + i)
+		w.tickBusyBase(head, next)
+		require.Equal(w.t, next, w.github.status.HeadSHA, "update %d before the approval", i)
+		head = next
+	}
+	w.github.ci("passed", "")
+	w.later()
+	require.Equal(w.t, "approval", w.phase())
+	return head
+}
+
+// KUA-277 (option B) in the tick: once the owner approved, the merge has its
+// own updates, counted from the approved head.
+func TestTickApprovedMergeHasItsOwnUpdates(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	head := w.toApprovalOnABusyBase()
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	w.tickBusyBase(head, sha(0x401))
+	require.Equal(t, sha(0x401), w.github.status.HeadSHA, "brought up to date after the approval")
+	require.Empty(t, w.github.merged, "CI runs on the update first")
+	w.github.ci("passed", "")
+	w.later()
+	require.Equal(t, []string{sha(0x401)}, w.github.merged)
+	require.Equal(t, "completed", w.task().State)
+	require.Equal(t, 1, w.runtime.turns["implementer"], "the writer was not sent the branch")
+	require.Equal(t, 1, w.member("reviewer").Turns, "nobody reviews the base again")
+}
+
+func TestTickApprovedMergeMakesAtMostItsOwnUpdates(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	head := w.toApprovalOnABusyBase()
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	for i := 1; i <= maxMergeUpdates; i++ {
+		next := sha(0x400 + i)
+		w.tickBusyBase(head, next)
+		require.Equal(t, next, w.github.status.HeadSHA, "the merge's own update %d", i)
+		head = next
+	}
+	w.tickBusyBase(head, sha(0x404))
+	require.NotContains(t, w.github.calls, "update:"+head, "no fourth update after the approval")
+	require.Empty(t, w.github.merged)
+}

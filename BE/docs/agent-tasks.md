@@ -3191,7 +3191,10 @@ person decides. One pass:
 
 1. reads the facts, the verdicts, approval and script runs that hold for the
    head, the overlap and the room since the last pass (a creator's `waiver`
-   holds for the head the room last named). A pull request that cannot be
+   holds for the head the room last named). A verdict or a script run holds
+   across merges of the base that Kuayle verified on top of its commit, up to
+   `maxUpdateChain` (12); the owner's approval across at most
+   `maxMergeUpdates` (3) of them, the merge's own (KUA-277). A pull request that cannot be
    read, or GitHub that does not answer in time, is waited for: nothing is
    posted or started, and the pass runs again in a minute;
 2. posts the facts that changed and each script check's result once;
@@ -3205,7 +3208,9 @@ person decides. One pass:
 6. acts through the existing code, each action at most once per head or
    turn: posts each member's turn that failed; brings a branch that is behind
    its base and merges cleanly up to date (`updateBranch`, at most
-   `maxMergeUpdates`, 3, per published commit); runs the failed Actions jobs
+   `maxMergeUpdates`, 3, per published commit, and once the owner's approval
+   holds for the head as many again counted from the approved head, so a busy
+   base cannot spend the approved merge's updates; KUA-277); runs the failed Actions jobs
    once more when CI still fails on a head the writer was already sent and
    did not change; asks each role whose verdict the current phase requires
    and that has none for the head, once per head; and waits for the owner's

@@ -412,7 +412,7 @@ func (t *tickPass) read(ctx context.Context) error {
 		if v, ok := onHead[role]; ok {
 			verdict = v
 		}
-		commit, err := t.covered(verdict.CommitSHA)
+		commit, err := t.covered(verdict.CommitSHA, maxUpdateChain)
 		if err != nil {
 			t.facts.Verdicts = nil // transient: the verdict checks wait
 			break
@@ -421,7 +421,7 @@ func (t *tickPass) read(ctx context.Context) error {
 	}
 	t.facts.Approved = FactNo
 	if t.st.Approved != nil {
-		if commit, err := t.covered(t.st.Approved.Head); err != nil {
+		if commit, err := t.covered(t.st.Approved.Head, maxMergeUpdates); err != nil {
 			t.facts.Approved = FactUnknown
 		} else {
 			t.facts.Approved = factOf(commit == head && head != "")
@@ -438,14 +438,17 @@ func (t *tickPass) read(ctx context.Context) error {
 	return t.readRoom(ctx)
 }
 
-// covered is the head when it is commit, or commit plus only merges of the
-// base that Kuayle verified (verifiedUpdates); commit otherwise.
-func (t *tickPass) covered(commit string) (string, error) {
+// covered is the head when it is commit, or commit plus at most limit merges
+// of the base that Kuayle verified (mergeGate.updateChain); commit otherwise.
+// A verdict or a script run holds across Kuayle's updates however many
+// (maxUpdateChain); the owner's approval across at most the merge's own
+// (maxMergeUpdates, KUA-277).
+func (t *tickPass) covered(commit string, limit int) (string, error) {
 	head := t.facts.HeadSHA
 	if commit == head || head == "" || t.target == nil || t.w.pulls == nil {
 		return commit, nil
 	}
-	_, why, err := t.w.verifiedUpdates(t.gh, t.task, t.target, t.facts.BaseRef, head, commit)
+	_, why, err := t.w.gate().updateChain(t.gh, t.task.WorkspaceID, t.target.Repository, t.facts.BaseRef, head, commit, limit)
 	if err != nil || why != "" {
 		return commit, err
 	}
@@ -512,7 +515,7 @@ func (t *tickPass) readScripts(ctx context.Context) error {
 			}
 		}
 		fact := ScriptFact{State: "pending"}
-		switch commit, err := t.covered(run.Commit); {
+		switch commit, err := t.covered(run.Commit, maxUpdateChain); {
 		case err != nil:
 			fact = ScriptFact{State: "unavailable", Why: "GitHub did not say whether the head is the commit it checked"}
 		case commit != t.facts.HeadSHA:
@@ -761,11 +764,13 @@ func (t *tickPass) act(ctx context.Context, index int, unmet []UnmetCheck) error
 		return nil
 	}
 	// A branch behind its base that merges cleanly is brought up to date,
-	// as often as the merge gate would.
+	// as often as the merge gate would: maxMergeUpdates times since Kuayle
+	// published, and once the owner's approval holds for the head, as many
+	// again counted from the approved head (KUA-277).
 	if t.st.UpdatesOf != t.target.CommitSHA {
 		t.st.Updates, t.st.UpdatesOf = 0, t.target.CommitSHA
 	}
-	if f.HeadContainsBase == FactNo && f.Conflict == FactNo && f.MigrationCollision == FactNo && t.st.Updates < maxMergeUpdates {
+	if f.HeadContainsBase == FactNo && f.Conflict == FactNo && f.MigrationCollision == FactNo && t.mayUpdate() {
 		t.st.Updates++
 		if _, updated, conflicts := t.w.updateBranch(t.gh, t.task, t.target, f.HeadSHA, f.Behind); updated || conflicts {
 			t.pending = true
@@ -779,6 +784,18 @@ func (t *tickPass) act(ctx context.Context, index int, unmet []UnmetCheck) error
 		}
 	}
 	return t.askReviewers(ctx, index)
+}
+
+// mayUpdate reports whether Kuayle may bring the head up to date once more:
+// before the owner approved, while the published commit has fewer than
+// maxMergeUpdates updates; once the approval holds for the head, while the
+// head has fewer than maxMergeUpdates on top of the approved one (KUA-277).
+func (t *tickPass) mayUpdate() bool {
+	if t.st.Approved == nil || t.facts.Approved != FactYes {
+		return t.st.Updates < maxMergeUpdates
+	}
+	since, why, err := t.w.verifiedUpdates(t.gh, t.task, t.target, t.facts.BaseRef, t.facts.HeadSHA, t.st.Approved.Head)
+	return err == nil && why == "" && since < maxMergeUpdates
 }
 
 // rerun asks GitHub to run the head's failed Actions jobs again.
@@ -890,7 +907,7 @@ func (t *tickPass) mergeGuarded(ctx context.Context, index int, unmet []UnmetChe
 	wait := t.st.Merge
 	if wait != nil && wait.Head != head {
 		// Only Kuayle's own update of the head it merges carries a wait on.
-		if covered, err := t.covered(wait.Head); err != nil || !wait.Updating || covered != head {
+		if covered, err := t.covered(wait.Head, maxMergeUpdates); err != nil || !wait.Updating || covered != head {
 			wait = nil
 		}
 	}
