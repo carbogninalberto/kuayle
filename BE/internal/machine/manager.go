@@ -1694,6 +1694,11 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 	cancelOutbox()
 	stdout, stderr := output.ResultText("stdout"), output.ResultText("stderr")
 	result := provider.ParseResult(stdout, stderr, execution.ExitCode)
+	// What the harness reported the attempt spent, with what its closing
+	// continuation spent; the store keeps the run's share of a session total.
+	usage := agent.ParseUsage(run.ProviderID, stdout).Then(closing.usage)
+	run.AgentRunUsage, run.UsageSessionTotal = domain.AgentRunUsage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+		CacheReadTokens: usage.CacheReadTokens, CacheWriteTokens: usage.CacheWriteTokens, CostUSD: usage.CostUSD}, usage.SessionTotal
 	// A final message Kuayle may not have seen is not a missing one.
 	if result.NoFinalMessage && output.Incomplete("stdout") {
 		result.Status, result.NoFinalMessage = "succeeded", false

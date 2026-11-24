@@ -1075,6 +1075,10 @@ A Codex or Claude Code run without a model server uses the agent's own account. 
 
 **Continue after sign-in.** A task creator can retry a stopped task with their saved Codex sign-in or Claude Code token. The task panel offers Claude Code token entry and terminal sign-in. Codex also offers terminal sign-in as a fallback. The terminal opens with `claude /login` or `codex login --device-auth`. When a user continues without saved credentials, `POST /agent-tasks/:taskId/sign-in` queues a `capture_sign_in` operation. The manager reads `~/.claude/.credentials.json` or `~/.codex/auth.json` from the machine's terminal or IDE container, accepts a JSON object of at most 64 KiB, encrypts it, and retries the task. Only the creator of a task stopped for sign-in can continue, and `request_id` makes repeated requests converge. Missing terminal credentials return `409 SIGN_IN_NOT_FOUND`. The manager saves a run's refreshed credentials only if the stored credentials still match what the run started with. This preserves replacements and removals made while a run was active.
 
+### Token usage and cost
+
+Every agent run records the tokens and cost its harness reported (Claude Code, Codex and OpenCode; NULL when not reported), its closing continuation included (migration `000204_agent_run_usage`, KUA-255). A task's usage is the sum over its runs, shown in the agent view's details block and per run. The harness's cost is an estimate, and no budget is enforced on it. See [BE/docs/agent-tasks.md](BE/docs/agent-tasks.md#token-usage-and-cost).
+
 ### Usage limits
 
 An agent whose provider refuses work until a quota resets (Claude Code's 5-hour or weekly limit, Codex's usage limit) does not fail its task (migration `000137_agent_task_usage_limits`, KUA-113).

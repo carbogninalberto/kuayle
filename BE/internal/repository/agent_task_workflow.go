@@ -1009,7 +1009,8 @@ func (r *AgentTaskRepository) WorkflowSteps(ctx context.Context, ws, id uuid.UUI
 // $3 is the completion time up to which the reader already has summaries.
 const stepRunColumns = `r.id,r.task_id,r.provider_id,COALESCE(r.model,'') AS model,r.status::text AS status,r.created_at,r.started_at,r.completed_at,
  CASE WHEN COALESCE(r.result->>'final_message','')='true' AND ($3::timestamptz IS NULL OR r.completed_at IS NULL OR r.completed_at>$3) THEN r.summary END AS summary,COALESCE(r.result->>'summary_truncated','')='true' AS summary_truncated,
- COALESCE(r.result->>'replies_unknown','')='true' AS replies_unknown`
+ COALESCE(r.result->>'replies_unknown','')='true' AS replies_unknown,
+ r.input_tokens,r.output_tokens,r.cache_read_tokens,r.cache_write_tokens,r.cost_usd`
 
 // StepRuns lists the task's agent runs for its timeline, oldest first, under
 // the task's authorization: its newest 200 runs, each on the agent step that

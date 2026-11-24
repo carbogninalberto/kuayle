@@ -364,6 +364,9 @@ type AgentTaskHistory struct {
 type AgentTaskRuns struct {
 	Runs       []DevMachineAgentRun `json:"runs"`
 	NextBefore *uuid.UUID           `json:"next_before,omitempty"`
+	// Usage is the task's usage, the sum over all of its runs, whatever the
+	// page.
+	Usage AgentRunUsage `json:"usage"`
 }
 type AgentTaskLogs struct {
 	Logs      []DevMachineLogChunk `json:"logs"`
