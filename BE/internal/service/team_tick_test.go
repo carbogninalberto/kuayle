@@ -412,7 +412,7 @@ func TestTickScenario01HappyPath(t *testing.T) {
 	require.Equal(t, "completed", done.State)
 	require.Equal(t, domain.WorkflowStatusDone, *done.WorkflowStatus)
 	require.Equal(t, []string{sha(1)}, w.github.merged)
-	require.Equal(t, []string{"pr", "review", "integrate", "approval", "merge"}, w.phases())
+	require.Equal(t, []string{"review", "integrate", "approval", "merge"}, w.phases(), "published at once, the work skips the pull request phase")
 	require.Equal(t, 2, done.WorkflowIterations, "the writer's turn and the reviewer's")
 	require.Len(t, w.posts(domain.RoomVerdict), 1)
 	require.NotEmpty(t, w.facts("pr_exists"))

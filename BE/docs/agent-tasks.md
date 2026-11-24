@@ -2943,9 +2943,10 @@ graph's.
 - **Tick** (KUA-273; `service/team_tick.go`, `repository/pipeline_tick.go`):
   runs a task marked `pipeline` instead of the graph runner, with one writer
   and without a lead (this version starts none: a pipeline's `lead` is
-  ignored, and Kuayle names the phase only when there is none). The root task is the writer: its turns are its iterations;
-  when one ends (or fails: the failure is posted as a `turn` fact) the task
-  waits in `awaiting_review`, where a pass runs on every wake. Its position is
+  ignored, and Kuayle names the phase only when there is none). The root task is the writer: its turns are its iterations.
+  A turn that changed the work (or the first, while nothing is published) is
+  published as it ends, once; then, or when a turn fails (posted as a `turn`
+  fact), the task waits in `awaiting_review`, where a pass runs on every wake. Its position is
   the workflow columns (`workflow_node` is the phase, `workflow_status`,
   `workflow_wake_at`, `workflow_sequence`, `workflow_iterations` counts the
   turns charged, the budget clock), and its memory between passes is
@@ -2966,8 +2967,7 @@ graph's.
      not waived for the head) as the current one, and posts `phase` when it
      changes;
   4. acts through the existing code, each action once per head or turn:
-     publishes the writer's finished turn when it changed the work or nothing
-     is published; asks each role whose verdict the current phase requires and
+     publishes a finished turn that was not yet; asks each role whose verdict the current phase requires and
      that has none for the head (`StartMemberTurn(..., askVerdict)`; Kuayle may
      not post `request`); brings a branch behind its base that merges cleanly
      up to date (`updateBranch`, at most `maxMergeUpdates` per published

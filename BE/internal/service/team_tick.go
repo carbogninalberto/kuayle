@@ -161,7 +161,21 @@ func (s *AgentTaskService) pipelineTurnEnded(ctx context.Context, task domain.Ag
 			return err
 		}
 	}
-	return s.pipelineWait(ctx, task, "the writer's turn ended")
+	// A turn that changed the work is published at once, as any task's.
+	st := readTickState(task)
+	entry, due, err := s.publishTurn(ctx, task, &st)
+	if err != nil || !due {
+		if err != nil {
+			return err
+		}
+		return s.pipelineWait(ctx, task, "the writer's turn ended")
+	}
+	state, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	_, err = s.Repo.ApplyPipeline(ctx, task, repository.PipelineApply{Sequence: task.WorkflowSequence, Phase: deref(task.WorkflowNode), State: state, ClaimedWake: task.WorkflowWakeAt, Entry: entry})
+	return err
 }
 
 // pipelinePublished is the worker's report of the publication of the
@@ -487,15 +501,26 @@ func (t *tickPass) phase() (int, []UnmetCheck) {
 // publish sends the writer's finished turn to publication, once per turn,
 // when it changed the work or nothing is published yet.
 func (t *tickPass) publish(ctx context.Context) (repository.WorkflowEntry, bool, error) {
-	run, err := t.s.Repo.WorkflowRun(ctx, t.task)
-	if err != nil {
-		return repository.WorkflowEntry{}, false, err
-	}
-	changed := run.WorktreeChanged == nil || *run.WorktreeChanged || t.target == nil
-	if run.Status != string(domain.DevMachineAgentRunStatusSucceeded) || !changed || t.st.Published == t.task.RunID.String() {
+	return t.s.publishTurn(ctx, t.task, &t.st)
+}
+
+// publishTurn is the publication of the task's current turn, when it is due
+// (recorded in st): the turn succeeded and changed the work, or nothing is
+// published yet, and it was not published already.
+func (s *AgentTaskService) publishTurn(ctx context.Context, task domain.AgentTask, st *tickState) (repository.WorkflowEntry, bool, error) {
+	if st.Published == task.RunID.String() {
 		return repository.WorkflowEntry{}, false, nil
 	}
-	t.st.Published = t.task.RunID.String()
+	run, err := s.Repo.WorkflowRun(ctx, task)
+	if err != nil || run.Status != string(domain.DevMachineAgentRunStatusSucceeded) {
+		return repository.WorkflowEntry{}, false, err
+	}
+	if run.WorktreeChanged != nil && !*run.WorktreeChanged {
+		if published, err := s.Repo.PublishedWork(ctx, task); err != nil || published != nil {
+			return repository.WorkflowEntry{}, false, err
+		}
+	}
+	st.Published = task.RunID.String()
 	return repository.WorkflowEntry{Kind: repository.WorkflowEnterPublish, Reason: domain.WorkflowReasonPrefix + "Publishing the writer's turn"}, true, nil
 }
 
