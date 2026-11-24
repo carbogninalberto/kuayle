@@ -511,35 +511,46 @@ An autonomous attempt's home and `/tmp` are small tmpfs mounts (512 MiB and
 `/workspace/.kuayle/tmp/agent-<run>` on the workspace volume
 (`BE/internal/machine/run_tmp.go`), recreated when the container starts and
 removed by the manager once the attempt ends. OpenCode keeps its SQLite
-database, session snapshots and logs there (`opencode/` under each); on the
-home tmpfs they filled it and runs failed with `database or disk is full`
-(KUA-187). Autonomous runs also give OpenCode `OPENCODE_CONFIG_CONTENT`
+database (its sessions), logs and other state in `opencode/` under the data
+and state directories; on the home tmpfs they filled it and runs failed with
+`database or disk is full` (KUA-187). A task attempt links those two
+`opencode/` directories to the task's session directory (below), on the same
+volume, so its sessions outlive the run directory. Autonomous runs also give OpenCode `OPENCODE_CONFIG_CONTENT`
 (`{"snapshot":false}`, merged over the project's `opencode.json`), because a
-snapshot is a git copy of the worktree in that directory, an unattended run
-never undoes an edit, and those copies spend the workspace volume. OpenCode
-does not resume a session across attempts, so a
-per-attempt directory loses nothing. Claude Code and Codex keep their state
+snapshot is a git copy of the worktree in its data directory, an unattended run
+never undoes an edit, and those copies spend the workspace volume. Claude Code and Codex keep their state
 in `~/.claude` and `~/.codex`, whose transcripts are linked to the task's
-session directory (below). Interactive attempts keep the tmpfs defaults.
+session directory too. Interactive attempts keep the tmpfs defaults.
 
 ## Native session resume and handoff
 
-Codex and Claude Code task attempts keep their native session **transcripts** in
+Codex, Claude Code and OpenCode task attempts keep their native session **transcripts** in
 `/workspace/.kuayle/agent-sessions/<task-id>/` on the machine's workspace volume,
 outside every checkout, so publication never commits them. The attempt's argv is
 wrapped so that, after the image's runner has loaded secrets and configuration,
-only `~/.codex/sessions` and `~/.claude/projects` are linked to that directory.
+only the harness's session store is linked to that directory: `~/.codex/sessions`
+and `~/.claude/projects` (`sessionScript`), or OpenCode's
+`$XDG_DATA_HOME/opencode` and `$XDG_STATE_HOME/opencode` (`~/.local/share` and
+`~/.local/state` when the run directory could not be prepared) as `opencode/data`
+and `opencode/state` (`openCodeSessionScript`, `BE/internal/agent/providers.go`).
 `config.toml`, auth files and all credentials stay on the container's tmpfs home
+(OpenCode's key arrives as the `OPENCODE_API_KEY` variable, never as a file)
 and are never persisted. Transcripts can contain whatever the agent saw or
 printed; they share the machine volume's trust boundary (the same as the task's
 worktree) and are wiped as described below.
 
 Claude Code runs receive a Kuayle-assigned `--session-id`; Codex reports its own
-`thread_id` in its `thread.started` event, which the manager records once.
-Migration 64 stores the ID on the attempt (`native_session_id`, restricted to
-`[A-Za-z0-9-]` and never starting with `-`, so it cannot be read as a flag). A
+`thread_id` in its `thread.started` event, and OpenCode its `sessionID`
+(`ses_…`) at the top level of every event; the manager records the first one
+it sees (`harnessSessionID`, `machine/manager.go`) once. OpenCode 2 would also
+create a session under an ID Kuayle passes to `--session`, but Kuayle records
+the ID OpenCode generated, as for Codex, so it never depends on which IDs
+OpenCode accepts. Migration 64 stores the ID on the attempt (`native_session_id`); migration 203
+allows OpenCode's underscore there and in `agent_sessions`. The ID is
+restricted to `[A-Za-z0-9_-]`, at most 128 characters, and starts with a letter or digit, so it cannot be read as a flag. A
 retry or follow-up **resumes natively** (`codex exec resume <id>` with the same
-settings as a new session, or `claude --resume <id>`) only when
+settings as a new session, `claude --resume <id>`, or
+`opencode run … --session <id> -- <prompt>`) only when
 the previous attempt succeeded on the same machine, where its transcripts live.
 It also resumes a failed attempt whose session the user continued through
 **Open in Claude Code** on that machine (`session_continued_at`, migration
@@ -548,8 +559,8 @@ failed resume is never repeated. Either
 way the prompt keeps the task instructions and appends a bounded handoff naming
 the previous attempt, its native outcome, a recorded pull request, up to 50 changed files and the previous agent's
 summary fenced as unverified text, because the harness never saw Kuayle's publication. An older handoff is replaced, not accumulated,
-and the prompt stays within the attempt limit. Other harnesses always start new
-sessions with the handoff.
+and the prompt stays within the attempt limit. Qwen Code, Crush, Kimi, Goose
+and custom harnesses always start new sessions with the handoff.
 
 **Open in Claude Code.** `POST /agent-tasks/:taskId/terminal` (session-only,
 no body) lets the task's creator continue a Claude Code task's own session
@@ -582,7 +593,7 @@ tab (which ends its tmux session) before the next attempt is the user's
 responsibility, and the terminal says so when Claude Code exits.
 
 When a task completes or is cancelled, a `purge_task_session` operation removes
-its directory with a short-lived helper container that has no network, a
+its directory (OpenCode's session store included) with a short-lived helper container that has no network, a
 read-only root, no capabilities and only `rm -rf -- <that directory>`; it works
 while the machine is paused or stopped, and still runs after the machine's
 generation changes. Failed tasks keep their transcripts so an explicit retry can
@@ -1033,7 +1044,7 @@ transition inside the transition's transaction:
 
 The session records the task's current machine and the harness's native
 session ID from the current attempt (Claude Code's Kuayle-assigned
-`--session-id`, Codex's `thread_id`), picked up at the next transition; it is
+`--session-id`, Codex's `thread_id`, OpenCode's `sessionID`), picked up at the next transition; it is
 the latest recorded ID, not a history. `dev_machine_agent_runs.session_id`
 links each attempt, set when the run is created in the fenced run transaction.
 Existing tasks were backfilled with a derived implement session and their
@@ -1509,10 +1520,10 @@ output of other tools is not scanned. The
 next attempt of the task keeps the worktree (attempts share the task's
 checkout) and its handoff says that the previous attempt ended without a final
 message, to check the worktree, finish and end with a summary.
-The agent is not asked again in the same session: OpenCode runs have no
-persisted session to resume, and a workflow that wants a retry already has
-one (an `agent_failed` transition back to the step, bounded by its visit
-limit). Other harnesses (Qwen Code, Kimi, Goose, Crush, custom) keep their
+The agent is not asked again in the same session (the
+[closing continuation](#closing-continuation) asks only an attempt that
+concluded): a workflow that wants a retry already has one (an `agent_failed`
+transition back to the step, bounded by its visit limit). Other harnesses (Qwen Code, Kimi, Goose, Crush, custom) keep their
 exit status.
 
 Docker supplies an RFC3339Nano timestamp for each log entry; see the
@@ -2021,8 +2032,9 @@ Kuayle asks for the reply, not only the prompt:
   (exit 0, a final message, not cancelled) while a message it received has no
   reply is asked for the replies in its
   [closing continuation](#closing-continuation), the one extra turn an
-  attempt gets for whatever is missing (`domain.ReplyClosingAsk`; Claude Code
-  and Codex only, since OpenCode cannot continue a session). The outbox is
+  attempt gets for whatever is missing (`domain.ReplyClosingAsk`; Claude
+  Code, Codex and OpenCode only, since Kuayle continues no other harness's
+  session). The outbox is
   collected again afterwards. It happens once; there is no loop.
 - **A missing reply never fails the attempt.** If there is still no reply the
   attempt stays as it ended: the work is checked and published as usual, with
@@ -2076,8 +2088,9 @@ message as above and, in the same transaction, acts on `mode`:
   checkout, the worktree and the session transcripts. When the cleanup has
   confirmed the attempt gone (`FinishCancellation`), the task goes straight
   back to `queued` as a new attempt on the same step, visit and iteration
-  (nothing is counted), with `resume_native_session` (so `claude --resume` or
-  `codex exec resume` continue the session; OpenCode gets the handoff) and the
+  (nothing is counted), with `resume_native_session` (so `claude --resume`,
+  `codex exec resume` or `opencode run --session` continue the session; the
+  other harnesses get the handoff) and the
   message in its prompt; the handoff says a person interrupted the attempt to
   say something and that the worktree is unchanged. It is not a pause: a
   pending "pause after this step" stays as the person asked for it, and the
@@ -3004,7 +3017,8 @@ too long, or none at all, changes nothing: the step fails as before.
 | --- | --- |
 | Claude Code | `claude --print … --resume <session> -p <prompt>` in the task's session directory |
 | Codex | `codex exec resume … <thread> <prompt>` with the thread ID the run reported |
-| OpenCode, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
+| OpenCode | `opencode run … --session <session> -- <prompt>` with the session ID the run reported, linked to the task's session directory like the attempt, so it opens the same session store |
+| Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
 
 **When an attempt leaves no valid update** (`machine/notebook.go`). The run
 of such an attempt has `notebook_required`. The work is never lost over the
