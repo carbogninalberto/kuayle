@@ -121,7 +121,7 @@ func (r *AgentTaskRepository) RecordRoomOutbox(ctx context.Context, taskID uuid.
 	var errs []error
 	for _, file := range room {
 		digest := sha256.Sum256([]byte(sender.runID.String() + "\x00" + file.Name + "\x00" + string(file.Data)))
-		post := domain.TaskRoomPost{AuthorKind: domain.RoomAuthorMember, AuthorRole: sender.role, RunID: &sender.runID, Kind: domain.RoomSay, DedupeKey: hex.EncodeToString(digest[:])}
+		post := domain.TaskRoomPost{AuthorKind: domain.RoomAuthorMember, AuthorRole: sender.role, AuthorMemberID: sender.memberID, RunID: &sender.runID, Kind: domain.RoomSay, DedupeKey: hex.EncodeToString(digest[:])}
 		message, parseErr := domain.ParseAgentOutboxMessage(file.Data)
 		switch {
 		case file.Oversize:
@@ -146,22 +146,40 @@ func (r *AgentTaskRepository) RecordRoomOutbox(ctx context.Context, taskID uuid.
 }
 
 // roomPoster is who posts a task's room files: the task whose room it is,
-// the role it plays there and its current run.
+// the role it plays there, its member (once there is one) and the run.
 type roomPoster struct {
-	taskID uuid.UUID
-	role   string
-	runID  uuid.UUID
+	taskID   uuid.UUID
+	role     string
+	memberID *uuid.UUID
+	runID    uuid.UUID
 }
 
-// roomSender says which room a task posts to and as which role. An
-// implementing task pinned to a pipeline is the root of its room and plays
-// the pipeline's writer.
+// roomSender says which room a task posts to and as which role. A member's
+// task posts to its root task's room as the member's role. An implementing
+// task pinned to a pipeline is the root of its room and plays the
+// pipeline's writer.
 func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) (roomPoster, error) {
-	var row struct {
-		RunID uuid.UUID `db:"run_id"`
-		Graph []byte    `db:"graph"`
+	var member struct {
+		ID     uuid.UUID `db:"id"`
+		TaskID uuid.UUID `db:"task_id"`
+		Role   string    `db:"role"`
+		RunID  uuid.UUID `db:"run_id"`
 	}
-	err := r.db.GetContext(ctx, &row, `SELECT t.run_id,v.graph FROM agent_tasks t JOIN workflow_versions v ON v.id=t.workflow_version_id AND v.workspace_id=t.workspace_id
+	err := r.db.GetContext(ctx, &member, `SELECT m.id,m.task_id,m.role,t.run_id FROM task_members m JOIN agent_tasks t ON t.id=m.member_task_id AND t.workspace_id=m.workspace_id
+ WHERE m.member_task_id=$1 AND t.kind=$2`, taskID, domain.AgentTaskKindReview)
+	if err == nil {
+		return roomPoster{taskID: member.TaskID, role: member.Role, memberID: &member.ID, runID: member.RunID}, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return roomPoster{}, err
+	}
+	var row struct {
+		RunID    uuid.UUID  `db:"run_id"`
+		Graph    []byte     `db:"graph"`
+		MemberID *uuid.UUID `db:"member_id"`
+	}
+	err = r.db.GetContext(ctx, &row, `SELECT t.run_id,v.graph,(SELECT m.id FROM task_members m WHERE m.task_id=t.id AND m.member_task_id IS NULL) AS member_id
+ FROM agent_tasks t JOIN workflow_versions v ON v.id=t.workflow_version_id AND v.workspace_id=t.workspace_id
  WHERE t.id=$1 AND t.kind=$2`, taskID, domain.AgentTaskKindImplement)
 	if errors.Is(err, sql.ErrNoRows) {
 		return roomPoster{}, ErrTaskRoomUnavailable
@@ -176,10 +194,8 @@ func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) 
 	if err != nil {
 		return roomPoster{}, err
 	}
-	for _, member := range pipeline.Roster {
-		if member.Writer {
-			return roomPoster{taskID: taskID, role: member.Role, runID: row.RunID}, nil
-		}
+	if writer, ok := pipeline.Writer(); ok {
+		return roomPoster{taskID: taskID, role: writer.Role, memberID: row.MemberID, runID: row.RunID}, nil
 	}
 	return roomPoster{}, ErrTaskRoomUnavailable
 }
@@ -274,6 +290,20 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 	if reason == "" && post.ReplyTo != nil && (*post.ReplyTo < 1 || *post.ReplyTo >= seq) {
 		reason = "it replies to a message that does not exist"
 	}
+	// A member's post names its own member; a verdict counts only from the
+	// member of its role, for a commit of the task's branch, named whole.
+	if reason == "" && post.AuthorKind == domain.RoomAuthorMember {
+		if reason, err = memberRefusal(ctx, tx, *task, post); err != nil {
+			return nil, err
+		}
+	}
+	if reason == "" && post.Kind == domain.RoomVerdict {
+		var commit string
+		if commit, reason, err = verdictCommit(ctx, tx, *task, post); err != nil {
+			return nil, err
+		}
+		post.Data.Commit, post.Data.Role = commit, post.AuthorRole
+	}
 	if reason != "" && (post.AuthorKind != domain.RoomAuthorMember || !slices.Contains(domain.RoomKinds, post.Kind)) {
 		return nil, &TaskRoomRefusedError{reason}
 	}
@@ -297,6 +327,11 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 		post.Kind, post.Body, data, post.ReplyTo, post.DedupeKey, rejected)
 	if err != nil {
 		return nil, err
+	}
+	if message.Kind == domain.RoomVerdict && message.RejectReason == nil {
+		if err = recordVerdict(ctx, tx, message); err != nil {
+			return nil, err
+		}
 	}
 	if task.ConversationID != nil {
 		if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.room_message", message); err != nil {

@@ -21,13 +21,14 @@ type roomFixture struct {
 	task domain.AgentTask
 	// plain is a task of the same creator that runs no pipeline.
 	plain domain.AgentTask
+	env   environmentRaceFixture
 }
 
 // newRoomFixture pins a task to the team pipeline with a lead; tasks do not
 // start on pipelines yet, so the pin is written directly.
 func newRoomFixture(t *testing.T) *roomFixture {
 	t.Helper()
-	db, repo, ctx, plain, _ := taskRecoveryFixture(t)
+	db, repo, ctx, plain, env := taskRecoveryFixture(t)
 	ws := plain.WorkspaceID
 	workflows := NewWorkflowRepository(db)
 	implementer, reviewer := builtinIDs(t, workflows, ws)
@@ -41,7 +42,7 @@ func newRoomFixture(t *testing.T) *roomFixture {
 	require.NoError(t, err)
 	_, err = db.Exec(`UPDATE agent_tasks SET workflow_version_id=(SELECT id FROM workflow_versions WHERE workflow_id=$2),workflow_node='implement',workflow_status='running' WHERE id=$1`, task.ID, created.ID)
 	require.NoError(t, err)
-	return &roomFixture{t: t, db: db, repo: repo, ctx: ctx, task: *task, plain: plain}
+	return &roomFixture{t: t, db: db, repo: repo, ctx: ctx, task: *task, plain: plain, env: env}
 }
 
 func (f *roomFixture) member(role, kind, body string, data domain.TaskRoomData) domain.TaskRoomPost {

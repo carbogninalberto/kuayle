@@ -287,6 +287,9 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 	if err = syncAgentSession(ctx, tx, task); err != nil {
 		return err
 	}
+	if err = syncMemberState(ctx, tx, task); err != nil {
+		return err
+	}
 	if err = reviewUpdated(ctx, tx, task); err != nil {
 		return err
 	}

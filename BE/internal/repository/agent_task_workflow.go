@@ -875,12 +875,6 @@ func recordedReviewCI(ctx context.Context, q sqlx.QueryerContext, reviewed domai
 // insertReviewTask creates a review task of the reviewed task's published
 // work and its review record, in the caller's transaction.
 func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTask, conversation, creator uuid.UUID, input domain.AgentReviewRequest, published *domain.AgentReviewTarget) (*domain.AgentTask, *domain.AgentReview, error) {
-	if input.ModelServerID == nil {
-		var err error
-		if input.ModelServerID, err = defaultModelServer(ctx, tx, reviewed.WorkspaceID, input.Provider); err != nil {
-			return nil, nil, err
-		}
-	}
 	var attempt int
 	if err := tx.GetContext(ctx, &attempt, `SELECT COALESCE(max(attempt),0)+1 FROM agent_reviews WHERE reviewed_task_id=$1 AND commit_sha=$2 AND provider=$3`, reviewed.ID, published.CommitSHA, input.Provider); err != nil {
 		return nil, nil, err
@@ -896,11 +890,7 @@ func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTas
 			return nil, nil, err
 		}
 	}
-	prompt := domain.AgentReviewPrompt(*published, input.Focus, ci)
-	var task domain.AgentTask
-	err := tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,model_server_id,reason,issue_status_id,issue_updated_at,kind,review_of_task_id)
- SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Waiting for a machine to review the pull request',i.status_id,i.updated_at,'review',$12 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`,
-		reviewed.WorkspaceID, conversation, creator, reviewed.IssueID, reviewed.TeamID, input.RequestID, prompt, input.Provider, input.Model, input.Thinking, input.ModelServerID, reviewed.ID)
+	task, err := insertReviewAgentTask(ctx, tx, reviewed, conversation, creator, input, domain.AgentReviewPrompt(*published, input.Focus, ci), "Waiting for a machine to review the pull request")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -915,10 +905,33 @@ func insertReviewTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTas
 	if err != nil {
 		return nil, nil, err
 	}
-	if err = recordAgentTaskTransition(ctx, tx, task, "", &creator); err != nil {
+	if err = recordAgentTaskTransition(ctx, tx, *task, "", &creator); err != nil {
 		return nil, nil, err
 	}
-	return &task, review, nil
+	return task, review, nil
+}
+
+// insertReviewAgentTask inserts a review task of the reviewed task's work
+// with prompt: kind review (never published, no repository credentials) on
+// the same issue, in the creator's conversation, so that it runs with the
+// creator's permissions. Without a model server it runs on the workspace
+// default when that speaks the harness's protocol. The caller records its
+// creation (recordAgentTaskTransition) once what goes with it is stored.
+func insertReviewAgentTask(ctx context.Context, tx *sqlx.Tx, reviewed domain.AgentTask, conversation, creator uuid.UUID, input domain.AgentReviewRequest, prompt, reason string) (*domain.AgentTask, error) {
+	if input.ModelServerID == nil {
+		var err error
+		if input.ModelServerID, err = defaultModelServer(ctx, tx, reviewed.WorkspaceID, input.Provider); err != nil {
+			return nil, err
+		}
+	}
+	var task domain.AgentTask
+	err := tx.GetContext(ctx, &task, `INSERT INTO agent_tasks(workspace_id,conversation_id,creator_id,issue_id,team_id,request_id,prompt,provider,model,thinking,model_server_id,reason,issue_status_id,issue_updated_at,kind,review_of_task_id)
+ SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,i.status_id,i.updated_at,'review',$13 FROM issues i WHERE i.id=$4 AND i.workspace_id=$1 AND i.team_id=$5 RETURNING *`,
+		reviewed.WorkspaceID, conversation, creator, reviewed.IssueID, reviewed.TeamID, input.RequestID, prompt, input.Provider, input.Model, input.Thinking, input.ModelServerID, reason, reviewed.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
 }
 
 // closeWorkflowOnFinish records the end of a workflow task that finished
