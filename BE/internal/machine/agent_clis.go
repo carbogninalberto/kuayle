@@ -60,6 +60,7 @@ var agentCLIPackages = []struct{ name, command string }{
 	{"@anthropic-ai/claude-code", "claude"},
 	{"@opencode/cli", "opencode"},
 	{"@openai/codex", "codex"},
+	{"@earendil-works/pi-coding-agent", "pi"},
 	{"@qwen-code/qwen-code", "qwen"},
 }
 

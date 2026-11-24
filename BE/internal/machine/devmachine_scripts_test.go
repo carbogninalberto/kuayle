@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -249,9 +250,20 @@ func TestAgentCLIInstallerPinsEveryCLIAndReleaseDigest(t *testing.T) {
 
 	// Release publishing refreshes exact values; require concrete pins rather than
 	// freezing this test to the versions shipped when it was written.
-	for _, name := range []string{"CLAUDE_CODE", "OPENCODE", "CODEX", "QWEN", "GOOSE", "KIMI"} {
+	for _, name := range []string{"CLAUDE_CODE", "OPENCODE", "CODEX", "PI", "QWEN", "GOOSE", "KIMI"} {
 		require.Regexp(t, `(?m)^`+name+`_VERSION=\d+\.\d+\.\d+$`, installer)
 	}
+	// Pi's advisories (CVE-2026-54325 to -54328) are fixed from 0.79.0 and only
+	// under the @earendil-works scope; the @mariozechner package has no fix.
+	require.Contains(t, installer, `"@earendil-works/pi-coding-agent@${PI_VERSION}"`)
+	require.NotContains(t, installer, "@mariozechner")
+	pi := regexp.MustCompile(`(?m)^PI_VERSION=(\d+)\.(\d+)\.\d+$`).FindStringSubmatch(installer)
+	require.NotNil(t, pi)
+	major, err := strconv.Atoi(pi[1])
+	require.NoError(t, err)
+	minor, err := strconv.Atoi(pi[2])
+	require.NoError(t, err)
+	require.True(t, major > 0 || minor >= 79, "Pi is pinned at 0.79.0 or later")
 	for _, arch := range []string{"amd64", "arm64"} {
 		require.Regexp(t, `(?s)`+arch+`\).*?goose_sha256=[a-f0-9]{64}\n.*?kimi_sha256=[a-f0-9]{64}\n`, installer)
 	}

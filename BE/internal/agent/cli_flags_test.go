@@ -47,7 +47,7 @@ func adapterFlags(t *testing.T) (map[string]map[string]bool, map[string]map[stri
 	}
 	for _, provider := range []Provider{
 		NewClaudeCodeProvider(""), NewOpenCodeProvider(""), NewCodexProvider(""),
-		NewQwenCodeProvider(""), NewCrushProvider(""), NewKimiProvider(""), NewGooseProvider(""),
+		NewPiProvider(""), NewQwenCodeProvider(""), NewCrushProvider(""), NewKimiProvider(""), NewGooseProvider(""),
 	} {
 		for _, mode := range []Mode{ModeAutonomous, ModeInteractive} {
 			for _, input := range inputs {

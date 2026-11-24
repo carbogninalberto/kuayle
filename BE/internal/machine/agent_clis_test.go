@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -52,6 +53,14 @@ func TestAgentCLIVolumeIsMountedReadOnlyOnlyWhenEnabled(t *testing.T) {
 func TestAgentCLIRefreshTracksThePackagesTheImagesInstall(t *testing.T) {
 	installer, err := os.ReadFile(filepath.Join(repoRootFromCaller(t), "devmachine", "common", "install-agent-clis.sh"))
 	require.NoError(t, err)
+	var installed, refreshed []string
+	for _, match := range regexp.MustCompile(`(?m)^npm install --global .*"(@?[^"@]+)@\$\{[A-Z_]+_VERSION\}"$`).FindAllStringSubmatch(string(installer), -1) {
+		installed = append(installed, match[1])
+	}
+	for _, item := range agentCLIPackages {
+		refreshed = append(refreshed, item.name)
+	}
+	require.ElementsMatch(t, installed, refreshed, "every npm CLI the images install is refreshed")
 	for _, item := range agentCLIPackages {
 		require.Contains(t, string(installer), `"`+item.name+`@${`, "the images install %s", item.name)
 		if strings.Contains(string(installer), "--allow-scripts="+item.name+" ") {

@@ -24,7 +24,7 @@ func TestTerminalSessionLaunchResponseOmitsMissingSession(t *testing.T) {
 }
 
 func TestDevMachineDTOsAcceptBuiltInProviders(t *testing.T) {
-	providers := []string{"claude-code", "opencode", "codex", "qwen-code", "crush", "kimi", "goose", "custom"}
+	providers := []string{"claude-code", "opencode", "codex", "pi", "qwen-code", "crush", "kimi", "goose", "custom"}
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
 			require.NoError(t, validate.Struct(dto.CreateDevMachineRequest{
@@ -51,12 +51,14 @@ func TestDevMachineDTOsAcceptProfiles(t *testing.T) {
 }
 
 func TestDevMachinePolicyRejectsUnknownProviders(t *testing.T) {
-	for _, provider := range []string{"claude-code", "opencode", "codex", "qwen-code", "crush", "kimi", "goose"} {
+	builtIns := []string{"claude-code", "opencode", "codex", "pi", "qwen-code", "crush", "kimi", "goose"}
+	for _, provider := range builtIns {
 		require.NoError(t, validate.Struct(dto.DevMachinePolicyRequest{
 			MaxDiskGB:        20,
 			AllowedProviders: []string{provider},
 		}))
 	}
+	require.NoError(t, validate.Struct(dto.DevMachinePolicyRequest{MaxDiskGB: 20, AllowedProviders: builtIns}), "a policy can allow every built-in")
 	require.Error(t, validate.Struct(dto.DevMachinePolicyRequest{
 		MaxDiskGB:        20,
 		AllowedProviders: []string{"unknown"},

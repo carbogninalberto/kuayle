@@ -21,6 +21,7 @@ opencode run --help: --format json --auto --print-logs --log-level warn --standa
 codex --help: -c
 codex exec --help: --json -c
 codex exec resume --help: --json -c
+pi --help: --print --mode json --no-session --no-approve --model --thinking
 qwen --help: --yolo --output-format stream-json --resume
 crush run --help: --yolo --quiet
 kimi --help: --print --yolo --output-format stream-json --prompt --session

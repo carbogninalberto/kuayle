@@ -24,6 +24,7 @@ esac
 CLAUDE_CODE_VERSION=2.1.330
 OPENCODE_VERSION=2.3.2
 CODEX_VERSION=0.171.0
+PI_VERSION=1.6.0
 QWEN_VERSION=0.28.4
 GOOSE_VERSION=1.60.2
 KIMI_VERSION=1.52.0
@@ -32,6 +33,8 @@ KIMI_VERSION=1.52.0
 npm install --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
 npm install --global --allow-scripts=@opencode/cli "@opencode/cli@${OPENCODE_VERSION}"
 npm install --global "@openai/codex@${CODEX_VERSION}"
+# Pi moved to the @earendil-works scope; only it has the fixes for CVE-2026-54325 to -54328.
+npm install --global "@earendil-works/pi-coding-agent@${PI_VERSION}"
 npm install --global --allow-scripts=@qwen-code/qwen-code "@qwen-code/qwen-code@${QWEN_VERSION}"
 # qwen-code 0.26.1 bundles sharp 0.35.4 (GHSA-wq5f-xc86-pv6w); 0.35.5 is the patch release.
 (cd "$(npm root --global)/@qwen-code/qwen-code" && npm install --no-save --no-audit --no-fund --ignore-scripts "sharp@0.35.5")
@@ -88,6 +91,6 @@ download_and_verify kimi \
 extract_and_install goose
 extract_and_install kimi
 
-for cli in claude opencode codex qwen crush goose kimi; do
+for cli in claude opencode codex pi qwen crush goose kimi; do
   "$cli" --version
 done
