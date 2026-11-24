@@ -150,15 +150,23 @@ func (f *taskRuntimeFake) Cancel(context.Context, domain.AgentTask) error {
 type taskRuntimeStoreFake struct {
 	reservation repository.MachineReservation
 	err         error
-	// previous is what PreviousAttempt reports about the attempt before.
-	previous *domain.AgentHandoff
+	// previous is what PreviousAttempt reports about the attempt before;
+	// previousCalls counts the reads.
+	previous      *domain.AgentHandoff
+	previousCalls int
+	// member is the pipeline member whose turns the task runs, if any.
+	member *domain.TaskMember
 }
 
 func (f *taskRuntimeStoreFake) ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error) {
 	return f.reservation, f.err
 }
 func (f *taskRuntimeStoreFake) PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error) {
+	f.previousCalls++
 	return f.previous, nil
+}
+func (f *taskRuntimeStoreFake) TaskMember(context.Context, domain.AgentTask) (*domain.TaskMember, error) {
+	return f.member, nil
 }
 func (f *taskRuntimeStoreFake) CancelAttempt(context.Context, domain.AgentTask) error { return nil }
 func (f *taskRuntimeStoreFake) EnsurePublication(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {

@@ -1,0 +1,78 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/kuayle/kuayle-backend/internal/agent"
+	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/stretchr/testify/require"
+)
+
+// reviewTurn runs the second attempt of a review task on the harness, after
+// a succeeded first one on the same machine in session; member says whether
+// the task runs the turns of a pipeline task's member. It returns the run
+// Kuayle created and the store it asked.
+func reviewTurn(t *testing.T, provider, session string, member bool) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
+	t.Helper()
+	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
+		policy:        testPolicy(ws),
+		machine:       &domain.DevMachine{ID: machine, WorkspaceID: ws, CreatedByUserID: &user, Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning},
+		agentProvider: &domain.DevMachineAgentProvider{ProviderID: provider, Enabled: true, RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`)},
+		checkouts:     []domain.DevMachineCheckout{{ID: checkout, WorkspaceID: ws, MachineID: machine, Status: "ready", WorkspacePath: "/workspace/tasks/check", RepositoryFullName: "example/test", BaseBranch: "main", WorkingBranch: "task/check"}},
+	}}
+	store.policy.AllowedProviders = json.RawMessage(`["opencode","codex","claude-code"]`)
+	machines := newTestDevMachineService(store)
+	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""))
+	root := uuid.New()
+	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, NativeSessionID: session}}
+	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: provider,
+		Prompt: "You are the @reviewer of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: 2}
+	if member {
+		tasks.member = &domain.TaskMember{ID: uuid.New(), WorkspaceID: ws, TaskID: root, Role: "reviewer", MemberTaskID: &task.ID, State: domain.MemberQueued}
+	}
+	runtime := &devMachineTaskRuntime{machines: machines, tasks: tasks}
+	_, err := runtime.Attempt(context.Background(), task)
+	require.NoError(t, err)
+	require.Len(t, store.agentRuns, 1)
+	return store.agentRuns[0], tasks
+}
+
+// A member's next turn is the next generation of its review task, and it
+// continues the session of its previous turn on Claude Code, Codex and
+// OpenCode alike, with the handoff that says so.
+func TestAMembersNextTurnResumesItsSession(t *testing.T) {
+	for provider, session := range map[string]string{
+		"claude-code": "0c9a6c1e-0000-4000-8000-000000000001",
+		"codex":       "0199a213-81c0-7800-8aa1-bbab2a035a53",
+		"opencode":    "ses_df21986abffefn2FxDuH6uZGLA",
+	} {
+		t.Run(provider, func(t *testing.T) {
+			run, tasks := reviewTurn(t, provider, session, true)
+			require.Equal(t, 1, tasks.previousCalls)
+			var argv []string
+			require.NoError(t, json.Unmarshal(run.CommandArgv, &argv))
+			require.Contains(t, strings.Join(argv, " "), session, "the launch carries the resume id")
+			require.Contains(t, run.Prompt, "this continues your previous session")
+			require.Contains(t, run.Prompt, "You are the @reviewer")
+			require.False(t, run.PushBranch, "a member that reviews never pushes")
+		})
+	}
+}
+
+// Every other review (one a graph workflow's reviewer step or the assistant
+// requested) keeps starting cold: Kuayle does not even read its previous
+// attempt.
+func TestOtherReviewsStillStartCold(t *testing.T) {
+	const session = "0c9a6c1e-0000-4000-8000-000000000001"
+	run, tasks := reviewTurn(t, "claude-code", session, false)
+	require.Zero(t, tasks.previousCalls)
+	var argv []string
+	require.NoError(t, json.Unmarshal(run.CommandArgv, &argv))
+	require.NotContains(t, strings.Join(argv, " "), session)
+	require.NotContains(t, run.Prompt, "previous attempt")
+}

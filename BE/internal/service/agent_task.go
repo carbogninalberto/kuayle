@@ -53,6 +53,7 @@ type taskExecutionRuntime interface {
 type taskRuntimeStore interface {
 	ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error)
 	PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error)
+	TaskMember(context.Context, domain.AgentTask) (*domain.TaskMember, error)
 	CancelAttempt(context.Context, domain.AgentTask) error
 	EnsurePublication(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 	ProfileBundle(context.Context, domain.AgentTask) (*domain.AgentProfileBundle, error)
@@ -775,8 +776,18 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	// take more than an hour.
 	const timeout = 3 * 60 * 60
 	review := task.Kind == domain.AgentTaskKindReview
+	// A review starts cold, except the turns of a pipeline task's member:
+	// one review task reused across turns, which continues its session.
+	resumes := !review
+	if review && task.Generation > 1 {
+		member, err := r.tasks.TaskMember(ctx, task)
+		if err != nil {
+			return nil, err
+		}
+		resumes = member != nil
+	}
 	var previous *domain.AgentHandoff
-	if task.Generation > 1 && !review {
+	if task.Generation > 1 && resumes {
 		if previous, err = r.tasks.PreviousAttempt(ctx, task); err != nil {
 			return nil, err
 		}
