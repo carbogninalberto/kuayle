@@ -271,7 +271,7 @@ func TestManagerChecksTheSharedCLIsBeforeItStartsWork(t *testing.T) {
 	require.NoError(t, <-done)
 	mu.Lock()
 	defer mu.Unlock()
-	require.Equal(t, []string{"check", "run"}, events[:2])
+	require.Equal(t, []string{"check", "run"}, events[:min(2, len(events))])
 	require.Equal(t, 1, runtime.checks)
 	require.Equal(t, "kuayle/headless:release", runtime.image, "the check runs in this release's image")
 	require.Equal(t, map[string]string{"@openai/codex": "0.172.0"}, manager.AgentCLIVersions())
