@@ -2,10 +2,13 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -87,6 +90,100 @@ func (r *AgentTaskRepository) RecordRoomMessage(ctx context.Context, id uuid.UUI
 	return message, tx.Commit()
 }
 
+// RecordRoomOutbox posts the outbox files of a task that are addressed to
+// its room ("to":"@role" or "@all") for the role the task plays, and returns
+// the other files. A file that does not parse, is too large or is refused is
+// kept as a refused post with the reason, which its sender reads on its next
+// turn. A file taken twice in a run is posted once (the same dedupe key as
+// agent messages). A task that runs no pipeline has no room: all its files
+// are returned, and the agent messages refuse the room ones.
+func (r *AgentTaskRepository) RecordRoomOutbox(ctx context.Context, taskID uuid.UUID, files []domain.AgentOutboxFile) ([]domain.AgentOutboxFile, int, error) {
+	var room, rest []domain.AgentOutboxFile
+	for _, file := range files {
+		if domain.IsRoomOutbox(file.Data) {
+			room = append(room, file)
+		} else {
+			rest = append(rest, file)
+		}
+	}
+	if len(room) == 0 {
+		return files, 0, nil
+	}
+	sender, err := r.roomSender(ctx, taskID)
+	if errors.Is(err, ErrTaskRoomUnavailable) {
+		return files, 0, nil
+	}
+	if err != nil {
+		return files, 0, err
+	}
+	slices.SortStableFunc(room, func(a, b domain.AgentOutboxFile) int { return strings.Compare(a.Name, b.Name) })
+	recorded := 0
+	var errs []error
+	for _, file := range room {
+		digest := sha256.Sum256([]byte(sender.runID.String() + "\x00" + file.Name + "\x00" + string(file.Data)))
+		post := domain.TaskRoomPost{AuthorKind: domain.RoomAuthorMember, AuthorRole: sender.role, RunID: &sender.runID, Kind: domain.RoomSay, DedupeKey: hex.EncodeToString(digest[:])}
+		message, parseErr := domain.ParseAgentOutboxMessage(file.Data)
+		switch {
+		case file.Oversize:
+			post.Body, post.Refused = domain.AgentMessagePreview(file.Data), "message file is too large"
+		case parseErr != nil:
+			post.Body, post.Refused = domain.AgentMessagePreview(file.Data), parseErr.Error()
+		default:
+			post.ToRoles, post.Kind, post.Data, post.Body, post.ReplyTo = message.Room.ToRoles, message.Room.Kind, message.Room.Data, message.Body, message.ReplyTo
+		}
+		_, err := r.RecordRoomMessage(ctx, sender.taskID, post)
+		switch {
+		case err == nil:
+			recorded++
+		case errors.Is(err, ErrTaskRoomRateLimited):
+			// The sender spent its hourly budget; the file is dropped as
+			// agent messages over budget are.
+		default:
+			errs = append(errs, err)
+		}
+	}
+	return rest, recorded, errors.Join(errs...)
+}
+
+// roomPoster is who posts a task's room files: the task whose room it is,
+// the role it plays there and its current run.
+type roomPoster struct {
+	taskID uuid.UUID
+	role   string
+	runID  uuid.UUID
+}
+
+// roomSender says which room a task posts to and as which role. An
+// implementing task pinned to a pipeline is the root of its room and plays
+// the pipeline's writer.
+func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) (roomPoster, error) {
+	var row struct {
+		RunID uuid.UUID `db:"run_id"`
+		Graph []byte    `db:"graph"`
+	}
+	err := r.db.GetContext(ctx, &row, `SELECT t.run_id,v.graph FROM agent_tasks t JOIN workflow_versions v ON v.id=t.workflow_version_id AND v.workspace_id=t.workspace_id
+ WHERE t.id=$1 AND t.kind=$2`, taskID, domain.AgentTaskKindImplement)
+	if errors.Is(err, sql.ErrNoRows) {
+		return roomPoster{}, ErrTaskRoomUnavailable
+	}
+	if err != nil {
+		return roomPoster{}, err
+	}
+	if domain.WorkflowKind(row.Graph) != domain.WorkflowKindPipeline {
+		return roomPoster{}, ErrTaskRoomUnavailable
+	}
+	pipeline, err := domain.ParsePipeline(row.Graph)
+	if err != nil {
+		return roomPoster{}, err
+	}
+	for _, member := range pipeline.Roster {
+		if member.Writer {
+			return roomPoster{taskID: taskID, role: member.Role, runID: row.RunID}, nil
+		}
+	}
+	return roomPoster{}, ErrTaskRoomUnavailable
+}
+
 // RoomMessages lists the room of a pipeline task after a sequence number,
 // oldest first, for its creator. Refused posts are listed with their reason.
 func (r *AgentTaskRepository) RoomMessages(ctx context.Context, ws, id uuid.UUID, after int64) ([]domain.TaskMessage, error) {
@@ -166,7 +263,10 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 			return nil, err
 		}
 	}
-	reason := domain.TaskRoomRefusal(*pipeline, post, granted)
+	reason := post.Refused
+	if reason == "" {
+		reason = domain.TaskRoomRefusal(*pipeline, post, granted)
+	}
 	var seq int64
 	if err = tx.GetContext(ctx, &seq, `SELECT COALESCE(max(seq),0)+1 FROM task_messages WHERE task_id=$1`, task.ID); err != nil {
 		return nil, err

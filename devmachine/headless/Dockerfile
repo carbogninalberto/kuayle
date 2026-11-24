@@ -40,6 +40,7 @@ COPY ide/checkout.sh /usr/local/bin/kuayle-checkout
 COPY ide/terminal-session.sh /usr/local/bin/kuayle-terminal-session
 COPY common/kuayle-task-claude /usr/local/bin/kuayle-task-claude
 COPY ide/command-event.js /usr/local/lib/kuayle-command-event.js
+COPY --chmod=0755 common/kuayle-say.cjs /usr/local/bin/kuayle-say
 COPY ide/tmux.conf /etc/tmux.conf
 
 # Passwordless sudo for the machine user stays inert: containers run with

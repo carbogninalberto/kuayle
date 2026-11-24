@@ -2801,8 +2801,26 @@ of at most 4,000 bytes). Bounds follow the graph's.
 - `GET /agent-tasks/:taskId/room?after=<seq>` and `POST /agent-tasks/:taskId/room`
   are session-only, the creator's (`lockAgentTask`) and behind the demo guard;
   the GET answers `Cache-Control: private, no-store`. A task not pinned to a
-  pipeline answers `409 ROOM_UNAVAILABLE`. Nothing delivers room posts to
-  agents yet.
+  pipeline answers `409 ROOM_UNAVAILABLE`.
+- **Agents post through the outbox** (KUA-267). An outbox file whose `to` is
+  `@role`, `@human` or `@all` is a room post (`domain.ParseAgentOutboxMessage`
+  with `kind`, `body`, `reply_to` and `data`; `say` and `ask` need text).
+  `RecordAgentOutbox` hands those files to `RecordRoomOutbox` before the agent
+  messages: they are posted for the role the sending task plays (the root task
+  plays the pipeline's writer), with the run and the same dedupe key as agent
+  messages, within the role's hourly budget. A file that does not parse or is
+  too large is stored as a refused post with the reason. On a task without a
+  pipeline the file goes on to the agent messages, which refuse it ("the task
+  room is only for tasks on a pipeline workflow"). The images ship
+  `kuayle-say` (`devmachine/common/kuayle-say.cjs`, installed as
+  `/usr/local/bin/kuayle-say`), which validates and writes the file atomically;
+  the skill text is "The task room" in `kuayle-agents.md`.
+- **What a turn reads.** `domain.RoomInbox` is what a role reads from posts
+  newer than its last turn: posts for everyone or for the role, not its own,
+  plus its own refused posts with their reasons. `domain.RoomTurnPrompt`
+  renders them with number, author and kind, the text fenced as data, and how
+  to answer. Member turns and their read cursor come with the members and the
+  tick (P2.3, P2.5).
 
 ### Moving a task to a newer workflow version
 

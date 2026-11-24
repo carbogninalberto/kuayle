@@ -67,7 +67,13 @@ func (r *DevMachineRepository) RecordAgentOutbox(ctx context.Context, machineID 
 		if err = r.recordNotebookUpdates(ctx, *task, updates); err != nil {
 			errs = append(errs, err)
 		}
-		count, err := messages.RecordTaskOutbox(ctx, *task, letters)
+		// Files for the task's room are posted there; the rest are messages.
+		letters, count, err := NewAgentTaskRepository(r.db).RecordRoomOutbox(ctx, *task, letters)
+		recorded += count
+		if err != nil {
+			errs = append(errs, err)
+		}
+		count, err = messages.RecordTaskOutbox(ctx, *task, letters)
 		recorded += count
 		if err != nil {
 			errs = append(errs, err)
@@ -206,6 +212,11 @@ func (r *AgentMessageRepository) RecordTaskOutbox(ctx context.Context, taskID uu
 			reject(parseErr.Error())
 		default:
 			row.ToRef, row.Channel, row.Body = message.To, message.Channel, message.Body
+			if message.Room != nil {
+				row.ToRef = domain.AgentMessageRef(file.Data)
+				reject("the task room is only for tasks on a pipeline workflow")
+				break
+			}
 			if sender.Kind != domain.AgentTaskKindImplement || ended {
 				reject("the sending task can no longer send messages")
 				break

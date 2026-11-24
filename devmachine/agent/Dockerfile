@@ -48,6 +48,7 @@ ENV GOPATH=/home/kuayle/go \
     PATH="/usr/local/go/bin:${PATH}"
 
 COPY common/kuayle-agent-runner /usr/local/bin/kuayle-agent-runner
+COPY --chmod=0755 common/kuayle-say.cjs /usr/local/bin/kuayle-say
 RUN chmod 0755 /usr/local/bin/kuayle-agent-runner \
     && mkdir -p /home/kuayle /home/kuayle/go /home/kuayle/.cache/go-build \
     && chown -R 1000:1000 /home/kuayle

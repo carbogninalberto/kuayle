@@ -107,6 +107,10 @@ type TaskRoomPost struct {
 	Data           TaskRoomData
 	ReplyTo        *int64
 	DedupeKey      string
+	// Refused is set on a member's post that is refused before the room
+	// reads it (an outbox file that could not be parsed): it is stored with
+	// this reason.
+	Refused string
 }
 
 // Clean trims valid text and drops its control characters (invalid text is
