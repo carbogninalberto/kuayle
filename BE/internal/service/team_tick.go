@@ -403,48 +403,30 @@ var tickFacts = []string{factPRExists, "head_sha", "base_ref", factPRDraft, fact
 
 // factValue is a fact's value as the room records it; false when unknown.
 func factValue(f TaskFacts, name string) (any, bool) {
-	known := func(fact Fact) (any, bool) { return fact == FactYes, fact != FactUnknown }
+	yesNo := map[string]Fact{factPRExists: f.PRExists, factPRDraft: f.PRDraft, factHeadContainsBase: f.HeadContainsBase, factConflict: f.Conflict,
+		factMigrationCollision: f.MigrationCollision, factApproved: f.Approved, factMerged: f.Merged, factClosed: f.Closed}
+	if fact, ok := yesNo[name]; ok {
+		return fact == FactYes, fact != FactUnknown
+	}
 	switch name {
 	case "head_sha":
 		return f.HeadSHA, f.HeadSHA != ""
 	case "base_ref":
 		return f.BaseRef, f.BaseRef != ""
-	case factPRExists:
-		return known(f.PRExists)
-	case factPRDraft:
-		return known(f.PRDraft)
-	case factHeadContainsBase:
-		return known(f.HeadContainsBase)
-	case factConflict:
-		return known(f.Conflict)
-	case factMigrationCollision:
-		return known(f.MigrationCollision)
-	case factApproved:
-		return known(f.Approved)
-	case factMerged:
-		return known(f.Merged)
-	case factClosed:
-		return known(f.Closed)
 	case factCIGreen:
-		if f.CI.State == "" || f.CI.Head != f.HeadSHA || f.CI.Green == FactUnknown {
-			return nil, false
-		}
 		failing := []string{}
 		for _, check := range f.CI.failing() {
 			failing = append(failing, check.Name)
 		}
-		return map[string]any{"state": f.CI.State, "head": f.CI.Head, "failing": failing}, true
+		return map[string]any{"state": f.CI.State, "head": f.CI.Head, "failing": failing}, f.CI.State != "" && f.CI.Head == f.HeadSHA && f.CI.Green != FactUnknown
 	case factOverlap:
-		if f.Overlap == nil {
-			return nil, false
-		}
 		ahead := []string{}
 		for _, other := range f.Overlap {
 			if other.Ahead {
 				ahead = append(ahead, other.IssueIdentifier)
 			}
 		}
-		return ahead, true
+		return ahead, f.Overlap != nil
 	}
 	return nil, false
 }
