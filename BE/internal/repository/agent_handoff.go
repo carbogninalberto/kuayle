@@ -11,12 +11,14 @@ import (
 )
 
 // PreviousAttempt returns what Kuayle recorded about the task's attempt before
-// the current one: native outcome, publication and changed
-// files. The agent summary is the previous harness's own, untrusted text.
+// the current one: the harness that ran it, native outcome, publication and
+// changed files. The agent summary is the previous harness's own, untrusted
+// text.
 func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.AgentTask) (*domain.AgentHandoff, error) {
 	var row struct {
 		ID            uuid.UUID       `db:"id"`
 		MachineID     uuid.UUID       `db:"machine_id"`
+		Provider      string          `db:"provider_id"`
 		Session       *string         `db:"native_session_id"`
 		Status        string          `db:"status"`
 		Summary       *string         `db:"summary"`
@@ -29,7 +31,7 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		FailureRule   *string         `db:"failure_rule"`
 		PriorWorkflow bool            `db:"prior_workflow"`
 	}
-	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
+	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.provider_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
  CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request,
  CASE WHEN p.status='failed' THEN p.summary END AS publication_failure,
  r.session_continued_at IS NOT NULL AS continued,
@@ -44,7 +46,7 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	if err != nil {
 		return nil, err
 	}
-	handoff := &domain.AgentHandoff{AttemptID: row.ID, MachineID: row.MachineID, Status: row.Status, ContinuedInteractively: row.Continued, NoFinalMessage: row.NoFinal}
+	handoff := &domain.AgentHandoff{AttemptID: row.ID, MachineID: row.MachineID, Provider: row.Provider, Status: row.Status, ContinuedInteractively: row.Continued, NoFinalMessage: row.NoFinal}
 	handoff.PublicationBlock = domain.PublicationCheckoutBlockReason(row.Publication)
 	if row.Notebook != nil && domain.IsNotebookNotUpdated(*row.Notebook) {
 		handoff.NotebookProblem = *row.Notebook

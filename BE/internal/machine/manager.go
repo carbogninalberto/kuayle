@@ -2465,8 +2465,10 @@ func (m *Manager) cancelUnauthorizedRun(ctx context.Context, run *domain.DevMach
 // harnessSessionID returns the native session a task attempt's harness
 // reported in its own event stream, if valid. Only task attempts are resumed.
 // Codex names its thread in thread.started; OpenCode puts its session ID on
-// every event, as the top-level sessionID (a part's own is not read).
-// Claude Code's session is assigned by Kuayle when the run is created.
+// every event, as the top-level sessionID (a part's own is not read); Qwen
+// Code names its session in the system init event that starts its stream.
+// Claude Code's, Kimi's and Goose's sessions are named by Kuayle when the
+// run is created (agent.KuayleNamesSession).
 func harnessSessionID(run *domain.DevMachineAgentRun, event agent.Event) string {
 	if run.TaskID == nil {
 		return ""
@@ -2474,6 +2476,8 @@ func harnessSessionID(run *domain.DevMachineAgentRun, event agent.Event) string 
 	var reported struct {
 		ThreadID  string `json:"thread_id"`
 		SessionID string `json:"sessionID"`
+		Subtype   string `json:"subtype"`
+		Session   string `json:"session_id"`
 	}
 	var id string
 	switch {
@@ -2484,6 +2488,10 @@ func harnessSessionID(run *domain.DevMachineAgentRun, event agent.Event) string 
 	case run.ProviderID == "opencode":
 		if json.Unmarshal(event.Payload, &reported) == nil {
 			id = reported.SessionID
+		}
+	case run.ProviderID == "qwen-code" && event.Type == "system":
+		if json.Unmarshal(event.Payload, &reported) == nil && reported.Subtype == "init" {
+			id = reported.Session
 		}
 	}
 	if !agent.ValidSessionID(id) {

@@ -57,7 +57,7 @@ func TestAgentTaskPausesAtTheProviderUsageLimit(t *testing.T) {
 // though that attempt did not succeed, and is told to keep its work.
 func TestUsageLimitedAttemptResumesItsSession(t *testing.T) {
 	machine := uuid.New()
-	previous := &domain.AgentHandoff{AttemptID: uuid.New(), Status: "failed", MachineID: machine, NativeSessionID: "ae361499-0008-48b7-b8a7-d9df1193e4d3"}
+	previous := &domain.AgentHandoff{AttemptID: uuid.New(), Provider: "claude-code", Status: "failed", MachineID: machine, NativeSessionID: "ae361499-0008-48b7-b8a7-d9df1193e4d3"}
 	paused := domain.AgentTask{ID: uuid.New(), MachineID: &machine, Provider: "claude-code", ResumeNativeSession: true}
 	require.Equal(t, previous.NativeSessionID, taskSession(paused, previous).ResumeID)
 

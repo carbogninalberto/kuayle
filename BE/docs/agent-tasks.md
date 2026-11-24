@@ -529,39 +529,60 @@ volume, so its sessions outlive the run directory. Autonomous runs also give Ope
 (`{"snapshot":false}`, merged over the project's `opencode.json`), because a
 snapshot is a git copy of the worktree in its data directory, an unattended run
 never undoes an edit, and those copies spend the workspace volume. Claude Code and Codex keep their state
-in `~/.claude` and `~/.codex`, whose transcripts are linked to the task's
-session directory too. Interactive attempts keep the tmpfs defaults.
+in `~/.claude` and `~/.codex`, Qwen Code in `~/.qwen` and Kimi in `~/.kimi`,
+whose session stores are linked or moved to the task's session directory too;
+Goose keeps its SQLite session store under the data directory. Interactive
+attempts keep the tmpfs defaults.
 
 ## Native session resume and handoff
 
-Codex, Claude Code and OpenCode task attempts keep their native session **transcripts** in
+Codex, Claude Code, OpenCode, Qwen Code, Kimi and Goose task attempts keep their native session **transcripts** in
 `/workspace/.kuayle/agent-sessions/<task-id>/` on the machine's workspace volume,
 outside every checkout, so publication never commits them. The attempt's argv is
 wrapped so that, after the image's runner has loaded secrets and configuration,
 only the harness's session store is linked to that directory: `~/.codex/sessions`
-and `~/.claude/projects` (`sessionScript`), or OpenCode's
+and `~/.claude/projects` (`sessionScript`), OpenCode's
 `$XDG_DATA_HOME/opencode` and `$XDG_STATE_HOME/opencode` (`~/.local/share` and
 `~/.local/state` when the run directory could not be prepared) as `opencode/data`
-and `opencode/state` (`openCodeSessionScript`, `BE/internal/agent/providers.go`).
+and `opencode/state` (`openCodeSessionScript`), Qwen Code's `~/.qwen/projects`
+as `qwen/` (`qwenSessionScript`), or Goose's `$XDG_DATA_HOME/goose/sessions` as
+`goose/` (`gooseSessionScript`, all in `BE/internal/agent/providers.go`). Kimi
+finds a session through its index of working directories (`kimi.json`), which
+it replaces on every write, so a link to it would not survive: its wrapper
+(`kimiSessionScript`) points `KIMI_SHARE_DIR` at `kimi/` instead, which moves
+Kimi's whole share directory (index, sessions, logs, telemetry and the default
+`config.toml` it writes). An attempt's home starts empty and Kimi takes its
+provider from the environment, so nothing secret is there.
 `config.toml`, auth files and all credentials stay on the container's tmpfs home
 (OpenCode's key arrives as the `OPENCODE_API_KEY` variable, never as a file)
 and are never persisted. Transcripts can contain whatever the agent saw or
 printed; they share the machine volume's trust boundary (the same as the task's
 worktree) and are wiped as described below.
 
-Claude Code runs receive a Kuayle-assigned `--session-id`; Codex reports its own
-`thread_id` in its `thread.started` event, and OpenCode its `sessionID`
-(`ses_…`) at the top level of every event; the manager records the first one
-it sees (`harnessSessionID`, `machine/manager.go`) once. OpenCode 2 would also
+Claude Code runs receive a Kuayle-assigned `--session-id`, Kimi runs
+`--session <id>` (which Kimi documents as creating the session when there is
+none) and Goose runs `--name <id>` (`agent.KuayleNamesSession`); the ID is
+recorded when the run is created. Codex reports its own
+`thread_id` in its `thread.started` event, OpenCode its `sessionID`
+(`ses_…`) at the top level of every event and Qwen Code its `session_id` in
+the `system`/`init` event that starts its stream; the manager records the
+first one it sees (`harnessSessionID`, `machine/manager.go`) once. Kimi prints
+its ID only as text on standard error and Goose not at all (its own IDs, such
+as `20261124_1`, can only be resumed, not chosen), so Kuayle names theirs. OpenCode 2 would also
 create a session under an ID Kuayle passes to `--session`, but Kuayle records
 the ID OpenCode generated, as for Codex, so it never depends on which IDs
 OpenCode accepts. Migration 64 stores the ID on the attempt (`native_session_id`); migration 203
 allows OpenCode's underscore there and in `agent_sessions`. The ID is
 restricted to `[A-Za-z0-9_-]`, at most 128 characters, and starts with a letter or digit, so it cannot be read as a flag. A
 retry or follow-up **resumes natively** (`codex exec resume <id>` with the same
-settings as a new session, `claude --resume <id>`, or
-`opencode run … --session <id> -- <prompt>`) only when
-the previous attempt succeeded on the same machine, where its transcripts live.
+settings as a new session, `claude --resume <id>`,
+`opencode run … --session <id> -- <prompt>`, `qwen … --resume <id> <prompt>`,
+`kimi … --session <id> --prompt <prompt>` or
+`goose run --resume --name <id> …`) only when
+the previous attempt succeeded on the same machine, where its transcripts live,
+and was run by the same harness: a task whose profile switched harness between
+attempts starts a new session, because the previous ID names the other
+harness's session (`AgentHandoff.Provider`, the previous run's `provider_id`).
 It also resumes a failed attempt whose session the user continued through
 **Open in Claude Code** on that machine (`session_continued_at`, migration
 103), so the user's turns are kept. Otherwise it starts a new session, so a
@@ -569,8 +590,12 @@ failed resume is never repeated. Either
 way the prompt keeps the task instructions and appends a bounded handoff naming
 the previous attempt, its native outcome, a recorded pull request, up to 50 changed files and the previous agent's
 summary fenced as unverified text, because the harness never saw Kuayle's publication. An older handoff is replaced, not accumulated,
-and the prompt stays within the attempt limit. Qwen Code, Crush, Kimi, Goose
-and custom harnesses always start new sessions with the handoff.
+and the prompt stays within the attempt limit. Crush and custom harnesses
+always start new sessions with the handoff: `crush run` prints only the
+agent's text (no session ID) and `--session` continues only a session that
+exists, so Kuayle can neither record nor name one. An unknown ID fails a
+Claude Code, Qwen Code or Goose run; Kimi and OpenCode start a new session
+under it.
 
 **Open in Claude Code.** `POST /agent-tasks/:taskId/terminal` (session-only,
 no body) lets the task's creator continue a Claude Code task's own session
@@ -603,7 +628,7 @@ tab (which ends its tmux session) before the next attempt is the user's
 responsibility, and the terminal says so when Claude Code exits.
 
 When a task completes or is cancelled, a `purge_task_session` operation removes
-its directory (OpenCode's session store included) with a short-lived helper container that has no network, a
+its directory (every harness's session store included) with a short-lived helper container that has no network, a
 read-only root, no capabilities and only `rm -rf -- <that directory>`; it works
 while the machine is paused or stopped, and still runs after the machine's
 generation changes. Failed tasks keep their transcripts so an explicit retry can
@@ -1154,8 +1179,9 @@ transition inside the transition's transaction:
 | `cancelling` | unchanged until cleanup settles |
 
 The session records the task's current machine and the harness's native
-session ID from the current attempt (Claude Code's Kuayle-assigned
-`--session-id`, Codex's `thread_id`, OpenCode's `sessionID`), picked up at the next transition; it is
+session ID from the current attempt (Claude Code's, Kimi's and Goose's
+Kuayle-assigned ID, Codex's `thread_id`, OpenCode's `sessionID`, Qwen Code's
+`session_id`), picked up at the next transition; it is
 the latest recorded ID, not a history. `dev_machine_agent_runs.session_id`
 links each attempt, set when the run is created in the fenced run transaction.
 Existing tasks were backfilled with a derived implement session and their
@@ -2143,9 +2169,8 @@ Kuayle asks for the reply, not only the prompt:
   (exit 0, a final message, not cancelled) while a message it received has no
   reply is asked for the replies in its
   [closing continuation](#closing-continuation), the one extra turn an
-  attempt gets for whatever is missing (`domain.ReplyClosingAsk`; Claude
-  Code, Codex and OpenCode only, since Kuayle continues no other harness's
-  session). The outbox is
+  attempt gets for whatever is missing (`domain.ReplyClosingAsk`; every
+  built-in harness but Crush, whose session Kuayle does not continue). The outbox is
   collected again afterwards. It happens once; there is no loop.
 - **A missing reply never fails the attempt.** If there is still no reply the
   attempt stays as it ended: the work is checked and published as usual, with
@@ -2200,8 +2225,10 @@ message as above and, in the same transaction, acts on `mode`:
   confirmed the attempt gone (`FinishCancellation`), the task goes straight
   back to `queued` as a new attempt on the same step, visit and iteration
   (nothing is counted), with `resume_native_session` (so `claude --resume`,
-  `codex exec resume` or `opencode run --session` continue the session; the
-  other harnesses get the handoff) and the
+  `codex exec resume`, `opencode run --session`, `qwen --resume`,
+  `kimi --session` or `goose run --resume --name` continue the session, when
+  the same harness ran the interrupted attempt; Crush and custom harnesses get
+  the handoff) and the
   message in its prompt; the handoff says a person interrupted the attempt to
   say something and that the worktree is unchanged. It is not a pause: a
   pending "pause after this step" stays as the person asked for it, and the
@@ -3536,7 +3563,10 @@ too long, or none at all, changes nothing: the step fails as before.
 | Claude Code | `claude --print … --resume <session> -p <prompt>` in the task's session directory |
 | Codex | `codex exec resume … <thread> <prompt>` with the thread ID the run reported |
 | OpenCode | `opencode run … --session <session> -- <prompt>` with the session ID the run reported, linked to the task's session directory like the attempt, so it opens the same session store |
-| Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
+| Qwen Code | `qwen … --resume <session> <prompt>` with the session ID the run reported, in the same wrapper as the attempt |
+| Kimi | `kimi --print … --session <session> --prompt <prompt>` with the ID Kuayle named, in the same wrapper (`KIMI_SHARE_DIR`) as the attempt |
+| Goose | `goose run --resume --name <session> … --text <prompt>` with the name Kuayle gave the session, in the same wrapper as the attempt |
+| Crush, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
 
 **When an attempt leaves no valid update** (`machine/notebook.go`). The run
 of such an attempt has `notebook_required`. The work is never lost over the

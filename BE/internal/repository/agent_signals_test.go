@@ -237,16 +237,19 @@ func TestDeferredOperationsWaitWithoutConsumingAttempts(t *testing.T) {
 }
 
 // A Codex thread ID and an OpenCode session ID (ses_…, with an underscore)
-// are both recorded once and handed to the next attempt.
+// are both recorded once and handed to the next attempt, with the harness
+// that ran it: only that harness may continue the session.
 func TestNativeSessionsAreRecordedOnceAndHandedToTheSuccessor(t *testing.T) {
 	for harness, native := range map[string]string{"codex": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "opencode": "ses_df21986abffefn2FxDuH6uZGLA"} {
 		t.Run(harness, func(t *testing.T) {
 			db, repo, ctx, task := reviewableTask(t)
 			store := NewDevMachineRepository(db)
+			_, err := db.Exec(`UPDATE dev_machine_agent_runs SET provider_id=$2 WHERE id=$1`, task.RunID, harness)
+			require.NoError(t, err)
 			require.NoError(t, store.RecordNativeSession(ctx, task.RunID, native))
 			require.NoError(t, store.RecordNativeSession(ctx, task.RunID, "ffffffff-c3d4-7e5f-8a9b-0c1d2e3f4a5b"), "a later report never replaces it")
 			for _, unsafe := range []string{"--last", "_ses"} {
-				_, err := db.Exec(`UPDATE dev_machine_agent_runs SET native_session_id=$2 WHERE id=$1`, task.RunID, unsafe)
+				_, err = db.Exec(`UPDATE dev_machine_agent_runs SET native_session_id=$2 WHERE id=$1`, task.RunID, unsafe)
 				require.Error(t, err, "the schema rejects unsafe session IDs")
 			}
 			current, err := repo.Get(ctx, task.WorkspaceID, task.ID)
@@ -256,6 +259,7 @@ func TestNativeSessionsAreRecordedOnceAndHandedToTheSuccessor(t *testing.T) {
 			previous, err := repo.PreviousAttempt(ctx, *retried)
 			require.NoError(t, err)
 			require.Equal(t, native, previous.NativeSessionID)
+			require.Equal(t, harness, previous.Provider)
 			require.Equal(t, *current.MachineID, previous.MachineID)
 			var purges int
 			require.NoError(t, db.Get(&purges, `SELECT count(*) FROM dev_machine_operations WHERE action='purge_task_session'`))

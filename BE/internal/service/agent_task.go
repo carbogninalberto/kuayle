@@ -1194,9 +1194,10 @@ func neutralisePlan(plan string) string {
 }
 
 // taskSession places a task's harness transcripts in its own directory and
-// resumes natively only from a succeeded attempt on the same machine, where
-// those transcripts live. Otherwise the successor starts a fresh session and
-// relies on the recorded handoff, so a failed resume is never repeated.
+// resumes natively only from a succeeded attempt of the same harness on the
+// same machine, where those transcripts live. Otherwise the successor starts
+// a fresh session and relies on the recorded handoff, so a failed resume is
+// never repeated.
 func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.SessionInput {
 	session := &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + task.ID.String()}
 	// A failed attempt is resumed only when the user continued its session
@@ -1209,9 +1210,12 @@ func taskSession(task domain.AgentTask, previous *domain.AgentHandoff) *agent.Se
 	// An attempt a person started to deliver a message continues the
 	// previous session however that attempt ended, under the same rule: only
 	// when the same profile ran it.
-	if previous != nil && task.MachineID != nil && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession || task.LiveResumed()) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
+	// Whatever the reason, a session is continued only by the harness that
+	// stored it: when the task's profile switched harness, the previous ID
+	// names the other harness's session.
+	if previous != nil && task.MachineID != nil && previous.Provider == task.Provider && (!previous.OtherProfile || task.ResumeNativeSession) && (previous.Status == "succeeded" || previous.ContinuedInteractively || task.ResumeNativeSession || task.LiveResumed()) && previous.MachineID == *task.MachineID && agent.ValidSessionID(previous.NativeSessionID) {
 		session.ResumeID = previous.NativeSessionID
-	} else if task.Provider == "claude-code" {
+	} else if agent.KuayleNamesSession(task.Provider) {
 		session.NewID = uuid.NewString()
 	}
 	return session

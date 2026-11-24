@@ -658,16 +658,16 @@ func TestSuccessorAttemptsReceiveABoundedRecordedHandoff(t *testing.T) {
 func TestTaskSessionResumesOnlyASucceededAttemptOnTheSameMachine(t *testing.T) {
 	machine, other := uuid.New(), uuid.New()
 	task := domain.AgentTask{ID: uuid.New(), Provider: "codex", MachineID: &machine}
-	resumable := &domain.AgentHandoff{Status: "succeeded", MachineID: machine, NativeSessionID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}
+	resumable := &domain.AgentHandoff{Provider: "codex", Status: "succeeded", MachineID: machine, NativeSessionID: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}
 	session := taskSession(task, resumable)
 	require.Equal(t, "/workspace/.kuayle/agent-sessions/"+task.ID.String(), session.Dir)
 	require.Equal(t, resumable.NativeSessionID, session.ResumeID)
 	for name, previous := range map[string]*domain.AgentHandoff{
 		"first_attempt":  nil,
-		"failed":         {Status: "failed", MachineID: machine, NativeSessionID: resumable.NativeSessionID},
-		"other_machine":  {Status: "succeeded", MachineID: other, NativeSessionID: resumable.NativeSessionID},
-		"no_session":     {Status: "succeeded", MachineID: machine},
-		"unsafe_session": {Status: "succeeded", MachineID: machine, NativeSessionID: "--last"},
+		"failed":         {Provider: "codex", Status: "failed", MachineID: machine, NativeSessionID: resumable.NativeSessionID},
+		"other_machine":  {Provider: "codex", Status: "succeeded", MachineID: other, NativeSessionID: resumable.NativeSessionID},
+		"no_session":     {Provider: "codex", Status: "succeeded", MachineID: machine},
+		"unsafe_session": {Provider: "codex", Status: "succeeded", MachineID: machine, NativeSessionID: "--last"},
 	} {
 		require.Empty(t, taskSession(task, previous).ResumeID, name)
 	}
@@ -675,7 +675,7 @@ func TestTaskSessionResumesOnlyASucceededAttemptOnTheSameMachine(t *testing.T) {
 	fresh := taskSession(claude, nil)
 	require.Empty(t, fresh.ResumeID)
 	require.NotEmpty(t, fresh.NewID, "Claude sessions get a Kuayle-assigned ID")
-	resumed := taskSession(claude, &domain.AgentHandoff{Status: "succeeded", MachineID: machine, NativeSessionID: fresh.NewID})
+	resumed := taskSession(claude, &domain.AgentHandoff{Provider: "claude-code", Status: "succeeded", MachineID: machine, NativeSessionID: fresh.NewID})
 	require.Equal(t, fresh.NewID, resumed.ResumeID)
 	require.Empty(t, resumed.NewID)
 }
@@ -687,11 +687,11 @@ func TestTaskSessionResumesAFailedAttemptTheUserContinued(t *testing.T) {
 	machine, other := uuid.New(), uuid.New()
 	native := uuid.NewString()
 	claude := domain.AgentTask{ID: uuid.New(), Provider: "claude-code", MachineID: &machine}
-	resumed := taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native, ContinuedInteractively: true})
+	resumed := taskSession(claude, &domain.AgentHandoff{Provider: "claude-code", Status: "failed", MachineID: machine, NativeSessionID: native, ContinuedInteractively: true})
 	require.Equal(t, native, resumed.ResumeID)
 	require.Empty(t, resumed.NewID)
-	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: other, NativeSessionID: native, ContinuedInteractively: true}).ResumeID)
-	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Status: "failed", MachineID: machine, NativeSessionID: native}).ResumeID, "a failed attempt alone is not resumed")
+	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Provider: "claude-code", Status: "failed", MachineID: other, NativeSessionID: native, ContinuedInteractively: true}).ResumeID)
+	require.Empty(t, taskSession(claude, &domain.AgentHandoff{Provider: "claude-code", Status: "failed", MachineID: machine, NativeSessionID: native}).ResumeID, "a failed attempt alone is not resumed")
 }
 
 func TestProjectInstructionsPrecedeTheTaskWithinTheLimit(t *testing.T) {

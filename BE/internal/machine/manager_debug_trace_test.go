@@ -37,7 +37,7 @@ func runAgentForTrace(t *testing.T, execution *AgentExecution, configure func(*d
 	if configure != nil {
 		configure(run, store, runtime)
 	}
-	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/opencode:test")), nil, make([]byte, 32), make([]byte, 32), "test")
+	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/opencode:test"), agent.NewQwenCodeProvider("kuayle/headless:test")), nil, make([]byte, 32), make([]byte, 32), "test")
 	manager.agentCLIVersions = map[string]string{"@opencode/cli": "1.2.3"}
 	require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
 		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID, Action: domain.DevMachineOpRunAgent, Generation: 1,
@@ -149,6 +149,24 @@ func TestOpenCodeTaskAttemptRecordsTheSessionItReported(t *testing.T) {
 	require.Equal(t, []string{"ses_df21986abffefn2FxDuH6uZGLA"}, store.nativeSessions)
 	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, store.completedRun.Status)
 	require.Equal(t, "opencode", runEnvironment(t, store.completedRun).HarnessCommand)
+}
+
+// A task attempt's Qwen Code names its session in its init event and
+// repeats it on every later one; the manager records it once.
+func TestQwenTaskAttemptRecordsTheSessionItReported(t *testing.T) {
+	store := runAgentForTrace(t, &AgentExecution{ContainerID: "agent", ExitCode: 0, Stdout: qwenSessionStream},
+		func(run *domain.DevMachineAgentRun, store *managerStoreFake, _ *runtimeFake) {
+			run.NativeSessionID, run.ProviderID = nil, "qwen-code"
+			store.provider.ProviderID, store.provider.ImageRef = "qwen-code", "kuayle/headless:test"
+			invocation, err := agent.NewQwenCodeProvider("").BuildInvocation(agent.RunInput{Mode: agent.ModeAutonomous, Prompt: "Fix it",
+				Session: &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + run.TaskID.String()}})
+			require.NoError(t, err)
+			run.CommandArgv, err = json.Marshal(invocation.Argv)
+			require.NoError(t, err)
+		})
+	require.Equal(t, []string{"258fdb71-4e37-4a51-adb1-415e3ff0af9c"}, store.nativeSessions)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, store.completedRun.Status)
+	require.Equal(t, "qwen", runEnvironment(t, store.completedRun).HarnessCommand)
 }
 
 func TestPidsSampleKeepsThePeak(t *testing.T) {
