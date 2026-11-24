@@ -18,7 +18,8 @@ const list = {
 		summary('team', 'Team', { graph: { kind: 'pipeline', phases: [], roster: [] } })
 	],
 	defaults: [],
-	can_manage: true
+	can_manage: true,
+	pipelines_enabled: true
 };
 const labels = { default: 'Issue default', standard: 'Standard' };
 
@@ -34,6 +35,11 @@ test('only workflows a task can start on are offered, pipelines among them', () 
 		{ value: 'team', label: 'Team' }
 	]);
 	assert.deepEqual(customWorkflows(null), []);
+	assert.deepEqual(
+		customWorkflows({ ...list, pipelines_enabled: false }).map((w) => w.id),
+		['loop'],
+		'a server with pipelines turned off starts no task on one'
+	);
 });
 
 test('a proposed workflow the list no longer offers keeps its own option', () => {

@@ -252,6 +252,9 @@ type WorkflowList struct {
 	Workflows []WorkflowSummary        `json:"workflows"`
 	Defaults  []domain.WorkflowDefault `json:"defaults"`
 	CanManage bool                     `json:"can_manage"`
+	// PipelinesEnabled is the server's switch: off, no task starts on a
+	// pipeline, so none is offered.
+	PipelinesEnabled bool `json:"pipelines_enabled"`
 }
 
 // standardSummary is the built-in Standard workflow. Its version is 0 until
@@ -317,7 +320,7 @@ func (s *WorkflowService) List(ctx context.Context, ws uuid.UUID) (*WorkflowList
 	if err != nil {
 		return nil, err
 	}
-	out := &WorkflowList{Workflows: []WorkflowSummary{standard.WorkflowSummary}, Defaults: defaults, CanManage: canManage}
+	out := &WorkflowList{Workflows: []WorkflowSummary{standard.WorkflowSummary}, Defaults: defaults, CanManage: canManage, PipelinesEnabled: s.tasks.PipelinesEnabled()}
 	for _, w := range workflows {
 		out.Workflows = append(out.Workflows, summaryOf(w))
 	}
@@ -928,7 +931,7 @@ func (s *WorkflowService) Decide(ctx context.Context, ws, id uuid.UUID, sequence
 	// A pipeline's tick takes its decisions; the runner refuses any other
 	// task it cannot decide with the reason it finds.
 	if task, err := s.tasks.Repo.WorkflowDecisionTask(ctx, ws, id); err == nil && task.Pipeline {
-		return s.tasks.decidePipeline(ctx, ws, *task, sequence, decision)
+		return s.tasks.decidePipeline(ctx, ws, id, sequence, decision)
 	}
 	return s.tasks.Workflow().Decide(ctx, ws, id, sequence, decision)
 }

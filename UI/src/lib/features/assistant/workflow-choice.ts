@@ -14,11 +14,10 @@ export interface WorkflowOption {
 
 /**
  * The workflows a task can be started on besides Standard: not built in, not
- * archived. An experimental pipeline is one of them; the server refuses it
- * while its switch is off.
+ * archived, and an experimental pipeline only while the server's switch is on.
  */
 export function customWorkflows(list: WorkflowList | null | undefined): WorkflowSummary[] {
-	return (list?.workflows ?? []).filter((w) => !w.builtin && !w.archived);
+	return (list?.workflows ?? []).filter((w) => !w.builtin && !w.archived && (w.graph?.kind !== 'pipeline' || !!list?.pipelines_enabled));
 }
 
 /** A custom workflow's first agent step decides the harness and model. */

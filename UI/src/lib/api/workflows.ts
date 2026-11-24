@@ -210,6 +210,8 @@ export interface WorkflowList {
 	workflows: WorkflowSummary[];
 	defaults: WorkflowDefault[];
 	can_manage: boolean;
+	/** The server's switch for pipelines: off (or absent), none can start a task. */
+	pipelines_enabled?: boolean;
 }
 
 export interface WorkflowStep {
