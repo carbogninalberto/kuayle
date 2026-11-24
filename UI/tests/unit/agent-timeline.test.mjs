@@ -177,6 +177,28 @@ test('with nothing running the last agent step is the open one', () => {
 	assert.equal(openStep(workflowTimeline(waiting, task({ state: 'awaiting_review' }))), 'step-3');
 });
 
+test('an attempt carries what its harness reported it spent', () => {
+	const runs = [
+		{
+			id: 'run-1',
+			provider_id: 'codex',
+			status: 'succeeded',
+			created_at: at(1),
+			completed_at: at(5),
+			input_tokens: 315,
+			output_tokens: 122,
+			cache_read_tokens: 24448
+		},
+		{ id: 'run-2', provider_id: 'claude-code', status: 'succeeded', created_at: at(6), completed_at: at(9), cost_usd: 0.42 }
+	];
+	const [first, second] = attemptTimeline(task({ run_id: 'run-2', provider: 'claude-code', model: '' }), runs);
+	assert.deepEqual(
+		[first.runs[0].input_tokens, first.runs[0].output_tokens, first.runs[0].cache_read_tokens, first.runs[0].cost_usd],
+		[315, 122, 24448, undefined]
+	);
+	assert.equal(second.runs[0].cost_usd, 0.42);
+});
+
 test('a task without a workflow is one step per attempt, oldest first', () => {
 	const runs = [
 		{ id: 'run-2', provider_id: 'codex', model: 'gpt-5', status: 'running', created_at: at(9), started_at: at(10) },

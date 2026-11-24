@@ -177,8 +177,9 @@ async function fixture(page: Page) {
 		requests: [] as string[],
 		// Runs whose records do not exist (yet, or any more).
 		missing: [] as string[],
-		// A task without a workflow lists its attempts.
+		// A task without a workflow lists its attempts, with the task's usage.
 		runs: [] as any[],
+		usage: {} as any,
 		logs: {} as Record<string, any[]>,
 		sessions: [] as any[],
 		sockets: [] as WebSocketRoute[],
@@ -231,7 +232,8 @@ async function fixture(page: Page) {
 				state.task = { ...state.task, state: 'cancelling', reason: 'Stopping native execution' };
 				return route.fulfill({ status: 204 });
 			}
-			if (rest === '/runs') return route.fulfill({ json: { runs: id === state.task.id ? state.runs : [] } });
+			if (rest === '/runs')
+				return route.fulfill({ json: { runs: id === state.task.id ? state.runs : [], usage: id === state.task.id ? state.usage : {} } });
 			const logs = rest.match(/^\/runs\/([^/]+)\/logs$/);
 			if (logs) {
 				if (state.missing.includes(logs[1]))
@@ -636,6 +638,38 @@ test('a task without a workflow is one step per attempt', async ({ page }) => {
 	await expect(thread.getByText('The build is broken.')).toHaveCount(0);
 	await older.getByRole('button').first().click();
 	await expect(older.getByText('The build is broken.')).toBeVisible();
+});
+
+test('each attempt and the task say what the harness reported they spent', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	state.task = baseTask({ state: 'awaiting_review', reason: 'Ready for review', provider: 'codex', model: 'gpt-5', run_id: 'run-2', generation: 2 });
+	state.runs = [
+		{ id: 'run-2', provider_id: 'codex', model: 'gpt-5', status: 'succeeded', created_at: at(9), started_at: at(10), completed_at: at(13),
+			input_tokens: 315, output_tokens: 122, cache_read_tokens: 24448 },
+		{ id: 'run-1', provider_id: 'claude-code', model: '', status: 'failed', created_at: at(1), started_at: at(2), completed_at: at(5) }
+	];
+	state.usage = { input_tokens: 315, output_tokens: 122, cache_read_tokens: 24448, cost_usd: 0.4182 };
+	state.logs = {
+		'run-1': lines('run-1', 2, [text('The build is broken.')]),
+		'run-2': lines('run-2', 10, [text('Fixed the **build**.')])
+	};
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	const steps = thread.getByRole('list', { name: 'Path taken' }).getByRole('listitem');
+	await expect(steps).toHaveCount(2);
+	await expect(steps.nth(1).getByTestId('usage-line')).toHaveText('Usage · 315 input · 122 output · 24.4K cache read');
+	// An attempt whose harness reported nothing says nothing about it.
+	await steps.nth(0).getByRole('button').first().click();
+	await expect(steps.nth(0).getByText('The build is broken.')).toBeVisible();
+	await expect(steps.nth(0).getByTestId('usage-line')).toHaveCount(0);
+	// The task's sum is in its details, out of the way until they are opened.
+	const details = thread.getByRole('region', { name: 'Execution details' });
+	await expect(details.getByTestId('usage-line')).toHaveCount(0);
+	await thread.getByRole('button', { name: 'Expand' }).click();
+	await expect(details.getByTestId('usage-line')).toHaveText(
+		'Usage, all iterations · 315 input · 122 output · 24.4K cache read · $0.42 estimated'
+	);
+	await page.screenshot({ path: testInfo.outputPath('usage-desktop.png'), fullPage: true });
 });
 
 test('the timeline fits a phone', async ({ page }, testInfo) => {

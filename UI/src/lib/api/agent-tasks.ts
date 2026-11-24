@@ -1,5 +1,5 @@
 import { api } from './client';
-import type { AgentProvider, AgentRun, DevMachineLogChunk, ModelServer, TerminalSessionLaunchResponse } from '$lib/types/dev-machine';
+import type { AgentProvider, AgentRun, DevMachineLogChunk, ModelServer, RunUsage, TerminalSessionLaunchResponse } from '$lib/types/dev-machine';
 import type { ConversationAttachment } from './conversations';
 import type { WorkflowBudget, WorkflowNodeType } from './workflows';
 export type TaskState =
@@ -436,7 +436,7 @@ export const agentTasks = {
 	history: (slug: string, id: string, after = 0) =>
 		api.get<{ transitions: TaskTransition[]; next_after?: number }>(`${task(slug, id)}/history?after=${after}`),
 	runs: (slug: string, id: string, before?: string) =>
-		api.get<{ runs: AgentRun[]; next_before?: string }>(
+		api.get<{ runs: AgentRun[]; next_before?: string; usage?: RunUsage }>(
 			`${task(slug, id)}/runs${before ? `?before=${encodeURIComponent(before)}` : ''}`
 		),
 	artifacts: (slug: string, id: string, run: string) =>

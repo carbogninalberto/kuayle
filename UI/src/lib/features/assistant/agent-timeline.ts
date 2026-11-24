@@ -1,6 +1,6 @@
 import type { TaskWorkflow, WorkflowNodeType, WorkflowStep, WorkflowStepRun } from '$lib/api/workflows';
 import type { AgentTask } from '$lib/api/agent-tasks';
-import type { AgentRun } from '$lib/types/dev-machine';
+import type { AgentRun, RunUsage } from '$lib/types/dev-machine';
 
 // A coding task as a timeline: one section per workflow step, in the order
 // the task took them, each with the agent runs it started. A task without a
@@ -152,7 +152,7 @@ export function workflowTimeline(view: View, task: Task): TimelineStep[] {
 	});
 }
 
-type Attempt = Pick<AgentRun, 'id' | 'provider_id' | 'status' | 'created_at' | 'started_at' | 'completed_at'> & {
+type Attempt = Pick<AgentRun, 'id' | 'provider_id' | 'status' | 'created_at' | 'started_at' | 'completed_at'> & RunUsage & {
 	model?: string;
 	result?: { replies_unknown?: boolean } | null;
 };
@@ -167,6 +167,11 @@ export function attemptTimeline(task: Task, attempts: Attempt[]): TimelineStep[]
 			model: run.model ?? '',
 			status: run.status,
 			replies_unknown: run.result?.replies_unknown || undefined,
+			input_tokens: run.input_tokens,
+			output_tokens: run.output_tokens,
+			cache_read_tokens: run.cache_read_tokens,
+			cache_write_tokens: run.cache_write_tokens,
+			cost_usd: run.cost_usd,
 			created_at: run.created_at,
 			started_at: run.started_at,
 			completed_at: run.completed_at
