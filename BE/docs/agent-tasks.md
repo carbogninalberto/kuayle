@@ -860,6 +860,14 @@ added migration 162 merged green one after the other and broke `main`
   strict branch protection, runs these checks again instead of failing, for at
   most three merges; a branch now behind is updated as above.
 
+The gate decides from one read of the pull request into `TaskFacts`
+(`readTaskFacts` in `BE/internal/service/task_facts.go`): state, draft, head,
+distance from the base, conflict, migration collision and the head's checks. A
+fact GitHub did not answer is `unknown`, never `no`. `unmetChecks` turns the
+facts and the checks a step requires into what does not hold yet, each `unmet`
+(someone acts), `waiting` (CI is running) or `unknown` (read again), with a
+reason a person or an agent can act on.
+
 **Waiting for the updated branch (KUA-207).** An approved merge is tracked as a
 `domain.MergeWait`: the approved commit, the head Kuayle merges, its update
 rounds and a deadline. After Kuayle's own update-branch:
