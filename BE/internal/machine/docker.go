@@ -129,8 +129,10 @@ type DockerRuntime struct {
 	slices         machineSlices
 	machineScopeMu sync.Mutex
 	machineScopes  map[uuid.UUID]bool
-	// agentCLIs mounts the shared, refreshed agent CLIs (agent_clis.go).
-	agentCLIs bool
+	// agentCLIs mounts the shared, refreshed agent CLIs (agent_clis.go);
+	// agentCLIsFit is set while they fit this release, so agent runs use them.
+	agentCLIs    bool
+	agentCLIsFit atomic.Bool
 }
 
 func NewDockerRuntime(config DockerConfig) (*DockerRuntime, error) {
@@ -878,7 +880,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	}
 	agentEnvironment := mergeEnvironment(agentImageEnvironment(imageEnvironment), runtimeEnvironment...)
 	if !provider.IsCustom {
-		agentEnvironment = r.useAgentCLIs(hostConfig, agentEnvironment)
+		agentEnvironment = r.useAgentCLIsForRun(hostConfig, agentEnvironment)
 	}
 	response, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{

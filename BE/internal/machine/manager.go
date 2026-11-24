@@ -372,6 +372,7 @@ func (m *Manager) drainOperations() bool {
 
 func (m *Manager) Run(ctx context.Context) error {
 	m.reconcileHostDiskFloor(ctx)
+	m.checkAgentCLIs(ctx)
 	// Leased operations run under work, which outlives the signal: a stopping
 	// manager lets them end their own way and hands them over.
 	work, stopWork := context.WithCancelCause(context.WithoutCancel(ctx))

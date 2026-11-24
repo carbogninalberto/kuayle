@@ -2,6 +2,9 @@
 # Fails when a built-in agent CLI's help no longer lists a flag or a fixed
 # value that Kuayle passes it. The images run it when they are built and in
 # their smoke tests, so a pin raise that drops a flag fails before it ships.
+# The machine manager runs the headless image's copy on the shared agent CLI
+# volume (BE/internal/machine/agent_clis.go), so a refreshed CLI, or one a
+# previous release installed, that drops a flag is never put on PATH.
 #
 # The list is the contract: one help command per line, then the flags and
 # values its output must contain. TestAgentCLIFlagContractMatchesTheAdapters
