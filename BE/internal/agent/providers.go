@@ -73,7 +73,7 @@ func (p *builtinProvider) ParseResult(stdout, stderr string, exitCode int) RunRe
 
 func NewClaudeCodeProvider(image string) Provider {
 	if image == "" {
-		image = "ghcr.io/anthropics/claude-code:2.1.14"
+		image = "ghcr.io/kuayle/dev-machine-agent-claude:0.1.0"
 	}
 	return &builtinProvider{
 		metadata: Metadata{
@@ -413,7 +413,7 @@ var shellTools = map[string]bool{"bash": true, "shell": true, "sh": true}
 
 func NewOpenCodeProvider(image string) Provider {
 	if image == "" {
-		image = "ghcr.io/anomalyco/opencode:1.1.25"
+		image = "ghcr.io/kuayle/dev-machine-agent-opencode:0.1.0"
 	}
 	return &openCodeProvider{
 		metadata: Metadata{
@@ -428,7 +428,7 @@ func NewOpenCodeProvider(image string) Provider {
 
 func NewCodexProvider(image string) Provider {
 	if image == "" {
-		image = "ghcr.io/openai/codex:0.80.0"
+		image = "ghcr.io/kuayle/dev-machine-agent-codex:0.1.0"
 	}
 	return &builtinProvider{
 		metadata: Metadata{
