@@ -654,6 +654,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/live-messages", h.agentTask.LiveMessages)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/room", h.agentTask.Room)
 	scoped(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue, domain.PermAgentTasksRead)
+	// The board of a repository's active tasks has the visibility of the list.
+	scoped(dm, http.MethodGet, "/agent-tasks/board", h.agentTask.Board, domain.PermAgentTasksRead)
 	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/tasks", h.agentTask.MachineTasks)
 	if h.agentAutomation != nil {
 		sessionOnly(dm, http.MethodGet, "/agent-automations", h.agentAutomation.List)

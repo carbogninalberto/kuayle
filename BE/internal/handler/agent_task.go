@@ -670,6 +670,23 @@ func (h *AgentTaskHandler) Queue(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
+// Board lists the actor's active tasks on one repository in merge order,
+// with the files they share (GET /agent-tasks/board?repository=owner/name),
+// under the visibility of Queue. It names private repository paths, so it
+// is never cached.
+func (h *AgentTaskHandler) Board(c *echo.Context) error {
+	repository := strings.TrimSpace(c.QueryParam("repository"))
+	if repository == "" || len(repository) > 512 {
+		return response.Error(c, http.StatusBadRequest, "INVALID_REPOSITORY", "Name the repository as owner/name")
+	}
+	result, err := h.svc.Board(c.Request().Context(), middleware.GetWorkspace(c).ID, repository)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return response.Success(c, http.StatusOK, result)
+}
+
 // MachineTasks lists the tasks that used one of the session user's machines.
 func (h *AgentTaskHandler) MachineTasks(c *echo.Context) error {
 	id, err := taskID(c, "machineId")
