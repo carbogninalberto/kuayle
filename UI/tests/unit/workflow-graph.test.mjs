@@ -317,6 +317,24 @@ test('a person decides an approval only while the task awaits it, and a limit wh
 	);
 });
 
+test('on a pipeline, a person approves at a phase that requires it and decides where it paused', () => {
+	const pipeline = {
+		kind: 'pipeline',
+		phases: [
+			{ id: 'review', label: 'Review', owner: 'implementer', checks: [{ id: 'reviewer', fact: 'verdict', role: 'reviewer', required: true }] },
+			{ id: 'approval', label: 'Approval', owner: 'human', checks: [{ id: 'owner', fact: 'approved', required: true }] },
+			{ id: 'merge', label: 'Merge', owner: 'kuayle', guarded: true }
+		],
+		roster: []
+	};
+	const at = (patch) => run({ graph: pipeline, can_decide: true, status: 'waiting', task_state: 'awaiting_review', ...patch });
+	assert.deepEqual(pendingDecision(at({ node: 'approval' })), { kind: 'approval', sequence: 4, question: 'Approval' });
+	assert.equal(pendingDecision(at({ node: 'review' })), null, 'the reviewer decides that phase');
+	assert.equal(pendingDecision(at({ node: 'approval', task_state: 'queued' })), null, 'the writer works');
+	assert.deepEqual(pendingDecision(at({ node: 'review', status: 'paused', task_state: 'blocked' })), { kind: 'limit', sequence: 4 });
+	assert.equal(pendingDecision(at({ node: 'approval', can_decide: false })), null);
+});
+
 test('adding the next step places it to the right and connects it on a free condition', () => {
 	const graph = {
 		nodes: [

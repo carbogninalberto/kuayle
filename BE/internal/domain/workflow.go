@@ -63,11 +63,11 @@ const (
 
 	// Older workflow versions can continue past a retired local check.
 	WorkflowChecksSkipped = "checks_skipped"
-	// WorkflowBranchConflict is a ship approval's outcome without a condition
-	// of its own: entering it, Kuayle found the pull request conflicting with
-	// its base, so no transition of the graph follows it. The work goes back to
-	// the step that changes code (WorkflowGraph.SendBack), as an iteration
-	// limited like any other (KUA-209).
+	// WorkflowBranchConflict is a ship approval's or a CI check's outcome
+	// without a condition of its own: Kuayle found the pull request
+	// conflicting with its base (KUA-209, KUA-260), so no transition of the
+	// graph follows it. The work goes back to the step that changes code
+	// (WorkflowGraph.SendBack), as an iteration limited like any other.
 	WorkflowBranchConflict = "branch_conflict"
 	// WorkflowCheckoutBlocked sends a publication that needs local changes back to the implementer.
 	WorkflowCheckoutBlocked = "checkout_sync_blocked"
@@ -242,8 +242,10 @@ const (
 	WorkflowScopeWorkspace = "workspace"
 )
 
-// WorkflowGraph is the JSON document a version stores.
+// WorkflowGraph is the JSON document a version stores. Kind is absent or
+// "graph"; a pipeline is another document (pipeline.go).
 type WorkflowGraph struct {
+	Kind   string         `json:"kind,omitempty"`
 	Nodes  []WorkflowNode `json:"nodes"`
 	Edges  []WorkflowEdge `json:"edges"`
 	Budget WorkflowBudget `json:"budget"`
@@ -340,9 +342,18 @@ func (e *WorkflowInvalidError) Error() string {
 }
 
 // ParseWorkflowGraph decodes a graph strictly: unknown fields are refused.
+// A pipeline is refused too, so the graph engine never runs one; callers
+// that accept both kinds dispatch on WorkflowKind first.
 func ParseWorkflowGraph(raw []byte) (*WorkflowGraph, error) {
 	if len(raw) > WorkflowMaxGraphBytes {
 		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "too_large", Message: "the workflow is too large"}}}
+	}
+	switch WorkflowKind(raw) {
+	case WorkflowKindGraph:
+	case WorkflowKindPipeline:
+		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "pipeline", Message: "the workflow is a pipeline, not a graph"}}}
+	default:
+		return nil, &WorkflowInvalidError{[]WorkflowIssue{{Code: "invalid_kind", Message: "a workflow is a graph or a pipeline"}}}
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
@@ -1416,8 +1427,16 @@ func (s WorkflowStep) CIRecord() *WorkflowCIRecord {
 // nothing after CI failed is not sent the same failure again.
 type WorkflowCIRecord struct {
 	Repository string `json:"repository,omitempty"`
-	// Head is the published commit the step judged.
+	// Head is the commit the step judged: the published commit, or the
+	// head of its pull request after Kuayle brought the branch up to date
+	// with its base (KUA-260).
 	Head string `json:"head"`
+	// UpdateOf is the published commit when Head is a verified update of it
+	// (merges of the base, as GitHub's update-branch makes), and Updates how
+	// many such updates of it Kuayle asked for or found, at most as many as
+	// an approved merge makes.
+	UpdateOf string `json:"update_of,omitempty"`
+	Updates  int    `json:"updates,omitempty"`
 	// Failed identifies the failed checks the step saw on Head: a check's
 	// link (an Actions job's link changes when it is run again), or its name
 	// and when it was reported.
@@ -1481,11 +1500,14 @@ type WorkflowPauseEvent struct {
 // WorkflowStepRun is one agent run of a task as its timeline shows it, placed
 // on the workflow step that started it: an agent step's own runs, or the
 // runs of the review task a reviewer step created (TaskID is then that
-// review task). Step is nil for a task that follows no workflow.
+// review task). Step is nil for a task that follows no workflow, and for a
+// pipeline, whose runs carry the Role of the member that ran them (TaskID is
+// the member's task).
 type WorkflowStepRun struct {
 	ID       uuid.UUID `json:"id" db:"id"`
 	TaskID   uuid.UUID `json:"task_id" db:"task_id"`
 	Step     *int      `json:"step,omitempty" db:"step"`
+	Role     *string   `json:"role,omitempty" db:"role"`
 	Provider string    `json:"provider" db:"provider_id"`
 	Model    string    `json:"model" db:"model"`
 	Status   string    `json:"status" db:"status"`

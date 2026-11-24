@@ -252,6 +252,9 @@ type WorkflowList struct {
 	Workflows []WorkflowSummary        `json:"workflows"`
 	Defaults  []domain.WorkflowDefault `json:"defaults"`
 	CanManage bool                     `json:"can_manage"`
+	// PipelinesEnabled is the server's switch: off, no task starts on a
+	// pipeline, so none is offered.
+	PipelinesEnabled bool `json:"pipelines_enabled"`
 }
 
 // standardSummary is the built-in Standard workflow. Its version is 0 until
@@ -317,7 +320,7 @@ func (s *WorkflowService) List(ctx context.Context, ws uuid.UUID) (*WorkflowList
 	if err != nil {
 		return nil, err
 	}
-	out := &WorkflowList{Workflows: []WorkflowSummary{standard.WorkflowSummary}, Defaults: defaults, CanManage: canManage}
+	out := &WorkflowList{Workflows: []WorkflowSummary{standard.WorkflowSummary}, Defaults: defaults, CanManage: canManage, PipelinesEnabled: s.tasks.PipelinesEnabled()}
 	for _, w := range workflows {
 		out.Workflows = append(out.Workflows, summaryOf(w))
 	}
@@ -354,8 +357,8 @@ func (s *WorkflowService) Get(ctx context.Context, ws uuid.UUID, id string) (*Wo
 }
 
 // WorkflowRequest creates or saves a workflow. Template names a built-in
-// starting point ("review_loop", "full_cycle" or "standard") instead of a
-// graph.
+// starting point ("review_loop", "full_cycle", "standard", or the
+// experimental pipeline "team") instead of a graph.
 type WorkflowRequest struct {
 	Name            string          `json:"name"`
 	Description     string          `json:"description"`
@@ -448,7 +451,7 @@ func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowR
 		if err != nil {
 			return nil, err
 		}
-		var template domain.WorkflowGraph
+		var template any
 		switch in.Template {
 		case "review_loop":
 			template = domain.ReviewLoopWorkflowGraph(implementer, reviewer)
@@ -456,6 +459,8 @@ func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowR
 			template = domain.FullCycleWorkflowGraph(implementer, reviewer)
 		case domain.StandardWorkflowID:
 			template = standardCopy(implementer)
+		case "team":
+			template = domain.TeamPipeline(implementer, reviewer)
 		default:
 			return nil, &ErrInvalidWorkflowInput{"unknown template"}
 		}
@@ -511,6 +516,10 @@ func (s *WorkflowService) saveStandard(ctx context.Context, ws, actor uuid.UUID,
 	_, description, err := validateWorkflowMeta("Standard", in.Description)
 	if err != nil {
 		return nil, err
+	}
+	// Every task without another workflow runs Standard.
+	if domain.WorkflowKind(in.Graph) != domain.WorkflowKindGraph {
+		return nil, &ErrInvalidWorkflowInput{"the Standard workflow stays a graph"}
 	}
 	if err = s.requireStartable(ctx, ws, in.Graph); err != nil {
 		return nil, err
@@ -572,6 +581,9 @@ func (s *WorkflowService) Duplicate(ctx context.Context, ws uuid.UUID, id, name 
 	}
 	name, description, err = validateWorkflowMeta(name, description)
 	if err != nil {
+		return nil, err
+	}
+	if err = s.tasks.pipelineRefusal(graph); err != nil {
 		return nil, err
 	}
 	created, err := s.repo.CreateWorkflow(ctx, ws, actor, name, description, graph, "duplicated")
@@ -667,6 +679,9 @@ func (s *WorkflowService) SetDefault(ctx context.Context, ws uuid.UUID, in Workf
 			return nil, err
 		}
 		if chosen != nil {
+			if err = s.tasks.pipelineRefusal(chosen.Graph); err != nil {
+				return nil, err
+			}
 			if err = s.requireStartable(ctx, ws, chosen.Graph); err != nil {
 				return nil, err
 			}
@@ -713,6 +728,9 @@ func (s *WorkflowService) Warnings(ctx context.Context, ws uuid.UUID, raw json.R
 // (domain.ValidateWorkflowGraph) and each agent step whose profile cannot
 // start a task, reported on that step with the step and profile named.
 func (s *WorkflowService) graphIssues(ctx context.Context, ws uuid.UUID, raw json.RawMessage) ([]domain.WorkflowIssue, error) {
+	if domain.WorkflowKind(raw) == domain.WorkflowKindPipeline {
+		return s.pipelineIssues(ctx, ws, raw)
+	}
 	graph, err := domain.ParseWorkflowGraph(raw)
 	if err != nil {
 		var invalid *domain.WorkflowInvalidError
@@ -757,6 +775,9 @@ func (s *WorkflowService) graphIssues(ctx context.Context, ws uuid.UUID, raw jso
 // save does. The repository validates the structure again in the saving
 // transaction; the profile checks need the task service, so they run here.
 func (s *WorkflowService) requireStartable(ctx context.Context, ws uuid.UUID, raw json.RawMessage) error {
+	if err := s.tasks.pipelineRefusal(raw); err != nil {
+		return err
+	}
 	issues, err := s.graphIssues(ctx, ws, raw)
 	if err != nil {
 		return err
@@ -906,6 +927,11 @@ func workflowDecider(status string, actor, creator uuid.UUID, role string) bool 
 func (s *WorkflowService) Decide(ctx context.Context, ws, id uuid.UUID, sequence int, decision string) (*domain.AgentTask, error) {
 	if s.tasks.Workflow() == nil {
 		return nil, ErrWorkflowDecision
+	}
+	// A pipeline's tick takes its decisions; the runner refuses any other
+	// task it cannot decide with the reason it finds.
+	if task, err := s.tasks.Repo.WorkflowDecisionTask(ctx, ws, id); err == nil && task.Pipeline {
+		return s.tasks.decidePipeline(ctx, ws, id, sequence, decision)
 	}
 	return s.tasks.Workflow().Decide(ctx, ws, id, sequence, decision)
 }

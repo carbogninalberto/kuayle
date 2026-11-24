@@ -107,19 +107,33 @@ func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTas
 	if status.Behind <= 0 || status.migrationCheckUnavailable {
 		return done, ""
 	}
-	head, err := w.pulls.UpdatePullRequestBranch(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber, status.HeadSHA)
+	switch _, updated, conflicts := w.updateBranch(ctx, task, target, status.HeadSHA, status.Behind); {
+	case conflicts:
+		return done, rebaseInstruction(base)
+	case updated:
+		done = append(done, "brought the branch up to date with "+base)
+	}
+	return done, ""
+}
+
+// updateBranch asks GitHub to merge the base into the task's pull request
+// while its head is still head (update-branch). It returns the new head (""
+// when it could not be read), whether GitHub took the update, and whether it
+// refused it because the branch conflicts with its base. Any other refusal
+// is logged and changes nothing.
+func (w *WorkflowRunner) updateBranch(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, head string, behind int) (string, bool, bool) {
+	updated, err := w.pulls.UpdatePullRequestBranch(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber, head)
 	var api *gh.APIError
 	var unsynced *HeadSyncError
 	switch {
 	case err == nil, errors.As(err, &unsynced):
-		audit.Log("pull_request.branch_updated_by_workflow", task.CreatorID, map[string]interface{}{"workspace_id": task.WorkspaceID, "task_id": task.ID, "repository": target.Repository, "pull_request": target.PullRequestNumber, "behind": status.Behind, "head": head})
-		done = append(done, "brought the branch up to date with "+base)
+		audit.Log("pull_request.branch_updated_by_workflow", task.CreatorID, map[string]interface{}{"workspace_id": task.WorkspaceID, "task_id": task.ID, "repository": target.Repository, "pull_request": target.PullRequestNumber, "behind": behind, "head": updated})
+		return updated, true, false
 	case errors.As(err, &api) && api.Status == http.StatusUnprocessableEntity && strings.Contains(strings.ToLower(api.Message), "conflict"):
-		return done, rebaseInstruction(base)
-	default:
-		log.WithFields(log.Fields{"task_id": task.ID}).WithError(err).Warn("The workflow could not bring the pull request up to date")
+		return "", false, true
 	}
-	return done, ""
+	log.WithFields(log.Fields{"task_id": task.ID}).WithError(err).Warn("The workflow could not bring the pull request up to date")
+	return "", false, false
 }
 
 // startMerge records a person's approval of a ship approval as the merge to
@@ -190,7 +204,7 @@ type headInspector interface {
 // merges its pull request: it is the workflow's ship approval and Kuayle
 // merges here (KUA-216). The task card and the approval say so.
 func (w *WorkflowRunner) ShipMergeWaiting(ctx context.Context, task domain.AgentTask) (bool, error) {
-	if w.pulls == nil || w.merger == nil || !task.RunsWorkflow() || task.WorkflowNode == nil || task.WorkflowStatus == nil ||
+	if w.pulls == nil || w.merger == nil || !task.RunsWorkflow() || task.Pipeline || task.WorkflowNode == nil || task.WorkflowStatus == nil ||
 		*task.WorkflowStatus != domain.WorkflowStatusWaiting || task.State != "awaiting_review" || task.WorkflowPausedAt != nil {
 		return false, nil
 	}

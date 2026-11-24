@@ -43,14 +43,14 @@ const (
 // provides; install scripts run only for those the images allow them for.
 var agentCLIPackages = []struct{ name, command string }{
 	{"@anthropic-ai/claude-code", "claude"},
-	{"opencode-ai", "opencode"},
+	{"@opencode/cli", "opencode"},
 	{"@openai/codex", "codex"},
 	{"@qwen-code/qwen-code", "qwen"},
 }
 
 // agentCLIScripts lists the packages whose install scripts may run, as the
 // images allow them; npm reads it from the release directory's .npmrc.
-const agentCLIScripts = "allow-scripts[]=@anthropic-ai/claude-code\\nallow-scripts[]=opencode-ai\\nallow-scripts[]=@qwen-code/qwen-code\\n"
+const agentCLIScripts = "allow-scripts[]=@anthropic-ai/claude-code\\nallow-scripts[]=@opencode/cli\\nallow-scripts[]=@qwen-code/qwen-code\\n"
 
 // agentCLIResolver picks a package's version: the newest stable version
 // published before the cutoff and not past its latest tag (so a withdrawn

@@ -337,6 +337,7 @@ func TestAgentTaskAndWorkflowReadRoutes(t *testing.T) {
 	const ws = "/api/workspaces/:slug"
 	for path, want := range map[string]string{
 		"GET " + ws + "/agent-tasks":                               "perm:agent_tasks:read",
+		"GET " + ws + "/agent-tasks/board":                         "perm:agent_tasks:read",
 		"GET " + ws + "/agent-tasks/:taskId":                       "perm:agent_tasks:read",
 		"GET " + ws + "/agent-tasks/:taskId/history":               "perm:agent_tasks:read",
 		"GET " + ws + "/agent-tasks/:taskId/runs":                  "perm:agent_tasks:read",
@@ -358,7 +359,7 @@ func TestAgentTaskAndWorkflowReadRoutes(t *testing.T) {
 }
 
 func TestAgentTaskAndWorkflowReadsRejectGuestsAndUnscopedTokens(t *testing.T) {
-	for _, path := range []string{"/agent-tasks", "/agent-tasks/task", "/workflows", "/agent-profiles"} {
+	for _, path := range []string{"/agent-tasks", "/agent-tasks/board?repository=acme/app", "/agent-tasks/task", "/workflows", "/agent-profiles"} {
 		for _, tc := range []struct {
 			name   string
 			role   string

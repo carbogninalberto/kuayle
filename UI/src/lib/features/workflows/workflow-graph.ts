@@ -1,5 +1,6 @@
 import type {
 	AgentProfile,
+	PipelineDefinition,
 	WorkflowCondition,
 	WorkflowEdge,
 	WorkflowGraph,
@@ -276,14 +277,22 @@ export type PendingDecision =
 
 /**
  * The decision a person can make on a run now, matching the server's Decide:
- * an approval node once the task awaits it, or a limit the run paused at.
- * The sequence names the step the person saw, so a stale decision is refused.
+ * an approval node (on a pipeline, a phase that requires the owner's
+ * approval) once the task awaits it, or a limit the run paused at. The
+ * sequence names the step the person saw, so a stale decision is refused.
  */
 export function pendingDecision(
-	run: Pick<TaskWorkflow, 'graph' | 'node' | 'status' | 'can_decide' | 'sequence' | 'task_state'>
+	run: Pick<TaskWorkflow, 'node' | 'status' | 'can_decide' | 'sequence' | 'task_state'> & { graph: WorkflowGraph | PipelineDefinition }
 ): PendingDecision | null {
 	if (!run.can_decide) return null;
 	if (run.status === 'paused') return { kind: 'limit', sequence: run.sequence };
+	if (run.graph.kind === 'pipeline') {
+		const phase = run.graph.phases.find((p) => p.id === run.node);
+		const approves = !!phase?.checks?.some((c) => c.fact === 'approved');
+		return run.status === 'waiting' && approves && run.task_state === 'awaiting_review'
+			? { kind: 'approval', sequence: run.sequence, question: phase?.label ?? '' }
+			: null;
+	}
 	const node = run.graph.nodes.find((n) => n.id === run.node);
 	if (run.status === 'waiting' && node?.type === 'approval' && run.task_state === 'awaiting_review')
 		return { kind: 'approval', sequence: run.sequence, question: node.prompt ?? '' };

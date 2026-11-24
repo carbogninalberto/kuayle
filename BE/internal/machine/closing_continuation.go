@@ -129,6 +129,8 @@ type closingState struct {
 	unchangedRun func() bool
 	planTooLong  bool
 	parseReply   func(stdout, stderr string) agent.RunResult
+	// summary is the attempt's final message, which may carry a verdict.
+	summary string
 }
 
 // closingSettlement is what was still missing when the attempt closed. plan
@@ -152,7 +154,8 @@ type closingReply struct {
 // asked for. After the outbox was collected it lists what is missing (a
 // reply to each delivered message of the task's owner, for an attempt that
 // ended well; a notebook update, for one that concluded; a shorter plan, for
-// a planning step whose plan was too long), asks for all of it in one closing
+// a planning step whose plan was too long; a verdict, for a pipeline member's
+// turn asked for one), asks for all of it in one closing
 // continuation, collects the outbox again and looks again. The plan ask is
 // the only one whose reply Kuayle reads: when it comes back whole and fits,
 // it is the plan the attempt hands on. Nothing is asked for what Kuayle
@@ -177,6 +180,9 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 	planAsked := state.planTooLong && state.concluded
 	if planAsked {
 		asks = append(asks, domain.PlanClosingAsk())
+	}
+	if verdict := m.verdictAsk(ctx, run, collected, state); verdict != nil {
+		asks = append(asks, *verdict)
 	}
 	if len(asks) == 0 && run.ClosingAskedAt != nil {
 		// Asked before a crash, and by now nothing is missing: what the
@@ -216,6 +222,36 @@ func (m *Manager) settleClosing(ctx context.Context, attempt closingAttempt, sta
 		settled.replies.notes = []string{domain.UnansweredMessageNote(settled.replies.unanswered)}
 	}
 	return settled, nil
+}
+
+// verdictStore says which commit a pipeline member's turn was asked to
+// review and has not given a verdict for yet ("" when it owes none).
+type verdictStore interface {
+	MissingVerdict(ctx context.Context, runID uuid.UUID) (string, error)
+}
+
+// verdictAsk asks a member's turn that ended well, was asked for a verdict
+// and gave none, to post it in the room. A final message that carries a
+// verdict (the Verdict: line) is one: Kuayle records it when the turn ends.
+// It is judged only on an outbox that was really read.
+func (m *Manager) verdictAsk(ctx context.Context, run *domain.DevMachineAgentRun, collected bool, state closingState) *domain.ClosingAsk {
+	store, ok := m.store.(verdictStore)
+	if !ok || run.TaskID == nil || !state.succeeded || !collected {
+		return nil
+	}
+	if verdict, _ := domain.ParseAgentReview(state.summary); verdict != domain.AgentReviewVerdictUnknown {
+		return nil
+	}
+	commit, err := store.MissingVerdict(ctx, run.ID)
+	if err != nil {
+		log.WithField("agent_run_id", run.ID).WithError(err).Warn("whether the turn owes a verdict could not be read")
+		return nil
+	}
+	if commit == "" {
+		return nil
+	}
+	ask := domain.VerdictClosingAsk(commit)
+	return &ask
 }
 
 // closingStore keeps the continuation to once per attempt and records it.

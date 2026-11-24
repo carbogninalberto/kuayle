@@ -83,10 +83,12 @@ type WorkflowRunner struct {
 
 	mu     sync.Mutex
 	graphs map[uuid.UUID]*domain.WorkflowGraph
+	// pipelines caches the pipelines tasks run (team_tick.go).
+	pipelines map[uuid.UUID]*domain.Pipeline
 }
 
 func newWorkflowRunner(tasks workflowTaskStore, definitions workflowDefinitionStore, policy workflowPolicy) *WorkflowRunner {
-	return &WorkflowRunner{tasks: tasks, definitions: definitions, policy: policy, now: time.Now, graphs: map[uuid.UUID]*domain.WorkflowGraph{}}
+	return &WorkflowRunner{tasks: tasks, definitions: definitions, policy: policy, now: time.Now, graphs: map[uuid.UUID]*domain.WorkflowGraph{}, pipelines: map[uuid.UUID]*domain.Pipeline{}}
 }
 
 // A CI check node reads the commit's checks again after ciPoll while some

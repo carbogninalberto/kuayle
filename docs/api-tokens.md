@@ -244,6 +244,8 @@ authentication.
 | DELETE | `/api/workspaces/:slug/agent-tasks/:taskId/resume` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/resume` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/retry` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| GET | `/api/workspaces/:slug/agent-tasks/:taskId/room` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| POST | `/api/workspaces/:slug/agent-tasks/:taskId/room` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs` | token | agent_tasks:read |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/artifacts` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/artifacts/:artifactId` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
@@ -260,6 +262,7 @@ authentication.
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/workflow/decision` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/workflow/switch` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/workflow/switch` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| GET | `/api/workspaces/:slug/agent-tasks/board` | token | agent_tasks:read |
 | GET | `/api/workspaces/:slug/agents` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | PUT | `/api/workspaces/:slug/agents/:agentId` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | GET | `/api/workspaces/:slug/ai-settings` | session only | workspace owner |

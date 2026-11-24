@@ -124,6 +124,11 @@ type AgentTask struct {
 	// current step has an outcome).
 	WorkflowPauseRequest *string    `json:"workflow_pause_request,omitempty" db:"workflow_pause_request"`
 	WorkflowPausedAt     *time.Time `json:"workflow_paused_at,omitempty" db:"workflow_paused_at"`
+	// Pipeline is set on a task that runs a pipeline workflow (KUA-252): its
+	// tick, not the graph runner, moves it. PipelineState is the tick's
+	// memory between passes; the phase is WorkflowNode.
+	Pipeline      bool            `json:"pipeline,omitempty" db:"pipeline"`
+	PipelineState json.RawMessage `json:"-" db:"pipeline_state"`
 	// LiveResumeGeneration is the attempt a person started to deliver a
 	// message (see LiveResumed); one more than the generation while the
 	// attempt they interrupted is still being stopped (LiveInterrupting).
@@ -261,6 +266,11 @@ type AgentTaskTransition struct {
 // validates, publishes or awaits review, so it can never push.
 func ValidAgentTaskKindTransition(kind, from, to string) bool {
 	if kind == AgentTaskKindReview {
+		// A pipeline member's task takes its next turn after one that was
+		// cancelled, as after one that failed (StartMemberTurn).
+		if from == "cancelled" && to == "queued" {
+			return true
+		}
 		switch to {
 		case "validating", "publishing", "awaiting_review":
 			return false

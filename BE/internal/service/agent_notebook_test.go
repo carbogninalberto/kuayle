@@ -128,8 +128,8 @@ func TestAttemptReceivesTheWholeNotebookOnEachHarnessInstructionPath(t *testing.
 
 // The command of the closing continuation, which continues an attempt's
 // session to ask for what is missing, exists only where the harness can
-// continue a session: Claude Code (--resume) and Codex (exec resume). The
-// others are never asked.
+// continue a session: Claude Code (--resume), Codex (exec resume) and
+// OpenCode (--session). The others are never asked.
 func TestOnlyHarnessesThatResumeASessionGetAContinuationCommand(t *testing.T) {
 	notebook := recordedNotebook()
 	argv := func(provider string) []string {
@@ -140,6 +140,7 @@ func TestOnlyHarnessesThatResumeASessionGetAContinuationCommand(t *testing.T) {
 		}
 		return command
 	}
+	require.True(t, agent.ValidSessionID(domain.ClosingSessionPlaceholder), "the placeholder passes the adapters' session ID check")
 	claude := strings.Join(argv("claude-code"), " ")
 	require.Contains(t, claude, "--resume "+domain.ClosingSessionPlaceholder)
 	require.Contains(t, claude, "-p "+domain.ClosingPromptPlaceholder)
@@ -147,7 +148,13 @@ func TestOnlyHarnessesThatResumeASessionGetAContinuationCommand(t *testing.T) {
 	codex := strings.Join(argv("codex"), " ")
 	require.Contains(t, codex, "codex exec resume")
 	require.True(t, strings.HasSuffix(codex, domain.ClosingSessionPlaceholder+" "+domain.ClosingPromptPlaceholder))
-	require.Empty(t, argv("opencode"))
+	// OpenCode's continuation runs in the same wrapper as the attempt, so it
+	// opens the session store in the task's session directory.
+	opencode := argv("opencode")
+	require.GreaterOrEqual(t, len(opencode), 5)
+	require.Equal(t, "kuayle-session", opencode[3])
+	require.True(t, strings.HasPrefix(opencode[4], "/workspace/.kuayle/agent-sessions/"), opencode[4])
+	require.True(t, strings.HasSuffix(strings.Join(opencode, " "), "--session "+domain.ClosingSessionPlaceholder+" -- "+domain.ClosingPromptPlaceholder))
 	require.Empty(t, argv("qwen-code"))
 	// The command belongs to the attempt, whatever may be asked of it.
 	review := notebookAttempt(t, "codex", &notebook, nil, func(task *domain.AgentTask) { task.Kind = domain.AgentTaskKindReview })

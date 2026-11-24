@@ -242,7 +242,7 @@ func (r *WorkflowRepository) UpdateProfile(ctx context.Context, ws, id, actor uu
 	if behaviour != in.Behaviour {
 		// Any version counts, archived workflows' included: tasks pin versions.
 		var used bool
-		if err = tx.GetContext(ctx, &used, `SELECT EXISTS(SELECT 1 FROM workflow_versions WHERE workspace_id=$1 AND graph->'nodes' @> jsonb_build_array(jsonb_build_object('profile_id',$2::text)))`, ws, id); err != nil {
+		if err = tx.GetContext(ctx, &used, `SELECT EXISTS(SELECT 1 FROM workflow_versions v WHERE v.workspace_id=$1 AND `+usesProfile+`)`, ws, id); err != nil {
 			return nil, err
 		}
 		if used {
@@ -280,7 +280,7 @@ func (r *WorkflowRepository) ArchiveProfile(ctx context.Context, ws, id, actor u
 	defer tx.Rollback()
 	var used bool
 	if err = tx.GetContext(ctx, &used, `SELECT EXISTS(SELECT 1 FROM workflows w JOIN workflow_versions v ON v.workflow_id=w.id AND v.version=w.latest_version
- WHERE w.workspace_id=$1 AND w.archived_at IS NULL AND v.graph->'nodes' @> jsonb_build_array(jsonb_build_object('profile_id',$2::text)))`, ws, id); err != nil {
+ WHERE w.workspace_id=$1 AND w.archived_at IS NULL AND `+usesProfile+`)`, ws, id); err != nil {
 		return err
 	}
 	if used {
@@ -351,25 +351,47 @@ func (r *WorkflowRepository) Version(ctx context.Context, ws, id uuid.UUID) (*do
 	return out, err
 }
 
-// validateGraphTx validates a graph against the profiles that exist now,
-// read under the same transaction that saves it.
+// validateGraphTx validates a graph, or a pipeline, against the profiles
+// that exist now, read under the same transaction that saves it.
 func validateGraphTx(ctx context.Context, tx *sqlx.Tx, ws uuid.UUID, raw json.RawMessage) (json.RawMessage, error) {
-	graph, err := domain.ParseWorkflowGraph(raw)
-	if err != nil {
-		return nil, err
+	var document any
+	var validate func(map[uuid.UUID]domain.AgentProfile) []domain.WorkflowIssue
+	if domain.WorkflowKind(raw) == domain.WorkflowKindPipeline {
+		pipeline, err := domain.ParsePipeline(raw)
+		if err != nil {
+			return nil, err
+		}
+		document = pipeline
+		validate = func(profiles map[uuid.UUID]domain.AgentProfile) []domain.WorkflowIssue {
+			return domain.ValidatePipeline(*pipeline, profiles)
+		}
+	} else {
+		graph, err := domain.ParseWorkflowGraph(raw)
+		if err != nil {
+			return nil, err
+		}
+		document = graph
+		validate = func(profiles map[uuid.UUID]domain.AgentProfile) []domain.WorkflowIssue {
+			return domain.ValidateWorkflowGraph(*graph, profiles)
+		}
 	}
-	if _, err = tx.ExecContext(ctx, `SELECT 1 FROM agent_profiles WHERE workspace_id=$1 FOR SHARE`, ws); err != nil {
+	if _, err := tx.ExecContext(ctx, `SELECT 1 FROM agent_profiles WHERE workspace_id=$1 FOR SHARE`, ws); err != nil {
 		return nil, err
 	}
 	profiles, err := profilesByID(ctx, tx, ws, true)
 	if err != nil {
 		return nil, err
 	}
-	if issues := domain.ValidateWorkflowGraph(*graph, profiles); len(issues) > 0 {
+	if issues := validate(profiles); len(issues) > 0 {
 		return nil, &domain.WorkflowInvalidError{Issues: issues}
 	}
-	return json.Marshal(graph)
+	return json.Marshal(document)
 }
+
+// usesProfile matches a version whose graph steps, pipeline roster or lead
+// run the profile $2.
+const usesProfile = `(v.graph->'nodes' @> jsonb_build_array(jsonb_build_object('profile_id',$2::text))
+ OR v.graph->'roster' @> jsonb_build_array(jsonb_build_object('profile_id',$2::text)) OR v.graph->'lead'->>'profile_id' = $2::text)`
 
 // CreateWorkflow saves a new workflow and its first version. An invalid
 // graph is refused with every validation issue.

@@ -1,6 +1,12 @@
 import { untrack } from 'svelte';
 import { agentTasks, type AgentTask, type TaskNotebook, type TaskTransition } from '$lib/api/agent-tasks';
-import { workflows, type TaskWorkflow } from '$lib/api/workflows';
+import {
+	isPipeline,
+	workflows,
+	type PipelineDefinition,
+	type TaskWorkflow,
+	type WorkflowGraph
+} from '$lib/api/workflows';
 import type { AgentRun } from '$lib/types/dev-machine';
 import type { ConversationState } from './conversation-state.svelte';
 import { attemptTimeline, workflowTimeline, type TimelineStep } from './agent-timeline';
@@ -28,10 +34,19 @@ export class TaskRun {
 	task = $state.raw<AgentTask>(undefined as unknown as AgentTask);
 	/** Fixed for a task: it pins its workflow version when it is created. */
 	readonly followsWorkflow: boolean = $derived(!!this.task.workflow_version_id);
+	/**
+	 * The pipeline a task on one follows (KUA-252), once its view is read; its
+	 * view then carries the pipeline as its graph. Such a task has a room
+	 * instead of steps.
+	 */
+	readonly pipeline: PipelineDefinition | null = $derived.by(() => {
+		const graph = this.view?.graph as WorkflowGraph | PipelineDefinition | undefined;
+		return this.followsWorkflow && isPipeline(graph) ? graph : null;
+	});
 	/** The task's steps, oldest first: workflow steps, or one per attempt. */
 	readonly steps: TimelineStep[] = $derived(
 		this.followsWorkflow
-			? this.view
+			? this.view && !this.pipeline
 				? workflowTimeline(this.view, this.task)
 				: []
 			: attemptTimeline(this.task, this.attempts)

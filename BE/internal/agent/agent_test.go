@@ -2,6 +2,9 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -224,12 +227,14 @@ func TestOpenCodeProviderBuildInvocation(t *testing.T) {
 	p := NewOpenCodeProvider("")
 	inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "fix bug"})
 	require.NoError(t, err)
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--", "fix bug"}, inv.Argv)
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone", "--", "fix bug"}, inv.Argv)
 	require.Equal(t, "/workspace", inv.WorkingDir)
 	require.False(t, inv.Interactive)
 	// An unattended run never undoes an edit, so it starts with OpenCode's git
 	// snapshots off; the inline configuration is merged over the project's file.
-	require.Equal(t, map[string]string{"OPENCODE_CONFIG_CONTENT": `{"snapshot":false}`}, inv.Environment)
+	// OpenCode 2's private server reads its log level only from the
+	// environment: without it --print-logs streams every INFO line.
+	require.Equal(t, map[string]string{"OPENCODE_CONFIG_CONTENT": `{"snapshot":false}`, "OPENCODE_LOG_LEVEL": "WARN"}, inv.Environment)
 }
 
 // The terminal is the user's own session, where undo works: it keeps
@@ -241,10 +246,18 @@ func TestOpenCodeInteractiveSessionKeepsSnapshots(t *testing.T) {
 	require.True(t, inv.Interactive)
 	require.NotContains(t, inv.Environment, "OPENCODE_CONFIG_CONTENT")
 	require.Empty(t, inv.Environment)
+
+	// OpenCode 2's terminal UI has no --model flag: the model is its
+	// configuration's, still without the snapshot setting.
+	inv, err = p.BuildInvocation(RunInput{Mode: ModeInteractive, Prompt: "fix bug", Model: "opencode-go/deepseek-v4.1-flash"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"opencode"}, inv.Argv)
+	require.Equal(t, map[string]string{"OPENCODE_CONFIG_CONTENT": `{"model":"opencode-go/deepseek-v4.1-flash"}`}, inv.Environment)
 }
 
-// OpenCode takes its model as --model provider/model and Kuayle's effort as
-// --variant; "off" and an empty effort leave the variant to OpenCode.
+// OpenCode 2 takes its model as --model provider/model and Kuayle's effort
+// as the model's variant, provider/model#variant; "off" and an empty effort
+// leave the variant to OpenCode. Without a model there is no variant to pick.
 func TestOpenCodeProviderPassesModelAndEffort(t *testing.T) {
 	p := NewOpenCodeProvider("")
 	const model = "opencode-go/deepseek-v4.1-flash"
@@ -255,18 +268,16 @@ func TestOpenCodeProviderPassesModelAndEffort(t *testing.T) {
 		require.NoError(t, err)
 		return inv.Argv
 	}
+	run := []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone"}
+	with := func(args ...string) []string { return append(append([]string(nil), run...), args...) }
 
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--variant", "high", "--", "fix bug"},
-		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "high"}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--", "fix bug"},
-		argv(RunInput{Mode: ModeAutonomous, Model: model}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", model, "--", "fix bug"},
-		argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "off"}))
-	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--variant", "max", "--", "fix bug"},
-		argv(RunInput{Mode: ModeAutonomous, Thinking: "max"}))
+	require.Equal(t, with("--model", model+"#high", "--", "fix bug"), argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "high"}))
+	require.Equal(t, with("--model", model, "--", "fix bug"), argv(RunInput{Mode: ModeAutonomous, Model: model}))
+	require.Equal(t, with("--model", model, "--", "fix bug"), argv(RunInput{Mode: ModeAutonomous, Model: model, Thinking: "off"}))
+	require.Equal(t, with("--", "fix bug"), argv(RunInput{Mode: ModeAutonomous, Thinking: "max"}))
 
-	// The terminal UI takes a model but has no variant flag.
-	require.Equal(t, []string{"opencode", "--model", model}, argv(RunInput{Mode: ModeInteractive, Model: model, Thinking: "high"}))
+	// The terminal UI takes neither flag.
+	require.Equal(t, []string{"opencode"}, argv(RunInput{Mode: ModeInteractive, Model: model, Thinking: "high"}))
 	require.Equal(t, []string{"opencode"}, argv(RunInput{Mode: ModeInteractive}))
 }
 
@@ -277,7 +288,7 @@ func TestOpenCodeProviderKeepsThePromptOutOfItsFlags(t *testing.T) {
 	for _, prompt := range []string{"--auto fix the build", "-m other/model", "--help"} {
 		inv, err := p.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: prompt, Model: "opencode-go/deepseek-v4.1-flash", ExtraArgs: []string{"--agent", "build"}})
 		require.NoError(t, err)
-		require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "WARN", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
+		require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone", "--model", "opencode-go/deepseek-v4.1-flash", "--agent", "build", "--", prompt}, inv.Argv)
 	}
 }
 
@@ -510,18 +521,84 @@ func TestTaskSessionsPersistOnlyTranscriptsAndResumeNatively(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, strings.Join(again.Argv, " "), "--resume 11111111-2222-4333-8444-555555555555 -p Next")
 
+	// OpenCode reports its own session ID (ses_…, captured from its events);
+	// a later attempt continues it with --session, before the prompt's "--".
+	opencode := NewOpenCodeProvider("opencode:test")
+	started, err := opencode.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it", Session: &SessionInput{Dir: dir}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"/bin/sh", "-c", openCodeSessionScript, "kuayle-session", dir, "opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone", "--", "Fix it"}, started.Argv)
+	continued, err := opencode.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Address review", Model: "opencode-go/deepseek-v4.1-flash", Session: &SessionInput{Dir: dir, ResumeID: "ses_df21986abffefn2FxDuH6uZGLA"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"opencode", "run", "--format", "json", "--auto", "--print-logs", "--log-level", "warn", "--standalone", "--model", "opencode-go/deepseek-v4.1-flash", "--session", "ses_df21986abffefn2FxDuH6uZGLA", "--", "Address review"}, continued.Argv[5:])
+	require.Equal(t, dir, continued.Argv[4])
+
 	for _, bad := range []RunInput{
 		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: "/home/kuayle"}},
 		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, ResumeID: "--dangerously-bypass-approvals-and-sandbox"}},
 		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, NewID: "id; rm -rf /"}},
+		{Mode: ModeAutonomous, Prompt: "x", Session: &SessionInput{Dir: dir, ResumeID: "_ses"}},
 	} {
 		_, err = codex.BuildInvocation(bad)
+		require.Error(t, err)
+		_, err = opencode.BuildInvocation(bad)
 		require.Error(t, err)
 	}
 	// Manual runs are unchanged.
 	manual, err := codex.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it"})
 	require.NoError(t, err)
 	require.Equal(t, "codex", manual.Argv[0])
+	manual, err = opencode.BuildInvocation(RunInput{Mode: ModeAutonomous, Prompt: "Fix it"})
+	require.NoError(t, err)
+	require.Equal(t, "opencode", manual.Argv[0])
+	require.NotContains(t, manual.Argv, "--session")
+	// An interactive OpenCode keeps its own store in the home.
+	interactive, err := opencode.BuildInvocation(RunInput{Mode: ModeInteractive, Prompt: "Fix it", Session: &SessionInput{Dir: dir, ResumeID: "ses_df21986abffefn2FxDuH6uZGLA"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"opencode"}, interactive.Argv)
+}
+
+// OpenCode keeps its sessions in a SQLite database under its XDG data
+// directory, which an autonomous attempt points at its own run directory
+// (removed when the attempt ends). The wrapper links OpenCode's data and
+// state directories to the task's session directory, so a later attempt (a
+// new run directory) and the closing continuation find the same session,
+// and only OpenCode's own directories persist.
+func TestOpenCodeSessionStoreOutlivesTheAttemptsRunDirectory(t *testing.T) {
+	root := t.TempDir()
+	sessions := filepath.Join(root, "agent-sessions", "task")
+	write := `mkdir -p "$XDG_DATA_HOME/pnpm" && echo "$1" >> "$XDG_DATA_HOME/opencode/opencode.db" && echo state > "$XDG_STATE_HOME/opencode/model.json"`
+	attempt := func(run, line string) {
+		t.Helper()
+		data, state := filepath.Join(root, "tmp", run, "data"), filepath.Join(root, "tmp", run, "state")
+		require.NoError(t, os.MkdirAll(data, 0o700))
+		require.NoError(t, os.MkdirAll(state, 0o700))
+		// A stale directory from the image or an earlier run is replaced.
+		require.NoError(t, os.MkdirAll(filepath.Join(data, "opencode"), 0o700))
+		cmd := exec.Command("/bin/sh", "-c", openCodeSessionScript, "kuayle-session", sessions, "/bin/sh", "-c", write, "kuayle-test", line)
+		cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + filepath.Join(root, "home"), "XDG_DATA_HOME=" + data, "XDG_STATE_HOME=" + state}
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(output))
+		require.NoError(t, os.RemoveAll(filepath.Join(root, "tmp", run)), "the manager removes the run directory")
+	}
+	attempt("agent-1", "first")
+	attempt("agent-2", "second")
+	store, err := os.ReadFile(filepath.Join(sessions, "opencode", "data", "opencode.db"))
+	require.NoError(t, err)
+	require.Equal(t, "first\nsecond\n", string(store), "the second attempt wrote to the first one's store")
+	require.FileExists(t, filepath.Join(sessions, "opencode", "state", "model.json"))
+	entries, err := os.ReadDir(filepath.Join(sessions, "opencode", "data"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "only OpenCode's own directory is kept, not other tools' data")
+
+	// Without a run directory OpenCode's default under the home is linked.
+	home := filepath.Join(root, "bare")
+	cmd := exec.Command("/bin/sh", "-c", openCodeSessionScript, "kuayle-session", sessions, "/bin/sh", "-c", `echo third >> "$HOME/.local/share/opencode/opencode.db"`)
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home}
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(output))
+	store, err = os.ReadFile(filepath.Join(sessions, "opencode", "data", "opencode.db"))
+	require.NoError(t, err)
+	require.Equal(t, "first\nsecond\nthird\n", string(store))
 }
 
 func TestResultSummaryIsTheAgentsFinalMessageNotRawEvents(t *testing.T) {

@@ -258,11 +258,13 @@ func fenceAgentTask(ctx context.Context, tx *sqlx.Tx, current, claimed domain.Ag
 }
 func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask, from string, actor *uuid.UUID) error {
 	// The creator is notified of a transition marked pending (ClaimTaskNotices).
-	// A task that waits for its own agent review needs nobody yet. A workflow
-	// entering awaiting_review overrides the mark: markWorkflowReviewNotice.
+	// A task that waits for its own agent review needs nobody yet; the task
+	// of a pipeline member is not such a review. A workflow entering
+	// awaiting_review overrides the mark: markWorkflowReviewNotice.
 	reviewing := false
 	if task.State == "awaiting_review" {
-		if err := tx.GetContext(ctx, &reviewing, `SELECT EXISTS(SELECT 1 FROM agent_tasks r WHERE r.review_of_task_id=$1 AND r.state NOT IN ('completed','failed','cancelled'))`, task.ID); err != nil {
+		if err := tx.GetContext(ctx, &reviewing, `SELECT EXISTS(SELECT 1 FROM agent_tasks r WHERE r.review_of_task_id=$1 AND r.state NOT IN ('completed','failed','cancelled')
+ AND NOT EXISTS(SELECT 1 FROM task_members m WHERE m.member_task_id=r.id))`, task.ID); err != nil {
 			return err
 		}
 	}
@@ -285,6 +287,9 @@ func recordAgentTaskTransition(ctx context.Context, tx *sqlx.Tx, task domain.Age
 		return err
 	}
 	if err = syncAgentSession(ctx, tx, task); err != nil {
+		return err
+	}
+	if err = syncMemberState(ctx, tx, task); err != nil {
 		return err
 	}
 	if err = reviewUpdated(ctx, tx, task); err != nil {

@@ -153,3 +153,23 @@ for (const scenario of ['http', 'version', 'no-stable-release', 'tag', 'asset', 
     assert.deepEqual(existing.map(file => readFileSync(join(root, file), 'utf8')), before);
   });
 }
+
+// A CLI that moves to a new npm package (OpenCode 2 is @opencode/cli) must be
+// resolved from the package the images install, or the pin follows a frozen line.
+test('resolves each npm CLI from the package the images install', async (t) => {
+  const root = fixture(t);
+  const requested = [];
+  await upgradeAgentClis(root, async (url) => {
+    requested.push(url);
+    return { ok: true, json: async () => metadata(url) };
+  }, { now });
+  const [installer, agent] = read(root);
+  const registry = 'https://registry.npmjs.org/';
+  const packages = requested.filter(url => url.startsWith(registry)).map(url => decodeURIComponent(url.slice(registry.length)));
+  assert.equal(packages.length, 4);
+  for (const pkg of packages) assert.ok(installer.includes(`"${pkg}@\${`), `install-agent-clis.sh installs ${pkg}`);
+  // The agent image's CLIs, not npm itself.
+  const agentPackages = [...agent.matchAll(/"([^"]+)@\$\{(?!NPM_)[A-Z_]+_VERSION\}"/g)].map(match => match[1]);
+  assert.equal(agentPackages.length, 3);
+  for (const pkg of agentPackages) assert.ok(packages.includes(pkg), `the agent image's ${pkg} is resolved`);
+});

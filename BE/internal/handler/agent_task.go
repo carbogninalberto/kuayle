@@ -25,6 +25,7 @@ func NewAgentTaskHandler(svc *service.AgentTaskService) *AgentTaskHandler {
 }
 func agentTaskError(c *echo.Context, err error) error {
 	var merged *domain.MergedWorkError
+	var refused *repository.TaskRoomRefusedError
 	switch {
 	case errors.As(err, &merged):
 		return response.MergedWork(c, merged.Error(), merged.PullRequest)
@@ -50,12 +51,20 @@ func agentTaskError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "TASK_CLOSED", "The task no longer takes messages")
 	case errors.Is(err, repository.ErrAgentLiveMessageRateLimited):
 		return response.Error(c, http.StatusTooManyRequests, "LIVE_MESSAGE_LIMIT", "Too many messages for this task; try again later")
+	case errors.Is(err, repository.ErrTaskRoomUnavailable):
+		return response.Error(c, http.StatusConflict, "ROOM_UNAVAILABLE", "Only a task on a pipeline workflow has a room")
+	case errors.Is(err, repository.ErrTaskRoomRateLimited):
+		return response.Error(c, http.StatusTooManyRequests, "ROOM_MESSAGE_LIMIT", "Too many messages for this task; try again later")
+	case errors.As(err, &refused):
+		return response.Error(c, http.StatusBadRequest, "ROOM_POST_REFUSED", refused.Reason)
 	case errors.Is(err, service.ErrTaskTerminalBusy):
 		return response.Error(c, http.StatusConflict, "TASK_BUSY", "The agent is working on this task; open it in Claude Code when it stops")
 	case errors.Is(err, service.ErrTaskTerminalUnsupported):
 		return response.Error(c, http.StatusConflict, "TERMINAL_UNSUPPORTED", "Only Claude Code tasks open in Claude Code")
 	case errors.Is(err, service.ErrSignInNotFound):
 		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
+	case errors.Is(err, service.ErrPipelinesDisabled):
+		return response.Error(c, http.StatusForbidden, "PIPELINES_DISABLED", "Pipeline workflows are turned off on this server")
 	default:
 		return machineError(c, err)
 	}
@@ -599,12 +608,80 @@ func (h *AgentTaskHandler) SendLiveMessage(c *echo.Context) error {
 	return response.Success(c, http.StatusCreated, message)
 }
 
+// Room lists the room of a pipeline task after a sequence number (?after=),
+// oldest first, for its creator. Text from agents is untrusted.
+func (h *AgentTaskHandler) Room(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	after, err := conversationCursor(c, "after")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	messages, err := h.svc.Repo.RoomMessages(c.Request().Context(), middleware.GetWorkspace(c).ID, id, after)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	return response.Success(c, http.StatusOK, map[string]any{"messages": messages})
+}
+
+type roomPostRequest struct {
+	// RequestID makes a repeated post return the first one.
+	RequestID *uuid.UUID          `json:"request_id"`
+	Kind      string              `json:"kind"`
+	Body      string              `json:"body"`
+	To        []string            `json:"to"`
+	Data      domain.TaskRoomData `json:"data"`
+	ReplyTo   *int64              `json:"reply_to"`
+}
+
+// PostRoom posts the creator's say, ask, request, waiver or grant to the
+// room of a pipeline task.
+func (h *AgentTaskHandler) PostRoom(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	var input roomPostRequest
+	if err = bindTask(c, &input); err != nil {
+		return agentTaskError(c, err)
+	}
+	post := domain.TaskRoomPost{Kind: input.Kind, Body: input.Body, ToRoles: input.To, Data: input.Data, ReplyTo: input.ReplyTo}
+	if input.RequestID != nil {
+		post.DedupeKey = "request:" + input.RequestID.String()
+	}
+	message, err := h.svc.PostRoomMessage(c.Request().Context(), middleware.GetWorkspace(c).ID, id, post)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusCreated, message)
+}
+
 // Queue lists the session user's recent agent tasks across projects.
 func (h *AgentTaskHandler) Queue(c *echo.Context) error {
 	result, err := h.svc.Repo.Queue(c.Request().Context(), middleware.GetWorkspace(c).ID)
 	if err != nil {
 		return agentTaskError(c, err)
 	}
+	return response.Success(c, http.StatusOK, result)
+}
+
+// Board lists the actor's active tasks on one repository in merge order,
+// with the files they share (GET /agent-tasks/board?repository=owner/name),
+// under the visibility of Queue. It names private repository paths, so it
+// is never cached.
+func (h *AgentTaskHandler) Board(c *echo.Context) error {
+	repository := strings.TrimSpace(c.QueryParam("repository"))
+	if repository == "" || len(repository) > 512 {
+		return response.Error(c, http.StatusBadRequest, "INVALID_REPOSITORY", "Name the repository as owner/name")
+	}
+	result, err := h.svc.Board(c.Request().Context(), middleware.GetWorkspace(c).ID, repository)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	c.Response().Header().Set("Cache-Control", "private, no-store")
 	return response.Success(c, http.StatusOK, result)
 }
 

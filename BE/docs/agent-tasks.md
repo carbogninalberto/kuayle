@@ -13,8 +13,11 @@ Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI
 task creator's own issue comments queue bounded follow-up attempts; reviews by a second agent run only on
 request (migration 84). That fixed flow is the built-in Standard workflow;
 workspaces can design their own as [configurable workflows](#configurable-workflows)
-(migration 118). See [remaining workflow work](#remaining-workflow-work)
-for what is not implemented.
+(migration 118). Experimental [team workflows](#team-workflows-experimental),
+off unless the server turns them on, run a task with a team of agent roles
+that talk in the task's room, moved by a tick that reads facts. See
+[remaining workflow work](#remaining-workflow-work) for what is not
+implemented.
 
 Terminology: texts users read (transition reasons such as "Native coding
 iteration failed; stopping execution before retry", "New execution iteration
@@ -511,35 +514,46 @@ An autonomous attempt's home and `/tmp` are small tmpfs mounts (512 MiB and
 `/workspace/.kuayle/tmp/agent-<run>` on the workspace volume
 (`BE/internal/machine/run_tmp.go`), recreated when the container starts and
 removed by the manager once the attempt ends. OpenCode keeps its SQLite
-database, session snapshots and logs there (`opencode/` under each); on the
-home tmpfs they filled it and runs failed with `database or disk is full`
-(KUA-187). Autonomous runs also give OpenCode `OPENCODE_CONFIG_CONTENT`
+database (its sessions), logs and other state in `opencode/` under the data
+and state directories; on the home tmpfs they filled it and runs failed with
+`database or disk is full` (KUA-187). A task attempt links those two
+`opencode/` directories to the task's session directory (below), on the same
+volume, so its sessions outlive the run directory. Autonomous runs also give OpenCode `OPENCODE_CONFIG_CONTENT`
 (`{"snapshot":false}`, merged over the project's `opencode.json`), because a
-snapshot is a git copy of the worktree in that directory, an unattended run
-never undoes an edit, and those copies spend the workspace volume. OpenCode
-does not resume a session across attempts, so a
-per-attempt directory loses nothing. Claude Code and Codex keep their state
+snapshot is a git copy of the worktree in its data directory, an unattended run
+never undoes an edit, and those copies spend the workspace volume. Claude Code and Codex keep their state
 in `~/.claude` and `~/.codex`, whose transcripts are linked to the task's
-session directory (below). Interactive attempts keep the tmpfs defaults.
+session directory too. Interactive attempts keep the tmpfs defaults.
 
 ## Native session resume and handoff
 
-Codex and Claude Code task attempts keep their native session **transcripts** in
+Codex, Claude Code and OpenCode task attempts keep their native session **transcripts** in
 `/workspace/.kuayle/agent-sessions/<task-id>/` on the machine's workspace volume,
 outside every checkout, so publication never commits them. The attempt's argv is
 wrapped so that, after the image's runner has loaded secrets and configuration,
-only `~/.codex/sessions` and `~/.claude/projects` are linked to that directory.
+only the harness's session store is linked to that directory: `~/.codex/sessions`
+and `~/.claude/projects` (`sessionScript`), or OpenCode's
+`$XDG_DATA_HOME/opencode` and `$XDG_STATE_HOME/opencode` (`~/.local/share` and
+`~/.local/state` when the run directory could not be prepared) as `opencode/data`
+and `opencode/state` (`openCodeSessionScript`, `BE/internal/agent/providers.go`).
 `config.toml`, auth files and all credentials stay on the container's tmpfs home
+(OpenCode's key arrives as the `OPENCODE_API_KEY` variable, never as a file)
 and are never persisted. Transcripts can contain whatever the agent saw or
 printed; they share the machine volume's trust boundary (the same as the task's
 worktree) and are wiped as described below.
 
 Claude Code runs receive a Kuayle-assigned `--session-id`; Codex reports its own
-`thread_id` in its `thread.started` event, which the manager records once.
-Migration 64 stores the ID on the attempt (`native_session_id`, restricted to
-`[A-Za-z0-9-]` and never starting with `-`, so it cannot be read as a flag). A
+`thread_id` in its `thread.started` event, and OpenCode its `sessionID`
+(`ses_…`) at the top level of every event; the manager records the first one
+it sees (`harnessSessionID`, `machine/manager.go`) once. OpenCode 2 would also
+create a session under an ID Kuayle passes to `--session`, but Kuayle records
+the ID OpenCode generated, as for Codex, so it never depends on which IDs
+OpenCode accepts. Migration 64 stores the ID on the attempt (`native_session_id`); migration 203
+allows OpenCode's underscore there and in `agent_sessions`. The ID is
+restricted to `[A-Za-z0-9_-]`, at most 128 characters, and starts with a letter or digit, so it cannot be read as a flag. A
 retry or follow-up **resumes natively** (`codex exec resume <id>` with the same
-settings as a new session, or `claude --resume <id>`) only when
+settings as a new session, `claude --resume <id>`, or
+`opencode run … --session <id> -- <prompt>`) only when
 the previous attempt succeeded on the same machine, where its transcripts live.
 It also resumes a failed attempt whose session the user continued through
 **Open in Claude Code** on that machine (`session_continued_at`, migration
@@ -548,8 +562,8 @@ failed resume is never repeated. Either
 way the prompt keeps the task instructions and appends a bounded handoff naming
 the previous attempt, its native outcome, a recorded pull request, up to 50 changed files and the previous agent's
 summary fenced as unverified text, because the harness never saw Kuayle's publication. An older handoff is replaced, not accumulated,
-and the prompt stays within the attempt limit. Other harnesses always start new
-sessions with the handoff.
+and the prompt stays within the attempt limit. Qwen Code, Crush, Kimi, Goose
+and custom harnesses always start new sessions with the handoff.
 
 **Open in Claude Code.** `POST /agent-tasks/:taskId/terminal` (session-only,
 no body) lets the task's creator continue a Claude Code task's own session
@@ -582,7 +596,7 @@ tab (which ends its tmux session) before the next attempt is the user's
 responsibility, and the terminal says so when Claude Code exits.
 
 When a task completes or is cancelled, a `purge_task_session` operation removes
-its directory with a short-lived helper container that has no network, a
+its directory (OpenCode's session store included) with a short-lived helper container that has no network, a
 read-only root, no capabilities and only `rm -rf -- <that directory>`; it works
 while the machine is paused or stopped, and still runs after the machine's
 generation changes. Failed tasks keep their transcripts so an explicit retry can
@@ -860,6 +874,44 @@ added migration 162 merged green one after the other and broke `main`
   strict branch protection, runs these checks again instead of failing, for at
   most three merges; a branch now behind is updated as above.
 
+The gate decides from one read of the pull request into `TaskFacts`
+(`readTaskFacts` in `BE/internal/service/task_facts.go`): state, draft, head,
+distance from the base, conflict, migration collision and the head's checks. A
+fact GitHub did not answer is `unknown`, never `no`. `unmetChecks` turns the
+facts and the checks a step requires into what does not hold yet, each `unmet`
+(someone acts), `waiting` (CI is running) or `unknown` (read again), with a
+reason a person or an agent can act on.
+
+**The board (KUA-262).** `GET /agent-tasks/board?repository=owner/name` lists
+the repository's active tasks (not completed, failed or cancelled) with the
+visibility of `GET /agent-tasks`: the caller's own tasks on issues whose team
+they can still see (the repository shares `ownTaskRows`/`ownTaskVisible` with
+`Queue`). It reads only Kuayle's records, never GitHub, so it can lag:
+
+- pull request and head: the newest pull request Kuayle published for the task;
+  the head GitHub last reported (`pull_request_heads`) when observed after that
+  publication, otherwise the published commit. How far the branch is behind its
+  base is not stored; `TaskFacts.Behind` reads it live.
+- changed files: `changed_files` of the newest attempt that recorded any (the
+  branch's `git diff --name-only origin/<base>...HEAD`, committed changes only),
+  at most 200 listed; `changed_file_count` counts them all.
+- `ci`: `failing` when a check suite reported on the head failed, `passing`
+  when one passed and none failed, empty otherwise. Suites report only when they
+  finish, so `passing` can hide one still running.
+- `approved_at`: when a person approved the merge Kuayle is carrying out now (an
+  unfailed merge wait on the current workflow step, or an assistant
+  `merge_pull_request` waiting for checks).
+
+`arrangeBoard` (`service/task_board.go`) derives the merge order: approved and
+`passing` by approval time, then the other approved tasks by approval time, then
+the other pull requests by number; a task without a pull request has no
+`merge_position`. Each task's `overlap` lists the other tasks sharing changed
+files (at most 20 named, `file_count` counts them) and whether each is `ahead`.
+A step that read the board passes `boardOverlap` into `TaskFacts.Overlap`; the
+`overlap` check is `waiting` while a task ahead changes the same files, with a
+reason such as "KUA-123 (pull request #12) also changes BE/migrations/... and is
+ahead of you in the merge order", and `unknown` when the board was not read.
+
 **Waiting for the updated branch (KUA-207).** An approved merge is tracked as a
 `domain.MergeWait`: the approved commit, the head Kuayle merges, its update
 rounds and a deadline. After Kuayle's own update-branch:
@@ -922,6 +974,17 @@ to ship from a plan's approval, which also leads to agents. The runner
 - **Before each agent review** a branch behind its base is brought up to date
   the same way, and a conflicting one goes back as `review_changes_requested`
   with that instruction; the reviewer's visit limit and the budget stop a loop.
+- **While a CI step waits for checks** (KUA-260) it reads the pull request
+  first (`readBranchFacts`, without its CI). A conflict or a migration
+  collision leaves the step at once with `branch_conflict` and goes back as
+  above, instead of the step waiting for checks that never start until it
+  times out. A branch behind its base that merges cleanly is brought up to
+  date, pinned to the commit the step judges, at most three times, like an
+  approved merge; the step then judges CI on the new head once it is verified
+  as merges of the base into the published commit (recorded on the step's
+  `ci` as `head`, `update_of` and `updates`), and the ship merge accepts that
+  head as Kuayle's update. A fact GitHub has not reported changes nothing; CI
+  that already passed or failed decides as before.
 - **Approving** records the merge on the step that carries it out
   (`agent_task_workflow_steps.merge`, migration 171) with the approver and the
   commit the task published: on the approval itself when it leads to `done`, or
@@ -1033,7 +1096,7 @@ transition inside the transition's transaction:
 
 The session records the task's current machine and the harness's native
 session ID from the current attempt (Claude Code's Kuayle-assigned
-`--session-id`, Codex's `thread_id`), picked up at the next transition; it is
+`--session-id`, Codex's `thread_id`, OpenCode's `sessionID`), picked up at the next transition; it is
 the latest recorded ID, not a history. `dev_machine_agent_runs.session_id`
 links each attempt, set when the run is created in the fenced run transaction.
 Existing tasks were backfilled with a derived implement session and their
@@ -1509,10 +1572,10 @@ output of other tools is not scanned. The
 next attempt of the task keeps the worktree (attempts share the task's
 checkout) and its handoff says that the previous attempt ended without a final
 message, to check the worktree, finish and end with a summary.
-The agent is not asked again in the same session: OpenCode runs have no
-persisted session to resume, and a workflow that wants a retry already has
-one (an `agent_failed` transition back to the step, bounded by its visit
-limit). Other harnesses (Qwen Code, Kimi, Goose, Crush, custom) keep their
+The agent is not asked again in the same session (the
+[closing continuation](#closing-continuation) asks only an attempt that
+concluded): a workflow that wants a retry already has one (an `agent_failed`
+transition back to the step, bounded by its visit limit). Other harnesses (Qwen Code, Kimi, Goose, Crush, custom) keep their
 exit status.
 
 Docker supplies an RFC3339Nano timestamp for each log entry; see the
@@ -1814,8 +1877,8 @@ audit of every human action) and `comments.agent_task_id`.
 task worktree with the developer container, so an agent sends a message by
 writing one JSON file per message to `.kuayle/outbox/<name>.json` at its
 worktree root: `{"to":"ENG-12","channel":"internal"|"comment","body":"..."}`
-(the Kuayle-owned `kuayle-agents` skill, installed for Claude Code and Codex in
-the agent, IDE and headless images, describes it; implementing prompts with
+(the Kuayle-owned `kuayle-agents` skill, installed for Claude Code, Codex and
+OpenCode in the agent, IDE and headless images, describes it; implementing prompts with
 related work get one line about it). Before each attempt the manager creates
 the outbox and adds `/.kuayle/` to the repository's `info/exclude`, so outbox
 files are never committed or published.
@@ -2021,8 +2084,9 @@ Kuayle asks for the reply, not only the prompt:
   (exit 0, a final message, not cancelled) while a message it received has no
   reply is asked for the replies in its
   [closing continuation](#closing-continuation), the one extra turn an
-  attempt gets for whatever is missing (`domain.ReplyClosingAsk`; Claude Code
-  and Codex only, since OpenCode cannot continue a session). The outbox is
+  attempt gets for whatever is missing (`domain.ReplyClosingAsk`; Claude
+  Code, Codex and OpenCode only, since Kuayle continues no other harness's
+  session). The outbox is
   collected again afterwards. It happens once; there is no loop.
 - **A missing reply never fails the attempt.** If there is still no reply the
   attempt stays as it ended: the work is checked and published as usual, with
@@ -2076,8 +2140,9 @@ message as above and, in the same transaction, acts on `mode`:
   checkout, the worktree and the session transcripts. When the cleanup has
   confirmed the attempt gone (`FinishCancellation`), the task goes straight
   back to `queued` as a new attempt on the same step, visit and iteration
-  (nothing is counted), with `resume_native_session` (so `claude --resume` or
-  `codex exec resume` continue the session; OpenCode gets the handoff) and the
+  (nothing is counted), with `resume_native_session` (so `claude --resume`,
+  `codex exec resume` or `opencode run --session` continue the session; the
+  other harnesses get the handoff) and the
   message in its prompt; the handoff says a person interrupted the attempt to
   say something and that the worktree is unchanged. It is not a pause: a
   pending "pause after this step" stays as the person asked for it, and the
@@ -2364,8 +2429,10 @@ flow in code, and `StandardWorkflowGraph` only draws it.
   and, in `model_formats`, the form and an example of a harness's model
   names when they are not bare names, which the profile form shows.
   OpenCode's model is `provider/model` (`opencode-go/deepseek-v4.1-flash`)
-  and its effort is passed on as the model's variant; a task start accepts
-  any of Kuayle's levels. A profile save also checks a model of OpenCode's
+  and its effort is passed on as the model's variant
+  (`provider/model#level`; without a model the effort is not passed); a
+  task start accepts any of Kuayle's levels, and OpenCode fails a run whose
+  model lacks that variant. A profile save also checks a model of OpenCode's
   Go plan (`opencode-go/…`) and its effort against the
   [model catalog](../../TECHNICAL.md#agent-model-catalog) when that list is
   in memory (`validateCatalogModel`): an unknown model or an effort the
@@ -2756,6 +2823,413 @@ move where it happened. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.
 
+### Team workflows (experimental)
+
+A team workflow (KUA-252) is a workflow version whose JSON has
+`"kind": "pipeline"`: ordered phases, each naming what must be true to move
+on, worked by a roster of agent roles that talk in the task's room. Kuayle
+reads the facts, runs the platform actions (publish, update the branch, rerun
+CI, merge) and guards the merge. Absent or `"graph"` is the graph engine
+above. `ParseWorkflowGraph` refuses a pipeline, so the graph runner never runs
+one, and a task never changes engine: a move between kinds is refused as
+`workflow_kind`, and **Continue on another workflow…** does not offer
+pipelines. Standard stays a graph.
+
+**The switch.** `WORKFLOW_PIPELINES_ENABLED` (`config.WorkflowPipelines`,
+default `false`) is read by the API process; both Compose files pass it
+through (`WORKFLOW_PIPELINES_ENABLED` in `.env`, see `.env.example`).
+Off, creating, saving or duplicating a pipeline, making one a default and
+starting a task on one answer `403 PIPELINES_DISABLED` (a delegation from the
+assistant says "Pipeline workflows are turned off on this server"). Saved
+pipelines stay readable, and a task already on one keeps running: the tick
+does not read the switch. `GET /workflows` returns the switch as
+`pipelines_enabled`, and the task composer offers pipelines only while it is
+on. On, owners and admins save pipelines like graphs, including the built-in
+`template: "team"` of `POST /workflows`, and a task starts on a pipeline
+chosen in the task composer or set as a scope's default.
+`POST /workflows/validate` checks a pipeline with `ValidatePipeline` either
+way.
+
+**The definition** (`domain/pipeline.go`). `ParsePipeline` refuses unknown
+fields, and `ValidatePipeline`, separate from the graph's validator, checks it
+on save and again when a task starts:
+
+- `phases` (1 to 50, in order): `id`, a one-line `label` (80 characters), an
+  `owner` (a role of the roster, `kuayle` or `human`), an optional `prompt`
+  (4,000 bytes, given to the writer's turns in that phase), `checks` (at most
+  20 per phase; check IDs are unique across the pipeline) and `guarded`,
+  allowed only on the last phase when Kuayle owns it: the merge. A guarded
+  merge needs a required `approved` check in a phase before it
+  (`missing_approval`): the owner merges.
+- A check requires one fact and is `required` (the task stays in its phase
+  until it holds or the creator waives it for the head) or advisory. The
+  facts are a closed list, each with a defined "met":
+
+  | Fact | Met when |
+  | --- | --- |
+  | `pr_exists` | Kuayle published a pull request for the task |
+  | `pr_draft` | the pull request is not a draft |
+  | `head_contains_base` | the head contains the base's tip (the branch is not behind) |
+  | `conflict` | the pull request does not conflict with its base |
+  | `migration_collision` | no migration number of the branch collides with the base's |
+  | `ci_green` | CI passed on the head |
+  | `approved` | a person approved merging the head |
+  | `merged` | the pull request is merged |
+  | `closed` | the pull request is not closed without merging |
+  | `overlap` | no task ahead in the repository's merge order ([the board](#merging-only-up-to-date-heads)) changes the same files |
+  | `verdict` (with `role`) | that role, which is not the writer, approved the head |
+  | `script` (with `script`) | the command (at most 4,000 bytes), run in the task's worktree, exits 0 |
+
+  Values such as the head, the base and the board are posted to the room,
+  never required. Only a `verdict` names a role, and only a `script` carries
+  a command, the one field with author content.
+- `roster` (1 to 10 roles): `role` (1 to 32 lowercase letters, digits, `-` or
+  `_`; not `kuayle`, `human`, `lead` or `all`, which the room uses),
+  `profile_id` (a profile of the workspace that is not archived), `writer`
+  (exactly one role, whose profile changes code and which is not `on_call`)
+  and `on_call`.
+- `lead` (a `profile_id`, optional), `autonomy` (`approve`, and `waive` per
+  check ID: `human`, or `lead` when there is a lead) and `budget`
+  (`max_turns` up to 200, `max_minutes` up to 30 days, zero for no limit;
+  `on_exhausted` `ask`, or `fail`, the default).
+
+When a task starts, every role's profile goes through the workspace policy as
+a graph step's does, the first turn is the writer's with the writer's profile
+and the first phase's prompt, and the task is marked `pipeline` (also in its
+JSON, so every view knows). A pipeline's roster and lead keep their profiles
+in use, as graph steps do. The `team` template: phases implement
+(implementer), pull request (Kuayle; `pr_exists`), review (implementer; the
+reviewer's `verdict`), CI checks (implementer; `head_contains_base`,
+`ci_green`, `migration_collision`), approval (human; `approved`) and merge
+(Kuayle, guarded), every check required; the built-in Implementer as the
+writer and Reviewer; no lead; 40 turns and 2,880 minutes, then `ask`.
+Settings shows a pipeline read only, with a notice (`PipelineView.svelte`);
+there is no editor.
+
+**The room** (KUA-261; `domain/task_room.go`, `repository/task_room.go`,
+table `task_messages`, migration 206) is one ordered log per pipeline task,
+kept on the root task. Each post has a `seq` allocated under the task's
+`workflow-runner` advisory lock; an author (`human`, the creator; `member`,
+with its role and member; or `kuayle`); recipients (`to_roles`, empty for
+everyone: roles, `human`, or `lead` when there is one); a `kind`; text; a
+structured `data` part (phase, verdict and commit, check, request action,
+fact name and value); an optional `reply_to`, an earlier post; and a
+`dedupe_key`, whose repetition returns the first post. `TaskRoomRefusal` says
+who may post what:
+
+| Kind | Creator | Writer | Other roles | Lead | Kuayle |
+| --- | --- | --- | --- | --- | --- |
+| `say`, `ask` | yes | yes | yes | yes | no |
+| `verdict` (`approve`, `request_changes` or `comment`, for a commit) | no | no | for its own role | no | no |
+| `phase` | no | no | no | yes | only without a lead |
+| `request` (`review`, `merge`, `publish` or `split`) | yes | `review` only | no | yes | no |
+| `waiver` (of a check) | yes | no | no | checks granted to it | no |
+| `grant` (of a check) | yes | no | no | no | no |
+| `fact` | no | no | no | no | yes |
+| `summary` | no | no | no | yes | yes |
+
+Text is at most 16 KiB, 4,000 characters from agents, and `say` and `ask`
+need some; the structured part is at most 16 KiB. Each sender has an hourly
+budget, refusals included: 20 posts per role (the agent messages' limit) and
+30 for the creator (the live channel's, `429 ROOM_MESSAGE_LIMIT`); Kuayle has
+none, and a role's post over its budget is dropped. A person's refused post
+is not stored (`400 ROOM_POST_REFUSED` with the reason). A role's refused post
+is stored with its `reject_reason` (200 characters), without recipients or
+data, is never delivered and is shown to its sender at its next turn. Every
+stored post writes a `task.room_message` conversation event in its
+transaction, and a person's post wakes the task's tick.
+
+**Agents post through the outbox** (KUA-267). An outbox file whose `to` is
+`@role`, `@human` or `@all` is a room post (`domain.ParseAgentOutboxMessage`:
+`kind`, `say` by default; `body`; `reply_to`; `data`). `RecordAgentOutbox`
+hands those files to `RecordRoomOutbox` before the agent messages: they are
+posted for the role the sending task plays (a member's task as its role, the
+root task as the writer), with the run and the agent messages' dedupe key. A
+file that does not parse or is too large is stored as a refused post with the
+reason. On a task without a pipeline the file goes on to the agent messages,
+which refuse it ("the task room is only for tasks on a pipeline workflow").
+The images ship `kuayle-say` (`devmachine/common/kuayle-say.cjs`, installed as
+`/usr/local/bin/kuayle-say`), which validates and writes the file
+atomically; agents learn it from "The task room" in the `kuayle-agents`
+skill.
+
+**Members and turns** (KUA-271; `domain/task_member.go`,
+`repository/task_member.go`, table `task_members`, migration 207). A member is
+a role working on one pipeline task: one per role per task, so each role
+keeps one native session for the task, continued across its turns. Its
+profile is pinned when it is created. It keeps its room cursor
+(`last_read_seq`), its `state` (`idle`, `queued` or `running`, kept in step
+with its task by every transition), `turns`, `pinned_commit` (the published
+commit its latest turn read) and `verdict_asked`. A member is an agent task,
+so its runs, session, handoff, logs and transcripts are the existing ones:
+
+- **The writer's turns are the root task's iterations** (`member_task_id`
+  NULL; the member exists from the start). A turn's prompt is the task's
+  request, then "the Kuayle pipeline, phase <label>" with the phase's
+  `prompt` and the posts the writer has not read (a page of 200, at most
+  24,000 bytes of them; the rest waits for the next turn) within the 32 KiB
+  prompt, with the writer profile's and the scope's instructions; the turn
+  also gets the writer profile's instructions file and skills, as a graph
+  step does. Each turn is the root's next attempt, so it continues the
+  writer's session as any follow-up does
+  ([native session resume](#native-session-resume-and-handoff)). A turn that
+  cannot start yet, because the writer's last attempt is still being wound
+  down, waits for the next poll.
+- **Every other role gets one review task of the root**
+  (`insertReviewAgentTask`: kind `review`, never published, no push
+  credential, with the root's creator, issue and conversation), created the
+  first time `StartMemberTurn` starts the role. Each later turn is the next
+  generation of that same task. `Attempt` reads the previous attempt for a
+  member's task (every other review still starts cold), so the turn resumes
+  the role's session (`claude --resume`, `codex exec resume`,
+  `opencode run --session`) when its previous turn succeeded on the same
+  machine, and otherwise starts with the handoff. A later turn fetches its
+  worktree again first (only a member's task re-queues its checkout, once
+  per turn), so it reads the newest head. Between turns the member's task
+  rests in `blocked` (no notification, session kept; `completed` would purge
+  it). A failed or cancelled turn is posted by the tick as a `turn` fact
+  with its reason, and the role takes its next turn as after any other (a
+  cancelled review task may be queued again only when it is a member's). A
+  role whose last turn is still being wound down is tried again at the next
+  poll. A role that cannot take its first turn, because its profile was
+  archived, is a `turn` fact, and the task pauses for a person. When the
+  root task ends (merged, failed, stopped or cancelled) its members' turns
+  still under way are cancelled, as a graph's reviews are.
+- **What a turn reads.** `domain.RoomInbox` is what a role reads from posts
+  newer than its cursor: posts for everyone or for the role, not its own,
+  plus its own refused posts with their reasons (a member reads a page of 200
+  within the 32 KiB prompt; the rest waits). `domain.RoomTurnPrompt` lists
+  them with number, author and kind, the text fenced as data, and says how
+  to answer. A member's prompt (`domain.MemberTurnPrompt`) starts with its
+  standing contract: it is the `@role` of the team, its session continues,
+  another role writes the code and it changes nothing. A turn asked for a
+  verdict is the review of the newest commit Kuayle published from the
+  root's attempts (`AgentReviewPrompt`, with the CI Kuayle knows on it);
+  another turn gets the profile's instructions and answers what it was asked.
+  When the role's previous turn read another commit, the prompt names
+  `git diff <old> <new>` so it checks what changed.
+- **When a turn starts** (`domain.RoomWakes`): when the role's unread posts
+  hold one addressed to it, or a `say`, `ask` or `request` that a person or
+  another role wrote to everyone. A fact, phase move, verdict or summary to
+  everyone waits for the role's next turn. The tick also starts a role's turn
+  to ask it for a verdict, and a stall summary addressed to it starts one
+  (below). A member whose turn is queued or running, or whose task waits on
+  a usage limit, is not started again. Any member turn's end, failed or
+  cancelled too, wakes the root's tick.
+
+**Verdicts** (table `task_verdicts`; `agent_reviews` stays for requested
+reviews). A member's turn owes a verdict for its pinned commit when the tick
+asked it (`StartMemberTurn(..., askVerdict)`; Kuayle may not post
+`request`), when its unread posts hold a `request` for a review, or when the
+current phase requires its verdict on the head and has none as the turn
+starts. A `verdict` post counts
+only from the member task of its role (`author_member_id`), for the commit its
+turn reads or another one Kuayle published from the root's attempts
+(`dev_machine_git_refs`, source `published`: Kuayle keeps no clone to ask
+git). An abbreviated commit is stored whole; an unknown or ambiguous one is
+refused with the reason. A turn that owes a verdict and posted none is asked
+once more in its own session (`domain.VerdictClosingAsk`, through the
+[closing continuation](#closing-continuation): Claude Code, Codex and
+OpenCode), unless its final message has a `Verdict:` line. When the turn
+ends, that line (`ParseAgentReview`) is posted as the member's verdict.
+Without one, Kuayle posts a `verdict` fact with `"verdict": "none"` ("The
+@reviewer ended its turn without a verdict for commit …"): the check stays
+unmet, and the tick does not ask the role again on that head, so the next
+stall sends the check to the phase's owner. A verdict, or the owner's
+approval, given on an older commit holds for the head only when the head is
+that commit plus merges of the base that Kuayle verified (`verifiedUpdates`).
+
+**Facts.** Each pass reads the newest pull request Kuayle published from the
+root's attempts (`PublishedWork`) with `readTaskFacts`, the read the merge
+gate uses, plus each role's latest verdict, the owner's approval, the script
+checks' runs and the board's overlap. What the pass asks of GitHub (these
+reads, a branch update, a CI rerun, the merge) has its own deadline inside
+the worker's step (`tickGitHubTimeout`, 12 seconds, ending at least 5
+seconds before the step does so the pass can still save): a read that runs
+out is a fact that could not be read, not an error, and an action that runs
+out is tried at the next pass. Kuayle posts a `fact` for each value that
+changed since it last posted it, in this order: `pr_exists`, `head_sha`,
+`base_ref`, `pr_draft`, `head_contains_base`, `conflict`,
+`migration_collision`, `ci_green` (state, head and failing checks, with the
+checks' details when it fails), `approved`, `overlap` (the tasks ahead that
+change the same files), `merged`, `closed`. A fact that blocks a check
+carries its reason and next step (`unmetChecks`). A value Kuayle could not
+read is not posted, and a check on it is `unknown`, never unmet: it is read
+again. Kuayle also posts facts of its own: `turn` (a role's turn failed or
+cannot start, and why), `publication` (publishing the writer's turn failed
+or was skipped), `merge` (the merge gate refused, and why), `script`
+(below) and the `verdict` with `none` above.
+
+**Script checks** run the check's `script` as `sh -c` in the root task's
+worktree, through the [manual check](#manual-checks) runner
+(`RunPipelineCheck`), as the task's creator, who needs no permission to run a
+command of their own: the command comes from the pinned version, which only
+the people who manage workflows write. The checks of the phases up to the
+current one run once a pull request is published, once per published commit
+and check, and again on a new head; a run on a commit counts for a head that
+only merged the base into it (`verifiedUpdates`), as verdicts do. While a
+run is under way the check waits, and its end wakes the tick. Exit 0 meets
+the check; another exit leaves it unmet with the end of its output (at most
+2,000 bytes, fenced as data) as the reason. A check that cannot run (no
+ready worktree on a running machine, the machine busy with an attempt) is
+`unknown`, never unmet, and is tried again at the next pass. Each result is
+posted once as a `script` fact (check, commit, exit code); a failed advisory
+check is posted to its phase's owner and never holds the task up.
+
+**The tick** (KUA-273; `service/team_tick.go`, `repository/pipeline_tick.go`,
+migration 208). `AgentTaskService.step` runs a task marked `pipeline` through
+the tick instead of the graph runner. The root task is the writer: when its
+turn ends, a turn that changed the work (or any, while nothing is published
+yet) is published once, a failed one is posted as a `turn` fact, and the
+task waits in `awaiting_review`, where a pass runs on every wake. The
+tick keeps its position in the workflow columns (`workflow_node` is the
+current phase; `workflow_status`, `workflow_wake_at`, `workflow_sequence`;
+`workflow_iterations` counts the turns charged; the budget clock), so the
+claim query, pause, resume and the existing views keep working, and its
+memory between passes in `agent_tasks.pipeline_state`: the facts last posted,
+the room read so far, the creator's waivers, which head each role was asked
+about, the approval, the last published turn, branch updates, the CI rerun,
+the merge, the script checks' runs, since when the phase waits on checks
+that change by themselves, and the stall counter. Every save is fenced by
+the worker's lease, the task's `workflow-runner` advisory lock and its
+sequence, which moves on only when the phase or the status changes or a
+person decides. One pass:
+
+1. reads the facts, the verdicts, approval and script runs that hold for the
+   head, the overlap and the room since the last pass (a creator's `waiver`
+   holds for the head the room last named). A pull request that cannot be
+   read, or GitHub that does not answer in time, is waited for: nothing is
+   posted or started, and the pass runs again in a minute;
+2. posts the facts that changed and each script check's result once;
+3. takes the first phase with a required check that does not hold and is not
+   waived for the head as the current one (the last phase when every check
+   holds), and posts `phase` when it changes;
+4. completes the task when the pull request is merged, and publishes a
+   finished turn of the writer that was not published yet;
+5. starts the script checks of the phases up to the current one that have no
+   run for the head (or could not run);
+6. acts through the existing code, each action at most once per head or
+   turn: posts each member's turn that failed; brings a branch that is behind
+   its base and merges cleanly up to date (`updateBranch`, at most
+   `maxMergeUpdates`, 3, per published commit); runs the failed Actions jobs
+   once more when CI still fails on a head the writer was already sent and
+   did not change; asks each role whose verdict the current phase requires
+   and that has none for the head, once per head; and waits for the owner's
+   approval at a phase with an unmet `approved` check;
+7. at the guarded last phase, once every required check holds, merges
+   through the merge gate as the person who approved the head (the creator
+   when the approval was waived), who must still be allowed to decide. A
+   merge that waits on the gate longer than `mergeWaitTimeout` (2 hours) is
+   refused. A refused merge is a `merge` fact; when the facts read next send
+   the work back to an earlier phase, the merge starts afresh once they hold
+   again, and otherwise the task pauses for a person (Continue, or a new
+   approval, tries again). A pipeline without a guarded phase completes once
+   every check holds;
+8. starts a turn for every idle role other than the writer whose unread posts
+   call for one, owing a verdict when the phase requires its verdict;
+9. when nobody works, nothing is under way and nothing is awaited, posts the
+   current phase's unmet checks with their reasons as a `summary` to the
+   phase's owner (the writer for a phase Kuayle owns). A role's turn starts
+   on it in the same pass; for a phase a person owns, the task waits for the
+   person, the budget clock held, and is announced once. What changes by
+   itself (CI running, a check run under way, a fact not readable) is
+   awaited, and read again every minute, for at most `mergeWaitTimeout` on
+   the same head and checks; after that it is sent on like any unmet check,
+   so checks that never report stall too. The third such summary pass on the
+   same head, phase and unmet checks pauses instead (`blocked`, status
+   `paused`) and asks a person;
+10. starts the writer's turn when its unread posts call for one (a summary
+    addressed to it does);
+11. charges every turn it starts, writer's or member's, and the working time
+    to the pipeline's budget like a graph workflow's iterations, the clock
+    held while a person is awaited: a turn the budget has no room for is not
+    started, and a used-up budget pauses for a person (`ask`) or fails the
+    task (`fail`);
+12. otherwise waits for the next wake, or polls in a minute while something
+    changes by itself (CI running, a check run, a fact not readable, a role
+    or the writer still winding down, a branch update or a merge under way).
+
+The tick has no branch for a particular failure: a new situation is a fact
+with a reason, sent to whoever owns the phase.
+
+**Wakes.** The worker runs a pass when `workflow_wake_at` is due. It is set
+by a CI result from GitHub (and its failure details, once read), the end of a
+member's turn or of a script check's run, a person's post, decision or
+resume, and the tick's own poll or the time budget's end (not while a person
+is awaited). A pull request merged on GitHub completes the task
+directly. A wake that lands while a pass runs is kept: the pass stores the
+earlier of that wake and its own (`PipelineApply.ClaimedWake`), so it is
+never lost.
+
+**Decisions.** `POST /agent-tasks/:taskId/workflow/decision`, with the
+`sequence` the person saw, from the creator or an owner or admin who can see
+the issue, as for a graph workflow (offered in the task's workflow panel):
+
+- `approve`, where the current phase has an `approved` check and the task
+  waits, records that person's approval of the head the room last named and
+  starts a new merge;
+- `continue`, where the tick paused, asks every role again, counts stalls
+  and waits anew, tries a refused merge again and grants another budget of
+  the same size when it is used up;
+- `stop`, where it paused, fails the task.
+
+Anything else, `deny` included, answers `409 WORKFLOW_CONFLICT`. The
+decision reads the task as it is locked for it, so a pass that ran meanwhile
+is neither lost nor overwritten. Each decision is recorded in
+`workflow_audit_events`. The creator's
+[pause and resume](#pause-and-resume) apply as to a graph workflow, and a
+retried pipeline task starts again with its writer's turn, on another budget
+of the same size, asking every role again.
+
+**Routes and events** (session-only and behind the demo guard, like every
+task route):
+
+- `GET /agent-tasks/:taskId/room?after=<seq>` (at most 200 posts, oldest
+  first, refused ones with their reason; `Cache-Control: private, no-store`)
+  and `POST /agent-tasks/:taskId/room` (`kind`, `body`, `to`, `data`,
+  `reply_to` and a `request_id` that makes a repeated post return the first)
+  are the creator's (`lockAgentTask`). A task not pinned to a pipeline answers
+  `409 ROOM_UNAVAILABLE`.
+- `GET /agent-tasks/:taskId/workflow` (`StepRuns`) lists the runs of the
+  members' tasks with the `role` each played (the root's own runs are the
+  writer's); a member run's transcript is read through its `task_id`, the
+  member's task, which has the root's creator.
+- `task.room_message` carries each stored post to the conversation; the
+  task's transitions and workflow events are the existing ones.
+
+**The view** (KUA-268). The agent view of a task marked `pipeline` shows its
+room instead of a timeline (`TaskRoom.svelte`, rows from `task-room.ts`): the
+creator's posts, Kuayle's facts and phase moves, and each role's turn (its
+posts with one `run_id`) as one row that opens the run's transcript; a
+refused post is muted with its reason. The room is read once, kept by
+`task.room_message` events (`ConversationState.taskRooms`, once per `seq`)
+and read on from the last unbroken `seq` when the task's run is read again or
+a post arrives after a gap. The composer posts a `say` there (text only, with
+a `request_id`). The side panel names the pipeline, draws no graph and offers
+approve, continue and stop.
+
+**Limits of this first version.**
+
+- No lead runs. A pipeline's `lead` is validated and keeps its profile in
+  use, but nothing starts it; Kuayle names the phase (with a `lead` set it
+  still derives the phase but posts no `phase` move). `autonomy` is not read:
+  approving is a person's decision and waiving the creator's, and a `grant`
+  is stored but grants nothing until there is a lead.
+- One writer, the root task. The other roles never publish and have no push
+  credential.
+- `on_call` is validated but not read: every role other than the writer
+  works only when the room calls for it or the tick asks it for a verdict.
+- Advisory checks other than `script` ones are shown, not acted on.
+- No `deny`: a person approves the head or, where the tick paused, continues
+  or stops it.
+- The owner's composer posts only `say`; `ask`, `request`, `waiver`, `grant`
+  and `reply_to` are API only. A `request` for `merge`, `publish` or `split`
+  is stored and can start a role's turn, but Kuayle does not act on it.
+- A member has no task card of its own: its turns are rows of the root's
+  room and runs of the root's workflow view, with their role.
+- The board the tick reads is the creator's (the board's visibility), so
+  `overlap` sees only the creator's own active tasks on the repository.
+
 ### Moving a task to a newer workflow version
 
 A task is pinned to the workflow version it started on; saving the workflow
@@ -3002,7 +3476,8 @@ too long, or none at all, changes nothing: the step fails as before.
 | --- | --- |
 | Claude Code | `claude --print … --resume <session> -p <prompt>` in the task's session directory |
 | Codex | `codex exec resume … <thread> <prompt>` with the thread ID the run reported |
-| OpenCode, Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
+| OpenCode | `opencode run … --session <session> -- <prompt>` with the session ID the run reported, linked to the task's session directory like the attempt, so it opens the same session store |
+| Crush, Qwen Code, Kimi, Goose, custom | none: Kuayle does not continue their sessions, so what is missing is noted at once |
 
 **When an attempt leaves no valid update** (`machine/notebook.go`). The run
 of such an attempt has `notebook_required`. The work is never lost over the
@@ -3143,6 +3618,8 @@ change requests queue bounded follow-up attempts. Work can also be accepted in
 Kuayle without merging. Agents coordinate through issues, dependencies, the
 related-work context and [agent messages](#agent-messaging), never through
 shared branches. A successful process exit must never mark an issue Done.
+Team workflows are experimental; what their first version does not do is
+listed under [team workflows](#team-workflows-experimental).
 
 ## HTTP controls and replay
 
@@ -3166,6 +3643,9 @@ and cancellation remain available to authorized users.
   the AI Elements [Queue](https://www.shadcn-svelte.com/docs/ai-elements/queue)
   composition (in progress or waiting, then finished), linking each task to its
   issue chat, and refreshes it every 20 seconds while visible.
+- `GET /agent-tasks/board?repository=owner/name` lists those of the tasks that
+  are active on one repository, in merge order with their overlap
+  ([the board](#merging-only-up-to-date-heads)); `Cache-Control: private, no-store`.
 - `GET /agent-tasks/:taskId` reads the durable task.
 - `POST /agent-tasks/:taskId/cancel` requests cleanup, including an explicit retry
   of exhausted cleanup operations.
@@ -3365,9 +3845,10 @@ a resume forgets the pause and starts a new visit, as a retry always does.
 **Unknown model.** When the provider does not offer the run's model, the run
 error is `model_not_found: <model>` and the rule `provider` / `model_not_found`.
 The model is read from OpenCode's `ProviderModelNotFoundError` ("Model not
-found: <model>"), which OpenCode reports as "UnknownError: Unexpected server
-error" in its event and names only in its `level=ERROR` log line on standard
-error, from Anthropic's `not_found_error` ("model: <model>"), Claude Code's
+found: <model>"), which OpenCode 1.x reports as "UnknownError: Unexpected
+server error" in its event and names only in its `level=ERROR` log line on
+standard error, from OpenCode 2's error event ("Model unavailable: <model>",
+type `provider.no-route`), from Anthropic's `not_found_error` ("model: <model>"), Claude Code's
 "There's an issue with the selected model (<model>)", and OpenAI's "The model
 `<model>` does not exist or you do not have access to it" or `model_not_found`.
 The task fails at once with class `provider` and a reason naming the model and
