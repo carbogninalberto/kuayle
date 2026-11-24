@@ -879,7 +879,8 @@ they can still see (the repository shares `ownTaskRows`/`ownTaskVisible` with
   publication, otherwise the published commit. How far the branch is behind its
   base is not stored; `TaskFacts.Behind` reads it live.
 - changed files: `changed_files` of the newest attempt that recorded any (the
-  branch's `git diff --name-only origin/<base>...HEAD`, committed changes only).
+  branch's `git diff --name-only origin/<base>...HEAD`, committed changes only),
+  at most 200 listed; `changed_file_count` counts them all.
 - `ci`: `failing` when a check suite reported on the head failed, `passing`
   when one passed and none failed, empty otherwise. Suites report only when they
   finish, so `passing` can hide one still running.
