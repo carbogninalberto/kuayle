@@ -150,13 +150,15 @@ func (f *taskRuntimeFake) Cancel(context.Context, domain.AgentTask) error {
 type taskRuntimeStoreFake struct {
 	reservation repository.MachineReservation
 	err         error
+	// previous is what PreviousAttempt reports about the attempt before.
+	previous *domain.AgentHandoff
 }
 
 func (f *taskRuntimeStoreFake) ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error) {
 	return f.reservation, f.err
 }
 func (f *taskRuntimeStoreFake) PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error) {
-	return nil, nil
+	return f.previous, nil
 }
 func (f *taskRuntimeStoreFake) CancelAttempt(context.Context, domain.AgentTask) error { return nil }
 func (f *taskRuntimeStoreFake) EnsurePublication(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {

@@ -22,6 +22,8 @@ docker exec "$container" curl --fail --silent --output /dev/null http://127.0.0.
 for command in code-server node npm claude opencode codex qwen crush goose kimi ttyd; do
   docker exec "$container" "$command" --version
 done
+# Every flag Kuayle passes an agent CLI is still in its help.
+docker exec "$container" sh /usr/local/lib/kuayle/check-agent-cli-flags.sh
 
 # kuayle-ports reads the container's listeners, and the QA skill is
 # installed for both agents.
@@ -31,6 +33,7 @@ docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-agents/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-agents/SKILL.md
+docker exec "$container" test -f /home/kuayle/.config/opencode/skill/kuayle-agents/SKILL.md
 docker exec "$container" test -d /home/kuayle/.kuayle/ports/requests
 
 # Exercise the upgraded FTP dependency through its actual get-uri consumer,

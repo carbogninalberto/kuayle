@@ -38,7 +38,7 @@ func runAgentForTrace(t *testing.T, execution *AgentExecution, configure func(*d
 		configure(run, store, runtime)
 	}
 	manager := NewManager(store, runtime, agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/opencode:test")), nil, make([]byte, 32), make([]byte, 32), "test")
-	manager.agentCLIVersions = map[string]string{"opencode-ai": "1.2.3"}
+	manager.agentCLIVersions = map[string]string{"@opencode/cli": "1.2.3"}
 	require.NoError(t, manager.runAgent(context.Background(), store.machine, &domain.DevMachineOperation{
 		MachineID: machineID, WorkspaceID: workspaceID, AgentRunID: &runID, Action: domain.DevMachineOpRunAgent, Generation: 1,
 	}))
@@ -131,6 +131,24 @@ func TestRunRecordsWhatItRanOnAndWhatWasCut(t *testing.T) {
 	require.NotNil(t, cut)
 	require.Equal(t, 1, cut.Count)
 	require.Positive(t, cut.Bytes)
+}
+
+// A task attempt's OpenCode reports its session on every event; the manager
+// records it once, from the first, so the next attempt can continue it. The
+// trace names the harness, not the session wrapper it runs in.
+func TestOpenCodeTaskAttemptRecordsTheSessionItReported(t *testing.T) {
+	store := runAgentForTrace(t, &AgentExecution{ContainerID: "agent", ExitCode: 0, Stdout: openCodeSessionStream},
+		func(run *domain.DevMachineAgentRun, _ *managerStoreFake, _ *runtimeFake) {
+			run.NativeSessionID = nil
+			invocation, err := agent.NewOpenCodeProvider("").BuildInvocation(agent.RunInput{Mode: agent.ModeAutonomous, Prompt: "Fix it",
+				Session: &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + run.TaskID.String()}})
+			require.NoError(t, err)
+			run.CommandArgv, err = json.Marshal(invocation.Argv)
+			require.NoError(t, err)
+		})
+	require.Equal(t, []string{"ses_df21986abffefn2FxDuH6uZGLA"}, store.nativeSessions)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, store.completedRun.Status)
+	require.Equal(t, "opencode", runEnvironment(t, store.completedRun).HarnessCommand)
 }
 
 func TestPidsSampleKeepsThePeak(t *testing.T) {
@@ -277,7 +295,7 @@ func TestAnAuthorizationFailureMidRunIsPolicy(t *testing.T) {
 // The harness version is recorded once, when the run starts. A run's end may
 // be long after a shared CLI refresh, so it never replaces what started.
 func TestTheHarnessVersionIsRecordedOnceAtTheStart(t *testing.T) {
-	manager := &Manager{agentCLIVersions: map[string]string{"opencode-ai": "2.0.0"}}
+	manager := &Manager{agentCLIVersions: map[string]string{"@opencode/cli": "2.0.0"}}
 	run := &domain.DevMachineAgentRun{
 		ProviderID:  "opencode",
 		Environment: domain.NullJSON([]byte(`{"harness_version":"1.0.0","harness_version_from":"shared agent CLI refresh"}`)),

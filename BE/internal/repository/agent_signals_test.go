@@ -236,24 +236,45 @@ func TestDeferredOperationsWaitWithoutConsumingAttempts(t *testing.T) {
 	require.True(t, found, "a running machine holds its allocation")
 }
 
+// A Codex thread ID and an OpenCode session ID (ses_…, with an underscore)
+// are both recorded once and handed to the next attempt.
 func TestNativeSessionsAreRecordedOnceAndHandedToTheSuccessor(t *testing.T) {
+	for harness, native := range map[string]string{"codex": "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "opencode": "ses_df21986abffefn2FxDuH6uZGLA"} {
+		t.Run(harness, func(t *testing.T) {
+			db, repo, ctx, task := reviewableTask(t)
+			store := NewDevMachineRepository(db)
+			require.NoError(t, store.RecordNativeSession(ctx, task.RunID, native))
+			require.NoError(t, store.RecordNativeSession(ctx, task.RunID, "ffffffff-c3d4-7e5f-8a9b-0c1d2e3f4a5b"), "a later report never replaces it")
+			for _, unsafe := range []string{"--last", "_ses"} {
+				_, err := db.Exec(`UPDATE dev_machine_agent_runs SET native_session_id=$2 WHERE id=$1`, task.RunID, unsafe)
+				require.Error(t, err, "the schema rejects unsafe session IDs")
+			}
+			current, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+			require.NoError(t, err)
+			retried, err := repo.Retry(ctx, task.WorkspaceID, task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: current.Generation, Prompt: "Follow up"})
+			require.NoError(t, err)
+			previous, err := repo.PreviousAttempt(ctx, *retried)
+			require.NoError(t, err)
+			require.Equal(t, native, previous.NativeSessionID)
+			require.Equal(t, *current.MachineID, previous.MachineID)
+			var purges int
+			require.NoError(t, db.Get(&purges, `SELECT count(*) FROM dev_machine_operations WHERE action='purge_task_session'`))
+			require.Zero(t, purges, "a task still in progress keeps its sessions")
+		})
+	}
+}
+
+// The task's agent session takes the OpenCode session ID of its current
+// attempt at the next transition, as it does a Codex thread ID.
+func TestAgentSessionRecordsAnOpenCodeSessionID(t *testing.T) {
 	db, repo, ctx, task := reviewableTask(t)
-	store := NewDevMachineRepository(db)
-	require.NoError(t, store.RecordNativeSession(ctx, task.RunID, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"))
-	require.NoError(t, store.RecordNativeSession(ctx, task.RunID, "ffffffff-c3d4-7e5f-8a9b-0c1d2e3f4a5b"), "a later report never replaces it")
-	_, err := db.Exec(`UPDATE dev_machine_agent_runs SET native_session_id='--last' WHERE id=$1`, task.RunID)
-	require.Error(t, err, "the schema rejects unsafe session IDs")
-	current, err := repo.Get(ctx, task.WorkspaceID, task.ID)
+	require.NoError(t, NewDevMachineRepository(db).RecordNativeSession(ctx, task.RunID, "ses_df21986abffefn2FxDuH6uZGLA"))
+	n, err := repo.CompleteMergedPullRequest(context.Background(), task.WorkspaceID, "fixture/repo", 12)
 	require.NoError(t, err)
-	retried, err := repo.Retry(ctx, task.WorkspaceID, task.ID, domain.AgentTaskRetryRequest{RequestID: uuid.New(), Generation: current.Generation, Prompt: "Follow up"})
-	require.NoError(t, err)
-	previous, err := repo.PreviousAttempt(ctx, *retried)
-	require.NoError(t, err)
-	require.Equal(t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", previous.NativeSessionID)
-	require.Equal(t, *current.MachineID, previous.MachineID)
-	var purges int
-	require.NoError(t, db.Get(&purges, `SELECT count(*) FROM dev_machine_operations WHERE action='purge_task_session'`))
-	require.Zero(t, purges, "a task still in progress keeps its sessions")
+	require.Equal(t, 1, n)
+	var native string
+	require.NoError(t, db.Get(&native, `SELECT native_session_id FROM agent_sessions WHERE task_id=$1`, task.ID))
+	require.Equal(t, "ses_df21986abffefn2FxDuH6uZGLA", native)
 }
 
 func TestCompletedTasksQueueOnePurgeOfTheirTranscripts(t *testing.T) {

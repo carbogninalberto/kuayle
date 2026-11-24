@@ -2,6 +2,9 @@ package machine
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,12 +41,35 @@ func TestAgentCLIVolumeIsMountedReadOnlyOnlyWhenEnabled(t *testing.T) {
 	require.Equal(t, []string{"PATH=" + agentCLIBin + ":/usr/bin"}, env)
 }
 
+// The refresh replaces the images' npm CLIs on PATH, so it must install the
+// same packages, run the same install scripts and report the versions the
+// run trace reads: a CLI moving to a new package (OpenCode 2 is
+// @opencode/cli) must move everywhere at once, or the stale package shadows
+// the image's CLI.
+func TestAgentCLIRefreshTracksThePackagesTheImagesInstall(t *testing.T) {
+	installer, err := os.ReadFile(filepath.Join(repoRootFromCaller(t), "devmachine", "common", "install-agent-clis.sh"))
+	require.NoError(t, err)
+	for _, item := range agentCLIPackages {
+		require.Contains(t, string(installer), `"`+item.name+`@${`, "the images install %s", item.name)
+		if strings.Contains(string(installer), "--allow-scripts="+item.name+" ") {
+			require.Contains(t, agentCLIScripts, "allow-scripts[]="+item.name+`\n`, "%s runs its install script in the refresh too", item.name)
+		}
+	}
+	traced := map[string]bool{}
+	for _, name := range agentCLIVersionPackages {
+		traced[name] = true
+	}
+	for _, item := range agentCLIPackages {
+		require.True(t, traced[item.name], "the run trace reads the refreshed version of %s", item.name)
+	}
+}
+
 func TestAgentCLIRefreshReportParsesTheHelperOutput(t *testing.T) {
 	result, err := parseAgentCLIRefresh("npm notice\nKUAYLE_AGENT_CLIS changed @anthropic-ai/claude-code=2.2.0 @openai/codex=0.170.1\n")
 	require.NoError(t, err)
 	require.True(t, result.Changed)
 	require.Equal(t, map[string]string{"@anthropic-ai/claude-code": "2.2.0", "@openai/codex": "0.170.1"}, result.Versions)
-	result, err = parseAgentCLIRefresh("KUAYLE_AGENT_CLIS unchanged opencode-ai=1.19.5\n")
+	result, err = parseAgentCLIRefresh("KUAYLE_AGENT_CLIS unchanged @opencode/cli=2.3.2\n")
 	require.NoError(t, err)
 	require.False(t, result.Changed)
 	for _, output := range []string{"", "KUAYLE_AGENT_CLIS changed", "KUAYLE_AGENT_CLIS maybe x=1", "KUAYLE_AGENT_CLIS changed claude"} {

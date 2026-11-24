@@ -2,8 +2,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// OpenCode 2 is published as @opencode/cli; opencode-ai keeps only the 1.x line.
 const npmPackages = {
-  CLAUDE_CODE: '@anthropic-ai/claude-code', OPENCODE: 'opencode-ai',
+  CLAUDE_CODE: '@anthropic-ai/claude-code', OPENCODE: '@opencode/cli',
   CODEX: '@openai/codex', QWEN: '@qwen-code/qwen-code',
 };
 const repositories = { CRUSH: 'charmbracelet/crush', GOOSE: 'block/goose', KIMI: 'MoonshotAI/kimi-cli' };

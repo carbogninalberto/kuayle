@@ -224,7 +224,7 @@ cannot write what people asked (`instructions`), Kuayle's `events` or the
 plan's text (`plan.text`): an update that names one of them is refused whole.
 
 If you finish without a valid update, Kuayle asks you once more in the same
-session (Claude Code and Codex): write the file then and nothing else.
+session (Claude Code, Codex and OpenCode): write the file then and nothing else.
 Otherwise, or if it is still missing, Kuayle records your final message in
 the notebook itself and marks your step as not having updated it; your work
 is kept either way. A planning step writes an update too (its worktree is
@@ -284,7 +284,7 @@ Kuayle asks for it, whatever agent you are:
   takes your reply. Check it before you finish.
 - Claude Code is not allowed to stop while it names a message.
 - When you finish with a message unanswered, Kuayle continues your session
-  once more only to get the reply (Claude Code, Codex). Your work is kept
+  once more only to get the reply (Claude Code, Codex, OpenCode). Your work is kept
   either way, but a message you never answered is shown to the person as
   unanswered and given again to the next attempt.
 
