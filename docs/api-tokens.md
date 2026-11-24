@@ -244,6 +244,8 @@ authentication.
 | DELETE | `/api/workspaces/:slug/agent-tasks/:taskId/resume` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/resume` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/retry` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| GET | `/api/workspaces/:slug/agent-tasks/:taskId/room` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| POST | `/api/workspaces/:slug/agent-tasks/:taskId/room` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs` | token | agent_tasks:read |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/artifacts` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/artifacts/:artifactId` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
