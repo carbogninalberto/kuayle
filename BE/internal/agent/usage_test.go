@@ -1,142 +1,151 @@
 package agent
 
 import (
-	"strconv"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// The fixtures below follow each harness's event shapes at the pinned CLI
-// versions. None is a capture of a real model call (that needs a sign-in);
-// each says where its shape comes from.
-
-// claudeNumberedResult is Claude Code's stream-json result as its 2.1.33x
-// schema describes it: a numbered result (result_index) carries what this
-// process counted since its previous result in model_usage_since_last_result,
-// keyed by model. modelUsage and total_cost_usd are running totals that a
-// resumed session continues, and usage covers the main loop only.
-const claudeNumberedResult = `{"type":"result","subtype":"success","is_error":false,"duration_ms":65000,"duration_api_ms":61000,"num_turns":7,"result":"Added the column; tests pass.","stop_reason":"end_turn","session_id":"0c9a6c1e-2f4b-4c1d-9a7e-5b3c2d1e0f9a","total_cost_usd":1.25,"usage":{"input_tokens":12,"cache_creation_input_tokens":5120,"cache_read_input_tokens":88213,"output_tokens":2210,"server_tool_use":{"web_search_requests":0},"service_tier":"standard"},"modelUsage":{"claude-opus-5-5":{"inputTokens":90,"outputTokens":6000,"cacheReadInputTokens":300000,"cacheCreationInputTokens":20000,"webSearchRequests":0,"costUSD":1.2,"contextWindow":200000,"maxOutputTokens":32000},"claude-haiku-4-5":{"inputTokens":800,"outputTokens":120,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.05,"contextWindow":200000,"maxOutputTokens":8192}},"model_usage_since_last_result":{"claude-opus-5-5":{"inputTokens":40,"outputTokens":2900,"cacheReadInputTokens":120000,"cacheCreationInputTokens":9000,"webSearchRequests":0,"costUSD":0.6,"contextWindow":200000,"maxOutputTokens":32000},"claude-haiku-4-5":{"inputTokens":800,"outputTokens":120,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.05,"contextWindow":200000,"maxOutputTokens":8192}},"permission_denials":[],"result_index":0,"uuid":"6f1d2c3b-4a5e-4f60-8172-93a4b5c6d7e8"}`
-
-// claudeUnnumberedResult is a result of a Claude Code without result
-// numbering: only the session's running totals.
-const claudeUnnumberedResult = `{"type":"result","subtype":"success","is_error":false,"duration_ms":9000,"num_turns":2,"result":"Done.","session_id":"0c9a6c1e-2f4b-4c1d-9a7e-5b3c2d1e0f9a","total_cost_usd":0.42,"usage":{"input_tokens":3,"cache_creation_input_tokens":100,"cache_read_input_tokens":9000,"output_tokens":300},"modelUsage":{"claude-opus-5-5":{"inputTokens":30,"outputTokens":700,"cacheReadInputTokens":15000,"cacheCreationInputTokens":2000,"webSearchRequests":0,"costUSD":0.42,"contextWindow":200000}},"permission_denials":[]}`
-
-// codexTurnCompleted is Codex's `exec --json` line as printed by the
-// repository's Codex review fixture (agent_output_redaction_test.go). From
-// 0.170.0 its usage is the thread's running total (ThreadTokenUsage.total),
-// which a resumed thread continues.
-const codexTurnCompleted = `{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}`
-
-// codexTurnCompletedWithCacheWrites is the same event as Codex 0.170.0
-// serializes its Usage struct (exec_events.rs), every field present.
-const codexTurnCompletedWithCacheWrites = `{"type":"turn.completed","usage":{"input_tokens":61000,"cached_input_tokens":52000,"cache_write_input_tokens":3000,"output_tokens":900,"reasoning_output_tokens":400}}`
-
-// openCodeFinish is a step_finish as OpenCode 1.19.6 writes it
-// (session/processor.ts, Session.getUsage): input without cached tokens,
-// output without reasoning, both cache counts, and the cost it computed.
-func openCodeFinish(input, output, reasoning, read, write int, cost string) string {
-	return `{"type":"step_finish","timestamp":1762855202000,"sessionID":"ses_1","part":{"id":"prt_3","sessionID":"ses_1","messageID":"msg_1","type":"step-finish","reason":"tool-calls","tokens":{"total":0,"input":` +
-		strconv.Itoa(input) + `,"output":` + strconv.Itoa(output) + `,"reasoning":` + strconv.Itoa(reasoning) + `,"cache":{"write":` + strconv.Itoa(write) + `,"read":` + strconv.Itoa(read) + `}},"cost":` + cost + `}}`
+// testdata/usage holds real output lines captured on 2026-11-24 from the CLI
+// versions P0.1 (KUA-254) pins, with Kuayle's own argv:
+//   - claude-code-*.jsonl: Claude Code 2.1.330, a first run and the same
+//     session resumed. codex-*.jsonl: Codex 0.171.0, a first run and the same
+//     thread resumed. Both ran against a stand-in for the provider's streaming
+//     API, so the event lines are the CLIs' own and the token numbers are the
+//     stand-in's (1200 input, 800 cache read, 300 cache write, 42 output, 10
+//     reasoning per request); each run made one request.
+//   - opencode-*.jsonl: OpenCode 2.3.2 against a free model: a run with a
+//     shell call and a final text, and the same session continued. Real
+//     tokens; the cost is 0 because the model is free.
+//
+// Variants built from them by hand say so where they are made.
+func usageSample(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "usage", name))
+	require.NoError(t, err)
+	return string(raw)
 }
 
 func count(n int64) *int64       { return &n }
 func dollars(v float64) *float64 { return &v }
 
 func TestClaudeCodeUsageIsWhatEachProcessCountedSinceItsLastResult(t *testing.T) {
-	stdout := strings.Join([]string{
-		`{"type":"system","subtype":"init","cwd":"/workspace/repo","session_id":"0c9a6c1e-2f4b-4c1d-9a7e-5b3c2d1e0f9a","model":"claude-opus-5-5"}`,
-		`{"type":"assistant","message":{"id":"msg_1","usage":{"input_tokens":3,"cache_read_input_tokens":9000},"content":[{"type":"text","text":"Added the column; tests pass."}]}}`,
-		claudeNumberedResult,
-	}, "\n")
-	usage := ParseUsage("claude-code", stdout)
-	require.False(t, usage.SessionTotal, "a numbered result states only this process's calls")
-	require.Equal(t, count(840), usage.InputTokens, "every model, not only the main loop's usage")
-	require.Equal(t, count(3020), usage.OutputTokens)
-	require.Equal(t, count(120000), usage.CacheReadTokens)
-	require.Equal(t, count(9000), usage.CacheWriteTokens)
-	require.InDelta(t, 0.65, *usage.CostUSD, 1e-9, "not total_cost_usd, which a resumed session continues")
+	first := ParseUsage("claude-code", usageSample(t, "claude-code-first.jsonl"))
+	require.False(t, first.SessionTotal, "a numbered result states only this process's calls")
+	require.Equal(t, count(1200), first.InputTokens)
+	require.Equal(t, count(42), first.OutputTokens, "not the assistant event's output_tokens as of message_start")
+	require.Equal(t, count(800), first.CacheReadTokens)
+	require.Equal(t, count(300), first.CacheWriteTokens)
+	require.InDelta(t, 0.005595, *first.CostUSD, 1e-9)
 
-	// A second result in the same stream states only what came after the first.
-	second := strings.Replace(claudeNumberedResult, `"result_index":0`, `"result_index":1`, 1)
-	usage = ParseUsage("claude-code", stdout+"\n"+second)
-	require.Equal(t, count(1680), usage.InputTokens)
-	require.InDelta(t, 1.3, *usage.CostUSD, 1e-9)
+	// Resumed, Claude Code reports the session's totals in total_cost_usd and
+	// modelUsage (2400 input tokens, twice the cost): the run spent half.
+	resumed := ParseUsage("claude-code", usageSample(t, "claude-code-resumed.jsonl"))
+	require.Equal(t, first, resumed)
 
-	// A numbered result without the field counted nothing.
-	idle := `{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":1.25,"modelUsage":{"claude-opus-5-5":{"inputTokens":90,"outputTokens":6000,"cacheReadInputTokens":300000,"cacheCreationInputTokens":20000,"costUSD":1.2}},"result_index":0,"session_id":"s"}`
+	// A second result in the same process states only what came after the
+	// first one: both are counted.
+	both := ParseUsage("claude-code", usageSample(t, "claude-code-first.jsonl")+usageSample(t, "claude-code-resumed.jsonl"))
+	require.Equal(t, count(2400), both.InputTokens)
+	require.InDelta(t, 0.01119, *both.CostUSD, 1e-9)
+
+	// Variant: a subagent ran on another model. Every model counts, not only
+	// the main loop that usage covers.
+	line := strings.TrimSpace(usageSample(t, "claude-code-resumed.jsonl"))
+	withSubagent := strings.Replace(line, `"model_usage_since_last_result":{`, `"model_usage_since_last_result":{"claude-haiku-4-5":{"inputTokens":800,"outputTokens":120,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0.05},`, 1)
+	usage := ParseUsage("claude-code", withSubagent)
+	require.Equal(t, count(2000), usage.InputTokens)
+	require.Equal(t, count(162), usage.OutputTokens)
+	require.InDelta(t, 0.055595, *usage.CostUSD, 1e-9)
+
+	// Variant: a numbered result without the field counted nothing.
+	idle := strings.Replace(line, `"model_usage_since_last_result"`, `"unused"`, 1)
 	usage = ParseUsage("claude-code", idle)
 	require.False(t, usage.SessionTotal)
 	require.Equal(t, count(0), usage.InputTokens)
 	require.Equal(t, dollars(0), usage.CostUSD)
 }
 
+// Variant of the resumed line without result numbering (a Claude Code that
+// does not number its results): only the session's running totals are left.
 func TestClaudeCodeWithoutNumberedResultsReportsTheSessionTotal(t *testing.T) {
-	usage := ParseUsage("claude-code", claudeUnnumberedResult)
-	require.True(t, usage.SessionTotal, "an earlier attempt of the session is in it")
-	require.Equal(t, count(30), usage.InputTokens)
-	require.Equal(t, count(700), usage.OutputTokens)
-	require.Equal(t, count(15000), usage.CacheReadTokens)
-	require.Equal(t, count(2000), usage.CacheWriteTokens)
-	require.Equal(t, dollars(0.42), usage.CostUSD)
+	line := strings.TrimSpace(usageSample(t, "claude-code-resumed.jsonl"))
+	at := strings.Index(line, `,"result_index":0`)
+	require.Positive(t, at)
+	usage := ParseUsage("claude-code", line[:at]+"}")
+	require.True(t, usage.SessionTotal, "the session's earlier run is in it")
+	require.Equal(t, count(2400), usage.InputTokens)
+	require.Equal(t, count(84), usage.OutputTokens)
+	require.Equal(t, count(1600), usage.CacheReadTokens)
+	require.Equal(t, count(600), usage.CacheWriteTokens)
+	require.InDelta(t, 0.01119, *usage.CostUSD, 1e-9)
 }
 
 func TestCodexUsageIsTheThreadTotalOfItsLastTurn(t *testing.T) {
-	stdout := strings.Join([]string{
-		`{"type":"thread.started","thread_id":"019a8f2e-1c4b-7d10-9e55-3f2a1b0c4d5e"}`,
-		`{"type":"turn.started"}`,
-		`{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"Done."}}`,
-		codexTurnCompleted,
-	}, "\n")
-	usage := ParseUsage("codex", stdout)
-	require.True(t, usage.SessionTotal, "Codex reports the thread's running total")
-	require.Equal(t, count(315), usage.InputTokens, "Codex counts cached input inside its input")
-	require.Equal(t, count(24448), usage.CacheReadTokens)
-	require.Nil(t, usage.CacheWriteTokens, "not reported by this version")
-	require.Equal(t, count(122), usage.OutputTokens)
-	require.Nil(t, usage.CostUSD, "Codex reports no cost")
+	first := ParseUsage("codex", usageSample(t, "codex-first.jsonl"))
+	require.True(t, first.SessionTotal, "Codex reports the thread's running total")
+	require.Equal(t, count(400), first.InputTokens, "Codex counts cached input inside its input")
+	require.Equal(t, count(800), first.CacheReadTokens)
+	require.Equal(t, count(0), first.CacheWriteTokens)
+	require.Equal(t, count(42), first.OutputTokens, "reasoning is part of Codex's output count")
+	require.Nil(t, first.CostUSD, "Codex reports no cost")
+
+	// The resumed thread reports both runs (2400 input): the store takes the
+	// first run's share off (domain.AgentRunUsage.Less).
+	resumed := ParseUsage("codex", usageSample(t, "codex-resumed.jsonl"))
+	require.True(t, resumed.SessionTotal)
+	require.Equal(t, count(800), resumed.InputTokens)
+	require.Equal(t, count(1600), resumed.CacheReadTokens)
+	require.Equal(t, count(84), resumed.OutputTokens)
 
 	// Each turn.completed is a running total: the last one counts, once.
-	usage = ParseUsage("codex", stdout+"\n"+codexTurnCompletedWithCacheWrites)
-	require.Equal(t, count(9000), usage.InputTokens)
-	require.Equal(t, count(52000), usage.CacheReadTokens)
-	require.Equal(t, count(3000), usage.CacheWriteTokens)
-	require.Equal(t, count(900), usage.OutputTokens, "reasoning is part of Codex's output count")
+	require.Equal(t, resumed, ParseUsage("codex", usageSample(t, "codex-first.jsonl")+usageSample(t, "codex-resumed.jsonl")))
+	// Variant: an older Codex without cache_write_input_tokens.
+	older := ParseUsage("codex", `{"type":"turn.completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}`)
+	require.Equal(t, count(315), older.InputTokens)
+	require.Nil(t, older.CacheWriteTokens, "not reported by that version")
 }
 
 func TestOpenCodeUsageIsTheSumOfItsSteps(t *testing.T) {
-	stdout := strings.Join([]string{
-		openCodeStepStart, openCodeToolUse,
-		openCodeFinish(1000, 150, 50, 800, 0, "0.0012"),
-		openCodeStepStart,
-		openCodeText("Added the column and its test; go test ./... passes."),
-		openCodeFinish(200, 40, 0, 1600, 300, "0.0008"),
-	}, "\n")
-	usage := ParseUsage("opencode", stdout)
+	usage := ParseUsage("opencode", usageSample(t, "opencode-run.jsonl"))
 	require.False(t, usage.SessionTotal)
-	require.Equal(t, count(1200), usage.InputTokens)
-	require.Equal(t, count(240), usage.OutputTokens, "output and reasoning")
-	require.Equal(t, count(2400), usage.CacheReadTokens)
-	require.Equal(t, count(300), usage.CacheWriteTokens)
-	require.InDelta(t, 0.002, *usage.CostUSD, 1e-12)
+	require.Equal(t, count(4128+4220), usage.InputTokens)
+	require.Equal(t, count(40+36+3+0), usage.OutputTokens, "output and reasoning")
+	require.Equal(t, count(1920+1920), usage.CacheReadTokens)
+	require.Equal(t, count(0), usage.CacheWriteTokens)
+	require.Equal(t, dollars(0), usage.CostUSD, "a free model's cost is a reported zero")
 
-	// The production line of KUA-136: tokens without cache counts, cost 0.
+	// A continued session reports only its own steps.
+	usage = ParseUsage("opencode", usageSample(t, "opencode-resumed.jsonl"))
+	require.Equal(t, count(147), usage.InputTokens)
+	require.Equal(t, count(6), usage.OutputTokens)
+	require.Equal(t, count(6016), usage.CacheReadTokens)
+
+	// The production line of KUA-136 (an older OpenCode): no cache counts.
 	usage = ParseUsage("opencode", openCodeStepFinish)
 	require.Equal(t, count(1200), usage.InputTokens)
 	require.Equal(t, count(80), usage.OutputTokens)
 	require.Nil(t, usage.CacheReadTokens)
-	require.Equal(t, dollars(0), usage.CostUSD, "a reported zero is a cost")
+	require.Equal(t, dollars(0), usage.CostUSD)
+
+	// Variant: a priced model adds up its steps' costs.
+	priced := strings.ReplaceAll(usageSample(t, "opencode-run.jsonl"), `"cost":0,`, `"cost":0.0012,`)
+	require.InDelta(t, 0.0024, *ParseUsage("opencode", priced).CostUSD, 1e-12)
 }
 
 func TestRunsWithoutUsageReportNothing(t *testing.T) {
 	for name, tc := range map[string]struct{ provider, stdout string }{
-		"claude-code result without usage": {"claude-code", `{"type":"result","subtype":"success","result":"Done."}`},
-		"codex turn that failed":           {"codex", `{"type":"thread.started","thread_id":"t1"}` + "\n" + `{"type":"turn.failed","error":{"message":"stream disconnected"}}`},
-		"opencode step without tokens":     {"opencode", `{"type":"step_finish","part":{"type":"step-finish","reason":"error"}}`},
-		"plain output":                     {"codex", "Segmentation fault"},
-		"no output":                        {"opencode", ""},
-		"harness without known usage":      {"goose", openCodeFinish(1, 1, 0, 0, 0, "0.1") + "\n" + codexTurnCompleted},
+		"claude-code result without usage":      {"claude-code", `{"type":"result","subtype":"success","result":"Done."}`},
+		"claude-code run cut before its result": {"claude-code", strings.Join(strings.Split(usageSample(t, "claude-code-first.jsonl"), "\n")[:2], "\n")},
+		"codex turn that failed":                {"codex", `{"type":"thread.started","thread_id":"t1"}` + "\n" + `{"type":"turn.failed","error":{"message":"stream disconnected"}}`},
+		"opencode error":                        {"opencode", `{"type":"error","timestamp":1795529441353,"sessionID":"ses_df21b00e8ffekWT27Y4U2wGBaH","error":{"type":"provider.no-route","message":"Model unavailable: bogus/model"}}`},
+		"opencode step without tokens":          {"opencode", `{"type":"step_finish","part":{"type":"step-finish","reason":"error"}}`},
+		"plain output":                          {"codex", "Segmentation fault"},
+		"no output":                             {"opencode", ""},
+		"harness without known usage":           {"goose", usageSample(t, "opencode-run.jsonl") + usageSample(t, "codex-first.jsonl")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			usage := ParseUsage(tc.provider, tc.stdout)
@@ -147,18 +156,20 @@ func TestRunsWithoutUsageReportNothing(t *testing.T) {
 }
 
 func TestAClosingContinuationAddsToTheRunsUsage(t *testing.T) {
-	attempt := ParseUsage("claude-code", claudeNumberedResult)
-	continuation := ParseUsage("claude-code", strings.Replace(claudeNumberedResult, `"claude-haiku-4-5":{"inputTokens":800`, `"claude-haiku-4-5":{"inputTokens":0`, 2))
+	// Claude Code: the continuation is a process of its own, resuming the
+	// session; what each process counted adds up.
+	attempt := ParseUsage("claude-code", usageSample(t, "claude-code-first.jsonl"))
+	continuation := ParseUsage("claude-code", usageSample(t, "claude-code-resumed.jsonl"))
 	both := attempt.Then(continuation)
-	require.Equal(t, count(840+40), both.InputTokens)
-	require.InDelta(t, 1.3, *both.CostUSD, 1e-9)
+	require.Equal(t, count(2400), both.InputTokens)
+	require.InDelta(t, 0.01119, *both.CostUSD, 1e-9)
 	require.Equal(t, attempt, attempt.Then(Usage{}), "a continuation that reported nothing adds nothing")
 	require.Equal(t, continuation, Usage{}.Then(continuation))
 
 	// Codex continues the same thread: its total already holds the attempt.
-	codexAttempt := ParseUsage("codex", codexTurnCompleted)
-	codexBoth := codexAttempt.Then(ParseUsage("codex", codexTurnCompletedWithCacheWrites))
+	codexAttempt := ParseUsage("codex", usageSample(t, "codex-first.jsonl"))
+	codexBoth := codexAttempt.Then(ParseUsage("codex", usageSample(t, "codex-resumed.jsonl")))
 	require.True(t, codexBoth.SessionTotal)
-	require.Equal(t, count(9000), codexBoth.InputTokens)
+	require.Equal(t, count(800), codexBoth.InputTokens)
 	require.Equal(t, codexAttempt, codexAttempt.Then(ParseUsage("codex", `{"type":"turn.failed","error":{"message":"x"}}`)))
 }

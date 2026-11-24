@@ -131,11 +131,11 @@ func claudeModels(models map[string]claudeModelUsage) Usage {
 }
 
 // codexUsage reads the last turn.completed. Its usage is the thread's
-// running total (ThreadTokenUsage.total in Codex 0.170), which a resumed
-// thread continues from its rollout, so it is a session total; one exec runs
-// one turn, and adding turns would count earlier ones again. Codex counts
-// cached input inside input_tokens, reasoning inside output_tokens, and
-// reports no cost.
+// running total (ThreadTokenUsage.total, Codex 0.170 and later), which a
+// resumed thread continues from its rollout, so it is a session total; one
+// exec runs one turn, and adding turns would count earlier ones again. Codex
+// counts cached input inside input_tokens, reasoning inside output_tokens,
+// and reports no cost.
 func codexUsage(stdout string) Usage {
 	usage := Usage{}
 	eachEvent(stdout, func(line []byte, kind string) {
