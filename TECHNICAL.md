@@ -810,7 +810,10 @@ approval approves it (KUA-216). Agent reviews also start on an up-to-date
 branch, and a conflicting branch goes back to the step that changes code
 ([merging from a workflow](BE/docs/agent-tasks.md#merging-from-a-workflow),
 KUA-209). A CI step waiting for checks does the same and then judges CI on
-the updated head (KUA-260). A workflow's iteration budget counts rounds of work: an agent step
+the updated head (KUA-260). A waiting review, ship approval or merge step does
+it again on every wake, and every update of a published commit shares one
+bound (KUA-264). The step stores what it did and the facts it read, and its
+detail says why (KUA-265). A workflow's iteration budget counts rounds of work: an agent step
 that continues the round of the agent step before it (a plan handed to the
 implementer) starts no new iteration (KUA-215).
 Each profile has a [behaviour](BE/docs/agent-tasks.md#behaviours) (migration

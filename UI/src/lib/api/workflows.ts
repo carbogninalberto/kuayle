@@ -240,6 +240,37 @@ export interface WorkflowStep {
 	 * (KUA-209); `failure` says why it ended without merging.
 	 */
 	merge?: (MergeWait & { actor_id?: string; method?: string; failure?: string }) | null;
+	/**
+	 * What a CI step judged (KUA-215); on any step, `branch` is what it last
+	 * did on its pull request's branch (KUA-265).
+	 */
+	ci?: { head?: string; update_of?: string; updates?: number; branch?: WorkflowBranchRecord | null } | null;
+}
+
+/**
+ * What a step did because of what Kuayle read about its pull request's
+ * branch, and those facts as read (KUA-265).
+ */
+export interface WorkflowBranchRecord {
+	action: 'updated' | 'update_limit' | 'conflict' | 'migration_collision' | 'judged_update' | 'merge_refused';
+	at: string;
+	pull_request?: number;
+	head?: string;
+	base?: string;
+	/** Commits of the base the head lacks; -1 when GitHub did not compare them. */
+	behind: number;
+	conflict?: 'yes' | 'no' | 'unknown';
+	migration_collision?: 'yes' | 'no' | 'unknown';
+	/** CI passing on the head, read for a merge only. */
+	ci?: 'yes' | 'no' | 'unknown';
+	/** Updates of the published commit Kuayle had made. */
+	updates?: number;
+	/** The published commit a judged update was made from. */
+	published?: string;
+	/** The head an update made, when GitHub reported it. */
+	updated_to?: string;
+	/** Why an approved merge did not happen. */
+	refusal?: string;
 }
 
 /**

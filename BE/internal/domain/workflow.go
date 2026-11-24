@@ -1454,6 +1454,71 @@ type WorkflowCIRecord struct {
 	RerunAt   *time.Time `json:"rerun_at,omitempty"`
 	Rerun     []string   `json:"rerun,omitempty"`
 	RerunRuns []int64    `json:"rerun_runs,omitempty"`
+	// Branch is what the step last did on its pull request's branch, with
+	// the facts it acted on (KUA-265). Any step can carry one: on a step that
+	// is not a CI check, ci holds only Branch.
+	Branch *WorkflowBranchRecord `json:"branch,omitempty"`
+}
+
+// What a step did on its pull request's branch (WorkflowBranchRecord.Action).
+const (
+	// WorkflowBranchUpdated: Kuayle brought the branch up to date with its
+	// base (GitHub's update-branch).
+	WorkflowBranchUpdated = "updated"
+	// WorkflowBranchUpdateLimit: the branch is behind its base, but Kuayle
+	// already updated the published commit as often as it may.
+	WorkflowBranchUpdateLimit = "update_limit"
+	// WorkflowBranchConflicted and WorkflowBranchMigrationCollision: the
+	// branch conflicts with its base, or shares a migration version with it,
+	// so the work went back to the step that changes code.
+	WorkflowBranchConflicted         = "conflict"
+	WorkflowBranchMigrationCollision = "migration_collision"
+	// WorkflowBranchJudgedUpdate: a CI step judged the pull request's head,
+	// Kuayle's update of the published commit, instead of that commit.
+	WorkflowBranchJudgedUpdate = "judged_update"
+	// WorkflowBranchMergeRefused: an approved merge did not happen; Refusal
+	// says why.
+	WorkflowBranchMergeRefused = "merge_refused"
+)
+
+// WorkflowBranchRecord is what a step did because of what Kuayle read about
+// its pull request's branch, and those facts as read (KUA-265): the CI
+// step's updates and send-backs, a waiting step's, an approved merge's
+// refusals. The step's detail shows it, so a run that moved or stayed without
+// a person says why.
+type WorkflowBranchRecord struct {
+	Action string    `json:"action"`
+	At     time.Time `json:"at"`
+	// The facts: the pull request, its head and base, how many of the base's
+	// commits the head lacks (-1 when GitHub did not compare them), and
+	// yes, no or unknown for a conflict, a migration collision and CI passing
+	// on the head (CI is read for a merge only).
+	PullRequest        int    `json:"pull_request,omitempty"`
+	Head               string `json:"head,omitempty"`
+	Base               string `json:"base,omitempty"`
+	Behind             int    `json:"behind"`
+	Conflict           string `json:"conflict,omitempty"`
+	MigrationCollision string `json:"migration_collision,omitempty"`
+	CI                 string `json:"ci,omitempty"`
+	// Updates is how many updates of the published commit Kuayle had made,
+	// Published that commit (for a judged update), and UpdatedTo the head an
+	// update made, when GitHub reported it.
+	Updates   int    `json:"updates,omitempty"`
+	Published string `json:"published,omitempty"`
+	UpdatedTo string `json:"updated_to,omitempty"`
+	// Refusal is why an approved merge did not happen.
+	Refusal string `json:"refusal,omitempty"`
+}
+
+// Same reports whether r records the same action on the same facts as
+// other, whenever it was read: storing it again would change nothing.
+func (r *WorkflowBranchRecord) Same(other *WorkflowBranchRecord) bool {
+	if r == nil || other == nil {
+		return r == other
+	}
+	a, b := *r, *other
+	a.At, b.At = time.Time{}, time.Time{}
+	return a == b
 }
 
 // DetailsAwaited reports whether the step still waits for Head's failed check

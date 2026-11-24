@@ -543,6 +543,47 @@ test('a ship migration collision shows both paths on the way back to the impleme
 	await page.screenshot({ path: testInfo.outputPath('ship-migration-collision.png') });
 });
 
+// KUA-265: a step that acted on what Kuayle read about its pull request's
+// branch says what it did and on which facts: a reviewer's branch brought up
+// to date under it, a ship approval that sent a conflict back.
+test('a step says what Kuayle did on its branch and the facts it read', async ({ page }) => {
+	const { state } = await fixture(page);
+	workflowFixture(state);
+	const view = workflow();
+	view.graph.nodes.push(node('ship', 'approval', 'Ready to ship'));
+	const facts = { at: at(19), pull_request: 12, head: '0123456789abcdef', base: 'main', migration_collision: 'no' };
+	view.steps[4] = {
+		...view.steps[4],
+		ci: { head: '', branch: { ...facts, action: 'updated', behind: 2, conflict: 'no', updates: 1, updated_to: 'fedcba9876543210' } }
+	};
+	view.steps.splice(
+		5,
+		0,
+		step(6, 'ship', 'approval', 18, {
+			outcome: 'branch_conflict',
+			detail: 'The pull request conflicts with main, so it cannot be reviewed or merged.',
+			finished_at: at(19),
+			ci: { head: '', branch: { ...facts, action: 'conflict', behind: 3, conflict: 'yes' } }
+		})
+	);
+	view.steps[6].sequence = view.runs[3].step = view.sequence = 7;
+	view.runs[3].status = 'queued';
+	view.task_state = 'queued';
+	state.workflow = view;
+	state.task = { ...state.task, state: 'queued' };
+
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1#step-6');
+	await expect(page.locator('#step-6').getByText('0123456 conflicts with main, so Kuayle sent the work back to resolve it.')).toBeVisible();
+	const review = page.locator('#step-5');
+	const updated = 'Kuayle brought the branch up to date with main: 0123456 was 2 commit(s) behind it.';
+	await expect(review.getByText(updated)).toHaveCount(0);
+	await stepButton(page, 5).click();
+	await expect(review.getByText(updated)).toBeVisible();
+	// A step that read nothing about its branch says nothing about it.
+	await stepButton(page, 4).click();
+	await expect(page.locator('#step-4 [data-branch]')).toHaveCount(0);
+});
+
 // A running task can be stopped from where it is watched: one click, one
 // confirmation. It reads as cancelling until the task reports cancelled.
 test('a running task is stopped from the agent view in two clicks', async ({ page }) => {

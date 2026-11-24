@@ -211,15 +211,19 @@ const ApprovalWaitingChecks = "waiting_checks"
 // commit of the base branch, and it changes nothing else); anything else on
 // the branch ends the wait. Updating is set while GitHub accepted an update of
 // Head whose new head Kuayle has not seen yet. Updates counts the branch
-// updates Kuayle made; Deadline ends the wait.
+// updates of the approved commit Kuayle made; Deadline ends the wait.
 type MergeWait struct {
-	Approved string    `json:"approved"`
-	Head     string    `json:"head"`
-	Base     string    `json:"base,omitempty"`
-	Updating bool      `json:"updating,omitempty"`
-	Updates  int       `json:"updates"`
-	Since    time.Time `json:"since"`
-	Deadline time.Time `json:"deadline"`
+	Approved string `json:"approved"`
+	Head     string `json:"head"`
+	Base     string `json:"base,omitempty"`
+	Updating bool   `json:"updating,omitempty"`
+	Updates  int    `json:"updates"`
+	// PinnedUpdates is how many of Updates the head already had when a
+	// workflow's merge pinned it: made before the approval, they do not count
+	// against the merge's own bound (KUA-277).
+	PinnedUpdates int       `json:"pinned_updates,omitempty"`
+	Since         time.Time `json:"since"`
+	Deadline      time.Time `json:"deadline"`
 	// Waiting says what the merge waits for now (checks running on the head).
 	Waiting string `json:"waiting,omitempty"`
 	// ActorID is the person whose approval the merge carries out; set on a

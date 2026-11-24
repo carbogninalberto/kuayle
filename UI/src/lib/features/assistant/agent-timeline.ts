@@ -1,4 +1,10 @@
-import type { TaskWorkflow, WorkflowNodeType, WorkflowStep, WorkflowStepRun } from '$lib/api/workflows';
+import type {
+	TaskWorkflow,
+	WorkflowBranchRecord,
+	WorkflowNodeType,
+	WorkflowStep,
+	WorkflowStepRun
+} from '$lib/api/workflows';
 import type { AgentTask } from '$lib/api/agent-tasks';
 import type { AgentRun } from '$lib/types/dev-machine';
 
@@ -42,6 +48,8 @@ export interface TimelineStep {
 	/** What a check step checks, and what an approval step asks. */
 	check?: 'tests' | 'ci';
 	question?: string;
+	/** What the step last did on its pull request's branch, and the facts it read. */
+	branch?: WorkflowBranchRecord;
 }
 
 type Task = Pick<AgentTask, 'id' | 'state' | 'run_id' | 'provider' | 'model' | 'updated_at'>;
@@ -147,7 +155,8 @@ export function workflowTimeline(view: View, task: Task): TimelineStep[] {
 			nodeId: step.node_id,
 			condition: step.condition ?? undefined,
 			check: node?.check,
-			question: step.node_type === 'approval' ? node?.prompt || undefined : undefined
+			question: step.node_type === 'approval' ? node?.prompt || undefined : undefined,
+			branch: step.ci?.branch ?? undefined
 		};
 	});
 }
