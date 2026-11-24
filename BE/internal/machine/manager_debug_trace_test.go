@@ -133,6 +133,24 @@ func TestRunRecordsWhatItRanOnAndWhatWasCut(t *testing.T) {
 	require.Positive(t, cut.Bytes)
 }
 
+// A task attempt's OpenCode reports its session on every event; the manager
+// records it once, from the first, so the next attempt can continue it. The
+// trace names the harness, not the session wrapper it runs in.
+func TestOpenCodeTaskAttemptRecordsTheSessionItReported(t *testing.T) {
+	store := runAgentForTrace(t, &AgentExecution{ContainerID: "agent", ExitCode: 0, Stdout: openCodeSessionStream},
+		func(run *domain.DevMachineAgentRun, _ *managerStoreFake, _ *runtimeFake) {
+			run.NativeSessionID = nil
+			invocation, err := agent.NewOpenCodeProvider("").BuildInvocation(agent.RunInput{Mode: agent.ModeAutonomous, Prompt: "Fix it",
+				Session: &agent.SessionInput{Dir: "/workspace/.kuayle/agent-sessions/" + run.TaskID.String()}})
+			require.NoError(t, err)
+			run.CommandArgv, err = json.Marshal(invocation.Argv)
+			require.NoError(t, err)
+		})
+	require.Equal(t, []string{"ses_df21986abffefn2FxDuH6uZGLA"}, store.nativeSessions)
+	require.Equal(t, domain.DevMachineAgentRunStatusSucceeded, store.completedRun.Status)
+	require.Equal(t, "opencode", runEnvironment(t, store.completedRun).HarnessCommand)
+}
+
 func TestPidsSampleKeepsThePeak(t *testing.T) {
 	var sample pidsSample
 	sample.observe(12)

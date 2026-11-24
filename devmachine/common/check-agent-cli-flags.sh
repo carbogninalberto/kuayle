@@ -14,7 +14,7 @@ set -eu
 contract() {
   cat <<'FLAGS'
 claude --help: --print -p --output-format stream-json --verbose --permission-mode bypassPermissions --model --resume --session-id
-opencode run --help: --format json --auto --print-logs --log-level warn --standalone --model
+opencode run --help: --format json --auto --print-logs --log-level warn --standalone --model --session
 codex --help: -c
 codex exec --help: --json -c
 codex exec resume --help: --json -c

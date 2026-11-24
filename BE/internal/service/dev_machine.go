@@ -1621,7 +1621,8 @@ func (s *DevMachineService) createAgentRun(ctx context.Context, workspaceID, mac
 	if err != nil {
 		return nil, fmt.Errorf("%w: provider rejected the agent run configuration", ErrInvalidMachineInput)
 	}
-	// Claude Code accepts a Kuayle-assigned session ID; Codex reports its own.
+	// Claude Code accepts a Kuayle-assigned session ID; Codex and OpenCode
+	// report their own, which the manager records from their events.
 	var nativeSession *string
 	if req.Session != nil && req.Provider == "claude-code" {
 		if req.Session.ResumeID != "" {

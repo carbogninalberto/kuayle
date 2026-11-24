@@ -131,12 +131,36 @@ func TestCodexThreadIDIsCapturedOnlyForTaskAttempts(t *testing.T) {
 	task := uuid.New()
 	run := &domain.DevMachineAgentRun{ProviderID: "codex", TaskID: &task}
 	started := agent.Event{Type: "thread.started", Payload: []byte(`{"type":"thread.started","thread_id":"0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b"}`)}
-	require.Equal(t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", codexThreadID(run, started))
-	require.Empty(t, codexThreadID(&domain.DevMachineAgentRun{ProviderID: "codex"}, started), "manual runs are not resumed")
-	require.Empty(t, codexThreadID(&domain.DevMachineAgentRun{ProviderID: "claude-code", TaskID: &task}, started))
-	require.Empty(t, codexThreadID(run, agent.Event{Type: "thread.started", Payload: []byte(`{"thread_id":"--last"}`)}))
-	require.Empty(t, codexThreadID(run, agent.Event{Type: "item.completed", Payload: started.Payload}))
+	require.Equal(t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", harnessSessionID(run, started))
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "codex"}, started), "manual runs are not resumed")
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "claude-code", TaskID: &task}, started))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "thread.started", Payload: []byte(`{"thread_id":"--last"}`)}))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "item.completed", Payload: started.Payload}))
 }
+
+// OpenCode 2.3.2 puts its session ID on every event as the top-level
+// sessionID (lines captured from a real run, see openCodeSessionStream).
+func TestOpenCodeSessionIDIsCapturedOnlyForTaskAttempts(t *testing.T) {
+	task := uuid.New()
+	run := &domain.DevMachineAgentRun{ProviderID: "opencode", TaskID: &task}
+	events := agent.NewOpenCodeProvider("").ParseEvents([]byte(openCodeSessionStream))
+	require.Len(t, events, 3)
+	for _, event := range events {
+		require.Equal(t, "ses_df21986abffefn2FxDuH6uZGLA", harnessSessionID(run, event), event.Type)
+	}
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "opencode"}, events[0]), "manual runs are not resumed")
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "codex", TaskID: &task}, events[0]))
+	require.Empty(t, harnessSessionID(&domain.DevMachineAgentRun{ProviderID: "claude-code", TaskID: &task}, events[0]))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "text", Payload: []byte(`{"type":"text","sessionID":"--last"}`)}))
+	require.Empty(t, harnessSessionID(run, agent.Event{Type: "text", Payload: []byte(`{"type":"text","part":{"sessionID":"ses_nested"}}`)}), "only the top-level ID names the run's session")
+}
+
+// openCodeSessionStream is the start of a real OpenCode 2.3.2 run
+// (`opencode run --format json`), as P0.1 captured it.
+const openCodeSessionStream = `{"type":"step_start","timestamp":1795529543169,"sessionID":"ses_df21986abffefn2FxDuH6uZGLA","part":{"id":"prt_20de68e01001Y7x81k5RWOXABv","sessionID":"ses_df21986abffefn2FxDuH6uZGLA","messageID":"msg_20de67d16001dDwrKhGGS2YDg9","type":"step-start"}}
+{"type":"text","timestamp":1795529558098,"sessionID":"ses_df21986abffefn2FxDuH6uZGLA","part":{"id":"prt_20de6c8480019CYaJDvWLNZcw1","sessionID":"ses_df21986abffefn2FxDuH6uZGLA","messageID":"msg_20de68fc3001owH7lmaCOaOEk7","type":"text","text":"done","time":{"start":1795529558088,"end":1795529558098}}}
+{"type":"step_finish","timestamp":1795529558100,"sessionID":"ses_df21986abffefn2FxDuH6uZGLA","part":{"id":"prt_20de6c854002r30vkERr7EUbjH","sessionID":"ses_df21986abffefn2FxDuH6uZGLA","messageID":"msg_20de68fc3001owH7lmaCOaOEk7","type":"step-finish","reason":"stop","cost":0,"tokens":{"input":4220,"output":3,"reasoning":0,"cache":{"read":1920,"write":0}}}}
+`
 
 type purgeRuntimeFake struct {
 	*runtimeFake
