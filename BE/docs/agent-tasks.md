@@ -2842,11 +2842,13 @@ Off, creating, saving or duplicating a pipeline, making one a default and
 starting a task on one answer `403 PIPELINES_DISABLED` (a delegation from the
 assistant says "Pipeline workflows are turned off on this server"). Saved
 pipelines stay readable, and a task already on one keeps running: the tick
-does not read the switch. On, owners and admins save pipelines like graphs,
-including the built-in `template: "team"` of `POST /workflows`, and a task
-starts on a pipeline chosen in the task composer or set as a scope's
-default. `POST /workflows/validate` checks a pipeline with `ValidatePipeline`
-either way.
+does not read the switch. `GET /workflows` returns the switch as
+`pipelines_enabled`, and the task composer offers pipelines only while it is
+on. On, owners and admins save pipelines like graphs, including the built-in
+`template: "team"` of `POST /workflows`, and a task starts on a pipeline
+chosen in the task composer or set as a scope's default.
+`POST /workflows/validate` checks a pipeline with `ValidatePipeline` either
+way.
 
 **The definition** (`domain/pipeline.go`). `ParsePipeline` refuses unknown
 fields, and `ValidatePipeline`, separate from the graph's validator, checks it
@@ -2856,7 +2858,9 @@ on save and again when a task starts:
   `owner` (a role of the roster, `kuayle` or `human`), an optional `prompt`
   (4,000 bytes, given to the writer's turns in that phase), `checks` (at most
   20 per phase; check IDs are unique across the pipeline) and `guarded`,
-  allowed only on the last phase when Kuayle owns it: the merge.
+  allowed only on the last phase when Kuayle owns it: the merge. A guarded
+  merge needs a required `approved` check in a phase before it
+  (`missing_approval`): the owner merges.
 - A check requires one fact and is `required` (the task stays in its phase
   until it holds or the creator waives it for the head) or advisory. The
   facts are a closed list, each with a defined "met":
@@ -2874,7 +2878,7 @@ on save and again when a task starts:
   | `closed` | the pull request is not closed without merging |
   | `overlap` | no task ahead in the repository's merge order ([the board](#merging-only-up-to-date-heads)) changes the same files |
   | `verdict` (with `role`) | that role, which is not the writer, approved the head |
-  | `script` (with `script`) | the command (at most 4,000 bytes) exits 0; not run yet, see the limits |
+  | `script` (with `script`) | the command (at most 4,000 bytes), run in the task's worktree, exits 0 |
 
   Values such as the head, the base and the board are posted to the room,
   never required. Only a `verdict` names a role, and only a `script` carries
@@ -2896,10 +2900,11 @@ JSON, so every view knows). A pipeline's roster and lead keep their profiles
 in use, as graph steps do. The `team` template: phases implement
 (implementer), pull request (Kuayle; `pr_exists`), review (implementer; the
 reviewer's `verdict`), CI checks (implementer; `head_contains_base`,
-`ci_green`), approval (human; `approved`) and merge (Kuayle, guarded), every
-check required; the built-in Implementer as the writer and Reviewer; no lead;
-40 turns and 2,880 minutes, then `ask`. Settings shows a pipeline read only,
-with a notice (`PipelineView.svelte`); there is no editor.
+`ci_green`, `migration_collision`), approval (human; `approved`) and merge
+(Kuayle, guarded), every check required; the built-in Implementer as the
+writer and Reviewer; no lead; 40 turns and 2,880 minutes, then `ask`.
+Settings shows a pipeline read only, with a notice (`PipelineView.svelte`);
+there is no editor.
 
 **The room** (KUA-261; `domain/task_room.go`, `repository/task_room.go`,
 table `task_messages`, migration 206) is one ordered log per pipeline task,
@@ -2963,9 +2968,13 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   request, then "the Kuayle pipeline, phase <label>" with the phase's
   `prompt` and the posts the writer has not read (a page of 200, at most
   24,000 bytes of them; the rest waits for the next turn) within the 32 KiB
-  prompt, with the writer profile's and the scope's instructions. Each turn
-  is the root's next attempt, so it continues the writer's session as any
-  follow-up does ([native session resume](#native-session-resume-and-handoff)).
+  prompt, with the writer profile's and the scope's instructions; the turn
+  also gets the writer profile's instructions file and skills, as a graph
+  step does. Each turn is the root's next attempt, so it continues the
+  writer's session as any follow-up does
+  ([native session resume](#native-session-resume-and-handoff)). A turn that
+  cannot start yet, because the writer's last attempt is still being wound
+  down, waits for the next poll.
 - **Every other role gets one review task of the root**
   (`insertReviewAgentTask`: kind `review`, never published, no push
   credential, with the root's creator, issue and conversation), created the
@@ -2975,12 +2984,17 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   the role's session (`claude --resume`, `codex exec resume`,
   `opencode run --session`) when its previous turn succeeded on the same
   machine, and otherwise starts with the handoff. A later turn fetches its
-  worktree again first (a review task's later generation re-queues its
-  checkout once), so it reads the newest head. Between turns the member's
-  task rests in `blocked` (no notification, session kept; `completed` would
-  purge it). A failed or cancelled turn is posted by the tick as a `turn`
-  fact with its reason; a role whose turn failed is started again when the
-  room calls for it.
+  worktree again first (only a member's task re-queues its checkout, once
+  per turn), so it reads the newest head. Between turns the member's task
+  rests in `blocked` (no notification, session kept; `completed` would purge
+  it). A failed or cancelled turn is posted by the tick as a `turn` fact
+  with its reason, and the role takes its next turn as after any other (a
+  cancelled review task may be queued again only when it is a member's). A
+  role whose last turn is still being wound down is tried again at the next
+  poll. A role that cannot take its first turn, because its profile was
+  archived, is a `turn` fact, and the task pauses for a person. When the
+  root task ends (merged, failed, stopped or cancelled) its members' turns
+  still under way are cancelled, as a graph's reviews are.
 - **What a turn reads.** `domain.RoomInbox` is what a role reads from posts
   newer than its cursor: posts for everyone or for the role, not its own,
   plus its own refused posts with their reasons (a member reads a page of 200
@@ -2998,14 +3012,17 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   hold one addressed to it, or a `say`, `ask` or `request` that a person or
   another role wrote to everyone. A fact, phase move, verdict or summary to
   everyone waits for the role's next turn. The tick also starts a role's turn
-  to ask it for a verdict (below). A member whose turn is queued or running,
-  or whose task waits on a usage limit, is not started again. Any member
-  turn's end, failed or cancelled too, wakes the root's tick.
+  to ask it for a verdict, and a stall summary addressed to it starts one
+  (below). A member whose turn is queued or running, or whose task waits on
+  a usage limit, is not started again. Any member turn's end, failed or
+  cancelled too, wakes the root's tick.
 
 **Verdicts** (table `task_verdicts`; `agent_reviews` stays for requested
 reviews). A member's turn owes a verdict for its pinned commit when the tick
-asked it (`StartMemberTurn(..., askVerdict)`; Kuayle may not post `request`)
-or its unread posts hold a `request` for a review. A `verdict` post counts
+asked it (`StartMemberTurn(..., askVerdict)`; Kuayle may not post
+`request`), when its unread posts hold a `request` for a review, or when the
+current phase requires its verdict on the head and has none as the turn
+starts. A `verdict` post counts
 only from the member task of its role (`author_member_id`), for the commit its
 turn reads or another one Kuayle published from the root's attempts
 (`dev_machine_git_refs`, source `published`: Kuayle keeps no clone to ask
@@ -3024,18 +3041,40 @@ that commit plus merges of the base that Kuayle verified (`verifiedUpdates`).
 
 **Facts.** Each pass reads the newest pull request Kuayle published from the
 root's attempts (`PublishedWork`) with `readTaskFacts`, the read the merge
-gate uses, plus each role's latest verdict, the owner's approval and the
-board's overlap. Kuayle posts a `fact` for each value that changed since it
-last posted it, in this order: `pr_exists`, `head_sha`, `base_ref`,
-`pr_draft`, `head_contains_base`, `conflict`, `migration_collision`,
-`ci_green` (state, head and failing checks, with the checks' details when it
-fails), `approved`, `overlap` (the tasks ahead that change the same files),
-`merged`, `closed`. A fact that blocks a check carries its reason and next
-step (`unmetChecks`). A value Kuayle could not read is not posted, and a
-check on it is `unknown`, never unmet: it is read again. Kuayle also posts
-facts of its own: `turn` (a role's turn failed, and why), `publication`
-(publishing the writer's turn failed or was skipped), `merge` (the merge gate
-refused, and why) and the `verdict` with `none` above.
+gate uses, plus each role's latest verdict, the owner's approval, the script
+checks' runs and the board's overlap. What the pass asks of GitHub (these
+reads, a branch update, a CI rerun, the merge) has its own deadline inside
+the worker's step (`tickGitHubTimeout`, 12 seconds, ending at least 5
+seconds before the step does so the pass can still save): a read that runs
+out is a fact that could not be read, not an error, and an action that runs
+out is tried at the next pass. Kuayle posts a `fact` for each value that
+changed since it last posted it, in this order: `pr_exists`, `head_sha`,
+`base_ref`, `pr_draft`, `head_contains_base`, `conflict`,
+`migration_collision`, `ci_green` (state, head and failing checks, with the
+checks' details when it fails), `approved`, `overlap` (the tasks ahead that
+change the same files), `merged`, `closed`. A fact that blocks a check
+carries its reason and next step (`unmetChecks`). A value Kuayle could not
+read is not posted, and a check on it is `unknown`, never unmet: it is read
+again. Kuayle also posts facts of its own: `turn` (a role's turn failed or
+cannot start, and why), `publication` (publishing the writer's turn failed
+or was skipped), `merge` (the merge gate refused, and why), `script`
+(below) and the `verdict` with `none` above.
+
+**Script checks** run the check's `script` as `sh -c` in the root task's
+worktree, through the [manual check](#manual-checks) runner
+(`RunPipelineCheck`), as the task's creator, who needs no permission to run a
+command of their own: the command comes from the pinned version, which only
+the people who manage workflows write. The checks of the phases up to the
+current one run once a pull request is published, once per published commit
+and check, and again on a new head; a run on a commit counts for a head that
+only merged the base into it (`verifiedUpdates`), as verdicts do. While a
+run is under way the check waits, and its end wakes the tick. Exit 0 meets
+the check; another exit leaves it unmet with the end of its output (at most
+2,000 bytes, fenced as data) as the reason. A check that cannot run (no
+ready worktree on a running machine, the machine busy with an attempt) is
+`unknown`, never unmet, and is tried again at the next pass. Each result is
+posted once as a `script` fact (check, commit, exit code); a failed advisory
+check is posted to its phase's owner and never holds the task up.
 
 **The tick** (KUA-273; `service/team_tick.go`, `repository/pipeline_tick.go`,
 migration 208). `AgentTaskService.step` runs a task marked `pipeline` through
@@ -3050,60 +3089,74 @@ claim query, pause, resume and the existing views keep working, and its
 memory between passes in `agent_tasks.pipeline_state`: the facts last posted,
 the room read so far, the creator's waivers, which head each role was asked
 about, the approval, the last published turn, branch updates, the CI rerun,
-the merge and the stall counter. Every save is fenced by the worker's lease,
-the task's `workflow-runner` advisory lock and its sequence, which moves on
-only when the phase or the status changes or a person decides. One pass:
+the merge, the script checks' runs, since when the phase waits on checks
+that change by themselves, and the stall counter. Every save is fenced by
+the worker's lease, the task's `workflow-runner` advisory lock and its
+sequence, which moves on only when the phase or the status changes or a
+person decides. One pass:
 
-1. reads the facts, the verdicts and approval that hold for the head, the
-   overlap and the room since the last pass (a creator's `waiver` holds for
-   the head the room last named). A pull request that cannot be read is
-   waited for: nothing is posted or started, and the pass runs again in a
-   minute;
-2. posts the facts that changed;
+1. reads the facts, the verdicts, approval and script runs that hold for the
+   head, the overlap and the room since the last pass (a creator's `waiver`
+   holds for the head the room last named). A pull request that cannot be
+   read, or GitHub that does not answer in time, is waited for: nothing is
+   posted or started, and the pass runs again in a minute;
+2. posts the facts that changed and each script check's result once;
 3. takes the first phase with a required check that does not hold and is not
    waived for the head as the current one (the last phase when every check
    holds), and posts `phase` when it changes;
 4. completes the task when the pull request is merged, and publishes a
    finished turn of the writer that was not published yet;
-5. acts through the existing code, each action at most once per head or
+5. starts the script checks of the phases up to the current one that have no
+   run for the head (or could not run);
+6. acts through the existing code, each action at most once per head or
    turn: posts each member's turn that failed; brings a branch that is behind
    its base and merges cleanly up to date (`updateBranch`, at most
-   `maxMergeUpdates`, 3, per published commit);
-   runs the failed Actions jobs once more when CI still fails on a head the
-   writer was already sent and did not change; asks each role whose verdict
-   the current phase requires and that has none for the head, once per head;
-   waits for the owner's approval at a phase with an unmet `approved` check;
-   and at the guarded last phase, once every required check holds, merges
-   through the merge gate as the person who approved (the creator when nobody
-   did), who must still be allowed to decide. A merge the gate refuses is a
-   `merge` fact and is not tried again on that head. A pipeline without a
-   guarded phase completes once every check holds;
-6. starts a turn for every idle role other than the writer whose unread posts
-   call for one;
-7. when nobody works, nothing is under way and nothing changes by itself (CI
-   running, a fact not readable, the owner's approval awaited), posts the
+   `maxMergeUpdates`, 3, per published commit); runs the failed Actions jobs
+   once more when CI still fails on a head the writer was already sent and
+   did not change; asks each role whose verdict the current phase requires
+   and that has none for the head, once per head; and waits for the owner's
+   approval at a phase with an unmet `approved` check;
+7. at the guarded last phase, once every required check holds, merges
+   through the merge gate as the person who approved the head (the creator
+   when the approval was waived), who must still be allowed to decide. A
+   merge that waits on the gate longer than `mergeWaitTimeout` (2 hours) is
+   refused. A refused merge is a `merge` fact; when the facts read next send
+   the work back to an earlier phase, the merge starts afresh once they hold
+   again, and otherwise the task pauses for a person (Continue, or a new
+   approval, tries again). A pipeline without a guarded phase completes once
+   every check holds;
+8. starts a turn for every idle role other than the writer whose unread posts
+   call for one, owing a verdict when the phase requires its verdict;
+9. when nobody works, nothing is under way and nothing is awaited, posts the
    current phase's unmet checks with their reasons as a `summary` to the
-   phase's owner (the writer for a phase Kuayle owns). The third such pass on
-   the same head, phase and unmet checks pauses instead (`blocked`, status
+   phase's owner (the writer for a phase Kuayle owns). A role's turn starts
+   on it in the same pass; for a phase a person owns, the task waits for the
+   person, the budget clock held, and is announced once. What changes by
+   itself (CI running, a check run under way, a fact not readable) is
+   awaited, and read again every minute, for at most `mergeWaitTimeout` on
+   the same head and checks; after that it is sent on like any unmet check,
+   so checks that never report stall too. The third such summary pass on the
+   same head, phase and unmet checks pauses instead (`blocked`, status
    `paused`) and asks a person;
-8. starts the writer's turn when its unread posts call for one (a summary
-   addressed to it does);
-9. charges every turn it starts, writer's or member's, and the working time
-   to the pipeline's budget like a graph workflow's iterations, the clock
-   held while the owner's approval is awaited: a turn the budget has no room
-   for is not started, and a used-up budget pauses for a person (`ask`) or
-   fails the task (`fail`);
-10. otherwise waits for the next wake, or polls in a minute while something
-    changes by itself (CI running, a fact not readable, a branch update or a
-    merge under way).
+10. starts the writer's turn when its unread posts call for one (a summary
+    addressed to it does);
+11. charges every turn it starts, writer's or member's, and the working time
+    to the pipeline's budget like a graph workflow's iterations, the clock
+    held while a person is awaited: a turn the budget has no room for is not
+    started, and a used-up budget pauses for a person (`ask`) or fails the
+    task (`fail`);
+12. otherwise waits for the next wake, or polls in a minute while something
+    changes by itself (CI running, a check run, a fact not readable, a role
+    or the writer still winding down, a branch update or a merge under way).
 
 The tick has no branch for a particular failure: a new situation is a fact
 with a reason, sent to whoever owns the phase.
 
 **Wakes.** The worker runs a pass when `workflow_wake_at` is due. It is set
 by a CI result from GitHub (and its failure details, once read), the end of a
-member's turn, a person's post, decision or resume, and the tick's own poll
-or the time budget's end. A pull request merged on GitHub completes the task
+member's turn or of a script check's run, a person's post, decision or
+resume, and the tick's own poll or the time budget's end (not while a person
+is awaited). A pull request merged on GitHub completes the task
 directly. A wake that lands while a pass runs is kept: the pass stores the
 earlier of that wake and its own (`PipelineApply.ClaimedWake`), so it is
 never lost.
@@ -3113,14 +3166,17 @@ never lost.
 the issue, as for a graph workflow (offered in the task's workflow panel):
 
 - `approve`, where the current phase has an `approved` check and the task
-  waits, records that person's approval of the head the room last named;
+  waits, records that person's approval of the head the room last named and
+  starts a new merge;
 - `continue`, where the tick paused, asks every role again, counts stalls
-  anew, tries a refused merge again and grants another budget of the same
-  size when it is used up;
+  and waits anew, tries a refused merge again and grants another budget of
+  the same size when it is used up;
 - `stop`, where it paused, fails the task.
 
-Anything else, `deny` included, answers `409 WORKFLOW_CONFLICT`. Each
-decision is recorded in `workflow_audit_events`. The creator's
+Anything else, `deny` included, answers `409 WORKFLOW_CONFLICT`. The
+decision reads the task as it is locked for it, so a pass that ran meanwhile
+is neither lost nor overwritten. Each decision is recorded in
+`workflow_audit_events`. The creator's
 [pause and resume](#pause-and-resume) apply as to a graph workflow, and a
 retried pipeline task starts again with its writer's turn, on another budget
 of the same size, asking every role again.
@@ -3163,9 +3219,7 @@ approve, continue and stop.
   credential.
 - `on_call` is validated but not read: every role other than the writer
   works only when the room calls for it or the tick asks it for a verdict.
-- Script checks are not run: a required `script` check never holds (its
-  reason says Kuayle does not know the fact), so a pipeline that requires one
-  stalls and pauses. Advisory checks of any fact are shown, not acted on.
+- Advisory checks other than `script` ones are shown, not acted on.
 - No `deny`: a person approves the head or, where the tick paused, continues
   or stops it.
 - The owner's composer posts only `say`; `ask`, `request`, `waiver`, `grant`
@@ -3175,8 +3229,6 @@ approve, continue and stop.
   room and runs of the root's workflow view, with their role.
 - The board the tick reads is the creator's (the board's visibility), so
   `overlap` sees only the creator's own active tasks on the repository.
-- A stall summary for a phase owned by a role other than the writer starts
-  that role's turn at the task's next wake, not at once.
 
 ### Moving a task to a newer workflow version
 
