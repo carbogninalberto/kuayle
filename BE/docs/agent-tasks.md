@@ -503,6 +503,13 @@ checkout and credentials.
   and paths outside the worktree, then ended the session, so the run failed
   without a final message.
 
+Every flag an adapter passes is in the flag contract
+(`devmachine/common/check-agent-cli-flags.sh`). An attempt runs the CLI from
+the shared agent CLI volume only while the manager found that volume to fit
+the installed release (at least the image's versions, passing the contract);
+otherwise, also right after a deploy until the manager's start check, it runs
+its image's CLI ([Agent CLI updates](../../TECHNICAL.md#sudo-in-machines)).
+
 Agent, check and machine service containers (`secureHostConfig`) run with
 Docker's bundled init (`HostConfig.Init`, tini) as PID 1: the agent CLIs do not reap the orphaned children they leave, such
 as a `git` child of a tool run, and those zombies count against the container's
