@@ -94,13 +94,14 @@ link_codex_packages() {
   ln -s "$cache" "$packages" 2>/dev/null || true
 }
 
-# Installs a Kuayle-owned skill for Claude Code and Codex, replacing symlinks;
-# refreshed on every start. Usage: install_kuayle_skill NAME SOURCE
+# Installs a Kuayle-owned skill for Claude Code, Codex and OpenCode (its
+# global skill directory), replacing symlinks; refreshed on every start.
+# Usage: install_kuayle_skill NAME SOURCE
 install_kuayle_skill() {
   skill_name=$1
   skill_source=$2
   [ -f "$skill_source" ] || return 0
-  for skills_dir in "$HOME/.claude/skills" "$HOME/.codex/skills"; do
+  for skills_dir in "$HOME/.claude/skills" "$HOME/.codex/skills" "$HOME/.config/opencode/skill"; do
     skill_dir="$skills_dir/$skill_name"
     if [ -L "$skill_dir" ] || [ -L "$skill_dir/SKILL.md" ]; then
       rm -rf "$skill_dir"

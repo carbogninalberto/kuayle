@@ -28,6 +28,7 @@ docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-agents/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-agents/SKILL.md
+docker exec "$container" test -f /home/kuayle/.config/opencode/skill/kuayle-agents/SKILL.md
 
 runner_output=$(docker run --rm \
   --tmpfs /run/kuayle-secrets:rw,uid=1000,gid=1000 \

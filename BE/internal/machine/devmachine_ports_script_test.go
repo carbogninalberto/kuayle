@@ -201,11 +201,12 @@ func TestAgentRunnerInstallsTheMessagingSkillUnderDash(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, string(expected), "name: kuayle-agents")
 		require.Contains(t, string(expected), ".kuayle/outbox/")
-		for _, agent := range []string{".claude", ".codex"} {
-			installed, err := os.ReadFile(filepath.Join(home, agent, "skills", "kuayle-agents", "SKILL.md"))
-			require.NoError(t, err, agent)
+		// Claude Code, Codex and OpenCode (its global skill directory).
+		for _, skills := range []string{".claude/skills", ".codex/skills", ".config/opencode/skill"} {
+			installed, err := os.ReadFile(filepath.Join(home, skills, "kuayle-agents", "SKILL.md"))
+			require.NoError(t, err, skills)
 			require.Equal(t, string(expected), string(installed))
-			require.FileExists(t, filepath.Join(home, agent, "skills", "kuayle-qa", "SKILL.md"))
+			require.FileExists(t, filepath.Join(home, skills, "kuayle-qa", "SKILL.md"))
 		}
 		entries, err := os.ReadDir(outside)
 		require.NoError(t, err)

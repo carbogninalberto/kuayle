@@ -33,6 +33,7 @@ docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-qa/SKILL.md
 docker exec "$container" test -f /home/kuayle/.claude/skills/kuayle-agents/SKILL.md
 docker exec "$container" test -f /home/kuayle/.codex/skills/kuayle-agents/SKILL.md
+docker exec "$container" test -f /home/kuayle/.config/opencode/skill/kuayle-agents/SKILL.md
 docker exec "$container" test -d /home/kuayle/.kuayle/ports/requests
 
 # Exercise the upgraded FTP dependency through its actual get-uri consumer,
