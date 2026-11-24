@@ -2965,7 +2965,8 @@ graph's.
      keeping time to save), is waited for: nothing is posted or sent, and the
      pass runs again in a minute;
   2. posts a Kuayle `fact` for each fact whose value changed (failing CI with
-     its checks' details; a blocking fact with its reason and next step);
+     its checks' details; a blocking fact with its reason and next step), and
+     each script check's result once;
   3. takes the first phase with a required check that does not hold (and is
      not waived for the head) as the current one, and posts `phase` when it
      changes;
@@ -2986,7 +2987,18 @@ graph's.
      phase merges through the merge gate as the approver of the head, who must
      still be allowed to decide (the creator when the approval was waived). A
      merged pull request completes the task, as does a pipeline without a
-     guarded phase once every check holds. A merge the gate refuses is a
+     guarded phase once every check holds. Script checks of the phases up to
+     the current one run in the root task's worktree through the manual check
+     runner (`RunPipelineCheck`: `sh -c` and the check's script, as the
+     creator, who needs no permission of their own since the pinned version
+     carries the command), once per published commit and check, again on a
+     new head; while one runs the check waits, and its end wakes the tick.
+     Exit 0 meets it; another exit is unmet with the end of its output
+     (fenced, at most 2,000 bytes) as the reason. A check that cannot run (no
+     ready worktree on a running machine, the machine busy) is not known,
+     never unmet, and is tried again. An advisory script check never holds
+     the task up: a failure is a fact sent to the owner of its phase. A merge
+     the gate refuses is a
      fact; when the facts read next do not send the work back to an earlier
      phase, the task pauses for a person (Continue tries again, and so does a
      new approval). A merge that waits longer than `mergeWaitTimeout` is

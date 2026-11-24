@@ -91,7 +91,25 @@ type tickState struct {
 	// Wait is since when the current phase waits on the same checks that
 	// change by themselves (CI running, a fact not readable).
 	Wait tickWait `json:"wait,omitzero"`
+	// Scripts are the runs of the script checks, by check ID.
+	Scripts map[string]*tickScript `json:"scripts,omitempty"`
 }
+
+// tickScript is a script check's latest run: the published commit it checks
+// in the task's worktree, the check run in flight, its exit code and the end
+// of its output once it ended, why it could not run, and whether the room
+// heard the result.
+type tickScript struct {
+	Commit string     `json:"commit"`
+	Step   *uuid.UUID `json:"step,omitempty"`
+	Exit   *int       `json:"exit,omitempty"`
+	Output string     `json:"output,omitempty"`
+	Why    string     `json:"why,omitempty"`
+	Posted bool       `json:"posted,omitempty"`
+}
+
+// tickScriptOutput bounds the end of a check's output the room keeps.
+const tickScriptOutput = 2000
 
 type tickWait struct {
 	Key   string    `json:"key,omitempty"`
@@ -273,6 +291,9 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	if err = t.postFacts(ctx); err != nil {
 		return err
 	}
+	if err = t.postScripts(ctx); err != nil {
+		return err
+	}
 	index, unmet := t.phase()
 	phase := p.Phases[index]
 	// Without a lead Kuayle names the phase; this version runs no lead, and
@@ -295,6 +316,11 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	}
 	if entry, ok := t.exhausted(0); ok {
 		return t.save(ctx, entry, phase.ID)
+	}
+	if ran, err := t.runScripts(ctx, index); err != nil {
+		return err
+	} else if ran {
+		_, unmet = t.phase()
 	}
 	if err = t.act(ctx, index, unmet); err != nil {
 		return err
@@ -401,6 +427,9 @@ func (t *tickPass) read(ctx context.Context) error {
 			t.facts.Approved = factOf(commit == head && head != "")
 		}
 	}
+	if err = t.readScripts(ctx); err != nil {
+		return err
+	}
 	if target != nil {
 		if board, err := s.Board(ctx, task.WorkspaceID, target.Repository); err == nil {
 			t.facts.Overlap = boardOverlap(board, task.ID)
@@ -444,6 +473,127 @@ func (t *tickPass) readRoom(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// scriptChecks are the script checks of the phases up to the one at upto.
+func (t *tickPass) scriptChecks(upto int) []domain.PipelineCheck {
+	var checks []domain.PipelineCheck
+	for _, phase := range t.p.Phases[:upto+1] {
+		for _, check := range phase.Checks {
+			if check.Fact == domain.PipelineFactScript {
+				checks = append(checks, check)
+			}
+		}
+	}
+	return checks
+}
+
+// readScripts records the script checks' runs that ended, and makes each
+// check's fact its run for the head (a run of a commit the head merely
+// merged the base into counts, as verdicts do).
+func (t *tickPass) readScripts(ctx context.Context) error {
+	t.facts.Scripts = map[string]ScriptFact{}
+	for _, check := range t.scriptChecks(len(t.p.Phases) - 1) {
+		run := t.st.Scripts[check.ID]
+		if run == nil {
+			t.facts.Scripts[check.ID] = ScriptFact{State: "pending"}
+			continue
+		}
+		if run.Step != nil {
+			status, exit, output, err := t.s.Repo.PipelineCheckResult(ctx, t.task, *run.Step, tickScriptOutput)
+			if err != nil {
+				return err
+			}
+			if status == domain.DevMachineAgentRunStepStatusSucceeded || status == domain.DevMachineAgentRunStepStatusFailed {
+				run.Step, run.Exit, run.Output, run.Posted = nil, exit, output, false
+				if exit == nil {
+					run.Why = "the check could not finish"
+				}
+			}
+		}
+		fact := ScriptFact{State: "pending"}
+		switch commit, err := t.covered(run.Commit); {
+		case err != nil:
+			fact = ScriptFact{State: "unavailable", Why: "GitHub did not say whether the head is the commit it checked"}
+		case commit != t.facts.HeadSHA:
+		case run.Step != nil:
+			fact.State = "running"
+		case run.Exit != nil && *run.Exit == 0:
+			fact.State = "passed"
+		case run.Exit != nil:
+			fact = ScriptFact{State: "failed", Exit: *run.Exit, Output: run.Output}
+		case run.Why != "":
+			fact = ScriptFact{State: "unavailable", Why: run.Why}
+		}
+		t.facts.Scripts[check.ID] = fact
+	}
+	return nil
+}
+
+// runScripts runs, in the task's worktree through the manual check runner,
+// the script checks up to the current phase that have no run for the head
+// (or could not run). It reports whether it changed any.
+func (t *tickPass) runScripts(ctx context.Context, index int) (bool, error) {
+	changed := false
+	for _, check := range t.scriptChecks(index) {
+		if fact := t.facts.Scripts[check.ID]; t.target == nil || t.facts.PRExists != FactYes || (fact.State != "pending" && fact.State != "unavailable") {
+			continue
+		}
+		run := &tickScript{Commit: t.target.CommitSHA}
+		step, err := t.s.Repo.RunPipelineCheck(ctx, t.task, "Pipeline check "+check.ID, []string{"sh", "-c", check.Script})
+		switch {
+		case errors.Is(err, repository.ErrCheckUnavailable), errors.Is(err, repository.ErrMachineBusy), errors.Is(err, repository.ErrConversationInvalid):
+			run.Why = err.Error()
+			t.facts.Scripts[check.ID] = ScriptFact{State: "unavailable", Why: run.Why}
+		case err != nil:
+			return changed, err
+		default:
+			run.Step = &step.ID
+			t.facts.Scripts[check.ID] = ScriptFact{State: "running"}
+		}
+		if t.st.Scripts == nil {
+			t.st.Scripts = map[string]*tickScript{}
+		}
+		t.st.Scripts[check.ID], changed = run, true
+	}
+	return changed, nil
+}
+
+// postScripts posts each script check's result once: a failed advisory
+// check to the owner of its phase, which it never holds up.
+func (t *tickPass) postScripts(ctx context.Context) error {
+	for _, phase := range t.p.Phases {
+		for _, check := range phase.Checks {
+			run := t.st.Scripts[check.ID]
+			if check.Fact != domain.PipelineFactScript || run == nil || run.Exit == nil || run.Posted {
+				continue
+			}
+			body := fmt.Sprintf("Check %s passed on %s.", check.ID, shortSHA(run.Commit))
+			var to []string
+			if *run.Exit != 0 {
+				_, body = TaskFacts{Scripts: map[string]ScriptFact{check.ID: {State: "failed", Exit: *run.Exit, Output: run.Output}}}.judgeScript(check.ID, shortSHA(run.Commit))
+				if !check.Required {
+					to = []string{t.owner(phase)}
+				}
+			}
+			value, _ := json.Marshal(map[string]any{"check": check.ID, "commit": run.Commit, "exit": *run.Exit})
+			if err := t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomFact, ToRoles: to, Body: truncateUTF8Bytes(body, domain.RoomMaxBodyBytes),
+				Data: domain.TaskRoomData{Fact: domain.PipelineFactScript, Value: value}, DedupeKey: fmt.Sprintf("script:%s:%s:%d", check.ID, run.Commit, t.st.Pass)}); err != nil {
+				return err
+			}
+			run.Posted = true
+		}
+	}
+	return nil
+}
+
+// owner is who a phase's unmet checks go to: its role or person, and the
+// writer for a phase Kuayle runs (the writer changes what blocks it).
+func (t *tickPass) owner(phase domain.PipelinePhase) string {
+	if _, role := t.p.RosterRole(phase.Owner); !role && phase.Owner != domain.PipelineOwnerHuman {
+		return t.writer.Role
+	}
+	return phase.Owner
 }
 
 // tickFacts are the facts a pass posts, in order.
@@ -850,10 +1000,7 @@ func (t *tickPass) stall(ctx context.Context, phase domain.PipelinePhase, unmet 
 		why := fmt.Sprintf("Nobody made progress on %s in %d passes; %s waits on: %s", shortSHA(t.facts.HeadSHA), t.st.Stall.Count, phase.Label, strings.Join(reasons, " "))
 		return repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: truncateUTF8Bytes(domain.WorkflowReasonPrefix+why, 1900) + ". Continue or stop the workflow"}, true, nil
 	}
-	owner := phase.Owner
-	if _, role := t.p.RosterRole(owner); !role && owner != domain.PipelineOwnerHuman {
-		owner = t.writer.Role // Kuayle's own phase: the writer changes what blocks it
-	}
+	owner := t.owner(phase)
 	t.person = owner == domain.PipelineOwnerHuman
 	body := fmt.Sprintf("Nobody is working, and the phase %s waits on:\n%s", phase.Label, strings.Join(reasons, "\n"))
 	return repository.WorkflowEntry{}, false, t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomSummary, ToRoles: []string{owner},

@@ -178,7 +178,42 @@ func newTickWorld(t *testing.T, edit func(*domain.Pipeline)) *tickWorld {
 	task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add a dark mode toggle", Provider: "codex", WorkflowID: &created.ID})
 	require.NoError(t, err)
 	w.root = task.ID
+	// The root task's worktree on the machine, where its checks run.
+	installation, repo := uuid.New(), uuid.New()
+	w.exec(`INSERT INTO dev_machine_workspace_policies(workspace_id,enabled) VALUES($1,true) ON CONFLICT (workspace_id) DO NOTHING`, f.ws)
+	w.exec(`INSERT INTO github_installations(id,workspace_id,installation_id,account_login,account_type,installed_by) VALUES($1,$2,1,'acme','Organization',$3)`, installation, f.ws, f.user)
+	w.exec(`INSERT INTO github_repos(id,installation_id,workspace_id,github_repo_id,full_name,default_branch) VALUES($1,$2,$3,1,$4,'main')`, repo, installation, f.ws, tickRepository)
+	w.exec(`INSERT INTO dev_machine_checkouts(id,workspace_id,machine_id,issue_id,github_repo_id,repository_full_name,base_branch,working_branch,workspace_path,status,scope_key) VALUES($1,$2,$3,$4,$5,$6,'main','kuayle/eng-1','/workspace/tasks/eng-1','ready',$7)`,
+		task.CheckoutID, f.ws, w.machine, f.issue, repo, tickRepository, task.ID.String())
 	return w
+}
+
+// runCheck plays the machine running the check Kuayle queued: it ends with
+// exit and output, through the manual check runner's own records.
+func (w *tickWorld) runCheck(exit int, output string) {
+	w.t.Helper()
+	store := repository.NewDevMachineRepository(w.f.db)
+	ctx := context.Background()
+	ops, err := store.LeaseOperations(ctx, "tick-check-fixture", 1, time.Minute)
+	require.NoError(w.t, err)
+	require.Len(w.t, ops, 1)
+	op := ops[0]
+	require.Equal(w.t, domain.DevMachineOpRunCheck, op.Action)
+	step := uuid.MustParse(strings.TrimPrefix(op.IdempotencyKey, "task-check:"))
+	require.NoError(w.t, store.CreateRuntimeService(ctx, &domain.DevMachineService{ID: step, WorkspaceID: op.WorkspaceID, MachineID: op.MachineID, AgentRunID: op.AgentRunID, ServiceType: "agent",
+		ServiceKey: "check-" + step.String(), ContainerName: "check", ImageRef: "fixture", InternalHost: "check", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}))
+	require.NoError(w.t, store.StartManualCheck(ctx, op, "container"))
+	require.NoError(w.t, store.CreateManualCheckOutput(ctx, op, &domain.DevMachineLogChunk{WorkspaceID: op.WorkspaceID, MachineID: op.MachineID, AgentRunID: op.AgentRunID, ServiceID: &step, Stream: "stdout", Sequence: 1, Content: output, SourceKey: "check"}))
+	require.NoError(w.t, store.CompleteManualCheck(ctx, op, exit))
+	require.NoError(w.t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
+}
+
+// checks are the script checks Kuayle queued for the root task, oldest first.
+func (w *tickWorld) checks() []string {
+	w.t.Helper()
+	var argv []string
+	require.NoError(w.t, w.f.db.Select(&argv, `SELECT s.command_argv::text FROM dev_machine_agent_run_steps s JOIN dev_machine_agent_runs r ON r.id=s.agent_run_id WHERE r.task_id=$1 AND s.step_type='manual_check' ORDER BY s.created_at`, w.root))
+	return argv
 }
 
 func (w *tickWorld) exec(query string, args ...any) {
@@ -391,8 +426,8 @@ func (r *tickRuntime) Attempt(ctx context.Context, task domain.AgentTask) (*doma
 		status = domain.DevMachineAgentRunStatusRunning
 		r.held[task.RunID] = role
 	}
-	r.w.exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,started_at,completed_at,summary,worktree_changed)
- VALUES($1,$2,$3,$4,$5,$6,'autonomous',$7,'["agent"]',60,$8,now(),now(),$9,$10)`, task.RunID, task.WorkspaceID, r.w.machine, task.ID, task.CreatorID, task.Provider, task.Prompt, status, turn.final, turn.commit != "")
+	r.w.exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,started_at,completed_at,summary,worktree_changed,encrypted_output_secrets)
+ VALUES($1,$2,$3,$4,$5,$6,'autonomous',$7,'["agent"]',60,$8,now(),now(),$9,$10,'sealed')`, task.RunID, task.WorkspaceID, r.w.machine, task.ID, task.CreatorID, task.Provider, task.Prompt, status, turn.final, turn.commit != "")
 	r.commits[task.RunID] = turn.commit
 	now := time.Now()
 	run := &domain.DevMachineAgentRun{ID: task.RunID, TaskID: &task.ID, Status: status, StartedAt: &now, Prompt: task.Prompt}
@@ -1125,4 +1160,91 @@ func TestTickAWaiverHoldsForItsHeadAndOnlyFromTheCreator(t *testing.T) {
 	w.drain()
 	require.Equal(t, sha(2), w.github.status.HeadSHA)
 	require.Equal(t, "review", w.phase(), "the waiver was for the head before")
+}
+
+// A required script check runs in the root task's worktree, through the
+// manual check runner, once per head: exit 0 meets it, another exit sends
+// its output's end to the writer, and a new head runs it again.
+func TestTickRunsScriptChecksOncePerHead(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) {
+		p.Phases[3].Checks = append(p.Phases[3].Checks, domain.PipelineCheck{ID: "tests", Fact: domain.PipelineFactScript, Script: "make test", Required: true})
+	})
+	w.agent = w.writesAndApproves
+	w.drain()
+	require.Equal(t, "integrate", w.phase())
+	require.Equal(t, []string{`["sh", "-c", "make test"]`}, w.checks())
+	require.NotNil(t, w.task().WorkflowWakeAt, "it waits for the check")
+
+	w.runCheck(0, "ok\n")
+	w.drain()
+	w.later()
+	require.Len(t, w.checks(), 1, "once per head")
+	passed := w.facts("script")
+	require.Len(t, passed, 1)
+	require.Contains(t, passed[0].Body, "passed")
+	w.github.ci("passed", "")
+	w.later()
+	require.Equal(t, "approval", w.phase())
+
+	// A new head runs it again; a failure goes to the writer with its output.
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Also follow the system theme.", ToRoles: []string{"implementer"}})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, sha(2), w.github.status.HeadSHA)
+	require.Len(t, w.checks(), 2, "a new head is checked again")
+	w.runCheck(1, "--- FAIL: TestToggle\nexpected dark\n")
+	w.drain()
+	failed := w.facts("script")
+	require.Len(t, failed, 2)
+	require.Contains(t, failed[1].Body, "FAIL: TestToggle")
+	prompt := w.prompt("implementer", 3)
+	require.Contains(t, prompt, "Check tests exited 1")
+	require.Contains(t, prompt, "expected dark")
+}
+
+// A script check that cannot run (the worktree is not on a running
+// machine) is not known yet, never unmet: the task waits and tries again.
+func TestTickAScriptCheckThatCannotRunWaits(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) {
+		p.Phases[3].Checks = append(p.Phases[3].Checks, domain.PipelineCheck{ID: "tests", Fact: domain.PipelineFactScript, Script: "make test", Required: true})
+	})
+	w.agent = w.writesAndApproves
+	w.github.ci("passed", "")
+	w.exec(`UPDATE dev_machine_checkouts SET status='queued' WHERE id=$1`, w.task().CheckoutID)
+	w.drain()
+	waiting := w.task()
+	require.Equal(t, "integrate", w.phase())
+	require.Equal(t, "awaiting_review", waiting.State)
+	require.Contains(t, waiting.Reason, "could not run check tests")
+	require.NotNil(t, waiting.WorkflowWakeAt)
+	require.Empty(t, w.posts(domain.RoomSummary), "nobody is sent it")
+	require.Empty(t, w.checks())
+	w.exec(`UPDATE dev_machine_checkouts SET status='ready' WHERE id=$1`, waiting.CheckoutID)
+	w.later()
+	require.Len(t, w.checks(), 1)
+}
+
+// An advisory script check never holds the task up: its failure is a fact
+// sent to the owner of its phase.
+func TestTickAnAdvisoryScriptCheckInformsThePhaseOwner(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) {
+		p.Phases[3].Checks = append(p.Phases[3].Checks, domain.PipelineCheck{ID: "lint", Fact: domain.PipelineFactScript, Script: "make lint"})
+	})
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "implementer" && turn > 1 {
+			return tickTurn{final: "Noted the lint warnings."}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.github.ci("passed", "")
+	w.drain()
+	require.Equal(t, []string{`["sh", "-c", "make lint"]`}, w.checks())
+	require.Equal(t, "approval", w.phase(), "it does not wait for an advisory check")
+	w.runCheck(2, "3 lint warnings\n")
+	w.drain()
+	lint := w.facts("script")
+	require.Len(t, lint, 1)
+	require.Equal(t, []string{"implementer"}, []string(lint[0].ToRoles))
+	require.Contains(t, w.prompt("implementer", 2), "3 lint warnings")
+	require.Equal(t, "approval", w.phase())
 }
