@@ -45,8 +45,13 @@ test('nothing reported shows nothing', () => {
 });
 
 test('numbers follow the reader locale', () => {
-	assert.deepEqual(usageParts({ input_tokens: 12_345, cost_usd: 1.5 }, 'it'), [
-		{ kind: 'input', value: '12.345' },
-		{ kind: 'cost', value: '1,50\u00a0USD' }
-	]);
+	const [input, cost] = usageParts({ input_tokens: 12_345, cost_usd: 1.5 }, 'it');
+	// ICU versions abbreviate Italian thousands differently (12.345 or 12,3K);
+	// either way it is not the English 12.3K.
+	assert.equal(
+		input.value,
+		new Intl.NumberFormat('it', { notation: 'compact', maximumFractionDigits: 1 }).format(12_345)
+	);
+	assert.notEqual(input.value, '12.3K');
+	assert.deepEqual(cost, { kind: 'cost', value: '1,50\u00a0USD' });
 });
