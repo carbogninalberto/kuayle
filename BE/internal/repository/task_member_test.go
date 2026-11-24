@@ -400,3 +400,37 @@ func TestAMembersTaskIsNotTheRootsOwnPendingReview(t *testing.T) {
 	require.NoError(t, f.db.Get(&pending, `SELECT notification_pending FROM agent_task_transitions WHERE task_id=$1 AND to_state='awaiting_review'`, f.task.ID))
 	require.True(t, pending)
 }
+
+// The root task's workflow view lists the runs of its members' tasks with
+// the role each played, so the thread shows every turn; only member tasks of
+// the root, of its creator and in its workspace.
+func TestTheRootTaskListsItsMembersRunsWithTheirRoles(t *testing.T) {
+	f := newMemberFixture(t)
+	f.publish(firstCommit)
+	f.requestReview()
+	member, err := f.repo.StartMemberTurn(f.ctx, f.task.ID, "reviewer", false)
+	require.NoError(t, err)
+	turn := f.runTurn(member, "0c9a6c1e-0000-4000-8000-000000000005", "Verdict: approve", nil)
+
+	runs, err := f.repo.StepRuns(f.ctx, f.task.WorkspaceID, f.task.ID, nil)
+	require.NoError(t, err)
+	require.Len(t, runs, 2)
+	require.Equal(t, f.task.ID, runs[0].TaskID)
+	require.Equal(t, "implementer", *runs[0].Role, "the root task plays the writer")
+	require.Equal(t, turn.ID, runs[1].TaskID, "its transcript is read through the member task")
+	require.Equal(t, turn.RunID, runs[1].ID)
+	require.Equal(t, "reviewer", *runs[1].Role)
+	require.Nil(t, runs[1].Step)
+	require.Equal(t, "succeeded", runs[1].Status)
+
+	_, err = f.repo.StepRuns(f.ctx, uuid.New(), f.task.ID, nil)
+	require.ErrorIs(t, err, ErrConversationNotFound, "another workspace")
+	other := uuid.New()
+	_, err = f.db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Other','hash')`, other, other.String()+"@test.invalid")
+	require.NoError(t, err)
+	_, err = f.db.Exec(`UPDATE agent_tasks SET creator_id=$2 WHERE id=$1`, turn.ID, other)
+	require.NoError(t, err)
+	runs, err = f.repo.StepRuns(f.ctx, f.task.WorkspaceID, f.task.ID, nil)
+	require.NoError(t, err)
+	require.Len(t, runs, 1, "a task of another creator is not the root's member")
+}

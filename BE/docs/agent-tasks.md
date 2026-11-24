@@ -2853,7 +2853,11 @@ of at most 4,000 bytes). Bounds follow the graph's.
   the root's attempts (`pinned_commit`); it owes a verdict for that commit
   when asked (the tick's `askVerdict`, or a `request` for a review in the
   posts it reads). `MemberInbox`, `MarkMemberRead` and `LatestVerdicts` are
-  the tick's reads (P2.5). Starting a task on a pipeline is still refused.
+  the tick's reads (P2.5). The root task's workflow view
+  (`GET /agent-tasks/:taskId/workflow`, `StepRuns`) lists the runs of its
+  members' tasks with the `role` each played (its own runs are its writer's);
+  a member run's transcript is read through its `task_id`, the member task,
+  which has the root's creator. Starting a task on a pipeline is still refused.
 - **Verdicts** (table `task_verdicts`; `agent_reviews` stays for requested
   reviews): a `verdict` post counts only from the member task of its role
   (`author_member_id`), for the commit its turn reads or one Kuayle published

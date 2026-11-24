@@ -1492,11 +1492,14 @@ type WorkflowPauseEvent struct {
 // WorkflowStepRun is one agent run of a task as its timeline shows it, placed
 // on the workflow step that started it: an agent step's own runs, or the
 // runs of the review task a reviewer step created (TaskID is then that
-// review task). Step is nil for a task that follows no workflow.
+// review task). Step is nil for a task that follows no workflow, and for a
+// pipeline, whose runs carry the Role of the member that ran them (TaskID is
+// the member's task).
 type WorkflowStepRun struct {
 	ID       uuid.UUID `json:"id" db:"id"`
 	TaskID   uuid.UUID `json:"task_id" db:"task_id"`
 	Step     *int      `json:"step,omitempty" db:"step"`
+	Role     *string   `json:"role,omitempty" db:"role"`
 	Provider string    `json:"provider" db:"provider_id"`
 	Model    string    `json:"model" db:"model"`
 	Status   string    `json:"status" db:"status"`

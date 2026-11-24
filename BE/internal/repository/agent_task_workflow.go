@@ -1027,29 +1027,36 @@ const stepRunColumns = `r.id,r.task_id,r.provider_id,COALESCE(r.model,'') AS mod
 // StepRuns lists the task's agent runs for its timeline, oldest first, under
 // the task's authorization: its newest 200 runs, each on the agent step that
 // was the latest one entered when the run was created (a resumed step has
-// several), and the runs of the review tasks its reviewer steps created. A
-// review task has the creator, conversation and issue of the task it reviews,
-// so whoever reads the task reads its reviews. A finished run's summary never
-// changes: summariesSince leaves out those of runs that completed at or
-// before it, which a view polling the task already holds.
+// several), the runs of the review tasks its reviewer steps created, and on
+// a pipeline task the runs of its members' tasks, each with the role it
+// played (the root's own runs are its writer's). A review or member task has
+// the creator, conversation and issue of the task it reviews, so whoever
+// reads the task reads them. A finished run's summary never changes:
+// summariesSince leaves out those of runs that completed at or before it,
+// which a view polling the task already holds.
 func (r *AgentTaskRepository) StepRuns(ctx context.Context, ws, id uuid.UUID, summariesSince *time.Time) ([]domain.WorkflowStepRun, error) {
 	if _, err := conversationActor(ctx, ws); err != nil {
 		return nil, err
 	}
-	tx, _, err := r.transaction(ctx, id, true)
+	tx, task, err := r.transaction(ctx, id, true)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	runs := []domain.WorkflowStepRun{}
 	err = tx.SelectContext(ctx, &runs, `SELECT * FROM (
- (SELECT `+stepRunColumns+`,(SELECT max(s.sequence) FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.generation IS NOT NULL AND s.entered_at<=r.created_at)::int AS step
+ (SELECT `+stepRunColumns+`,(SELECT max(s.sequence) FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.generation IS NOT NULL AND s.entered_at<=r.created_at)::int AS step,
+  (SELECT m.role FROM task_members m WHERE m.task_id=$1 AND m.workspace_id=$2 AND m.member_task_id IS NULL) AS role
   FROM dev_machine_agent_runs r WHERE r.task_id=$1 AND r.workspace_id=$2 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
  UNION ALL
- (SELECT `+stepRunColumns+`,s.sequence AS step
+ (SELECT `+stepRunColumns+`,s.sequence AS step,NULL::text AS role
   FROM agent_task_workflow_steps s JOIN agent_tasks t ON t.id=s.review_task_id AND t.workspace_id=$2 AND t.kind='review' AND t.review_of_task_id=$1
   JOIN dev_machine_agent_runs r ON r.task_id=t.id AND r.workspace_id=$2 WHERE s.task_id=$1 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
- ) runs ORDER BY created_at,id`, id, ws, summariesSince)
+ UNION ALL
+ (SELECT `+stepRunColumns+`,NULL::int AS step,m.role
+  FROM task_members m JOIN agent_tasks t ON t.id=m.member_task_id AND t.workspace_id=$2 AND t.kind='review' AND t.review_of_task_id=$1 AND t.creator_id=$4
+  JOIN dev_machine_agent_runs r ON r.task_id=t.id AND r.workspace_id=$2 WHERE m.task_id=$1 AND m.workspace_id=$2 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
+ ) runs ORDER BY created_at,id`, id, ws, summariesSince, task.CreatorID)
 	return runs, err
 }
 
