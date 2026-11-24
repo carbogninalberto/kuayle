@@ -32,17 +32,34 @@ import (
 // applying every gate again on each pass. The new head is accepted only when
 // it is exactly the update Kuayle asked for (verifyUpdate); any other change of
 // the head ends the merge as before. A branch that falls behind again is
-// updated again, at most maxMergeUpdates times; a wait ends after
-// mergeWaitTimeout.
+// updated again, at most maxMergeUpdates times counted from the head the
+// person approved; a wait ends after mergeWaitTimeout.
+//
+// A workflow's approved merge starts without a head (Head ""); its first pass
+// pins it (pin, KUA-277): the commit the task published, or that commit plus
+// Kuayle's verified updates of it made before the approval, however many.
+// Those count for nothing against the merge's own maxMergeUpdates, so a busy
+// base that used up the updates before the approval never strands an
+// approved merge. Any caller that starts a merge without a head (the
+// workflow's ship approval, merge step and deferred ship merge) gets this.
 
 // mergeAttempts bounds the merges tried when GitHub reports that the base
 // moved during the merge; each one is preceded by a fresh check.
 const mergeAttempts = 3
 
 const (
-	// maxMergeUpdates bounds the branch updates Kuayle makes for one approved
-	// merge; a branch behind its base after that many is not merged.
+	// maxMergeUpdates bounds the branch updates Kuayle makes of one head: of
+	// the commit a task published, until a person approves its merge (a
+	// workflow's CI step and waiting steps share them, KUA-264), then of the
+	// head the person approved, for the merge alone (KUA-277). A branch behind
+	// its base after that many is not merged.
 	maxMergeUpdates = 3
+	// maxUpdateChain bounds how many of Kuayle's verified updates pin walks
+	// back through to the published commit: before the approval they are not
+	// counted against the merge, but each costs a few GitHub reads. Each
+	// approval of a commit adds at most maxMergeUpdates, so this allows the
+	// updates before the first approval and those of three more.
+	maxUpdateChain = 4 * maxMergeUpdates
 	// mergeWaitTimeout ends a wait whose checks never passed.
 	mergeWaitTimeout = 2 * time.Hour
 	// mergeWaitPoll is how often a waiting merge reads the pull request again,
@@ -91,6 +108,19 @@ func newMergeWait(commit, method string, now time.Time) *domain.MergeWait {
 	return &domain.MergeWait{Approved: commit, Head: commit, Method: method, Since: now, Deadline: now.Add(mergeWaitTimeout)}
 }
 
+// newApprovedMerge is the merge a person approved of the commit a task
+// published, before its first pass: it has no head yet, and the gate pins
+// one on that pass (pin), with the merge's own bound counted from there.
+func newApprovedMerge(published, method string, now time.Time) *domain.MergeWait {
+	wait := newMergeWait(published, method, now)
+	wait.Head = ""
+	return wait
+}
+
+// ownUpdates counts the updates the merge made itself, since it was
+// approved; only these count against maxMergeUpdates.
+func ownUpdates(wait *domain.MergeWait) int { return wait.Updates - wait.PinnedUpdates }
+
 // mergeGate decides and carries out one approved merge against GitHub.
 type mergeGate struct {
 	pulls pullRequestReader
@@ -108,18 +138,32 @@ type updateMergeReader interface {
 	BranchChanges(ctx context.Context, ws uuid.UUID, repository, base, head string) (files []gh.CompareFile, complete bool, err error)
 }
 
+// headInspector reads a pull request's head and what was added to it since a
+// commit (GitHubService.InspectPullRequestHead).
+type headInspector interface {
+	InspectPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, published string) (*domain.PullRequestHead, error)
+}
+
 // merge runs the gate for wait.Head and, when it lets the merge through,
 // merges pinned to wait.Head, so a push that lands after the checks is refused
-// by GitHub. GitHub's refusal because the base moved during the merge checks
-// again, which updates a branch that is now behind, at most mergeAttempts
-// times. It returns the hold (merged when the pull request merged); only a
-// failure to reach GitHub is an error. wait is updated in place.
+// by GitHub. A wait without a head is pinned first (pin). GitHub's refusal
+// because the base moved during the merge checks again, which updates a
+// branch that is now behind, at most mergeAttempts times. It returns the hold
+// (merged when the pull request merged); only a failure to reach GitHub is an
+// error. wait is updated in place.
 func (g mergeGate) merge(ctx context.Context, ws, actor uuid.UUID, repository string, number int, wait *domain.MergeWait, merger approvalMerger) (mergeHold, error) {
+	var read *TaskFacts
+	if wait.Head == "" {
+		hold, err := g.pin(ctx, ws, repository, number, wait)
+		if err != nil || hold.reason != "" {
+			return hold, err
+		}
+		read = hold.facts
+	}
 	method := wait.Method
 	if method == "" {
 		method = "squash"
 	}
-	var read *TaskFacts
 	for attempt := 1; ; attempt++ {
 		// Without the pull request reader nothing but GitHub's own rules
 		// stands between the approved commit and the merge.
@@ -146,6 +190,109 @@ func (g mergeGate) merge(ctx context.Context, ws, actor uuid.UUID, repository st
 		}
 		return mergeHold{}, err
 	}
+}
+
+// pin fixes the head of an approved merge that has none yet (KUA-209,
+// KUA-277): the pull request's head, when it is wait.Approved (the commit the
+// task published) or that commit plus a chain of Kuayle's verified merges of
+// the base (updateChain), made before the approval, however many (up to
+// maxUpdateChain). The merge then has its own maxMergeUpdates updates,
+// counted from that head: those of the chain are PinnedUpdates (ownUpdates).
+// A merge deferred past agent steps (AfterAgents, KUA-216) may also take
+// commits added on top of the approved commit, which the gate merges only
+// once their checks pass. Anything else on the branch was not approved and
+// is refused (reason). It also resolves the merge method, and returns the
+// facts it read. Only a failure to reach GitHub is an error.
+func (g mergeGate) pin(ctx context.Context, ws uuid.UUID, repository string, number int, wait *domain.MergeWait) (mergeHold, error) {
+	if g.pulls == nil {
+		return mergeHold{reason: "Kuayle cannot read the pull request to merge"}, nil
+	}
+	facts, _ := readBranchFacts(ctx, g.pulls, ws, repository, number)
+	if facts.Err != nil {
+		return mergeHold{}, facts.Err
+	}
+	head, base := facts.HeadSHA, facts.BaseRef
+	if base == "" {
+		base = wait.BaseBranch
+	}
+	updates, why, err := g.updateChain(ctx, ws, repository, base, head, wait.Approved, maxUpdateChain)
+	if err != nil {
+		return mergeHold{}, err
+	}
+	if why != "" && wait.AfterAgents {
+		if why, err = g.addedOnTop(ctx, ws, repository, number, head, wait.Approved); err != nil {
+			return mergeHold{}, err
+		}
+		updates = 0
+	}
+	if why != "" {
+		return mergeHold{reason: why, facts: &facts}, nil
+	}
+	method, err := g.pulls.ResolveMergeMethod(ctx, ws, repository)
+	if errors.Is(err, ErrMergeMethodNotAllowed) {
+		return mergeHold{reason: upperFirst(truncateRunes(err.Error(), 200)) + ". Choose a method the repository allows in the development settings", facts: &facts}, nil
+	}
+	if err != nil {
+		return mergeHold{}, err
+	}
+	wait.Head, wait.Updates, wait.PinnedUpdates, wait.Method, wait.Base = head, updates, updates, method, base
+	return mergeHold{facts: &facts}, nil
+}
+
+// updateChain walks back from head to from through merges of the base, each
+// verified as GitHub's update-branch of the commit before it (verifyUpdate),
+// at most limit of them. It returns how many there were, or why head is not
+// from or such a chain on top of it.
+func (g mergeGate) updateChain(ctx context.Context, ws uuid.UUID, repository, base, head, from string, limit int) (int, string, error) {
+	updates := 0
+	for current := head; current != from; {
+		if updates >= limit {
+			return 0, updateNotVerifiedRefusal(head, fmt.Sprintf("it is more than %d merges of %s on top of %s", limit, base, shortSHA(from))), nil
+		}
+		reader, ok := g.pulls.(updateMergeReader)
+		if !ok {
+			return 0, headMovedRefusal(head), nil
+		}
+		parents, err := reader.CommitParents(ctx, ws, repository, current)
+		if err != nil {
+			return 0, "", err
+		}
+		if len(parents) != 2 {
+			return 0, updateNotVerifiedRefusal(head, "it is not the published commit or Kuayle's update of it"), nil
+		}
+		why, err := g.verifyUpdate(ctx, ws, repository, base, parents[0], current)
+		if err != nil {
+			return 0, "", err
+		}
+		if why != "" {
+			return 0, updateNotVerifiedRefusal(head, why), nil
+		}
+		updates++
+		current = parents[0]
+	}
+	return updates, "", nil
+}
+
+// addedOnTop reports why head is not the approved commit with commits added
+// on top of it, or "" when it is: the approved commit is still in its history
+// (GitHub's comparison of the two).
+func (g mergeGate) addedOnTop(ctx context.Context, ws uuid.UUID, repository string, number int, head, approved string) (string, error) {
+	inspector, ok := g.pulls.(headInspector)
+	if !ok {
+		return headMovedRefusal(head), nil
+	}
+	read, err := inspector.InspectPullRequestHead(ctx, ws, repository, number, approved)
+	if err != nil {
+		return "", err
+	}
+	if read.SHA != head {
+		// Moved between two reads: the next pass reads it again.
+		return "", fmt.Errorf("the pull request head moved to %s while Kuayle read it", shortSHA(read.SHA))
+	}
+	if read.Change != nil && read.Change.Kind == "rewritten" {
+		return fmt.Sprintf("The pull request head %s no longer contains the approved commit %s, so it was not merged", shortSHA(head), shortSHA(approved)), nil
+	}
+	return "", nil
 }
 
 // check reads the pull request's facts from GitHub now and decides whether
@@ -205,8 +352,8 @@ func (g mergeGate) decide(ctx context.Context, ws, actor uuid.UUID, repository s
 		if facts.Conflict == FactYes {
 			return mergeHold{conflict: true, reason: branchConflictRefusal(number, base)}, nil
 		}
-		if wait.Updates >= maxMergeUpdates {
-			return mergeHold{reason: fmt.Sprintf("Pull request #%d fell behind %s again after Kuayle brought it up to date %d times, so it was not merged. Next step: ask to merge again once %s is quieter", number, base, wait.Updates, base)}, nil
+		if own := ownUpdates(wait); own >= maxMergeUpdates {
+			return mergeHold{reason: fmt.Sprintf("Pull request #%d fell behind %s again after Kuayle brought it up to date %d times, so it was not merged. Next step: ask to merge again once %s is quieter", number, base, own, base)}, nil
 		}
 		return g.updateBehindBranch(ctx, ws, actor, repository, number, wait, facts)
 	}

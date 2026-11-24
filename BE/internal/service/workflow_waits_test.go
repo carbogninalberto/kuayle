@@ -235,11 +235,12 @@ func TestApprovedMergeSendsABranchThatNowConflictsBack(t *testing.T) {
 	require.Empty(t, merger.merged)
 }
 
-// KUA-264: every update Kuayle makes to a published commit counts toward
-// one bound, read from the commits themselves: when the CI step used all of
-// them and the base moves once more, neither entering the ship approval nor
-// a wake makes another, so the merge never meets a head it cannot verify as
-// Kuayle's update. The merge says why it cannot bring the branch up to date.
+// KUA-264: every update Kuayle makes to a published commit before a person
+// approves its merge counts toward one bound, read from the commits
+// themselves: when the CI step used all of them and the base moves once
+// more, neither entering the ship approval nor a wake makes another. Once a
+// person approves, the merge has updates of its own (KUA-277): it brings
+// the branch up to date and merges it once green, with no person.
 func TestUpdatesOfAPublishedCommitShareOneBound(t *testing.T) {
 	h := newWorkflowHarness(t, domain.WorkflowBudget{})
 	merger := h.withGitHub()
@@ -265,13 +266,18 @@ func TestUpdatesOfAPublishedCommitShareOneBound(t *testing.T) {
 	require.Equal(t, []string{"update:" + published, "update:head2", "update:head3"}, branchUpdates(h.pulls.calls), "no fourth update")
 
 	h.pulls.checks = passingChecks
+	notices := h.w.notices
 	require.NoError(t, h.decideAs(WorkflowDecisionApprove))
 	require.True(t, h.tick())
-	require.Empty(t, merger.merged)
-	require.Len(t, branchUpdates(h.pulls.calls), maxMergeUpdates)
-	failure := h.current().MergeWait().Failure
-	require.Contains(t, failure, "fell behind main again after Kuayle brought it up to date 3 times")
-	require.NotContains(t, failure, "not only the branch update Kuayle made")
+	require.Empty(t, merger.merged, "it waits for CI on its update")
+	require.Equal(t, []string{"update:" + published, "update:head2", "update:head3", "update:head4"}, branchUpdates(h.pulls.calls))
+	wait := h.current().MergeWait()
+	require.Empty(t, wait.Failure)
+	require.Equal(t, "head5", wait.Head)
+	require.Equal(t, 1, ownUpdates(wait), "the merge's own first update")
+	require.True(t, h.later(mergeWaitPoll))
+	require.Equal(t, []string{"acme/app#12@head5/squash"}, merger.merged)
+	require.Equal(t, notices, h.w.notices, "no person was needed")
 }
 
 // KUA-264: CI that failed on Kuayle's update of the published commit carries

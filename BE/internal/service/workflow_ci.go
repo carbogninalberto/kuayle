@@ -49,7 +49,8 @@ import (
 //   - A branch behind its base that merges cleanly is brought up to date with
 //     GitHub's update-branch, pinned to the commit the step judges, while the
 //     published commit has fewer than maxMergeUpdates updates in all (every
-//     step's and the merge's count, KUA-264). The step then judges CI on the
+//     step's before a person approves the merge count, KUA-264; the approved
+//     merge has its own, KUA-277). The step then judges CI on the
 //     new head once it is verified as merges of the base into the published
 //     commit (verifiedUpdates); so it does when another step or a person
 //     updated the branch that way. A head someone else pushed is not judged:

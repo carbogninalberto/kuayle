@@ -887,8 +887,9 @@ rounds and a deadline. After Kuayle's own update-branch:
   checks, an unknown distance from the base and a partly readable check list
   keep it waiting; failing checks, a conflict, a closed pull request, a refused
   merge or a lost permission end it with the reason. A branch behind again is
-  updated again, at most three updates in all (`maxMergeUpdates`); the wait
-  ends after two hours (`mergeWaitTimeout`) with what it waited for.
+  updated again, at most three updates counted from the head the person
+  approved (`maxMergeUpdates`); the wait ends after two hours
+  (`mergeWaitTimeout`) with what it waited for.
 - An assistant approval waits as `waiting_checks` (migration 171: unresolved,
   with `next_check_at`); see [conversations](conversations.md#pull-request-tools).
   The ship chain keeps its merge step waiting within its tests timeout and saves
@@ -957,15 +958,24 @@ to ship from a plan's approval, which also leads to agents. The runner
   wakes waiting runs (KUA-257); a step's timeout and the budget wake it too.
   Each pass acts only on what GitHub reports then, so a wake on a branch
   already up to date changes nothing.
-- **One bound for every update** (KUA-264). The CI step, entering or waking a
-  step and the approved merge all count the updates of the published commit
-  from the commits themselves (the chain of verified merges of the base on top
-  of it, `updateBound`): none of them makes a fourth (`maxMergeUpdates`), and
-  none updates a head someone else pushed, which the merge would refuse. So
-  the merge never meets a head longer than it verifies as Kuayle's update. A
-  branch that falls behind once more after that stays behind; approving it
-  ends the merge with "fell behind again after Kuayle brought it up to date 3
-  times", for a person.
+- **One bound before the approval, one for the merge** (KUA-264, KUA-277).
+  The CI step and entering or waking a step count the updates of the
+  published commit from the commits themselves (the chain of verified merges
+  of the base on top of it, `verifiedUpdates`): none of them makes a fourth
+  (`maxMergeUpdates`), and none updates a head someone else pushed, which the
+  merge would refuse. A branch that falls behind once more after that stays
+  behind until a person approves. The approved merge then has its own three
+  updates, counted from the head the person approved: its first pass pins
+  that head (`mergeGate.pin`), taking the published commit plus Kuayle's
+  verified updates of it made before the approval, however many (at most
+  `maxUpdateChain`, 12, which bounds what one pass reads from GitHub), and
+  records them as `pinned_updates` on the merge, outside its bound. So a busy
+  base that used every update before the approval no longer strands it: the
+  merge brings the branch up to date and merges it once green, with no
+  person. A fourth move after the approval ends the merge with "fell behind
+  again after Kuayle brought it up to date 3 times", for a person; approving
+  again starts another three from the head then. A head someone else pushed,
+  before or after the approval, is still refused.
 - **The step says why** (KUA-265). What a step does because of what Kuayle
   read about the branch is stored with the step as `ci.branch`
   (`domain.WorkflowBranchRecord`, no migration: any step's `ci` column can
@@ -986,8 +996,9 @@ to ship from a plan's approval, which also leads to agents. The runner
   on the merge step it leads to. The worker merges as the approver
   (re-checked as the task's creator or an owner/admin who can see it, like a
   decision) once every gate passes. The head it merges is the published commit
-  or a chain of Kuayle's verified updates of it; anything else pushed to the
-  branch was not approved and is refused. A branch Kuayle updates waits for the
+  or a chain of Kuayle's verified updates of it (any made before the approval,
+  then at most three of the merge's own); anything else pushed to the branch
+  was not approved and is refused. A branch Kuayle updates waits for the
   new head's checks, polled every minute, as above. Kuayle's merge completes the
   task, so the workflow reaches done only through it.
 - **A merge that cannot happen** (failing checks, a head someone else pushed,

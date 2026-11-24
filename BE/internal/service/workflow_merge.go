@@ -38,8 +38,13 @@ import (
 //   - While a review, a ship approval or a merge step waits, each wake (a
 //     push to the base wakes it, KUA-257) reads the pull request again and
 //     does the same (followBase, KUA-264): behind is brought up to date, a
-//     conflict goes back. Every update of a published commit, the CI step's
-//     and the merge's included, counts toward one bound (updateBound).
+//     conflict goes back. Every update of a published commit before a
+//     person approves its merge, the CI step's included, counts toward one
+//     bound (maxMergeUpdates, read from the commits by verifiedUpdates).
+//   - The approved merge has its own maxMergeUpdates, counted from the head
+//     the person approved (KUA-277): the gate pins it on the first pass,
+//     taking Kuayle's verified updates of the published commit made before
+//     the approval, however many (mergeGate.pin).
 //
 // A ship approval whose approved path runs through agent steps to a done end
 // (WorkflowGraph.ShipApproval's ShipMergesAfterAgents, KUA-216) is entered
@@ -84,8 +89,9 @@ func rebaseInstruction(base string) string {
 //
 // Only the published commit or Kuayle's verified updates of it are updated,
 // and only while they are fewer than maxMergeUpdates (publishedUpdates):
-// every step's updates and the merge's share that bound, so the merge never
-// meets a chain of updates longer than it verifies as Kuayle's.
+// every step's updates before a person approves the merge share that bound.
+// The approved merge does not: it takes those updates, however many, and has
+// its own bound from there (mergeGate.pin, KUA-277).
 func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTask, ready bool) (done []string, conflict string, acted *domain.WorkflowBranchRecord) {
 	if w.pulls == nil {
 		return nil, "", nil
@@ -152,10 +158,11 @@ func (w *WorkflowRunner) prepareBranch(ctx context.Context, task domain.AgentTas
 // publishedUpdates counts the updates Kuayle made of the published commit
 // that head, its pull request's head, is: 0 for the commit itself, or the
 // length of the chain of Kuayle's verified updates of it (verifiedUpdates).
-// The count is read from the commits themselves, so the CI step, the other
-// steps and the merge share it, across restarts. It is -1 for a head someone
-// else pushed, which is not Kuayle's to update (the merge refuses it), and
-// for a chain GitHub could not show, which waits for the next pass.
+// The count is read from the commits themselves, so the CI step and the
+// other steps share it, across restarts. It is -1 for a head someone else
+// pushed, which is not Kuayle's to update (the merge refuses it), for a chain
+// longer than maxMergeUpdates (approved merges made it), and for a chain
+// GitHub could not show, which waits for the next pass.
 func (w *WorkflowRunner) publishedUpdates(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, base, head string) int {
 	updates, refused, err := w.verifiedUpdates(ctx, task, target, base, head, target.CommitSHA)
 	if err != nil || refused != "" {
@@ -227,10 +234,9 @@ func (w *WorkflowRunner) approvedMerge(ctx context.Context, task domain.AgentTas
 		return nil, 0, repository.ErrConversationNotFound
 	}
 	actor := access.UserID
-	wait := newMergeWait(target.CommitSHA, "", w.now())
-	// Head is pinned on the first pass (pinMerge): the published commit, or
-	// Kuayle's verified updates of it.
-	wait.Head, wait.ActorID = "", &actor
+	// The gate pins the head on the first pass (mergeGate.pin).
+	wait := newApprovedMerge(target.CommitSHA, "", w.now())
+	wait.ActorID = &actor
 	wait.Repository, wait.PullRequest, wait.BaseBranch = target.Repository, target.PullRequestNumber, target.BaseBranch
 	return wait, target.PullRequestNumber, nil
 }
@@ -248,16 +254,10 @@ func (w *WorkflowRunner) deferredShipMerge(ctx context.Context, task domain.Agen
 	if err != nil || wait == nil || wait.Failure != "" || wait.Repository == "" || wait.PullRequest <= 0 || wait.ActorID == nil {
 		return nil, err
 	}
-	started := newMergeWait(wait.Approved, wait.Method, now)
-	started.Head, started.ActorID, started.AfterAgents = "", wait.ActorID, true
+	started := newApprovedMerge(wait.Approved, wait.Method, now)
+	started.ActorID, started.AfterAgents = wait.ActorID, true
 	started.Repository, started.PullRequest, started.BaseBranch = wait.Repository, wait.PullRequest, wait.BaseBranch
 	return started, nil
-}
-
-// headInspector reads a pull request's head and what was added to it since a
-// commit (GitHubService.InspectPullRequestHead).
-type headInspector interface {
-	InspectPullRequestHead(ctx context.Context, ws uuid.UUID, repository string, number int, published string) (*domain.PullRequestHead, error)
 }
 
 // ShipMergeWaiting reports whether approving the step the task waits on
@@ -404,15 +404,8 @@ func (w *WorkflowRunner) driveMerge(ctx context.Context, task domain.AgentTask, 
 		at := now.Add(mergeWaitErrorPoll)
 		return true, record("approved; Kuayle could not reach GitHub to merge pull request #"+fmt.Sprint(target.PullRequestNumber)+" and tries again shortly", &at, false)
 	}
-	if wait.Head == "" {
-		why, pinned, err := w.pinMerge(ctx, task, target, wait)
-		if err != nil {
-			return backoff(err)
-		}
-		if read = pinned; why != "" {
-			return fail(why)
-		}
-	}
+	// The first pass pins the head (mergeGate.pin): the published commit or
+	// Kuayle's verified updates of it, with the merge's own bound from there.
 	hold, err := w.gate().merge(ctx, task.WorkspaceID, actor, target.Repository, target.PullRequestNumber, wait, w.merger)
 	if hold.facts != nil {
 		read = hold.facts
@@ -497,100 +490,14 @@ func (w *WorkflowRunner) mergeTarget(ctx context.Context, task domain.AgentTask,
 	return w.tasks.WorkflowPullRequest(ctx, task)
 }
 
-// pinMerge fixes the head the approved merge merges: the commit the task
-// published, or a chain of Kuayle's verified updates of it (made when the
-// ship approval was entered). Anything else on the branch was not approved,
-// except, for a merge deferred past the agent steps after a ship approval
-// (AfterAgents, KUA-216), commits added on top of the approved commit: the
-// agent steps' work, which the gate merges only once its checks pass. A head
-// that no longer contains the approved commit is refused. It also resolves
-// the merge method, and returns the facts it read (nil when it could not).
-func (w *WorkflowRunner) pinMerge(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, wait *domain.MergeWait) (string, *TaskFacts, error) {
-	facts, _ := readBranchFacts(ctx, w.pulls, task.WorkspaceID, target.Repository, target.PullRequestNumber)
-	if facts.Err != nil {
-		return "", nil, facts.Err
-	}
-	head, base := facts.HeadSHA, facts.BaseRef
-	if base == "" {
-		base = target.BaseBranch
-	}
-	updates, why, err := w.verifiedUpdates(ctx, task, target, base, head, wait.Approved)
-	if err != nil {
-		return "", nil, err
-	}
-	if why != "" && wait.AfterAgents {
-		if why, err = w.addedOnTop(ctx, task, target, head, wait.Approved); err != nil {
-			return "", nil, err
-		}
-		updates = 0
-	}
-	if why != "" {
-		return why, &facts, nil
-	}
-	method, err := w.pulls.ResolveMergeMethod(ctx, task.WorkspaceID, target.Repository)
-	if errors.Is(err, ErrMergeMethodNotAllowed) {
-		return upperFirst(truncateRunes(err.Error(), 200)) + ". Choose a method the repository allows in the development settings", &facts, nil
-	}
-	if err != nil {
-		return "", nil, err
-	}
-	wait.Head, wait.Updates, wait.Method, wait.Base = head, updates, method, base
-	return "", &facts, nil
-}
-
-// verifiedUpdates walks back from head to the approved commit through
-// Kuayle's verified branch updates. It returns how many there were, or why
-// head is not the approved commit or such an update of it.
-func (w *WorkflowRunner) verifiedUpdates(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, base, head, approved string) (int, string, error) {
-	updates := 0
-	for current := head; current != approved; {
-		if updates >= maxMergeUpdates {
-			return 0, updateNotVerifiedRefusal(head, "it is not the published commit or Kuayle's update of it"), nil
-		}
-		reader, ok := w.pulls.(updateMergeReader)
-		if !ok {
-			return 0, headMovedRefusal(head), nil
-		}
-		parents, err := reader.CommitParents(ctx, task.WorkspaceID, target.Repository, current)
-		if err != nil {
-			return 0, "", err
-		}
-		if len(parents) != 2 {
-			return 0, updateNotVerifiedRefusal(head, "it is not the published commit or Kuayle's update of it"), nil
-		}
-		why, err := w.gate().verifyUpdate(ctx, task.WorkspaceID, target.Repository, base, parents[0], current)
-		if err != nil {
-			return 0, "", err
-		}
-		if why != "" {
-			return 0, updateNotVerifiedRefusal(head, why), nil
-		}
-		updates++
-		current = parents[0]
-	}
-	return updates, "", nil
-}
-
-// addedOnTop reports why head is not the approved commit with commits added
-// on top of it, or "" when it is: the approved commit is still in its history
-// (GitHub's comparison of the two).
-func (w *WorkflowRunner) addedOnTop(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, head, approved string) (string, error) {
-	inspector, ok := w.pulls.(headInspector)
-	if !ok {
-		return headMovedRefusal(head), nil
-	}
-	read, err := inspector.InspectPullRequestHead(ctx, task.WorkspaceID, target.Repository, target.PullRequestNumber, approved)
-	if err != nil {
-		return "", err
-	}
-	if read.SHA != head {
-		// Moved between two reads: the next pass reads it again.
-		return "", fmt.Errorf("the pull request head moved to %s while Kuayle read it", shortSHA(read.SHA))
-	}
-	if read.Change != nil && read.Change.Kind == "rewritten" {
-		return fmt.Sprintf("The pull request head %s no longer contains the approved commit %s, so it was not merged", shortSHA(head), shortSHA(approved)), nil
-	}
-	return "", nil
+// verifiedUpdates walks back from head to from through Kuayle's verified
+// updates of it (mergeGate.updateChain), at most maxMergeUpdates of them: the
+// bound every update before a person approves the merge counts toward (the
+// CI step, the waiting steps). It returns how many there were, or why head is
+// not from or such an update of it. The approved merge pins its head with a
+// longer walk and has its own bound (mergeGate.pin, KUA-277).
+func (w *WorkflowRunner) verifiedUpdates(ctx context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, base, head, from string) (int, string, error) {
+	return w.gate().updateChain(ctx, task.WorkspaceID, target.Repository, base, head, from, maxMergeUpdates)
 }
 
 // branchConflict is the instruction an entered node finished with at once
