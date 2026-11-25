@@ -2,9 +2,10 @@
 
 ## Operators
 
-- [Self-hosting](self-hosting.md): install, update, storage, optional services
-  (Dev Machines, voice, web search), private teams, workspace transfer and
-  upgrade notes.
+- [Self-hosting](self-hosting.md): install, update, instance configuration
+  (every setting the API reads, the few tunable at runtime and their
+  precedence), storage, optional services (Dev Machines, voice, web search),
+  private teams, workspace transfer and upgrade notes.
 - [GitHub integration](github-integration.md): GitHub App setup, webhooks on
   private networks and local development.
 - [Forge integrations](forge-integrations.md): GitLab, Gitea and Forgejo

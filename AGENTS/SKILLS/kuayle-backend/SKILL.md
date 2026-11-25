@@ -91,3 +91,6 @@ For workflow changes, preserve the [stage assistant routing contract](../../../B
 For experimental team workflows (pipelines), follow the [team workflow contract](../../../BE/docs/agent-tasks.md#team-workflows-experimental): the room's permission matrix, verdicts bound to published commits, the tick's fence, and a new situation as a fact rather than a branch in the tick.
 
 For instance settings and notification delivery, follow the [Web Push contract](../../../BE/docs/web-push.md).
+A new environment variable needs an entry in the [config registry](../../../BE/internal/config/registry.go)
+(its test fails otherwise): mark credentials `Secret`, and give it a `Runtime` rule only when every
+reader reads it per use through `InstanceConfigService`; see [instance configuration](../../../TECHNICAL.md#instance-configuration).

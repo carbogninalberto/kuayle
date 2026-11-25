@@ -176,6 +176,9 @@ authentication.
 | GET | `/api/system/backups/settings` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | PUT | `/api/system/backups/settings` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | POST | `/api/system/backups/test-connection` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
+| GET | `/api/system/config` | session only | Instance configuration shows every operator setting and changes the server at runtime; it stays an interactive sysadmin action. |
+| DELETE | `/api/system/config/:name` | session only | Instance configuration shows every operator setting and changes the server at runtime; it stays an interactive sysadmin action. |
+| PUT | `/api/system/config/:name` | session only | Instance configuration shows every operator setting and changes the server at runtime; it stays an interactive sysadmin action. |
 | POST | `/api/system/push/keys` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
 | GET | `/api/system/push/settings` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
 | PUT | `/api/system/push/settings` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |

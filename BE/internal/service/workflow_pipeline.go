@@ -9,16 +9,24 @@ import (
 	"github.com/kuayle/kuayle-backend/internal/domain"
 )
 
-// Pipeline workflows are experimental (KUA-252): a server saves them, and
-// starts tasks on them, only with WORKFLOW_PIPELINES_ENABLED on. Their tick
-// (team_tick.go) runs those tasks; the graph engine never runs a pipeline.
+// Pipeline workflows (KUA-252): a server saves them, and starts tasks on
+// them, only with WORKFLOW_PIPELINES_ENABLED on (the default; a sysadmin can
+// change it at runtime). Their tick (team_tick.go) runs those tasks whatever
+// the switch says; the graph engine never runs a pipeline.
 var ErrPipelinesDisabled = errors.New("pipeline workflows are turned off on this server")
 
-// SetPipelines turns the experimental pipeline workflows on or off.
-func (s *AgentTaskService) SetPipelines(enabled bool) { s.pipelines = enabled }
+// SetPipelines turns the pipeline workflows on or off for good.
+func (s *AgentTaskService) SetPipelines(enabled bool) { s.pipelines = func() bool { return enabled } }
 
-// PipelinesEnabled reports the server's switch; a nil service has it off.
-func (s *AgentTaskService) PipelinesEnabled() bool { return s != nil && s.pipelines }
+// SetPipelineSwitch makes every reader ask enabled, so a change made in
+// Settings -> Instance configuration applies without a restart.
+func (s *AgentTaskService) SetPipelineSwitch(enabled func() bool) { s.pipelines = enabled }
+
+// PipelinesEnabled reports the server's switch; a nil or unwired service has
+// it off.
+func (s *AgentTaskService) PipelinesEnabled() bool {
+	return s != nil && s.pipelines != nil && s.pipelines()
+}
 
 // pipelineRefusal says why raw, when it is a pipeline, cannot be saved or
 // start a task; nil for a graph.

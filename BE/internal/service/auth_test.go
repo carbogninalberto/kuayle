@@ -602,3 +602,25 @@ func TestRefreshTokens_CarriesSSOWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, workspaceID.String(), claims.SSOWorkspaceID)
 }
+
+// DISABLE_REGISTRATION is read on every request, so a change a sysadmin makes
+// in Settings -> Instance configuration applies without a restart.
+func TestRegistrationSwitchIsReadOnEveryRequest(t *testing.T) {
+	disabled := true
+	users := new(mockUserRepo)
+	svc := NewAuthService(users, new(mockRefreshTokenRepo), "test-secret",
+		WithRegistrationSwitch(func() bool { return disabled }))
+	ctx := context.Background()
+	req := dto.RegisterRequest{Email: "taken@example.test", Password: "Password123!!", Name: "New User"}
+
+	_, _, _, err := svc.Register(ctx, req)
+	require.ErrorIs(t, err, ErrRegistrationDisabled)
+	assert.False(t, svc.PublicRegistrationEnabled())
+	users.AssertNotCalled(t, "GetByEmail", mock.Anything, mock.Anything)
+
+	disabled = false
+	assert.True(t, svc.PublicRegistrationEnabled())
+	users.On("GetByEmail", ctx, "taken@example.test").Return(&domain.User{ID: uuid.New()}, nil)
+	_, _, _, err = svc.Register(ctx, req)
+	require.ErrorIs(t, err, ErrEmailTaken, "open again: the request reaches the account checks")
+}

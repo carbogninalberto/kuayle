@@ -2932,8 +2932,13 @@ one, and a task never changes engine: a move between kinds is refused as
 pipelines. Standard stays a graph.
 
 **The switch.** `WORKFLOW_PIPELINES_ENABLED` (`config.WorkflowPipelines`,
-default `false`) is read by the API process; both Compose files pass it
-through (`WORKFLOW_PIPELINES_ENABLED` in `.env`, see `.env.example`).
+default `true`) is read by the API process and the automation worker; both
+Compose files pass it through (`WORKFLOW_PIPELINES_ENABLED` in `.env`, see
+`.env.example`). A sysadmin can override it in Settings -> Instance
+configuration: every reader asks `AgentTaskService.PipelinesEnabled`, which
+reads `InstanceConfigService.PipelinesEnabled` on each use, so the change
+applies without a restart (other replicas within five seconds; see
+[instance configuration](../../TECHNICAL.md#instance-configuration)).
 Off, creating, saving or duplicating a pipeline, making one a default and
 starting a task on one answer `403 PIPELINES_DISABLED` (a delegation from the
 assistant says "Pipeline workflows are turned off on this server"). Saved

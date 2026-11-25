@@ -101,6 +101,7 @@ type appHandlers struct {
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
 	backup            *handler.BackupHandler
+	instanceConfig    *handler.InstanceConfigHandler
 	webhook           *handler.WebhookHandler
 	sharedLink        *handler.SharedLinkHandler
 	upload            *handler.UploadHandler
@@ -249,6 +250,13 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodPost, "/system/backups/run", h.backup.RunNow, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodGet, "/system/backups/runs", h.backup.ListRuns, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodPost, "/system/backups/runs/:id/verify", h.backup.Verify, mw.RejectSSOScopedSession())
+
+	// Instance configuration lists every operator setting (secrets only as
+	// set or not set) and changes the runtime ones: an interactive sysadmin
+	// session that no workspace's SSO minted.
+	sessionOnly(api, http.MethodGet, "/system/config", h.instanceConfig.List, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPut, "/system/config/:name", h.instanceConfig.Update, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodDelete, "/system/config/:name", h.instanceConfig.Reset, mw.RejectSSOScopedSession())
 
 	// Workspaces (no workspace context needed for list/create)
 	scoped(api, http.MethodGet, "/workspaces", h.workspace.List, "workspaces:read")

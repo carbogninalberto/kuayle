@@ -12,14 +12,21 @@ import (
 // ConfigHandler exposes public instance configuration for the frontend
 // bootstrap (no auth required).
 type ConfigHandler struct {
-	registrationEnabled bool
+	registrationEnabled func() bool
 	passkeysEnabled     bool
 	ssoInstanceEnabled  bool
 	ssoAvailable        func(context.Context) (bool, error)
 }
 
 func NewConfigHandler(registrationEnabled bool) *ConfigHandler {
-	return &ConfigHandler{registrationEnabled: registrationEnabled}
+	return &ConfigHandler{registrationEnabled: func() bool { return registrationEnabled }}
+}
+
+// WithRegistration reads whether sign-up is open on every request, so a
+// runtime change to DISABLE_REGISTRATION reaches the sign-in page.
+func (h *ConfigHandler) WithRegistration(enabled func() bool) *ConfigHandler {
+	h.registrationEnabled = enabled
+	return h
 }
 
 // WithPasskeys reports whether this instance can run passkey ceremonies.
@@ -51,7 +58,7 @@ func (h *ConfigHandler) Get(c *echo.Context) error {
 		}
 	}
 	return response.Success(c, http.StatusOK, map[string]bool{
-		"registration_enabled": h.registrationEnabled,
+		"registration_enabled": h.registrationEnabled(),
 		"passkeys_enabled":     h.passkeysEnabled,
 		"sso_enabled_instance": h.ssoInstanceEnabled,
 		"sso_enabled":          ssoEnabled,
