@@ -861,7 +861,7 @@
 	let currentIndex = $derived(issuesState.issues.findIndex(i => i.identifier === issue.identifier));
 </script>
 
-<!-- A comment's body, or its in-place editor while its author edits it. -->
+<!-- Image and file buttons that open the picker of the given RichEditor. -->
 {#snippet attachButtons(editor: () => RichEditor | null | undefined)}
 	<Button variant="ghost" size="icon-sm" class="attachment-button text-[var(--color-text-secondary)]" onclick={() => editor()?.chooseFiles(true)} title={m['sharedComponents.rich_editor.upload_image']()} aria-label={m['sharedComponents.rich_editor.upload_image']()}>
 		<ImagePlus class="size-3.5" />
@@ -871,6 +871,7 @@
 	</Button>
 {/snippet}
 
+<!-- A comment's body, or its in-place editor while its author edits it. -->
 {#snippet commentBody(c: Comment)}
 	{#if editingComment?.id === c.id}
 		<div class="mt-2.5 rounded-md border border-[var(--app-border)] bg-[var(--color-bg-primary)] px-3 py-2" data-testid="comment-editor">
@@ -1420,6 +1421,7 @@
 												disabled={!(replyContents[comment.id]?.trim()) || replyContents[comment.id] === '<p></p>'}
 												class="flex size-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
 												title={m['issue.send']()}
+								aria-label={m['issue.send']()}
 											>
 												<ArrowUp size={14} />
 											</Button>
@@ -1472,6 +1474,7 @@
 								disabled={!newComment.trim() || newComment === '<p></p>'}
 								class="flex size-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
 								title={m['issue.send']()}
+								aria-label={m['issue.send']()}
 							>
 								<ArrowUp size={14} />
 							</Button>
