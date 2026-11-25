@@ -653,6 +653,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/sessions", h.agentTask.Sessions)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/live-messages", h.agentTask.LiveMessages)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/room", h.agentTask.Room)
+	// The files a commit of the task tracks, and one of them a page at a time.
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/files", h.agentTask.Files)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/files/content", h.agentTask.FileContent)
 	scoped(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue, domain.PermAgentTasksRead)
 	// The board of a repository's active tasks has the visibility of the list.
 	scoped(dm, http.MethodGet, "/agent-tasks/board", h.agentTask.Board, domain.PermAgentTasksRead)

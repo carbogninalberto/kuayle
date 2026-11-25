@@ -712,7 +712,12 @@ deadline stops it, and checks only tracked modifications per worktree. rg
 respects the checkout's ignore files, read paths cannot leave the checkout, and
 output, line, file and match counts are bounded. A status or read result's
 `branch` and `commit` name the task's branch ref: an agent that switched
-branches leaves its own working tree, which is what the scan reads.
+branches leaves its own working tree, which is what the scan reads. The `tree`
+and `show` kinds read a commit with `git ls-tree` and `git cat-file` instead of
+the worktree, for a task creator's
+[files at a commit](BE/docs/agent-tasks.md#files-at-a-commit): untracked and
+ignored files are never part of them. A `tree` result may take 4 MiB (migration
+210), enough for 30,000 paths; every other result keeps 64 KiB.
 
 Every task attempt runs inside a tracked [agent session](BE/docs/agent-tasks.md#agent-sessions)
 (migration 84, `agent_sessions`): an implementing task keeps one session across
@@ -1001,6 +1006,7 @@ Workspace policy controls:
 - task machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB; older clients that omit them keep the current values);
 - how many active agent tasks share one task machine (`task_machine_max_tasks`, default 10, 1 to 10; migrations 113 and 117, which kept saved values; rolling 117 back caps limits above 4 at 4; older clients that omit it keep the current value);
 - an optional per-machine override of that limit (`dev_machines.max_tasks`, 1 to 10, migration 156; NULL follows the policy and it can be changed while the machine runs);
+- how many files a task's file listing holds (`task_files_max`, default 30,000, 100 to 30,000; migration 210; older clients that omit it keep the current value), for both [sources of a task's files](BE/docs/agent-tasks.md#files-at-a-commit);
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed;

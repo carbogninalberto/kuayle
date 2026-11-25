@@ -89,6 +89,9 @@ type AgentTaskService struct {
 	// webhooks delivers the issue status changes tasks make; nil until
 	// SetWebhooks wires it.
 	webhooks webhookEmitter
+	// files reads a task's files at a commit; its sources are unavailable
+	// until SetTaskFiles wires them.
+	files *taskFiles
 }
 
 // SetWebhooks makes issue status changes made by tasks deliver workspace
@@ -136,8 +139,9 @@ func (s *AgentTaskService) notePublished(ctx context.Context, task domain.AgentT
 }
 
 func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMachineService, hub *realtime.Hub) *AgentTaskService {
-	service := &AgentTaskService{Repo: repo, machines: machines, store: repo, runtime: &devMachineTaskRuntime{tasks: repo, machines: machines, related: repo}}
+	service := &AgentTaskService{Repo: repo, machines: machines, store: repo, runtime: &devMachineTaskRuntime{tasks: repo, machines: machines, related: repo}, files: &taskFiles{}}
 	if repo != nil {
+		service.files.sources = repo
 		service.runtime.(*devMachineTaskRuntime).attachments = repo
 		service.runtime.(*devMachineTaskRuntime).messages = repo
 		service.runtime.(*devMachineTaskRuntime).live = repo

@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Tugas bagi setiap mesin",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Tugas ejen berkongsi mesin pencipta mereka yang sedang berjalan, masing-masing dalam worktree sendiri, sehingga bilangan ini pada satu masa (1 hingga 10). Ejen mereka berkongsi memori ejen di atas, setiap satu mengekalkan sekurang-kurangnya 1 GB, jadi mesin yang sibuk menjadi perlahan dan bukannya menghentikan ejen. Mesin tugas baharu dicipta hanya apabila setiap mesin yang sesuai sudah penuh.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Sehingga {count} pada satu masa",
+	"settings.dev_machines.task_files_max": "Fail disenaraikan bagi setiap tugas",
+	"settings.dev_machines.task_files_max_desc": "Bilangan maksimum fail yang disenaraikan oleh pepohon fail tugas pada sesuatu commit, dari 100 hingga 30,000. Repositori yang lebih besar menyenaraikan fail pertamanya mengikut laluan.",
 	"settings.dev_machines.monitored_quota_description": "Hos ini tidak menguatkuasakan kuota cakera tegar. Mesin menerima amaran pada 90% daripada had dan dihentikan pada 100%. Semua mesin dihentikan apabila ruang kosong hos jatuh di bawah paras yang dikonfigurasi.",
 	"settings.dev_machines.monitored_quota_title": "Had cakera dipantau",
 	"settings.dev_machines.new_env": "Pembina Persekitaran Baharu",

@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Tasks per machine",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Agent tasks share a running machine of their creator, each in its own worktree, up to this many at a time (1 to 10). Their agents split the agent memory above, each keeping at least 1 GB, so busy machines slow down instead of stopping agents. A new task machine is created only when every suitable machine is full.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Up to {count} at a time",
+	"settings.dev_machines.task_files_max": "Files listed per task",
+	"settings.dev_machines.task_files_max_desc": "The most files a task's file tree lists at a commit, from 100 to 30,000. A larger repository lists its first files by path.",
 	"settings.dev_machines.monitored_quota_description": "This host does not enforce hard disk quotas. Machines receive a warning at 90% of their limit and are stopped at 100%. All machines are stopped when host free space falls below the configured floor.",
 	"settings.dev_machines.monitored_quota_title": "Disk limits are monitored",
 	"settings.dev_machines.new_env": "New Environment Builder",

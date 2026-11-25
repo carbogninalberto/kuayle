@@ -350,6 +350,8 @@ func TestAgentTaskAndWorkflowReadRoutes(t *testing.T) {
 		"GET " + ws + "/agent-tasks/:taskId/sessions":              "session",
 		"GET " + ws + "/agent-tasks/:taskId/debug":                 "session",
 		"GET " + ws + "/agent-tasks/:taskId/live-messages":         "session",
+		"GET " + ws + "/agent-tasks/:taskId/files":                 "session",
+		"GET " + ws + "/agent-tasks/:taskId/files/content":         "session",
 		"POST " + ws + "/agent-tasks/:taskId/cancel":               "session",
 		"POST " + ws + "/workflows":                                "session",
 		"GET " + ws + "/workflows/:workflowId/audit":               "session",

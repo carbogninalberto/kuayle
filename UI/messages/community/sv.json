@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Uppgifter per maskin",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Agentuppgifter delar en körande maskin som tillhör deras skapare, var och en i sin egen worktree, upp till så här många åt gången (1 till 10). Deras agenter delar på agentminnet ovan och får minst 1 GB var, så upptagna maskiner blir långsammare i stället för att agenter stoppas. En ny uppgiftsmaskin skapas bara när alla lämpliga maskiner är fulla.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Upp till {count} åt gången",
+	"settings.dev_machines.task_files_max": "Filer som listas per uppgift",
+	"settings.dev_machines.task_files_max_desc": "Det högsta antalet filer som en uppgifts filträd listar vid en commit, från 100 till 30 000. Ett större repository listar de första filerna efter sökväg.",
 	"settings.dev_machines.monitored_quota_description": "Den här värden tillämpar inga hårda diskkvoter. Maskiner varnas vid 90 % av sin gräns och stoppas vid 100 %. Alla maskiner stoppas när värdens lediga utrymme understiger det konfigurerade golvet.",
 	"settings.dev_machines.monitored_quota_title": "Diskgränser övervakas",
 	"settings.dev_machines.new_env": "Ny miljöbyggare",

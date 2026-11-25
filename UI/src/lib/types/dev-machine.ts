@@ -383,6 +383,8 @@ export interface DevMachinePolicy {
 	task_machine_disk_gb: number;
 	// Active agent tasks sharing one machine before a task gets a new one (1-4).
 	task_machine_max_tasks?: number;
+	// The most files a task's file listing holds (100 to 30,000).
+	task_files_max?: number;
 	disk_quota_mode: 'hard' | 'monitored';
 	size_options?: {
 		cpu_millis: number[];

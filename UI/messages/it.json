@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Task per macchina",
 	"settings.dev_machines.task_machine_max_tasks_desc": "I task degli agenti condividono una macchina in esecuzione del loro autore, ognuno nel proprio worktree, fino a questo numero alla volta (da 1 a 10). I loro agenti si dividono la memoria dell'agente indicata sopra, con almeno 1 GB ciascuno, così una macchina carica rallenta invece di fermare gli agenti. Una nuova macchina viene creata solo quando tutte quelle adatte sono piene.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Fino a {count} alla volta",
+	"settings.dev_machines.task_files_max": "File elencati per task",
+	"settings.dev_machines.task_files_max_desc": "Il numero massimo di file che l'albero dei file di un task elenca a un commit, da 100 a 30.000. Un repository più grande elenca i primi file per percorso.",
 	"settings.dev_machines.monitored_quota_description": "Questo host non applica quote disco rigide. Le macchine ricevono un avviso al 90% del limite e vengono arrestate al 100%. Tutte le macchine vengono arrestate quando lo spazio libero dell'host scende sotto la soglia configurata.",
 	"settings.dev_machines.monitored_quota_title": "Limiti disco monitorati",
 	"settings.dev_machines.new_env": "Nuovo Environment Builder",

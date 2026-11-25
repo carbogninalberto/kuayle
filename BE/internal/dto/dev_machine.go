@@ -384,6 +384,8 @@ type DevMachinePolicyRequest struct {
 	TaskMachineMaxTasks *int `json:"task_machine_max_tasks,omitempty"`
 	// MaxTemporaryMachines is optional: omitted, the current quota is kept.
 	MaxTemporaryMachines *int `json:"max_temporary_machines,omitempty"`
+	// TaskFilesMax is optional: omitted, the current limit is kept.
+	TaskFilesMax *int `json:"task_files_max,omitempty"`
 }
 
 type CollectorEventInput struct {

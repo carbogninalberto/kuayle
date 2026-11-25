@@ -234,6 +234,8 @@ authentication.
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/cancel` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/checks` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/debug` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| GET | `/api/workspaces/:slug/agent-tasks/:taskId/files` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| GET | `/api/workspaces/:slug/agent-tasks/:taskId/files/content` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/history` | token | agent_tasks:read |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/live-messages` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/live-messages` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |

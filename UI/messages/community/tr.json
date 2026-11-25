@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Makine başına görev",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Ajan görevleri, oluşturanın çalışan bir makinesini paylaşır; her biri kendi worktree'sinde olmak üzere aynı anda bu sayıya kadar (1 ile 10). Ajanları yukarıdaki ajan belleğini paylaşır ve her biri en az 1 GB tutar; böylece yoğun makineler ajanları durdurmak yerine yavaşlar. Yeni görev makinesi yalnızca uygun tüm makineler dolu olduğunda oluşturulur.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Aynı anda en fazla {count}",
+	"settings.dev_machines.task_files_max": "Görev başına listelenen dosyalar",
+	"settings.dev_machines.task_files_max_desc": "Bir görevin dosya ağacının bir commit'te listelediği en fazla dosya sayısı, 100 ile 30.000 arası. Daha büyük bir depo ilk dosyalarını yola göre listeler.",
 	"settings.dev_machines.monitored_quota_description": "Bu ana makine kesin disk kotası uygulamaz. Makineler sınırlarının %90'ında uyarı alır ve %100'de durdurulur. Ana makinenin boş alanı yapılandırılan alt sınırın altına düştüğünde tüm makineler durdurulur.",
 	"settings.dev_machines.monitored_quota_title": "Disk sınırları izleniyor",
 	"settings.dev_machines.new_env": "Yeni ortam oluşturucu",

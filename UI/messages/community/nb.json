@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Oppgaver per maskin",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Agentoppgaver deler en kjørende maskin tilhørende oppretteren, hver i sin egen worktree, opptil dette antallet om gangen (1 til 10). Agentene deler agentminnet ovenfor, og hver beholder minst 1 GB, slik at travle maskiner går saktere i stedet for å stoppe agenter. En ny oppgavemaskin opprettes først når alle egnede maskiner er fulle.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Opptil {count} om gangen",
+	"settings.dev_machines.task_files_max": "Filer vist per oppgave",
+	"settings.dev_machines.task_files_max_desc": "Det høyeste antallet filer en oppgaves filtre viser ved en commit, fra 100 til 30 000. Et større repository viser de første filene etter sti.",
 	"settings.dev_machines.monitored_quota_description": "Denne verten håndhever ikke harde diskkvoter. Maskiner får en advarsel ved 90 % av grensen og stoppes ved 100 %. Alle maskiner stoppes når ledig plass på verten faller under den konfigurerte minstegrensen.",
 	"settings.dev_machines.monitored_quota_title": "Diskgrenser overvåkes",
 	"settings.dev_machines.new_env": "Ny miljøbygger",
