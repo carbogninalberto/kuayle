@@ -2,10 +2,10 @@
 
 ## Operators
 
-- [Self-hosting](self-hosting.md): install, update, instance configuration
-  (every setting the API reads, the few tunable at runtime and their
-  precedence), storage, optional services (Dev Machines, voice, web search),
-  private teams, workspace transfer and upgrade notes.
+- [Self-hosting](self-hosting.md) covers installation, upgrades, storage,
+  optional services, private teams and workspace transfer.
+- [Instance configuration](self-hosting.md#instance-configuration) shows where
+  each API setting comes from and which settings a sysadmin can change at runtime.
 - [GitHub integration](github-integration.md): GitHub App setup, webhooks on
   private networks and local development.
 - [Forge integrations](forge-integrations.md): GitLab, Gitea and Forgejo
@@ -18,6 +18,10 @@
 
 ## Users
 
+- [Team workflows](../BE/docs/agent-tasks.md#team-workflows) explains how roles
+  work together in the task room. Use the [pipeline editor](../BE/docs/agent-tasks.md#pipeline-editor-and-templates)
+  to define phases and checks. Follow them in the [run view](../BE/docs/agent-tasks.md#pipeline-run-view)
+  or browse a task commit in the [Files panel](../BE/docs/agent-tasks.md#files-at-a-commit).
 - [Kuayle CLI](cli.md): install with checksum verification, sign in with a token,
   issues, wiki and registry from the terminal or a coding agent.
 - [MCP server](mcp.md): connect Claude Code, Claude Desktop, Cursor or Codex with a

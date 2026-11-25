@@ -138,9 +138,10 @@ frontend build) are not listed, because the backend does not receive them. See
 [instance configuration](../TECHNICAL.md#instance-configuration) for the
 details.
 
-Team workflows (pipelines) are on by default since this release; set
-`WORKFLOW_PIPELINES_ENABLED=false` in `.env`, or switch them off on the page,
-to keep them off.
+[Team workflows](../BE/docs/agent-tasks.md#team-workflows) are on by default
+as of v0.4.0. Switch them off on this page or set
+`WORKFLOW_PIPELINES_ENABLED=false` in `.env`. Tasks already running a
+pipeline continue on their pinned version.
 
 ## Backups
 

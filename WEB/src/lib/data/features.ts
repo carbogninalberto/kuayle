@@ -487,13 +487,15 @@ export const features: ContentRegistry = {
 			},
 			{
 				heading: 'Agent tasks, automations and workflows',
-				body: 'Agents run as tasks you delegate from an issue chat, or that the assistant starts after your approval. Each agent works in its own worktree and branch and reports the tests it ran. Kuayle opens a pull request when the agent finishes. CI failures, review comments and issue comments queue follow-up attempts. Automations delegate matching issues on a label or status, optionally on a schedule, and workspaces can design their own workflows on a canvas.',
+				body: 'Delegate an issue to coding agents and follow their work through review. In a team workflow, implementers and reviewers share a task room with you. You can give them instructions there and assign a lead to coordinate phases, call in reviewers and report progress.',
 				list: [
-					'Delegation from an issue chat, or by the assistant with your approval',
-					'Completed changes open as pull requests ready for review',
-					'Automations on a label or status, attended or unattended by policy',
-					'Editable workflows with review steps and retries',
-					'Agent profiles with instructions and skills'
+					'Design a graph workflow or edit the phases, roles and checks in a team pipeline',
+					'Track checks and review verdicts for the current commit before merge',
+					'Browse the file tree, preview committed files and inspect changes in the Files panel',
+					'Open pull requests from completed work and follow up on CI failures and comments',
+					'Choose agent profiles with their own instructions and skills',
+					'Delegate from issue chat or approve a task suggested by the assistant',
+					'Automate delegation by label or status, optionally on a schedule'
 				]
 			},
 			{
