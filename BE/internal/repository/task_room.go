@@ -160,8 +160,8 @@ type roomPoster struct {
 
 // roomSender says which room a task posts to and as which role. A member's
 // task posts to its root task's room as the member's role. An implementing
-// task pinned to a pipeline is the root of its room and plays the
-// pipeline's writer.
+// task pinned to a pipeline is the root of its room and plays the writer
+// holding its write lock.
 func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) (roomPoster, error) {
 	var member struct {
 		ID     uuid.UUID `db:"id"`
@@ -178,11 +178,11 @@ func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) 
 		return roomPoster{}, err
 	}
 	var row struct {
-		RunID    uuid.UUID  `db:"run_id"`
-		Graph    []byte     `db:"graph"`
-		MemberID *uuid.UUID `db:"member_id"`
+		RunID uuid.UUID       `db:"run_id"`
+		Graph []byte          `db:"graph"`
+		State json.RawMessage `db:"pipeline_state"`
 	}
-	err = r.db.GetContext(ctx, &row, `SELECT t.run_id,v.graph,(SELECT m.id FROM task_members m WHERE m.task_id=t.id AND m.member_task_id IS NULL) AS member_id
+	err = r.db.GetContext(ctx, &row, `SELECT t.run_id,v.graph,t.pipeline_state
  FROM agent_tasks t JOIN workflow_versions v ON v.id=t.workflow_version_id AND v.workspace_id=t.workspace_id
  WHERE t.id=$1 AND t.kind=$2`, taskID, domain.AgentTaskKindImplement)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -198,10 +198,17 @@ func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) 
 	if err != nil {
 		return roomPoster{}, err
 	}
-	if writer, ok := pipeline.Writer(); ok {
-		return roomPoster{taskID: taskID, role: writer.Role, memberID: row.MemberID, runID: row.RunID}, nil
+	// The root task plays the writer holding the write lock: its run is
+	// that writer's turn.
+	writer := pipeline.Holder(domain.PipelineHolderRole(row.State))
+	if writer.Role == "" {
+		return roomPoster{}, ErrTaskRoomUnavailable
 	}
-	return roomPoster{}, ErrTaskRoomUnavailable
+	var memberID *uuid.UUID
+	if err = r.db.GetContext(ctx, &memberID, `SELECT (SELECT id FROM task_members WHERE task_id=$1 AND role=$2 AND member_task_id IS NULL)`, taskID, writer.Role); err != nil {
+		return roomPoster{}, err
+	}
+	return roomPoster{taskID: taskID, role: writer.Role, memberID: memberID, runID: row.RunID}, nil
 }
 
 // RoomMessages lists the room of a pipeline task after a sequence number,

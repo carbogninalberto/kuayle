@@ -106,9 +106,9 @@ func TestPipelineValidationRejects(t *testing.T) {
 		{"a role twice", func(p *Pipeline) { p.Roster = append(p.Roster, PipelineMember{Role: "reviewer", ProfileID: reviewer}) }, "duplicate_role"},
 		{"a profile that does not exist", func(p *Pipeline) { p.Roster[1].ProfileID = uuid.New() }, "missing_profile"},
 		{"no writer", func(p *Pipeline) { p.Roster[0].Writer = false }, "writer_count"},
-		{"two writers", func(p *Pipeline) {
-			p.Roster = append(p.Roster, PipelineMember{Role: "second", ProfileID: implementer, Writer: true})
-		}, "writer_count"},
+		{"a second writer on call", func(p *Pipeline) {
+			p.Roster = append(p.Roster, PipelineMember{Role: "second", ProfileID: implementer, Writer: true, OnCall: true})
+		}, "invalid_writer"},
 		{"a writer that reviews", func(p *Pipeline) { p.Roster[0].ProfileID = reviewer }, "invalid_writer"},
 		{"a writer on call", func(p *Pipeline) { p.Roster[0].OnCall = true }, "invalid_writer"},
 		{"a lead without a profile", func(p *Pipeline) { p.Lead = &PipelineLead{ProfileID: uuid.New()} }, "missing_profile"},
@@ -207,6 +207,10 @@ func TestPipelineRosters(t *testing.T) {
 			p.Roster = append(p.Roster, PipelineMember{Role: "uiux", ProfileID: reviewer, OnCall: true})
 			p.Phases[2].Owner = "uiux"
 		},
+		// Several roles may write code, one at a time (KUA-289).
+		"two writers": func(p *Pipeline) {
+			p.Roster = append(p.Roster, PipelineMember{Role: "frontend", ProfileID: crush, Writer: true})
+		},
 		"roles played by any profile on any harness": func(p *Pipeline) {
 			p.Roster[0].ProfileID = crush
 			p.Roster = append(p.Roster, PipelineMember{Role: "architect", ProfileID: planner}, PipelineMember{Role: "second-opinion", ProfileID: pi, OnCall: true},
@@ -224,10 +228,9 @@ func TestPipelineRosters(t *testing.T) {
 		code   string
 	}{
 		"no writer": {func(p *Pipeline) { p.Roster[0].Writer = false }, "writer_count"},
-		"two writers": {func(p *Pipeline) {
-			p.Roster[1] = PipelineMember{Role: "reviewer", ProfileID: implementer, Writer: true}
-			p.Phases[2].Checks = nil
-		}, "writer_count"},
+		"a second writer that reviews": {func(p *Pipeline) {
+			p.Roster = append(p.Roster, PipelineMember{Role: "frontend", ProfileID: reviewer, Writer: true})
+		}, "invalid_writer"},
 		"a writer on call":        {func(p *Pipeline) { p.Roster[0].OnCall = true }, "invalid_writer"},
 		"a writer that plans":     {func(p *Pipeline) { p.Roster[0].ProfileID = planner }, "invalid_writer"},
 		"a verdict of the writer": {func(p *Pipeline) { p.Phases[2].Checks = []PipelineCheck{verdict("implementer", true)} }, "invalid_check"},
@@ -239,6 +242,21 @@ func TestPipelineRosters(t *testing.T) {
 		c.change(&p)
 		require.Equal(t, []string{c.code}, issueCodes(ValidatePipeline(p, profiles)), name)
 	}
+}
+
+// The write lock (KUA-289) is held by one writer at a time: the one the
+// tick last recorded, or the first writer of the roster while none was.
+func TestThePipelinesWriteLockHolder(t *testing.T) {
+	implementer, reviewer, _ := exampleProfiles()
+	p := TeamPipeline(implementer, reviewer)
+	p.Roster = append(p.Roster, PipelineMember{Role: "frontend", ProfileID: implementer, Writer: true})
+	require.Equal(t, "implementer", p.Holder("").Role)
+	require.Equal(t, "frontend", p.Holder("frontend").Role)
+	require.Equal(t, "implementer", p.Holder("reviewer").Role, "a role that does not write never holds it")
+	require.Equal(t, "implementer", p.Holder("gone").Role)
+	require.Equal(t, "frontend", PipelineHolderRole([]byte(`{"pass":3,"writer":"frontend"}`)))
+	require.Empty(t, PipelineHolderRole([]byte(`{}`)))
+	require.Empty(t, PipelineHolderRole(nil))
 }
 
 // A pipeline saved before on-call roles were read (KUA-258's shape, as the

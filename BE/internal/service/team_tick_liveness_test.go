@@ -26,7 +26,7 @@ import (
 // conflicts, verdicts, the owner's approvals, decisions and posts, member
 // turns that finish, fail or are cancelled, GitHub failing or answering too
 // slowly, script checks, the budget running out, an on-call role addressed
-// or not) play through the scenario
+// or not, a second writer called) play through the scenario
 // tests' world (tickWorld): the real worker, tick, repository and room, with
 // GitHub and the machines faked. After every step the worker takes, the task
 // must be
@@ -38,8 +38,8 @@ import (
 //     owner's approval, a phase a person owns);
 //   - or ended, with no member's turn left running;
 //
-// never idle without a pending wake; and an on-call role nobody addressed
-// by name is never a member. After the sequence everyone cooperates
+// never idle without a pending wake; an on-call role nobody addressed by
+// name is never a member; and no two writers work at once. After the sequence everyone cooperates
 // (GitHub answers, CI passes, the roles commit and approve, the owner
 // approves and continues) and the task must end within tickLivenessSettle
 // rounds, with at most one Continue beyond its budget's: a task that only
@@ -125,6 +125,10 @@ func playTickLiveness(t *testing.T, seed uint64) {
 			pipeline.Roster = append(pipeline.Roster, domain.PipelineMember{Role: "uiux", ProfileID: pipeline.Roster[1].ProfileID, OnCall: true})
 			pipeline.Phases[2].Checks = append(pipeline.Phases[2].Checks, domain.PipelineCheck{ID: "uiux", Fact: domain.PipelineFactVerdict, Role: "uiux"})
 		}
+		if rand.New(rand.NewPCG(seed, 0x7772697465727332)).IntN(3) == 0 {
+			// A second writer, one at a time with the first (KUA-289).
+			pipeline.Roster = append(pipeline.Roster, domain.PipelineMember{Role: "frontend", ProfileID: pipeline.Roster[0].ProfileID, Writer: true})
+		}
 		p = *pipeline
 	})
 	writer, _ := p.Writer()
@@ -195,13 +199,22 @@ func tickLivenessDescribe(p domain.Pipeline) string {
 		}
 		phases = append(phases, fmt.Sprintf("%s(@%s %s)", phase.ID, phase.Owner, strings.Join(checks, ",")))
 	}
-	var onCall []string
+	var onCall, writers []string
 	for _, member := range p.Roster {
 		if member.OnCall {
 			onCall = append(onCall, "@"+member.Role)
 		}
+		if member.Writer {
+			writers = append(writers, "@"+member.Role)
+		}
 	}
-	return fmt.Sprintf("%s; budget %d turns, %s; on call: %v", strings.Join(phases, " "), p.Budget.MaxTurns, p.Budget.Workflow().Policy(), onCall)
+	return fmt.Sprintf("%s; budget %d turns, %s; on call: %v; writers: %v", strings.Join(phases, " "), p.Budget.MaxTurns, p.Budget.Workflow().Policy(), onCall, writers)
+}
+
+// writes reports whether a role of the sequence's pipeline writes code.
+func (l *liveWorld) writes(role string) bool {
+	member, ok := l.p.RosterRole(role)
+	return ok && member.Writer
 }
 
 // onCall is the on-call role of the sequence's pipeline, or "".
@@ -248,7 +261,7 @@ func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 	}
 	r := l.turnRand(role, turn)
 	var played tickTurn
-	if role == l.writer {
+	if l.writes(role) {
 		switch x := r.IntN(10); {
 		case x < 5:
 			played = tickTurn{commit: l.commit(r.IntN(10) < 6), final: "Committed."}
@@ -270,6 +283,9 @@ func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 			if r.IntN(2) == 0 {
 				played.posts = append(played.posts, `{"to":"@`+role+`","kind":"ask","body":"Is the contrast right?"}`)
 			}
+		}
+		if other := l.otherWriter(role); other != "" && r.IntN(6) == 0 {
+			played.posts = append(played.posts, `{"to":"@`+other+`","kind":"ask","body":"Can you take the styling?"}`)
 		}
 	} else {
 		switch x := r.IntN(10); {
@@ -294,8 +310,18 @@ func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 	return played
 }
 
+// otherWriter is a writer of the pipeline other than role, or "".
+func (l *liveWorld) otherWriter(role string) string {
+	for _, member := range l.p.Roster {
+		if member.Writer && member.Role != role {
+			return member.Role
+		}
+	}
+	return ""
+}
+
 func (l *liveWorld) cooperate(role string) tickTurn {
-	if role == l.writer {
+	if l.writes(role) {
 		return tickTurn{commit: l.commit(true), final: "Committed, with the base merged in."}
 	}
 	return tickTurn{final: "Verdict: approve\nLooks right."}
@@ -416,6 +442,11 @@ func (l *liveWorld) dropCheck() {
 func (l *liveWorld) check(settled bool) {
 	l.t.Helper()
 	l.checkOnCall()
+	var writing []string
+	require.NoError(l.t, l.f.db.Select(&writing, `SELECT role FROM task_members WHERE task_id=$1 AND member_task_id IS NULL AND state<>'idle'`, l.root))
+	if holder := l.p.Holder(domain.PipelineHolderRole(l.task().PipelineState)).Role; len(writing) > 1 || len(writing) == 1 && writing[0] != holder {
+		l.violation("writers %v work, and the write lock is the @%s's", writing, holder)
+	}
 	root := l.task()
 	roles, members := l.memberTasks()
 	busy := ""
@@ -627,7 +658,7 @@ func (l *liveWorld) turnEnds() string {
 		turn = l.cooperate(role)
 	case x < 2:
 		turn = tickTurn{fail: "The " + role + "'s run was lost"}
-	case role == l.writer:
+	case l.writes(role):
 		turn = tickTurn{final: "Done."}
 	case x < 6:
 		turn = tickTurn{final: "Verdict: approve\nGood."}
@@ -671,6 +702,9 @@ func (l *liveWorld) ownerSays() string {
 		if !member.Writer {
 			roles = append(roles, member.Role)
 		}
+	}
+	if other := l.otherWriter(l.writer); other != "" {
+		roles = append(roles, other)
 	}
 	role := roles[l.rng.IntN(len(roles))]
 	_, err := l.f.tasks.Repo.PostRoomMessage(l.f.ctx, l.f.ws, l.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Also follow the system theme.", ToRoles: []string{role}})

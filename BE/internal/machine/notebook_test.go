@@ -46,12 +46,17 @@ type notebookStoreFake struct {
 	settles    int
 	unread     time.Time
 	// missingVerdict is the commit a pipeline member's turn owes a verdict
-	// for (MissingVerdict).
+	// for (MissingVerdict); memberCommit the commit it reads (MemberCommit).
 	missingVerdict string
+	memberCommit   string
 }
 
 func (f *notebookStoreFake) MissingVerdict(context.Context, uuid.UUID) (string, error) {
 	return f.missingVerdict, nil
+}
+
+func (f *notebookStoreFake) MemberCommit(context.Context, uuid.UUID) (string, error) {
+	return f.memberCommit, nil
 }
 
 func (f *notebookStoreFake) UnansweredLiveMessages(context.Context, uuid.UUID) ([]int64, error) {
@@ -137,6 +142,15 @@ type notebookRuntimeFake struct {
 	// worktreeChanged is what Kuayle's comparison of the worktree finds.
 	worktreeChanged bool
 	states          int
+	// pinned are the commits worktrees were checked out at; pinErr fails it.
+	pinned []string
+	pinErr error
+}
+
+func (f *notebookRuntimeFake) PinWorktree(_ context.Context, _ []domain.DevMachineService, _ *domain.DevMachineCheckout, commit string) error {
+	f.pinned = append(f.pinned, commit)
+	f.steps = append(f.steps, "pin")
+	return f.pinErr
 }
 
 func (f *notebookRuntimeFake) RemoveClosingContainer(_ context.Context, _ *domain.DevMachine, _ *domain.DevMachineAgentRun, suffix string) error {
@@ -222,8 +236,10 @@ type notebookScenario struct {
 	// is running.
 	shutdownAfterAttempt bool
 	// missingVerdict: the attempt is a member's turn that owes a verdict for
-	// this commit.
+	// this commit; memberCommit: a member's turn that reads this commit.
 	missingVerdict string
+	memberCommit   string
+	pinErr         error
 }
 
 const openCodeConclusion = `{"type":"text","part":{"type":"text","text":"Implemented the toggle and ran the tests."}}`
@@ -274,7 +290,7 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 	sealed, err := cryptoutil.Encrypt("fixture-api-key", make([]byte, 32))
 	require.NoError(t, err)
 	container := "developer"
-	store := &notebookStoreFake{missingVerdict: scenario.missingVerdict, unanswered: scenario.unanswered, updates: scenario.updates, problem: scenario.problem, unchanged: scenario.unchanged, alreadyAsked: scenario.alreadyAsked, managerStoreFake: &managerStoreFake{
+	store := &notebookStoreFake{missingVerdict: scenario.missingVerdict, memberCommit: scenario.memberCommit, unanswered: scenario.unanswered, updates: scenario.updates, problem: scenario.problem, unchanged: scenario.unchanged, alreadyAsked: scenario.alreadyAsked, managerStoreFake: &managerStoreFake{
 		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1},
 		agentRun: run,
@@ -285,7 +301,7 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 	if scenario.noDeveloper {
 		store.services = nil
 	}
-	runtime := &notebookRuntimeFake{takeErr: scenario.takeErr, prepareErr: scenario.prepareErr, failCall: scenario.failCall, worktreeChanged: scenario.worktreeChanged, runtimeFake: &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: scenario.exit, Stdout: scenario.stdout}}}
+	runtime := &notebookRuntimeFake{pinErr: scenario.pinErr, takeErr: scenario.takeErr, prepareErr: scenario.prepareErr, failCall: scenario.failCall, worktreeChanged: scenario.worktreeChanged, runtimeFake: &runtimeFake{agentExecution: &AgentExecution{ContainerID: "agent-container", ExitCode: scenario.exit, Stdout: scenario.stdout}}}
 	if prepared != nil {
 		prepared(runtime)
 	}
@@ -673,6 +689,30 @@ func TestPlanningStepFallsBackToAWritableWorktreeWhenItsOutboxCannotBePrepared(t
 	_, store, runtime = notebookRun(t, notebookScenario{readOnly: true})
 	require.True(t, runtime.runs[0].WorktreeReadOnly)
 	require.Zero(t, store.clearedReadOnly)
+}
+
+// A pipeline member's turn reads its own worktree read-only at the commit
+// it reads (KUA-289): Kuayle checks that commit out first, since the agent
+// cannot. When it cannot, the turn runs on a writable worktree, as on a
+// harness that cannot run read-only; a planning step reads its worktree as
+// it is, and a writable worktree is the agent's to check out.
+func TestAMembersReadOnlyWorktreeIsCheckedOutAtItsCommit(t *testing.T) {
+	commit := strings.Repeat("a", 40)
+	_, store, runtime := notebookRun(t, notebookScenario{readOnly: true, memberCommit: commit})
+	require.Equal(t, []string{commit}, runtime.pinned)
+	require.True(t, runtime.runs[0].WorktreeReadOnly)
+	require.Zero(t, store.clearedReadOnly)
+
+	_, store, runtime = notebookRun(t, notebookScenario{readOnly: true, memberCommit: commit, pinErr: errors.New("exec failed")})
+	require.False(t, runtime.runs[0].WorktreeReadOnly)
+	require.Equal(t, 1, store.clearedReadOnly)
+
+	_, _, runtime = notebookRun(t, notebookScenario{readOnly: true})
+	require.Empty(t, runtime.pinned, "a planning step")
+	require.True(t, runtime.runs[0].WorktreeReadOnly)
+
+	_, _, runtime = notebookRun(t, notebookScenario{checkout: true, memberCommit: commit})
+	require.Empty(t, runtime.pinned, "a writable worktree")
 }
 
 // Notebook updates are redacted like run output before they are recorded:

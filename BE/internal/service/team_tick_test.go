@@ -387,6 +387,10 @@ func (w *tickWorld) finish(role string, turn tickTurn) {
 
 func (r *tickRuntime) role(task domain.AgentTask) string {
 	if task.Kind != domain.AgentTaskKindReview {
+		// The writer holding the write lock.
+		if holder := domain.PipelineHolderRole(r.w.task().PipelineState); holder != "" {
+			return holder
+		}
 		return "implementer"
 	}
 	var role string

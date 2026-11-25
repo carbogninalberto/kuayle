@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -76,7 +77,8 @@ func MemberState(taskState string) string {
 	return MemberIdle
 }
 
-// Writer is the roster member that writes the code.
+// Writer is the roster member whose turn opens a task: the first role that
+// writes code.
 func (p Pipeline) Writer() (PipelineMember, bool) {
 	for _, member := range p.Roster {
 		if member.Writer {
@@ -84,6 +86,27 @@ func (p Pipeline) Writer() (PipelineMember, bool) {
 		}
 	}
 	return PipelineMember{}, false
+}
+
+// Holder is the writer holding a task's write lock (KUA-289), by the role
+// its tick recorded (PipelineHolderRole): only it runs on the task's
+// writable worktree. Before any is recorded it is the first writer.
+func (p Pipeline) Holder(role string) PipelineMember {
+	if member, ok := p.role(role); ok && member.Writer {
+		return member
+	}
+	writer, _ := p.Writer()
+	return writer
+}
+
+// PipelineHolderRole reads the role holding the write lock from a task's
+// pipeline_state; "" while none was recorded.
+func PipelineHolderRole(state json.RawMessage) string {
+	var lock struct {
+		Writer string `json:"writer"`
+	}
+	_ = json.Unmarshal(state, &lock)
+	return lock.Writer
 }
 
 // RosterRole is the roster member that plays a role.

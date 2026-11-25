@@ -823,14 +823,13 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	review := task.Kind == domain.AgentTaskKindReview
 	// A review starts cold, except the turns of a pipeline task's member:
 	// one review task reused across turns, which continues its session.
-	resumes := !review
-	if review && task.Generation > 1 {
-		member, err := r.tasks.TaskMember(ctx, task)
-		if err != nil {
+	var member *domain.TaskMember
+	if review {
+		if member, err = r.tasks.TaskMember(ctx, task); err != nil {
 			return nil, err
 		}
-		resumes = member != nil
 	}
+	resumes := !review || member != nil
 	var previous *domain.AgentHandoff
 	if task.Generation > 1 && resumes {
 		if previous, err = r.tasks.PreviousAttempt(ctx, task); err != nil {
@@ -989,9 +988,10 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	checkout := task.CheckoutID.String()
 	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session, ProfileFiles: profileFiles,
 		PromptSources: assembly.sources(), NotebookRequired: notebook != nil,
-		// A planning step cannot change code: its worktree is read-only where
-		// the harness can run that way.
-		WorktreeReadOnly: planning && domain.ReadOnlyWorktreeSupported(task.Provider)}, task.RunID)
+		// A planning step cannot change code, and a pipeline member reads
+		// while the writer holding the write lock writes (KUA-289): their
+		// worktree is read-only where the harness can run that way.
+		WorktreeReadOnly: (planning || member != nil) && domain.ReadOnlyWorktreeSupported(task.Provider)}, task.RunID)
 }
 
 // taskNotebookSource supplies the notebook an attempt receives.

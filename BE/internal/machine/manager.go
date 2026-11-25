@@ -1505,12 +1505,15 @@ func (m *Manager) runAgent(ctx context.Context, machine *domain.DevMachine, oper
 		// A notebook file an earlier attempt left never counts for this one.
 		m.clearNotebookLeftovers(ctx, machine, run, runServices, checkout)
 	}
-	if !m.prepareOutbox(ctx, machine, run, checkout) && run.WorktreeReadOnly {
+	if prepared := m.prepareOutbox(ctx, machine, run, checkout); run.WorktreeReadOnly && (!prepared || !m.pinWorktree(ctx, machine, run, checkout)) {
 		// Without its .kuayle directory the read-only mount could not keep
-		// the outbox writable and the container would not start: the step
-		// runs with a writable worktree, and the comparison after it guards.
+		// the outbox writable and the container would not start, and a
+		// member's worktree not at its commit could not be read as asked:
+		// the run gets a writable worktree, as on a harness that cannot run
+		// read-only. The comparison after it guards a planning step; a
+		// member's changes are never published.
 		run.WorktreeReadOnly = false
-		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).Warn("the planning step's outbox could not be prepared; its worktree is mounted writable and checked after the run")
+		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).Warn("the read-only worktree could not be prepared; it is mounted writable")
 		if store, ok := m.store.(interface {
 			ClearWorktreeReadOnly(context.Context, uuid.UUID) error
 		}); ok {

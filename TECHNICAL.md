@@ -727,13 +727,16 @@ says CI is unknown.
 
 A task on an experimental [team workflow](BE/docs/agent-tasks.md#team-workflows-experimental)
 (a pipeline, KUA-252; off unless `WORKFLOW_PIPELINES_ENABLED` is set) runs
-its roles as members. The writer's turns are the task's own attempts. Every
+its roles as members. The writers' turns are the task's own attempts, one at a
+time: the writer holding the task's write lock runs on its worktree, and the
+lock moves only between turns (KUA-289). Every
 other role, such as the reviewer, gets one review task of it, created at its
 first turn and run again as the next generation for each later turn, so each
 role keeps one session for the task: a turn resumes it (`claude --resume`,
 `codex exec resume`, `opencode run --session`) when the role's previous turn
-succeeded on the same machine, and otherwise starts with the handoff. Other
-reviews still start cold. The roles and Kuayle talk in the task's room
+succeeded on the same machine, and otherwise starts with the handoff. Such a
+turn reads its worktree read-only at the commit it reviews where the harness
+can run that way. Other reviews still start cold. The roles and Kuayle talk in the task's room
 (migrations 206 and 207), and a tick on the task worker, not the graph
 runner, moves the task from the facts it reads (migration 208).
 
