@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -33,19 +34,54 @@ const (
 	taskFileSniffBytes = 8000
 )
 
-// TaskFile is one tracked file. Changed: the task changed it, by the files
-// its newest attempt that recorded any reported.
-type TaskFile struct {
+// Entry kinds of a directory listing: a subdirectory (a git tree) or a
+// tracked regular file (a blob).
+const (
+	TreeEntryTree = "tree"
+	TreeEntryBlob = "blob"
+)
+
+const (
+	// TaskFileSearchMax bounds the paths one search answers: a filter is
+	// refined, not scrolled.
+	TaskFileSearchMax = 500
+	// TaskFileQueryMax bounds a search text, in bytes.
+	TaskFileQueryMax = 200
+)
+
+// TreeEntry is one entry of a git tree: the name in its directory, its kind,
+// its object id (the tree's or blob's SHA) and a blob's size in bytes. It is
+// what is cached by tree SHA, so it names nothing about a commit or a path.
+type TreeEntry struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	SHA  string `json:"sha,omitempty"`
+	Size *int64 `json:"size,omitempty"`
+}
+
+// TaskFileEntry is one entry of a directory a commit tracks, or one file a
+// search found (Name is then the file's own name and Path locates it).
+// Changed: the task changed the file, by the files its newest attempt that
+// recorded any reported, or, for a directory, a file below it.
+type TaskFileEntry struct {
+	TreeEntry
 	Path    string `json:"path"`
 	Changed bool   `json:"changed"`
 }
 
-// TaskFiles lists the files one commit of a task tracks, sorted by path.
-// Truncated: the listing stops at a bound and later files are missing.
+// TaskFiles is one directory of the files a commit of a task tracks (Path,
+// "" for the root; Tree its git tree SHA when known), directories first and
+// each group by name, or, when Query is set, the files whose path contains it.
+// Truncated: the listing stops at a bound and later entries are missing.
+// Matches is a search's count of all matching files.
 type TaskFiles struct {
-	Commit    string     `json:"commit"`
-	Files     []TaskFile `json:"files"`
-	Truncated bool       `json:"truncated"`
+	Commit    string          `json:"commit"`
+	Path      string          `json:"path"`
+	Tree      string          `json:"tree,omitempty"`
+	Query     string          `json:"query,omitempty"`
+	Entries   []TaskFileEntry `json:"entries"`
+	Matches   int             `json:"matches,omitempty"`
+	Truncated bool            `json:"truncated"`
 }
 
 // TaskFileContent is lines Start to End of one tracked file at Commit.
@@ -197,4 +233,20 @@ func jsonTextPrefix(text []byte, budget int) []byte {
 		i += size
 	}
 	return text
+}
+
+// ValidTaskDirPath reports a directory a listing may name: "" (the root) or
+// a path ValidTaskFilePath accepts; one trailing slash is the caller's to trim.
+func ValidTaskDirPath(name string) bool { return name == "" || ValidTaskFilePath(name) }
+
+// SortTreeEntries orders a directory as its listing shows it: directories
+// first, then files, each by name.
+func SortTreeEntries(entries []TreeEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		if (a.Kind == TreeEntryTree) != (b.Kind == TreeEntryTree) {
+			return a.Kind == TreeEntryTree
+		}
+		return a.Name < b.Name
+	})
 }
