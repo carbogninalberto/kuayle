@@ -3045,8 +3045,19 @@ reviewer's `verdict`), CI checks (implementer; `head_contains_base`,
 `ci_green`, `migration_collision`), approval (human; `approved`) and merge
 (Kuayle, guarded), every check required; the built-in Implementer as the
 writer and Reviewer; no lead; 40 turns and 2,880 minutes, then `ask`.
-Settings shows a pipeline read only, with a notice (`PipelineView.svelte`);
-there is no editor.
+With the switch on, Settings → Workflows edits a pipeline in
+`PipelineEditor.svelte` (KUA-284; state and the saved JSON in
+`pipeline-editor.ts`): the phases drawn on the workflow canvas, left to right
+with no loop edges, and a panel with a form per phase (name, owner, prompt,
+the guarded merge on the last phase, and checks over the closed fact list,
+each required or advisory, with who may waive a required one), the roster
+(role, profile, the one writer, on call), the lead, who approves merging and
+the budget. It saves through `PUT /workflows/:workflowId` like a graph, shows
+`POST /workflows/validate`'s issues on the phase, the roles or the settings
+they concern; members see it read only. The page reads the switch from
+`GET /workflows` (`pipelines_enabled`). The new-workflow dialog offers a blank
+pipeline (one phase worked by the writer). With the switch off, a pipeline is
+shown read only, with a notice (`PipelineView.svelte`).
 
 **Drafting a pipeline from a graph** (KUA-283; `domain/pipeline_draft.go`).
 `POST /workflows/:workflowId/draft-pipeline` (session only, any member who
@@ -3055,7 +3066,11 @@ Standard workflow as the workspace runs it, or the editor's first copy of it)
 answers `200` with `{"pipeline": …, "reasons": []}`, or `"pipeline": null`
 and the reasons, located on steps like the editor's problems. It saves
 nothing and never changes or switches the graph, whose tasks keep running on
-it: a person saves the draft as a new workflow. `DraftPipeline` drafts only
+it: a person saves the draft as a new workflow. Settings → Workflows offers
+**Draft a pipeline** on each graph workflow while the switch is on; it opens
+`/settings/workflows/:workflowId/pipeline-draft`, which shows the draft in
+the pipeline editor, unsaved, whose first save creates the workflow, or lists
+the reasons on the steps they name. `DraftPipeline` drafts only
 from a graph that is one path once the ways back are set aside: a transition
 to a step every path to its source passes through (changes requested, a CI
 failure, a denied approval, a retry) is implied, since an unmet check sends

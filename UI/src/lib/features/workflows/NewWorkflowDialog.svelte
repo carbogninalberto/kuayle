@@ -10,16 +10,26 @@
 	import { m } from '$lib/features/i18n/messages';
 	import { nodeTypeLabel } from './labels';
 	import { starterGraph, starterProfile } from './workflow-graph';
+	import { pipelineForSave, starterPipeline } from './pipeline-editor';
 
 	// Creates a workflow from a template. Blank starts with one agent step run
 	// by the built-in Implementer; the other templates are built by the server.
+	// While the server has pipelines on, a blank pipeline is offered too: one
+	// phase worked by the role that writes the code (the built-in Implementer).
 	let {
 		slug,
+		pipelines = false,
 		oncreated,
 		onclose
-	}: { slug: string; oncreated: (created: WorkflowSummary) => void; onclose: () => void } = $props();
+	}: {
+		slug: string;
+		/** The server has pipelines on. */
+		pipelines?: boolean;
+		oncreated: (created: WorkflowSummary) => void;
+		onclose: () => void;
+	} = $props();
 
-	type Template = 'blank' | 'review_loop' | 'full_cycle' | 'standard';
+	type Template = 'blank' | 'review_loop' | 'full_cycle' | 'standard' | 'pipeline';
 	let name = $state(''),
 		description = $state(''),
 		template = $state<Template>('review_loop'),
@@ -29,7 +39,8 @@
 		review_loop: m['workflows.template_hint_review_loop'],
 		full_cycle: m['workflows.template_hint_full_cycle'],
 		standard: m['workflows.template_hint_standard'],
-		blank: m['workflows.template_hint_blank']
+		blank: m['workflows.template_hint_blank'],
+		pipeline: m['workflows.pipeline_editor.template_hint']
 	};
 
 	async function create(event: SubmitEvent) {
@@ -43,6 +54,11 @@
 				input.graph = starterGraph(
 					{ start: nodeTypeLabel('start'), agent: nodeTypeLabel('agent'), end: nodeTypeLabel('end') },
 					starterProfile(profiles)?.id
+				);
+			} else if (template === 'pipeline') {
+				const { profiles } = await agentProfiles.list(slug);
+				input.graph = pipelineForSave(
+					starterPipeline(m['workflows.pipeline_editor.implement'](), starterProfile(profiles)?.id)
 				);
 			} else input.template = template;
 			const created = await workflows.create(slug, input);
@@ -85,7 +101,8 @@
 						{ value: 'review_loop', label: m['workflows.template_review_loop']() },
 						{ value: 'full_cycle', label: m['workflows.template_full_cycle']() },
 						{ value: 'standard', label: m['workflows.template_standard']() },
-						{ value: 'blank', label: m['workflows.template_blank']() }
+						{ value: 'blank', label: m['workflows.template_blank']() },
+						...(pipelines ? [{ value: 'pipeline' as const, label: m['workflows.pipeline_editor.template']() }] : [])
 					]}
 				/>
 				<p class="text-xs text-muted-foreground">{hints[template]()}</p>
