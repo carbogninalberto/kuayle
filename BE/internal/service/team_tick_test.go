@@ -224,8 +224,9 @@ func (w *tickWorld) exec(query string, args ...any) {
 	require.NoError(w.t, err)
 }
 
-// drain runs the worker until the tasks are quiescent: the worker can claim
-// none, and none waits for a time that has come by the tick's own clock.
+// drain runs the worker until the tasks are quiescent: once every wake that
+// has come by the tick's own clock is due for the worker too, the worker can
+// claim no task.
 func (w *tickWorld) drain() {
 	w.t.Helper()
 	for range 300 {
@@ -235,14 +236,12 @@ func (w *tickWorld) drain() {
 			held = append(held, run.String())
 		}
 		w.exec(`UPDATE agent_tasks SET next_poll_at=CASE WHEN run_id::text=ANY($1) AND state<>'cancelling' THEN now()+interval '1 hour' ELSE now() END`, pq.Array(held))
+		w.wakeDue()
 		ctx, cancel := context.WithTimeout(context.Background(), w.step)
 		task, err := w.f.tasks.Repo.Claim(ctx)
 		require.NoError(w.t, err)
 		if task == nil {
 			cancel()
-			if w.dueByTheTicksClock() {
-				continue
-			}
 			return
 		}
 		if os.Getenv("TICK_TRACE") != "" {
@@ -260,21 +259,18 @@ func (w *tickWorld) drain() {
 	w.t.Fatal("the tasks did not settle")
 }
 
-// dueByTheTicksClock makes the wakes that have come by the tick's clock due
-// for the worker too, and reports whether there were any (KUA-303). The tick
-// writes a wake with its own clock (a wait "at once" is its now), and Claim
-// compares it with the database's now(). The database runs in a container
-// whose clock can lag the test's (about a millisecond on a loaded developer
-// Mac), so a wake that was due looked future and drain stopped early. A wake
-// is compared here only with the clock that set it; one the database set
-// with its own now() is due for Claim already.
-func (w *tickWorld) dueByTheTicksClock() bool {
+// wakeDue makes every wake that has come by the tick's clock due for the
+// worker too (KUA-303). The tick writes a wake with its own clock (a wait
+// "at once" is its now), and Claim compares it with the database's now().
+// The database runs in a container whose clock can lag the test's (about a
+// millisecond on a loaded developer Mac), so a wake that was due could look
+// future to Claim and drain stopped early. A wake is compared here only with
+// the clock that set it; one the database set with its own now() is due for
+// Claim already. It runs right before Claim, so Claim finding nothing means
+// nothing is due by either clock.
+func (w *tickWorld) wakeDue() {
 	w.t.Helper()
-	result, err := w.f.db.Exec(`UPDATE agent_tasks SET workflow_wake_at=now() WHERE workflow_wake_at>now() AND workflow_wake_at<=$1`, w.f.tasks.Workflow().now())
-	require.NoError(w.t, err)
-	woken, err := result.RowsAffected()
-	require.NoError(w.t, err)
-	return woken > 0
+	w.exec(`UPDATE agent_tasks SET workflow_wake_at=now() WHERE workflow_wake_at>now() AND workflow_wake_at<=$1`, w.f.tasks.Workflow().now())
 }
 
 // later lets the time pass that the waiting tasks wait for, and drains.
