@@ -119,3 +119,29 @@ func TestALeadTurnPromptSaysWhatTheLeadDoes(t *testing.T) {
 	require.Contains(t, nothing, "Nothing is published yet")
 	require.NotContains(t, nothing, "# Task room")
 }
+
+// The lead moves the task to a phase of the pipeline and says why (KUA-301);
+// a move to a phase the pipeline does not have, or without a reason, is
+// refused with what the lead can do instead.
+func TestALeadPhaseMoveNamesAPhaseAndAReason(t *testing.T) {
+	p := roomPipeline(true)
+	move := func(phase, why string) string {
+		return TaskRoomRefusal(p, TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, Kind: RoomPhase, Body: why, Data: TaskRoomData{Phase: phase}}, false)
+	}
+	require.Empty(t, move("review", "The writer published the toggle."))
+	require.Equal(t, "a phase move says why: kuayle-say --to @all --phase review \"the reason\"", move("review", " \n"))
+	require.Equal(t, `"ship" is not a phase of this pipeline (implement, pr, review, integrate, approval, merge)`, move("ship", "Ship it."))
+	require.Empty(t, TaskRoomRefusal(roomPipeline(false), TaskRoomPost{AuthorKind: RoomAuthorKuayle, Kind: RoomPhase, Data: TaskRoomData{Phase: "review"}}, false),
+		"Kuayle's own moves, without a lead, need no reason")
+}
+
+// The lead's prompt says how to move the task, and that a move skips no
+// required check before the merge.
+func TestALeadTurnPromptSaysHowToMoveTheTask(t *testing.T) {
+	implementer, reviewer, _ := exampleProfiles()
+	p := TeamPipeline(implementer, reviewer)
+	p.Lead = &PipelineLead{ProfileID: uuid.New()}
+	prompt := LeadTurnPrompt(LeadTurn{Pipeline: p, Phase: "implement"})
+	require.Contains(t, prompt, `kuayle-say --to @all --phase <id> "why"`)
+	require.Contains(t, prompt, "every required check of the phases up to the merge")
+}

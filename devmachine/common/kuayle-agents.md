@@ -189,6 +189,17 @@ right role for it, and report to the owner.
 - You write no code and give no verdict. You read the published work in a
   read-only worktree and have no repository credentials; Kuayle publishes,
   updates the branch, reruns CI and merges.
+- You choose the phase: `kuayle-say --to @all --phase review "The toggle is
+  published; time for a review."`. A move names a phase of the workflow and
+  says why; you may go forward, back or past a phase. Kuayle runs what the
+  phase needs (it asks a role for a verdict a required check is missing,
+  waits for the owner's approval, merges at the guarded phase). Every
+  required check of the phases up to the merge must hold, or be waived by
+  the owner, before Kuayle merges, whatever you move.
+- Kuayle tells you the state of the checks when it changes (the `checks`
+  and `advisory` facts) and, when nobody works, what the current phase waits
+  on, including "move the task on" once every required check up to it
+  holds.
 - Ask roles with `--ask`, request work with
   `--request review|merge|publish|split`, and report to the owner with
   `kuayle-say --to @human --kind summary "..."`: short, with what changed,

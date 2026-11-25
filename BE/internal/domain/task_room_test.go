@@ -130,7 +130,7 @@ func TestTaskRoomLimitsAndShape(t *testing.T) {
 	lead := func(data TaskRoomData) string {
 		return TaskRoomRefusal(p, TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, Kind: RoomPhase, Data: data}, false)
 	}
-	require.Equal(t, `"ship" is not a phase of this pipeline`, lead(TaskRoomData{Phase: "ship"}))
+	require.Equal(t, `"ship" is not a phase of this pipeline (implement, pr, review, integrate, approval, merge)`, lead(TaskRoomData{Phase: "ship"}))
 	kuayle := TaskRoomPost{AuthorKind: RoomAuthorKuayle, Kind: RoomFact, Data: TaskRoomData{Value: json.RawMessage(`true`)}}
 	require.Equal(t, "a fact names the fact", TaskRoomRefusal(p, kuayle, false))
 	kuayle.Data = TaskRoomData{Fact: "ci_green", Value: json.RawMessage(`"` + strings.Repeat("x", RoomMaxBodyBytes) + `"`)}

@@ -3265,7 +3265,10 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   (`domain.LeadTurnPrompt`) says it manages, writes no code and gives no
   verdict, and lists the team, the phases with their checks (required or
   advisory) and the current phase, how to post (questions, requests,
-  `summary` to `@human`) and its room. The room refuses its `verdict`,
+  `summary` to `@human`), how to move the task (`kuayle-say --to @all
+  --phase <id> "why"`, KUA-301) and its room. A `phase` move needs a phase
+  of the pipeline and a reason; anything else is refused, with the phases
+  it may name. The room refuses its `verdict`,
   `fact`, `grant`, and a `waiver` of a check nobody granted it, each with a
   reason it can act on (for example "the lead may not post verdict: the lead
   gives no verdict; ask a role that reviews with --request review"), shown at
@@ -3465,7 +3468,18 @@ person decides. One pass:
 2. posts the facts that changed and each script check's result once;
 3. takes the first phase with a required check that does not hold and is not
    waived for the head as the current one (the last phase when every check
-   holds), and posts `phase` when it changes;
+   holds), and posts `phase` when it changes. With a lead (KUA-301,
+   `service/team_lead.go`) the tick derives no phase: the task is in the
+   phase the lead last moved it to (the first one until it moves), and its
+   unmet checks are the required checks of that phase and of every phase
+   before it that do not hold and are not waived, so a move skips no check
+   the merge needs. When they all hold before the last phase, the lead owes
+   the next move, which is unmet as a check of its own (`phase:<id>`, "move
+   the task on"). With a lead, Kuayle also posts the checks' states to the
+   lead when they change: a `checks` fact for the required ones and an
+   `advisory` fact for the others (each a map from check ID to `met`,
+   `unmet`, `waiting` or `waived`, with the reasons of those that do not
+   hold; a check that cannot be read keeps its last state);
 4. completes the task when the pull request is merged, and publishes a
    finished turn of the writer that was not published yet;
 5. starts the script checks of the phases up to the current one that have no
@@ -3477,9 +3491,9 @@ person decides. One pass:
    holds for the head as many again counted from the approved head, so a busy
    base cannot spend the approved merge's updates; KUA-277); runs the failed Actions jobs
    once more when CI still fails on a head the writer was already sent and
-   did not change; asks each role whose verdict the current phase requires
-   and that has none for the head, once per head; and waits for the owner's
-   approval at a phase with an unmet `approved` check;
+   did not change; asks each role whose verdict an unmet required check
+   needs and that has none for the head, once per head; and waits for the
+   owner's approval when an `approved` check is unmet;
 7. at the guarded last phase, once every required check holds, merges
    through the merge gate as the person who approved the head (the creator
    when the approval was waived), who must still be allowed to decide. A
@@ -3495,7 +3509,8 @@ person decides. One pass:
    above);
 9. when nobody works, nothing is under way and nothing is awaited, posts the
    current phase's unmet checks with their reasons as a `summary` to the
-   phase's owner (the writer for a phase Kuayle owns), and to the writer as
+   lead, or without a lead to the phase's owner (the writer for a phase
+   Kuayle owns), and to the writer as
    well when only the writer can move a verdict check, whoever owns the
    phase: the role's verdict on the head did not approve it, or the role
    reviewed the newest commit Kuayle published and the head is another one
@@ -3535,10 +3550,11 @@ verdicts, the owner's approvals, decisions and posts, member turns that
 finish, fail or are cancelled, publications under way for a pass or two,
 GitHub failing or answering too slowly, script check results, merges
 refused, the budget running out, another task on the repository's board
-moving, other work taking the machine's task slots) through the scenario
-tests' worker, tick, repository and room. After every worker step the
-task must be working (a turn or its publication under way), waiting on a
-fact that changes by itself
+moving, other work taking the machine's task slots, and in half the seeds
+a lead that moves the task at random and posts what it may not; KUA-301)
+through the scenario tests' worker, tick, repository and room. After
+every worker step the task must be working (a turn or its publication
+under way), waiting on a fact that changes by itself
 with a wake at most one poll away, waiting on a person (paused, or the clock
 held for a person), or ended with no member's turn left running; the room
 must never have heard of a publication still under way; and the writer never
@@ -3566,9 +3582,9 @@ never lost.
 `sequence` the person saw, from the creator or an owner or admin who can see
 the issue, as for a graph workflow (offered in the task's workflow panel):
 
-- `approve`, where the current phase has an `approved` check and the task
-  waits, records that person's approval of the head the room last named and
-  starts a new merge;
+- `approve`, where the current phase (with a lead, any phase up to it) has
+  an `approved` check and the task waits, records that person's approval of
+  the head the room last named and starts a new merge;
 - `continue`, where the tick paused, asks every role again, counts stalls
   and waits anew, tries a refused merge again and grants another budget of
   the same size when it is used up;
@@ -3642,9 +3658,8 @@ workflow's steps, the Checks tab), with the models in
 **Limits of this first version.**
 
 - The lead takes a turn only when its unread posts call for one, as a role
-  that is not on call does, and Kuayle still derives the phase (with a
-  `lead` set it posts no `phase` move, and the lead's own moves change
-  nothing yet). `autonomy` is not read:
+  that is not on call does (the checks Kuayle posts to it, a stall summary,
+  a post addressed to it, or talk to everyone). `autonomy` is not read:
   approving is a person's decision and waiving the creator's, and a `grant`
   is stored but grants nothing until there is a lead.
 - Writers write one at a time, on the root task; the other roles never

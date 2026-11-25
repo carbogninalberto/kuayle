@@ -17,6 +17,7 @@ const MAX_RUNES = 4000;
 const USAGE = `usage: kuayle-say --to @role|@all [--ask | --kind KIND] [--reply-to N] [--file PATH] [TEXT...]
        kuayle-say --to @role --verdict approve|request_changes|comment [--commit SHA] [--file FINDINGS]
        kuayle-say --to @role --request review|merge|publish|split [TEXT...]
+       kuayle-say --to @all --phase PHASE REASON... (the lead moves the task)
 The text is the remaining arguments, or --file, or standard input with "-".`;
 
 function fail(message) {
@@ -95,7 +96,11 @@ function main() {
     if (!REQUESTS.includes(opts.action)) fail(`--request is one of ${REQUESTS.join(', ')}`);
     data.action = opts.action;
   }
-  if (opts.kind === 'phase') data.phase = opts.phase;
+  if (opts.kind === 'phase') {
+    if (!opts.phase || !opts.phase.trim()) fail('--phase names a phase of the workflow');
+    if (!body) fail('say why the task moves: kuayle-say --to @all --phase ID "reason"');
+    data.phase = opts.phase.trim();
+  }
   if (Object.keys(data).length) message.data = data;
   if (opts.replyTo !== undefined) {
     const n = Number(opts.replyTo);

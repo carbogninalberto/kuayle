@@ -212,8 +212,16 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 			return "a verdict is approve, request_changes or comment, for a commit"
 		}
 	case RoomPhase:
-		if !slices.ContainsFunc(p.Phases, func(phase PipelinePhase) bool { return phase.ID == d.Phase }) {
-			return fmt.Sprintf("%q is not a phase of this pipeline", d.Phase)
+		ids := make([]string, 0, len(p.Phases))
+		for _, phase := range p.Phases {
+			ids = append(ids, phase.ID)
+		}
+		if !slices.Contains(ids, d.Phase) {
+			return fmt.Sprintf("%q is not a phase of this pipeline (%s)", d.Phase, strings.Join(ids, ", "))
+		}
+		// The lead moves the task (KUA-301) and says why.
+		if lead && strings.TrimSpace(post.Body) == "" {
+			return fmt.Sprintf("a phase move says why: kuayle-say --to @all --phase %s \"the reason\"", d.Phase)
 		}
 	case RoomRequest:
 		if !slices.Contains(roomRequests, d.Action) {

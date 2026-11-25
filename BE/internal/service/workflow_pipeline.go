@@ -127,12 +127,21 @@ func (s *AgentTaskService) decidePipeline(ctx context.Context, ws, id uuid.UUID,
 		st := readTickState(task)
 		now := s.workflow.now()
 		apply := &repository.PipelineApply{Sequence: sequence, Phase: deref(task.WorkflowNode), Entry: repository.WorkflowEntry{Kind: repository.WorkflowEnterWait, WakeAt: &now}}
-		phase := p.Phases[max(slices.IndexFunc(p.Phases, func(phase domain.PipelinePhase) bool { return phase.ID == apply.Phase }), 0)]
+		index := max(slices.IndexFunc(p.Phases, func(phase domain.PipelinePhase) bool { return phase.ID == apply.Phase }), 0)
+		phase := p.Phases[index]
+		// The owner approves where the current phase needs it, or, with a
+		// lead, any phase up to it: their checks all guard the merge.
+		approvable := p.Phases[index : index+1]
+		if p.Lead != nil {
+			approvable = p.Phases[:index+1]
+		}
 		switch {
 		case *task.WorkflowStatus == domain.WorkflowStatusWaiting && decision == WorkflowDecisionApprove && task.State == "awaiting_review":
 			var head string
 			_ = json.Unmarshal(st.Facts["head_sha"], &head)
-			if head == "" || !slices.ContainsFunc(phase.Checks, func(c domain.PipelineCheck) bool { return c.Fact == domain.PipelineFactApproved }) {
+			if head == "" || !slices.ContainsFunc(approvable, func(phase domain.PipelinePhase) bool {
+				return slices.ContainsFunc(phase.Checks, func(c domain.PipelineCheck) bool { return c.Fact == domain.PipelineFactApproved })
+			}) {
 				return nil, ErrWorkflowDecision
 			}
 			// A new approval starts a new merge.
