@@ -5,9 +5,10 @@ import type { TaskMessage } from '$lib/api/agent-tasks';
 // posts is a row each. Kuayle's facts in a row fold into one row; its phase
 // moves, the owner's approval and what it tells the owner stand alone. A
 // role's turn is one run of its agent: everything the turn posted is one
-// row, where its first post is, and opens the run's transcript. The server
-// decides who may read the room and orders it; this only shapes what it
-// returned.
+// row, where its first post is, and opens the run's transcript. A turn that
+// has not posted yet is a row too, from its run, where it started (KUA-321),
+// so a running turn is never missing. The server decides who may read the
+// room and orders it; this only shapes what it returned.
 
 /** The most posts one read of the room returns. */
 export const ROOM_PAGE = 200;
@@ -27,6 +28,8 @@ export type RoomRow =
 			role: string;
 			/** The run of the turn; null for a role's post outside a turn. */
 			runId: string | null;
+			/** When the turn started, where it stands before its first post. */
+			startedAt?: string;
 			/** Oldest first. */
 			messages: TaskMessage[];
 			/** The turn's verdict, the last the room took. */
@@ -47,10 +50,30 @@ const decides = (message: TaskMessage) =>
 const folds = (message: TaskMessage) =>
 	message.author_kind === 'kuayle' && message.kind === 'fact' && !approval(message) && !message.to_roles?.includes('human');
 
-/** The rows of a room, oldest first. */
-export function roomRows(messages: readonly TaskMessage[]): RoomRow[] {
+/** A turn of a role on the task, as its run says it: who, which run, when it started. */
+export interface RoomTurn {
+	id: string;
+	role: string;
+	at: string;
+}
+
+const rowTime = (row: RoomRow) =>
+	Date.parse(
+		row.type === 'member'
+			? (row.messages[0]?.created_at ?? row.startedAt ?? '')
+			: row.type === 'facts'
+				? row.messages[0].created_at
+				: row.message.created_at
+	);
+
+/**
+ * The rows of a room, oldest first. A turn in `turns` that has no post in
+ * the room is a row of its own, with no messages, before the first row that
+ * came after it started; a turn that posted keeps the row its posts made.
+ */
+export function roomRows(messages: readonly TaskMessage[], turns: readonly RoomTurn[] = []): RoomRow[] {
 	const rows: RoomRow[] = [];
-	const turns = new Map<string, Extract<RoomRow, { type: 'member' }>>();
+	const named = new Map<string, Extract<RoomRow, { type: 'member' }>>();
 	for (const message of [...messages].sort((a, b) => a.seq - b.seq)) {
 		if (message.author_kind !== 'member') {
 			const last = rows.at(-1);
@@ -67,7 +90,7 @@ export function roomRows(messages: readonly TaskMessage[]): RoomRow[] {
 			continue;
 		}
 		const runId = message.run_id;
-		let turn = runId ? turns.get(runId) : undefined;
+		let turn = runId ? named.get(runId) : undefined;
 		if (!turn) {
 			turn = {
 				type: 'member' as const,
@@ -78,7 +101,7 @@ export function roomRows(messages: readonly TaskMessage[]): RoomRow[] {
 				asks: false,
 				decision: false
 			};
-			if (runId) turns.set(runId, turn);
+			if (runId) named.set(runId, turn);
 			rows.push(turn);
 		}
 		turn.messages.push(message);
@@ -86,19 +109,45 @@ export function roomRows(messages: readonly TaskMessage[]): RoomRow[] {
 		if (taken(message) && message.kind === 'verdict' && message.data?.verdict) turn.verdict = message.data.verdict;
 		if (decides(message)) turn.decision = true;
 	}
+	for (const turn of [...turns].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))) {
+		if (named.has(turn.id)) continue;
+		const row: Extract<RoomRow, { type: 'member' }> = {
+			type: 'member',
+			key: `run-${turn.id}`,
+			role: turn.role,
+			runId: turn.id,
+			startedAt: turn.at,
+			messages: [],
+			asks: false,
+			decision: false
+		};
+		named.set(turn.id, row);
+		const after = rows.findIndex((other) => rowTime(other) > Date.parse(turn.at));
+		rows.splice(after < 0 ? rows.length : after, 0, row);
+	}
 	return rows;
 }
 
 /**
  * Whether a row starts open: a role's turn that holds a split the owner has
  * not approved yet (roomSplits), so the proposal and its approval are in view
- * in the folded thread (KUA-309). Every other turn starts folded.
+ * in the folded thread (KUA-309), or one still running (`live`, the ids of
+ * the runs that have not ended), so its stream is in view (KUA-321). Every
+ * other turn starts folded, and a running one folds when it ends.
  */
-export function openByDefault(row: RoomRow, splits: ReturnType<typeof roomSplits>): boolean {
-	return row.type === 'member' && row.messages.some((message) => {
-		const split = splits.get(message.seq);
-		return !!split && !split.approved;
-	});
+export function openByDefault(
+	row: RoomRow,
+	splits: ReturnType<typeof roomSplits>,
+	live: ReadonlySet<string> = new Set()
+): boolean {
+	return (
+		row.type === 'member' &&
+		((!!row.runId && live.has(row.runId)) ||
+			row.messages.some((message) => {
+				const split = splits.get(message.seq);
+				return !!split && !split.approved;
+			}))
+	);
 }
 
 /** The roles a row concerns: the role that wrote it, or the roles it was addressed to. */

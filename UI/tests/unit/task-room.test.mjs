@@ -290,3 +290,54 @@ test('a turn holding a split the owner has not approved opens by default, so its
 	rows = roomRows(room);
 	assert.equal(openByDefault(rows[0], roomSplits(room)), false, 'once approved it folds like any turn');
 });
+
+// A turn that has not posted yet is still a turn (KUA-321): its row comes
+// from its run, and a run whose turn posted joins that turn's row.
+const turn = (id, role, minute) => ({ id, role, at: at(minute) });
+
+test('a turn that is running and has not posted is a row of its own, with no messages', () => {
+	const rows = roomRows([owner(1, 'Go.'), kuayle(2, 'phase', { phase: 'implement' })], [turn('run-impl-1', 'implementer', 3)]);
+	assert.deepEqual(shape(rows), [
+		['owner', 1],
+		['kuayle', 2],
+		['member', 'implementer', 'run-impl-1', []]
+	]);
+	assert.equal(rows[2].key, 'run-run-impl-1');
+	assert.equal(rows[2].decision, false);
+});
+
+test("a run whose turn posted adds no row: the turn's row keeps its key and its posts", () => {
+	const room = [owner(1, 'Go.'), member(2, 'implementer', 'run-impl-1', 'say', 'Working on it.')];
+	const rows = roomRows(room, [turn('run-impl-1', 'implementer', 1)]);
+	assert.deepEqual(shape(rows), [
+		['owner', 1],
+		['member', 'implementer', 'run-impl-1', [2]]
+	]);
+	assert.equal(rows[1].key, roomRows(room)[1].key, 'the row does not remount when the first post arrives');
+});
+
+test("a turn without posts stands where it started among the room's rows", () => {
+	const rows = roomRows(
+		[owner(1, 'Go.'), member(3, 'reviewer', 'run-rev-1', 'say', 'Seen.'), owner(5, 'Thanks.')],
+		[turn('run-impl-1', 'implementer', 2), turn('run-rev-2', 'reviewer', 9)]
+	);
+	assert.deepEqual(shape(rows), [
+		['owner', 1],
+		['member', 'implementer', 'run-impl-1', []],
+		['member', 'reviewer', 'run-rev-1', [3]],
+		['owner', 5],
+		['member', 'reviewer', 'run-rev-2', []]
+	]);
+});
+
+test('a room without runs keeps its rows', () => {
+	assert.deepEqual(shape(roomRows([owner(1, 'Go.')], [])), [['owner', 1]]);
+	assert.deepEqual(shape(roomRows([owner(1, 'Go.')])), [['owner', 1]]);
+});
+
+test('a turn that is running starts open and a finished one folds', () => {
+	const rows = roomRows([], [turn('run-impl-1', 'implementer', 1)]);
+	assert.equal(openByDefault(rows[0], roomSplits([]), new Set(['run-impl-1'])), true);
+	assert.equal(openByDefault(rows[0], roomSplits([]), new Set()), false, 'finished: folded like the others');
+	assert.equal(openByDefault(rows[0], roomSplits([])), false);
+});

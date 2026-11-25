@@ -19,7 +19,8 @@
 	import AgentStepRun from './AgentStepRun.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import TurnLine from './TurnLine.svelte';
-	import { factLabel, foldText, openByDefault, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow } from './task-room';
+	import { factLabel, foldText, openByDefault, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow, type RoomTurn } from './task-room';
+	import { activeRun } from './task-column';
 	import { shownRows, turnSummary, workTokens, type ThreadFilter } from './thread-rows';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
@@ -56,7 +57,17 @@
 	type Facts = Extract<RoomRow, { type: 'facts' }>;
 
 	const room = $derived(chat.taskRooms[task.id] ?? []);
-	const rows = $derived(roomRows(room));
+	// A turn is a row from its run, before it posts (KUA-321): a running turn
+	// is never missing. A run names its role; the task's own attempts, its
+	// writer's turns, may not.
+	const writer = $derived(run.pipeline?.roster.find((member) => member.writer)?.role);
+	const turns = $derived(
+		(run.view?.runs ?? []).flatMap((item): RoomTurn[] => {
+			const role = item.role ?? (item.task_id === task.id ? writer : undefined);
+			return role ? [{ id: item.id, role, at: item.started_at ?? item.created_at }] : [];
+		})
+	);
+	const rows = $derived(roomRows(room, turns));
 	const shown = $derived(shownRows(rows, filter, rowRoles, (row) => !!row.decision));
 	const splits = $derived(roomSplits(room));
 	let approving = $state<number | null>(null);
@@ -84,6 +95,8 @@
 		for (const row of unknown) asked.add((row as Turn).runId!);
 		untrack(() => void run.load());
 	});
+	// The turns that have not ended: they start open, with their stream.
+	const live = $derived(new Set([...runs.values()].filter((item) => activeRun.has(item.status)).map((item) => item.id)));
 	const turnRun = (row: Turn): WorkflowStepRun | undefined =>
 		row.runId
 			? (runs.get(row.runId) ?? {
@@ -92,7 +105,7 @@
 					provider: '',
 					model: '',
 					status: '',
-					created_at: row.messages[0].created_at
+					created_at: row.messages[0]?.created_at ?? row.startedAt ?? ''
 				})
 			: undefined;
 	const turnStatus = (status: string): Status | undefined =>
@@ -114,8 +127,9 @@
 		return ms === undefined || ms < 1000 ? '' : formatDuration(ms);
 	}
 	let opened = $state<Record<string, boolean>>({});
-	// A turn holding a split the owner has not approved starts open.
-	const turnOpen = (row: RoomRow) => opened[row.key] ?? openByDefault(row, splits);
+	// A turn holding a split the owner has not approved, or still running,
+	// starts open; a running one folds when it ends.
+	const turnOpen = (row: RoomRow) => opened[row.key] ?? openByDefault(row, splits, live);
 
 	const phaseLabel = (id = '') => run.pipeline?.phases.find((phase) => phase.id === id)?.label || id;
 	const verdictLabel: Record<string, () => string> = {
@@ -368,7 +382,7 @@
 			>
 				<TurnLine
 					role={row.role}
-					summary={turnSummary(known, row.messages)}
+					summary={turnSummary(known, row.messages) || (live.has(row.runId ?? '') ? m['tasks.member_working']() : '')}
 					duration={known ? turnTime(known, status) : ''}
 					startedAt={known?.started_at ?? known?.created_at}
 					tokens={known ? workTokens([known]) : undefined}
