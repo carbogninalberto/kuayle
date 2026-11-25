@@ -1,12 +1,14 @@
 package repository
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -288,7 +290,21 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 			return nil, err
 		}
 		if sent >= budget {
-			return nil, ErrTaskRoomRateLimited
+			// A role is told at its next turn, once an hour, that its posts
+			// are dropped: its first post over the limit is kept, refused
+			// (KUA-315). A person hears 429 at once.
+			told := post.AuthorKind != domain.RoomAuthorMember
+			if !told {
+				if err = tx.GetContext(ctx, &told, `SELECT EXISTS(SELECT 1 FROM task_messages WHERE task_id=$1 AND author_kind='member' AND author_role=$2
+ AND dedupe_key LIKE 'room-limit:%' AND created_at>now()-interval '1 hour')`, task.ID, post.AuthorRole); err != nil {
+					return nil, err
+				}
+			}
+			if told {
+				return nil, ErrTaskRoomRateLimited
+			}
+			post.Refused = fmt.Sprintf("the @%s's hourly limit of %d room posts is spent, so Kuayle drops its posts until the hour has passed; say what matters in fewer posts", post.AuthorRole, budget)
+			post.DedupeKey = "room-limit:" + post.AuthorRole + ":" + cmp.Or(post.DedupeKey, uuid.NewString())
 		}
 	}
 	post = post.Clean()

@@ -193,7 +193,12 @@ func TestTaskRoomRateLimits(t *testing.T) {
 		_, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", kind, "Note", domain.TaskRoomData{Check: "ci"}))
 		require.NoError(t, err)
 	}
-	_, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", domain.RoomSay, "One more", domain.TaskRoomData{}))
+	// The first post over the budget is kept, refused, so the role hears of
+	// it (KUA-315); the next ones are dropped.
+	told, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", domain.RoomSay, "One more", domain.TaskRoomData{}))
+	require.NoError(t, err)
+	require.NotNil(t, told.RejectReason)
+	_, err = f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", domain.RoomSay, "Two more", domain.TaskRoomData{}))
 	require.ErrorIs(t, err, ErrTaskRoomRateLimited)
 	_, err = f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("implementer", domain.RoomSay, "Mine", domain.TaskRoomData{}))
 	require.NoError(t, err, "the budget is per sender")

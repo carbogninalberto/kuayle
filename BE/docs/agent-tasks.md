@@ -3184,7 +3184,9 @@ Text is at most 16 KiB, 4,000 characters from agents, and `say` and `ask`
 need some; the structured part is at most 16 KiB. Each sender has an hourly
 budget, refusals included: 20 posts per role (the agent messages' limit) and
 30 for the creator (the live channel's, `429 ROOM_MESSAGE_LIMIT`); Kuayle has
-none, and a role's post over its budget is dropped. A person's refused post
+none. A role's first post over its budget in the hour is kept as a refused
+post, so the role hears at its next turn that its posts are dropped
+(KUA-315); its later posts that hour are dropped. A person's refused post
 is not stored (`400 ROOM_POST_REFUSED` with the reason). A role's refused post
 is stored with its `reject_reason` (200 characters), without recipients or
 data, is never delivered and is shown to its sender at its next turn. Every
