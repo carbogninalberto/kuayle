@@ -881,9 +881,16 @@ func (t *tickPass) wait(why string, poll bool) repository.WorkflowEntry {
 	if poll {
 		wake = ptr(t.now.Add(tickPoll))
 	}
-	// The time budget also ends a wait.
-	if deadline := (domain.WorkflowGraph{Budget: t.p.Budget.Workflow()}).BudgetDeadline(t.task.Cursor()); deadline != nil && !t.person && (wake == nil || deadline.Before(*wake)) {
-		wake = deadline
+	// The time budget also ends a wait; one that has passed (a pass that
+	// could not read GitHub could not stop the task) is looked at again
+	// after a poll, not at once.
+	if deadline := (domain.WorkflowGraph{Budget: t.p.Budget.Workflow()}).BudgetDeadline(t.task.Cursor()); deadline != nil && !t.person {
+		if !deadline.After(t.now) {
+			deadline = ptr(t.now.Add(tickPoll))
+		}
+		if wake == nil || deadline.Before(*wake) {
+			wake = deadline
+		}
 	}
 	entry.WakeAt = wake
 	return entry

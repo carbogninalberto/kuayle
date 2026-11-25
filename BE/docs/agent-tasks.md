@@ -3308,7 +3308,8 @@ the pull request's base branch (`WakeBaseBranchWaits`, also while the owner is
 awaited), the end of a
 member's turn or of a script check's run, a person's post, decision or
 resume, and the tick's own poll or the time budget's end (not while a person
-is awaited). A pull request merged on GitHub completes the task
+is awaited; an end that has passed, because a pass could not read GitHub to
+stop the task, is looked at again after a poll). A pull request merged on GitHub completes the task
 directly. A wake that lands while a pass runs is kept: the pass stores the
 earlier of that wake and its own (`PipelineApply.ClaimedWake`), so it is
 never lost.
