@@ -112,3 +112,12 @@ func TestAnOnCallRoleWakesOnlyWhenAddressed(t *testing.T) {
 	review.Data.Action = RoomRequestReview
 	require.True(t, RoomReviewRequested(uiux, RoomInbox("uiux", append(addressed, review))))
 }
+
+func TestBroadcastApprovalDoesNotWakeWriter(t *testing.T) {
+	approval := roomPost(1, RoomRequest, RoomAuthorMember, PipelineLeadRole, nil, "")
+	approval.Data.Action = "approve"
+	writer := PipelineMember{Role: "implementer", Writer: true}
+	require.False(t, RoomWakes(writer, []TaskMessage{approval}))
+	approval.ToRoles = []string{writer.Role}
+	require.True(t, RoomWakes(writer, []TaskMessage{approval}))
+}

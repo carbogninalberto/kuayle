@@ -39,6 +39,8 @@ const (
 	RoomSummary = "summary"
 
 	RoomRequestReview = "review"
+	RoomActionApprove = "approve"
+	RoomActionWaive   = "waive"
 )
 
 // RoomKinds lists every kind of post.
@@ -81,14 +83,15 @@ type TaskMessage struct {
 // TaskRoomData is the structured part of a post; each kind reads its own
 // fields.
 type TaskRoomData struct {
-	Phase   string          `json:"phase,omitempty"`   // phase: the phase moved to
-	Verdict string          `json:"verdict,omitempty"` // verdict: approve, request_changes or comment
-	Commit  string          `json:"commit,omitempty"`  // verdict: the commit reviewed
-	Role    string          `json:"role,omitempty"`    // verdict: the author's own role
-	Check   string          `json:"check,omitempty"`   // waiver, grant: a check of the pipeline
-	Action  string          `json:"action,omitempty"`  // request: review, merge, publish or split
-	Fact    string          `json:"fact,omitempty"`    // fact: its name
-	Value   json.RawMessage `json:"value,omitempty"`   // fact: its value
+	Phase    string          `json:"phase,omitempty"`    // phase: the phase moved to
+	Verdict  string          `json:"verdict,omitempty"`  // verdict: approve, request_changes or comment
+	Commit   string          `json:"commit,omitempty"`   // reviewed, approved or waived head
+	Role     string          `json:"role,omitempty"`     // verdict: author's role; grant: recipient
+	Check    string          `json:"check,omitempty"`    // waiver, grant: a check of the pipeline
+	Standing bool            `json:"standing,omitempty"` // waiver: holds across heads
+	Action   string          `json:"action,omitempty"`   // requested or granted action
+	Fact     string          `json:"fact,omitempty"`     // fact: its name
+	Value    json.RawMessage `json:"value,omitempty"`    // fact: its value
 }
 
 func (d *TaskRoomData) Scan(value any) error { return scanJSON(value, d) }
@@ -126,8 +129,8 @@ func (p TaskRoomPost) Clean() TaskRoomPost {
 // TaskRoomRefusal says why the room of a task on pipeline p refuses a post,
 // or "" when it takes it: first who may post what (the plan's matrix), then
 // the post's bounds and data. leadGranted says the task's creator granted
-// the lead the check a lead's waiver names; the pipeline's autonomy may
-// grant it too. It has no I/O.
+// the lead this post's exact action (approve or waive this check). The
+// pinned pipeline's autonomy may grant it too. It has no I/O.
 func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 	human, kuayle := post.AuthorKind == RoomAuthorHuman, post.AuthorKind == RoomAuthorKuayle
 	var who string
@@ -163,6 +166,9 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 		}
 		allowed = lead || kuayle
 	case RoomRequest:
+		if post.Data.Action == RoomActionApprove && (!lead || (!leadGranted && p.Autonomy.Approve != PipelineLeadRole)) {
+			return "only the lead with an approval grant may approve here"
+		}
 		if writer && post.Data.Action != RoomRequestReview {
 			return who + " may request only a review"
 		}
@@ -214,14 +220,36 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 			return fmt.Sprintf("%q is not a phase of this pipeline", d.Phase)
 		}
 	case RoomRequest:
-		if !slices.Contains(roomRequests, d.Action) {
+		if d.Action == RoomActionApprove {
+			if (len(d.Commit) != 40 && len(d.Commit) != 64) || !roomCommit.MatchString(d.Commit) {
+				return "approval names the full head commit"
+			}
+		} else if !slices.Contains(roomRequests, d.Action) {
 			return fmt.Sprintf("%q is not a request (%s)", d.Action, strings.Join(roomRequests, ", "))
 		}
-	case RoomWaiver, RoomGrant:
+	case RoomGrant:
+		if p.Lead == nil || (d.Role != "" && d.Role != PipelineLeadRole) {
+			return "a grant names the lead of this pipeline"
+		}
+		switch d.Action {
+		case RoomActionApprove:
+			if d.Check != "" {
+				return "an approval grant cannot name a check"
+			}
+			return ""
+		case "", RoomActionWaive: // A check-only grant delegates waiving that check.
+		default:
+			return "a grant delegates approval or waiving a named check"
+		}
+		fallthrough
+	case RoomWaiver:
 		if !slices.ContainsFunc(p.Phases, func(phase PipelinePhase) bool {
 			return slices.ContainsFunc(phase.Checks, func(c PipelineCheck) bool { return c.ID == d.Check })
 		}) {
 			return fmt.Sprintf("%q is not a check of this pipeline", d.Check)
+		}
+		if post.Kind == RoomWaiver && strings.TrimSpace(post.Body) == "" {
+			return "a waiver needs a reason"
 		}
 	case RoomFact:
 		if d.Fact == "" {

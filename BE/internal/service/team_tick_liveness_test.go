@@ -742,7 +742,7 @@ func (l *liveWorld) ownerWaives() string {
 		}
 	}
 	check := checks[l.rng.IntN(len(checks))]
-	_, err := l.f.tasks.Repo.PostRoomMessage(l.f.ctx, l.f.ws, l.root, domain.TaskRoomPost{Kind: domain.RoomWaiver, Data: domain.TaskRoomData{Check: check}})
+	_, err := l.f.tasks.Repo.PostRoomMessage(l.f.ctx, l.f.ws, l.root, domain.TaskRoomPost{Kind: domain.RoomWaiver, Body: "The owner reviewed the outstanding check.", Data: domain.TaskRoomData{Check: check}})
 	l.drain()
 	return fmt.Sprintf("the owner waives %s: %v", check, err)
 }
