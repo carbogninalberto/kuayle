@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/stretchr/testify/require"
 )
@@ -17,18 +16,20 @@ func TestIssueContentHistoryPostgres(t *testing.T) {
 	if url == "" {
 		t.Skip("DATABASE_URL is not set")
 	}
-	db, err := sqlx.Connect("pgx", url)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	// A private database (KUA-294): every write takes the shared side of the
+	// privacy barrier (migration 46), and other packages run against
+	// DATABASE_URL at the same time. Their exclusive request (a team insert,
+	// a user or workspace delete) queues behind this test's open first writer;
+	// the second writer then queues behind that request instead of our row
+	// lock, and nothing moves until the deadline. Nothing else reaches this one.
+	db := isolatedPrivacyDatabase(t, url)
 	// Reuse one physical connection to prove the transaction-local actor is cleared.
 	db.SetMaxOpenConns(1)
 	owner, ws, team, status, id := uuid.New(), uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'History editor','hash')`, owner, owner.String()+"@test.invalid")
+	_, err := db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'History editor','hash')`, owner, owner.String()+"@test.invalid")
 	require.NoError(t, err)
-	t.Cleanup(func() { _, e := db.Exec(`DELETE FROM users WHERE id=$1`, owner); require.NoError(t, e) })
 	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'History',$2,$3)`, ws, ws.String(), owner)
 	require.NoError(t, err)
-	t.Cleanup(func() { _, e := db.Exec(`DELETE FROM workspaces WHERE id=$1`, ws); require.NoError(t, e) })
 	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'owner')`, ws, owner)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO teams(id,workspace_id,name,key,is_private) VALUES($1,$2,'History','HIS',true)`, team, ws)
@@ -116,7 +117,9 @@ func TestIssueContentHistoryPostgres(t *testing.T) {
 		case e := <-done:
 			t.Fatalf("second writer finished without waiting for the row lock: %v", e)
 		case <-deadline.Done():
-			t.Fatalf("second writer never blocked on the row lock: %v", deadline.Err())
+			var blockers string
+			_ = db.Get(&blockers, `SELECT pg_blocking_pids($1)::text`, writerPID)
+			t.Fatalf("second writer never blocked on the row lock of %d (blocked by %s): %v", pid, blockers, deadline.Err())
 		case <-time.After(10 * time.Millisecond):
 		}
 		require.NoError(t, db.GetContext(deadline, &blocked, `SELECT $1=ANY(pg_blocking_pids($2))`, pid, writerPID))
