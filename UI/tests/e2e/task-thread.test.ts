@@ -414,8 +414,23 @@ test('a graph workflow’s steps are the same lines: Kuayle’s steps in a row f
 
 const checks = (page: Page) => page.getByRole('region', { name: 'Checks', exact: true });
 const check = (page: Page, id: string) => checks(page).getByTestId(`check-${id}`);
+// The top bar shows a button per panel when it has room; a narrow bar (a phone,
+// or the room beside an open side panel) shows the open one and lists them all
+// under "More panels" (KUA-296).
+async function openPanel(page: Page, name: string) {
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	const button = bar.getByRole('button', { name, exact: true });
+	const more = bar.getByRole('button', { name: 'More panels', exact: true });
+	await expect(button.or(more).first()).toBeVisible();
+	if (await button.isVisible()) {
+		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+		return;
+	}
+	await more.click();
+	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+}
 async function openChecks(page: Page) {
-	await page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'Checks', exact: true }).click();
+	await openPanel(page, 'Checks');
 	await expect(checks(page)).toBeVisible();
 }
 

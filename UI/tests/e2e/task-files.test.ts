@@ -156,11 +156,24 @@ async function fixture(page: Page, theme: 'light' | 'dark' = 'light') {
 	return state;
 }
 
+// The top bar shows a button per panel when it has room; a narrow bar (a phone,
+// or the room beside an open side panel) shows the open one and lists them all
+// under "More panels" (KUA-296).
+async function openPanel(page: Page, name: string) {
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	const button = bar.getByRole('button', { name, exact: true });
+	const more = bar.getByRole('button', { name: 'More panels', exact: true });
+	await expect(button.or(more).first()).toBeVisible();
+	if (await button.isVisible()) {
+		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+		return;
+	}
+	await more.click();
+	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+}
 async function openFiles(page: Page) {
 	await page.goto('/test/assistant?conversation=chat-1');
-	const button = page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'Files', exact: true });
-	await expect(button).toBeVisible();
-	await button.click();
+	await openPanel(page, 'Files');
 	const panel = page.getByTestId('files-panel');
 	await expect(panel).toBeVisible();
 	return panel;

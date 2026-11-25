@@ -663,14 +663,28 @@ for (const size of sizes) {
 	});
 }
 
+// The top bar shows a button per panel when it has room; a narrow bar (a phone,
+// or the room beside an open side panel) shows the open one and lists them all
+// under "More panels" (KUA-296).
+async function openPanel(page: Page, name: string) {
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	const button = bar.getByRole('button', { name, exact: true });
+	const more = bar.getByRole('button', { name: 'More panels', exact: true });
+	await expect(button.or(more).first()).toBeVisible();
+	if (await button.isVisible()) {
+		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+		return;
+	}
+	await more.click();
+	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+}
 // Opens the issue conversation's agent panel on the task's running chart.
 async function openTaskChart(page: Page, options?: Parameters<typeof mockTask>[1]) {
 	const { advance } = await mockTask(page, options);
 	await page.goto('/test/assistant?conversation=chat-1');
-	const agents = page.getByRole('button', { name: 'Agents', exact: true }).first();
-	await expect(agents).toBeVisible();
+	await expect(page.getByRole('group', { name: 'Side panels' }).getByRole('button').first()).toBeVisible();
 	const view = page.getByTestId('task-workflow');
-	if (!(await view.isVisible())) await agents.click();
+	if (!(await view.isVisible())) await openPanel(page, 'Agents');
 	await expect(view).toBeVisible();
 	const chart = view.getByTestId('task-workflow-chart');
 	await expect(chart.getByTestId(`workflow-node-${options?.at ?? 'ci'}`)).toBeVisible();
@@ -934,10 +948,9 @@ for (const shipMerge of [true, false]) {
 	test(`an approval ${shipMerge ? 'that ships says it merges' : 'that does not ship says nothing of a merge'}`, async ({ page }) => {
 		await mockTask(page, { at: 'ship', decide: true, shipMerge });
 		await page.goto('/test/assistant?conversation=chat-1');
-		const agents = page.getByRole('button', { name: 'Agents', exact: true }).first();
-		await expect(agents).toBeVisible();
+		await expect(page.getByRole('group', { name: 'Side panels' }).getByRole('button').first()).toBeVisible();
 		const view = page.getByTestId('task-workflow');
-		if (!(await view.isVisible())) await agents.click();
+		if (!(await view.isVisible())) await openPanel(page, 'Agents');
 		await expect(view).toBeVisible();
 		const decision = view.getByTestId('task-workflow-decision');
 		await expect(decision).toContainText('Waiting for an approval: Ready to ship');

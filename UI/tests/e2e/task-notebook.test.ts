@@ -220,9 +220,24 @@ const sizes = [
 ];
 const fits = (page: Page) =>
 	page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+// The top bar shows a button per panel when it has room; a narrow bar (a phone,
+// or the room beside an open side panel) shows the open one and lists them all
+// under "More panels" (KUA-296).
+async function openPanel(page: Page, name: string) {
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	const button = bar.getByRole('button', { name, exact: true });
+	const more = bar.getByRole('button', { name: 'More panels', exact: true });
+	await expect(button.or(more).first()).toBeVisible();
+	if (await button.isVisible()) {
+		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+		return;
+	}
+	await more.click();
+	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+}
 // The notebook is a tab of the side panel: from the top bar on any width.
 async function openNotebook(page: Page) {
-	await page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'Notebook', exact: true }).click();
+	await openPanel(page, 'Notebook');
 	const book = page.getByRole('region', { name: 'Notebook', exact: true });
 	await expect(book).toBeVisible();
 	return book;
@@ -513,8 +528,10 @@ test("another member's task shows no notebook and no prompt", async ({ page }) =
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 	await expect(page.locator('#step-2')).toBeVisible();
-	// No notebook tab is offered for it.
-	await expect(page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'Notebook', exact: true })).toHaveCount(0);
+	// No notebook tab is offered for it: the side panel's switcher lists the others.
+	const switcher = page.getByTestId('side-panel').getByRole('toolbar', { name: 'Side panels' });
+	await expect(switcher.getByRole('button', { name: 'Workflow', exact: true })).toBeVisible();
+	await expect(switcher.getByRole('button', { name: 'Notebook', exact: true })).toHaveCount(0);
 	await expect(page.getByRole('region', { name: 'Notebook', exact: true })).toHaveCount(0);
 	await page.locator('#step-2').getByRole('button').first().click();
 	await expect(page.locator('#step-2').getByRole('article', { name: 'Plan' })).toBeVisible();

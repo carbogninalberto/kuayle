@@ -382,7 +382,8 @@ test('at phone width the page is one column and the panes open as sheets', async
 	await expect(sheet).toHaveCount(0);
 	await expect(toggle(page)).toBeFocused();
 
-	await panels(page).getByRole('button', { name: 'Workflow' }).click();
+	await morePanels(page).click();
+	await page.getByRole('menuitemcheckbox', { name: 'Workflow' }).click();
 	await expect(page.getByRole('dialog', { name: 'Workflow' })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -392,11 +393,137 @@ test('at phone width the page is one column and the panes open as sheets', async
 	// The narrowest phone keeps the top bar's controls in the window.
 	await page.setViewportSize({ width: 320, height: 700 });
 	await expect(toggle(page)).toBeInViewport();
-	await expect(panels(page).getByRole('button', { name: 'Workflow' })).toBeInViewport();
+	await expect(morePanels(page)).toBeInViewport();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
 	// Widening the window shows the column without popping a sheet open.
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await expect(column(page)).toBeVisible();
 	await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+// Six panels (Details, Agents, Workflow, Files, Notebook, Checks) as icons
+// would leave a narrow top bar's title a few letters wide: below its width
+// threshold the bar shows the open panel and one "More panels" menu.
+const morePanels = (page: Page) => panels(page).getByRole('button', { name: 'More panels', exact: true });
+const titleMenu = (page: Page) => page.getByRole('button', { name: 'Implement search: rename or switch conversation' });
+const allPanels = ['Details', 'Agents', 'Workflow', 'Files', 'Notebook', 'Checks'];
+
+test('a narrow top bar keeps its title and lists the panels in one menu', async ({ page }) => {
+	await fixture(page);
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto(agentView());
+	await expect(page.getByTestId('agent-thread')).toBeVisible();
+	await expect(morePanels(page)).toBeVisible();
+	await expect(panels(page).getByRole('button')).toHaveCount(1);
+	expect((await titleMenu(page).boundingBox())!.width).toBeGreaterThan(100);
+
+	// Keyboard only: the menu names every panel, says which is open and opens one as a sheet.
+	await morePanels(page).focus();
+	await page.keyboard.press('Enter');
+	const menu = page.getByRole('menu');
+	await expect(menu.getByRole('menuitemcheckbox')).toHaveText(allPanels);
+	await expect(menu.getByRole('menuitemcheckbox', { checked: true })).toHaveCount(0);
+	await expect(menu.getByRole('menuitemcheckbox', { name: 'Details' })).toBeFocused();
+	await page.keyboard.press('ArrowDown');
+	await page.keyboard.press('ArrowDown');
+	await expect(menu.getByRole('menuitemcheckbox', { name: 'Workflow' })).toBeFocused();
+	await page.keyboard.press('Enter');
+	const sheet = page.getByRole('dialog', { name: 'Workflow' });
+	await expect(sheet).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(sheet).toHaveCount(0);
+	await expect(morePanels(page)).toBeFocused();
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+	// A wide bar shows every panel and no menu.
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await expect(column(page)).toBeVisible();
+	await column(page).getByRole('button', { name: 'Hide task overview' }).click();
+	for (const name of allPanels) await expect(panels(page).getByRole('button', { name, exact: true })).toBeVisible();
+	await expect(morePanels(page)).toHaveCount(0);
+	await panels(page).getByRole('button', { name: 'Workflow', exact: true }).click();
+	await expect(page.getByTestId('side-panel')).toBeVisible();
+	for (const name of allPanels) await expect(panels(page).getByRole('button', { name, exact: true })).toBeVisible();
+
+	// Beside the task column and the side panel the bar is narrow again: the open
+	// panel stays one press away, the others are in the menu, where it is checked.
+	await toggle(page).click();
+	await expect(column(page)).toBeVisible();
+	await expect(morePanels(page)).toBeVisible();
+	await expect(panels(page).getByRole('button')).toHaveCount(2);
+	await expect(panels(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Workflow');
+	await morePanels(page).click();
+	await expect(menu.getByRole('menuitemcheckbox', { checked: true })).toHaveText('Workflow');
+	await menu.getByRole('menuitemcheckbox', { name: 'Checks' }).click();
+	await expect(page.getByTestId('side-panel').getByRole('region', { name: 'Checks', exact: true })).toBeVisible();
+	await expect(panels(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Checks');
+	// Choosing the open panel again closes it.
+	await morePanels(page).click();
+	await menu.getByRole('menuitemcheckbox', { name: 'Checks' }).click();
+	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+});
+
+// One rule for the side panel's own switcher, by its width: every tab shows
+// its icon and the open one its name too; narrower (the phone's sheet too),
+// icons only; narrower still, the open tab and a "More panels" menu. The tabs
+// always fit.
+test('the side panel names its open tab and its tabs fit at any width', async ({ page }) => {
+	await fixture(page);
+	await page.setViewportSize({ width: 1600, height: 900 });
+	await page.goto(agentView());
+	const side = page.getByTestId('side-panel');
+	await expect(side).toBeVisible();
+	const tabs = side.getByRole('toolbar', { name: 'Side panels' });
+	const tab = tabs.getByRole('button', { pressed: true });
+	const more = tabs.getByRole('button', { name: 'More panels', exact: true });
+	const named = () => tabs.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width > 40));
+	const fits = () =>
+		tabs.evaluate((toolbar) => {
+			const box = toolbar.getBoundingClientRect();
+			return [...toolbar.querySelectorAll('button')].every((button) => button.getBoundingClientRect().right <= box.right + 0.5);
+		});
+	// Wide: the open tab (Agents) shows its name; the others their icon.
+	await expect(tabs.getByRole('button')).toHaveCount(allPanels.length);
+	await expect(tab).toHaveAccessibleName('Agents');
+	await expect.poll(named).toEqual(allPanels.map((name) => name === 'Agents'));
+	expect(await fits()).toBe(true);
+
+	// Narrower: icons only, every panel still one press away.
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await expect.poll(named).toEqual(allPanels.map(() => false));
+	await expect(tabs.getByRole('button')).toHaveCount(allPanels.length);
+	await expect(more).toHaveCount(0);
+	expect(await fits()).toBe(true);
+
+	// At its narrowest the column keeps the open tab and lists the panels in a menu.
+	await page.getByRole('separator', { name: 'Resize side panel' }).focus();
+	for (let i = 0; i < 12; i++) await page.keyboard.press('ArrowRight');
+	await expect.poll(() => width(page, 'side-panel')).toBeLessThan(240);
+	await expect(more).toBeVisible();
+	await expect(tabs.getByRole('button')).toHaveCount(2);
+	await expect(tab).toHaveAccessibleName('Agents');
+	expect(await fits()).toBe(true);
+	await more.focus();
+	await page.keyboard.press('Enter');
+	const menu = page.getByRole('menu');
+	await expect(menu.getByRole('menuitemradio')).toHaveText(allPanels);
+	await expect(menu.getByRole('menuitemradio', { checked: true })).toHaveText('Agents');
+	await menu.getByRole('menuitemradio', { name: 'Workflow' }).press('Enter');
+	await expect(side.getByTestId('workflow-panel')).toBeVisible();
+	await expect(tab).toHaveAccessibleName('Workflow');
+
+	// The phone's sheet has room for every icon, not for a name.
+	await page.setViewportSize({ width: 390, height: 844 });
+	await morePanels(page).click();
+	await page.getByRole('menuitemcheckbox', { name: 'Checks' }).click();
+	const sheet = page.getByRole('dialog', { name: 'Checks' });
+	await expect(sheet).toBeVisible();
+	const sheetTabs = sheet.getByRole('toolbar', { name: 'Side panels' });
+	await expect(sheetTabs.getByRole('button', { pressed: true })).toHaveAccessibleName('Checks');
+	await expect(sheetTabs.getByRole('button')).toHaveCount(allPanels.length);
+	await expect
+		.poll(() => sheetTabs.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width > 40)))
+		.toEqual(allPanels.map(() => false));
+	expect(await sheetTabs.evaluate((toolbar) => toolbar.scrollWidth <= toolbar.clientWidth)).toBe(true);
 });

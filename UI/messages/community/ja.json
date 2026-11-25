@@ -3668,6 +3668,7 @@
 	"settings.nav.workflows": "エージェントのワークフロー",
 	"assistant.panel_workflow": "ワークフロー",
 	"assistant.panel_checks": "チェック",
+	"assistant.more_panels": "その他のパネル",
 	"ai_editor.write": "編集",
 	"ai_editor.preview": "プレビュー",
 	"ai_editor.ask": "AIに依頼",

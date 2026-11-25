@@ -3668,6 +3668,7 @@
 	"settings.nav.workflows": "เวิร์กโฟลว์ของ Agent",
 	"assistant.panel_workflow": "เวิร์กโฟลว์",
 	"assistant.panel_checks": "การตรวจ",
+	"assistant.more_panels": "แผงเพิ่มเติม",
 	"ai_editor.write": "เขียน",
 	"ai_editor.preview": "ตัวอย่าง",
 	"ai_editor.ask": "ถาม AI",

@@ -567,11 +567,27 @@ test('delegates from an issue conversation and shows real execution updates', as
 
 // The coding agents live in the side panel: inline on wide screens, a drawer
 // that the top bar's Agents button opens on narrow ones.
+// The top bar shows a button per panel when it has room; a narrow bar (a phone,
+// or the room beside an open side panel) shows the open one and lists them all
+// under "More panels" (KUA-296).
+async function openPanel(page: Page, name: string) {
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	const button = bar.getByRole('button', { name, exact: true });
+	const more = bar.getByRole('button', { name: 'More panels', exact: true });
+	await expect(button.or(more).first()).toBeVisible();
+	if (await button.isVisible()) {
+		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+		return;
+	}
+	await more.click();
+	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+}
 async function showAgents(page: Page) {
 	const tasks = page.getByRole('region', { name: 'Coding tasks' });
-	await expect(page.getByRole('button', { name: 'Agents', exact: true }).first()).toBeVisible();
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	await expect(bar.getByRole('button').first()).toBeVisible();
 	if (await tasks.isVisible()) return;
-	await page.getByRole('button', { name: 'Agents', exact: true }).first().click();
+	await openPanel(page, 'Agents');
 	await expect(tasks).toBeVisible();
 }
 

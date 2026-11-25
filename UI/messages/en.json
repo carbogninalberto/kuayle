@@ -3668,6 +3668,7 @@
 	"settings.nav.workflows": "Agents workflows",
 	"assistant.panel_workflow": "Workflow",
 	"assistant.panel_checks": "Checks",
+	"assistant.more_panels": "More panels",
 	"ai_editor.write": "Write",
 	"ai_editor.preview": "Preview",
 	"ai_editor.ask": "Ask AI",

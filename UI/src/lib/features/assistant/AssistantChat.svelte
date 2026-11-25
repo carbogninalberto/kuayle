@@ -21,8 +21,10 @@
 		Workflow as WorkflowIcon,
 		NotebookText,
 		ClipboardCheck,
-		FolderTree
+		FolderTree,
+		EllipsisVertical
 	} from '@lucide/svelte';
+	import { cn } from '$lib/utils.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
@@ -205,6 +207,11 @@
 		{ id: 'checks', label: m['assistant.panel_checks'], icon: ClipboardCheck, component: ChecksPanel, available: () => !!agentTask?.pipeline }
 	];
 	const availablePanels = $derived(panels.filter((panel) => panel.available?.() ?? true));
+	// The top bar's panel buttons (a diff opens from a file, not from the bar).
+	// More than two do not fit beside the title in a narrow bar: there it shows
+	// the open panel and a "More panels" menu (KUA-296).
+	const panelToggles = $derived(availablePanels.filter((panel) => panel.id !== 'diff'));
+	const panelsOverflow = $derived(panelToggles.length > 2);
 	const activePanel = $derived.by(() => {
 		if (!host.active) return null;
 		const id = host.active === 'auto' ? (chat.issue ? 'agent' : 'details') : host.active;
@@ -578,7 +585,9 @@
 <PageTitle parts={[m['assistant.title']()]} />
 
 {#snippet topBar()}
-	<header class="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
+	<!-- A container: the panel buttons fold into a menu below 36rem of the bar's own width
+	     (a phone, or the room between the task column and an open side panel). -->
+	<header class="@container/topbar flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
 		{#if !sidebarInline && !sidebarRail}<Button
 				variant="ghost"
 				size="icon-sm"
@@ -668,18 +677,45 @@
 				offline={chat.failed || chat.unavailable}
 			/>{/if}
 		<div class="flex shrink-0 items-center gap-0.5" role="group" aria-label={m['assistant.panels']()}>
-			{#each availablePanels.filter((panel) => panel.id !== 'diff') as panel (panel.id)}
+			{#each panelToggles as panel (panel.id)}
+				{@const open = activePanel?.id === panel.id}
 				<Button
 					variant="ghost"
 					size="icon-sm"
 					aria-label={panel.label()}
 					title={panel.label()}
-					aria-pressed={activePanel?.id === panel.id}
-					class={activePanel?.id === panel.id ? 'bg-muted text-foreground' : ''}
-					onclick={() => (activePanel?.id === panel.id ? closePanel() : host.open(panel.id))}
+					aria-pressed={open}
+					class={cn(open && 'bg-muted text-foreground', panelsOverflow && !open && 'hidden @xl/topbar:inline-flex')}
+					onclick={() => (open ? closePanel() : host.open(panel.id))}
 					><panel.icon /></Button
 				>
 			{/each}
+			{#if panelsOverflow}
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-sm"
+								class="@xl/topbar:hidden"
+								aria-label={m['assistant.more_panels']()}
+								title={m['assistant.more_panels']()}><EllipsisVertical /></Button
+							>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="end" class="w-48">
+						<DropdownMenu.Label class="text-xs font-normal text-muted-foreground">{m['assistant.panels']()}</DropdownMenu.Label>
+						{#each panelToggles as panel (panel.id)}
+							<DropdownMenu.CheckboxItem
+								checked={activePanel?.id === panel.id}
+								onCheckedChange={(checked) => (checked ? host.open(panel.id) : closePanel())}
+								><panel.icon />{panel.label()}</DropdownMenu.CheckboxItem
+							>
+						{/each}
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
+			{/if}
 		</div>
 	</header>
 {/snippet}

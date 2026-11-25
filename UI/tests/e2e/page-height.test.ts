@@ -853,13 +853,18 @@ type Route = {
 // loaded, then Agents. The buttons flip under the test, so both helpers retry until the state
 // holds instead of trusting one read of aria-pressed.
 const panelGroup = (page: Page) => page.getByRole('group', { name: 'Side panels' });
+// A narrow top bar lists the panels under "More panels" (KUA-296).
 const openPanel = (name: string) => async (page: Page) => {
 	const button = panelGroup(page).getByRole('button', { name, exact: true });
-	await expect(button).toBeVisible();
+	const more = panelGroup(page).getByRole('button', { name: 'More panels', exact: true });
+	await expect(button.or(more).first()).toBeVisible();
 	await expect
 		.poll(
 			async () => {
-				if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+				if (!(await button.isVisible())) {
+					await more.click();
+					await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+				} else if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
 				return button.getAttribute('aria-pressed');
 			},
 			{ message: `${name} panel opens` }
