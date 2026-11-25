@@ -323,6 +323,24 @@ const workflowSummary = {
 	graph: workflowGraph,
 	updated_at: createdAt
 };
+// A pipeline drafted from it (KUA-284), long enough to fill the pipeline editor's panel.
+const pipelineDraft = {
+	kind: 'pipeline',
+	phases: Array.from({ length: 12 }, (_, index) => ({
+		id: `phase-${index}`,
+		label: `Phase ${index}`,
+		owner: 'implementer',
+		prompt: 'Do the work.',
+		checks: [
+			{ id: `ci-${index}`, fact: 'ci_green', required: true },
+			{ id: `script-${index}`, fact: 'script', script: 'npm test' }
+		]
+	})),
+	roster: [
+		{ role: 'implementer', profile_id: 'p-impl', writer: true },
+		{ role: 'reviewer', profile_id: 'p-rev' }
+	]
+};
 
 const webhooks = Array.from({ length: 30 }, (_, index) => ({
 	id: id(90, index),
@@ -557,6 +575,7 @@ async function mockApi(page: Page, theme: 'light' | 'dark') {
 		if (path === `${w}/workflows`) return json({ workflows: [workflowSummary], defaults: [], can_manage: true });
 		if (path === `${w}/workflows/validate`) return json({ issues: [], warnings: [] });
 		if (path === `${w}/workflows/${workflowId}`) return json({ ...workflowSummary, versions: [] });
+		if (path === `${w}/workflows/${workflowId}/draft-pipeline`) return json({ pipeline: pipelineDraft, reasons: [] });
 		if (path === `${w}/agent-profiles`)
 			return json({
 				profiles: [],
@@ -915,7 +934,8 @@ const routes: Route[] = [
 	})),
 	{ name: 'settings team', path: `/test/settings/teams/${teamId}` },
 	{ name: 'settings team statuses', path: `/test/settings/teams/${teamId}/statuses` },
-	{ name: 'settings workflow', path: `/test/settings/workflows/${workflowId}` }
+	{ name: 'settings workflow', path: `/test/settings/workflows/${workflowId}` },
+	{ name: 'settings pipeline draft', path: `/test/settings/workflows/${workflowId}/pipeline-draft` }
 ];
 
 type Viewport = { width: number; height: number };
@@ -935,9 +955,15 @@ const phone: Viewport = { width: 390, height: 844 };
 // - the dark theme on a few routes: themes only change colour variables, never layout.
 // Every other settings page is plain content in the settings layout's one region, so a phone
 // or a tall window changes only how much of it fits. The samples cover that region at every
-// size, and the settings pages with a layout of their own (the workflow editor, the capped
-// preference lists).
-const settingsSamples = new Set(['settings', 'settings members', 'settings preferences', 'settings workflow']);
+// size, and the settings pages with a layout of their own (the workflow and pipeline editors,
+// the capped preference lists).
+const settingsSamples = new Set([
+	'settings',
+	'settings members',
+	'settings preferences',
+	'settings workflow',
+	'settings pipeline draft'
+]);
 const darkSamples = new Set([
 	'team issues',
 	'issue with a long description',

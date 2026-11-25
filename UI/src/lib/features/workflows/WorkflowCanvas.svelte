@@ -60,6 +60,8 @@
 		navigable,
 		view = $bindable(),
 		api = $bindable(),
+		describe,
+		edgeLabels = true,
 		onselect,
 		onaddnext,
 		oncontext,
@@ -97,6 +99,10 @@
 		view?: Viewport & { width: number; height: number };
 		/** Svelte Flow's API, for the editor's menus and toolbar. */
 		api?: FlowApi;
+		/** What a card shows under its name, instead of what its step uses (a pipeline's phases). */
+		describe?: (node: WorkflowGraph['nodes'][number]) => string;
+		/** Whether transitions carry their condition; a pipeline's arrows have none to show. */
+		edgeLabels?: boolean;
 		onselect?: (selection: Selection) => void;
 		/** Adds a step after the given one (its hover "+" button). */
 		onaddnext?: (source: string, type: Block) => void;
@@ -157,7 +163,7 @@
 			ariaLabel: `${node.label}`,
 			data: {
 				node,
-				subtitle: subtitle(node),
+				subtitle: describe ? describe(node) : subtitle(node),
 				problems: (placed.nodes.get(node.id) ?? []).map((issue) => issueLabel(issue.code, issue.message)),
 				warnings: warningLabels(warnings, node.id),
 				current: run?.current === node.id,
@@ -204,7 +210,11 @@
 							data: { route, sourceWidth: nodeWidth(source.type), targetWidth: nodeWidth(target.type) }
 						}
 					: {}),
-				label: fired && fired.count > 1 ? `${conditionLabel(edge.condition)} ×${fired.count}` : pairLabel(edge),
+				label: !edgeLabels
+					? undefined
+					: fired && fired.count > 1
+						? `${conditionLabel(edge.condition)} ×${fired.count}`
+						: pairLabel(edge),
 				selected: selection?.kind === 'edge' && selection.id === edge.id,
 				hidden: self,
 				deletable: editable,
@@ -217,7 +227,11 @@
 						: run
 							? 'workflow-edge-idle'
 							: undefined,
-				ariaLabel: fired ? `${conditionLabel(edge.condition)}: ${fired.reason}` : conditionLabel(edge.condition)
+				ariaLabel: !edgeLabels
+					? undefined
+					: fired
+						? `${conditionLabel(edge.condition)}: ${fired.reason}`
+						: conditionLabel(edge.condition)
 			};
 		});
 	});

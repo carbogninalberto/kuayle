@@ -113,7 +113,7 @@ async function fixture(page: Page) {
 				state.saves.push(input);
 				await state.saveResponse;
 				state.name = input.name;
-				state.graph = input.graph ?? state.graph;
+				state.graph = (input.graph as WorkflowGraph | undefined) ?? state.graph;
 				state.versions.unshift({ ...state.versions[0], id: `cheap-v${version}`, version });
 				return route.fulfill({ json: summary() });
 			}
