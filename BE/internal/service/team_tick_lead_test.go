@@ -484,8 +484,14 @@ func TestLeadSummaryPublishesOneTaskNotification(t *testing.T) {
 	events := &userEventsFake{}
 	w.f.tasks.SetNotifications(w.f.tasks.Repo, &notificationsFake{}, events)
 	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
-		if role == domain.PipelineLeadRole {
+		// The lead also wakes for each role's turn and for the checks
+		// (KUA-302): it reports only when the owner asks.
+		if prompts := w.runtime.prompts[role]; role == domain.PipelineLeadRole && len(prompts) > 0 && strings.Contains(prompts[len(prompts)-1], "Please report.") {
 			return tickTurn{final: "Reported progress.", posts: []string{`{"to":"@human","kind":"summary","body":"The tests passed."}`}}
+		}
+		if role == domain.PipelineLeadRole {
+			// It moves the phases (KUA-301), so the task does not stall.
+			return leadMove("merge", "Everything else is Kuayle's to check.")
 		}
 		return w.writesAndApproves(role, turn, task)
 	}

@@ -67,9 +67,16 @@ func TestTickGrantedApprovalMergesOnlyTheApprovedHeadAfterChecksPass(t *testing.
 		p.Lead = &domain.PipelineLead{ProfileID: p.Roster[1].ProfileID}
 		p.Autonomy.Approve = domain.PipelineLeadRole
 	})
-	w.agent = w.writesAndApproves
+	// The lead moves the phases (KUA-301): it takes the task to the merge,
+	// which waits for every required check before it.
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == domain.PipelineLeadRole {
+			return leadMove("merge", "Everything else is Kuayle's to check.")
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
 	w.drain()
-	require.Equal(t, "integrate", w.phase())
+	require.Equal(t, "merge", w.phase())
 	approve := func(head string) {
 		t.Helper()
 		m, err := w.f.tasks.Repo.RecordRoomMessage(w.f.ctx, w.root, domain.TaskRoomPost{
@@ -92,7 +99,7 @@ func TestTickGrantedApprovalMergesOnlyTheApprovedHeadAfterChecksPass(t *testing.
 	require.Equal(t, sha(2), w.github.status.HeadSHA)
 	w.github.ci("passed", "")
 	w.later()
-	require.Equal(t, "approval", w.phase())
+	require.Equal(t, "merge", w.phase())
 	require.Empty(t, w.github.merged, "a new commit changes what the lead approved")
 
 	// The approval sits past the first page. A pass that is otherwise only

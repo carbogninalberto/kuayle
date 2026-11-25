@@ -138,7 +138,14 @@ func TestTickPostsTheBoardToTheWriterWhenItChanges(t *testing.T) {
 
 func TestTickPostsTheBoardToTheLead(t *testing.T) {
 	w := newTickWorld(t, func(p *domain.Pipeline) { p.Lead = &domain.PipelineLead{ProfileID: p.Roster[1].ProfileID} })
-	w.agent = w.writesAndApproves
+	// The lead moves the phases (KUA-301): it takes the task to the merge,
+	// which waits for CI, so the task is not stalled when the board moves.
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == domain.PipelineLeadRole {
+			return leadMove("merge", "Everything else is Kuayle's to check.")
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
 	w.drain()
 	b := w.board(`["ui/toggle.ts"]`)
 	w.boardTask(b, 2, 13, `["ui/toggle.ts"]`)
