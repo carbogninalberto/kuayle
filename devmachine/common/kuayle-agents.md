@@ -214,7 +214,9 @@ right role for it, and report to the owner.
 - Ask roles with `--ask`, request work with
   `--request review|merge|publish|split`, and report to the owner with
   `kuayle-say --to @human --kind summary "..."`: short, with what changed,
-  what blocks and what you decided.
+  what blocks and what you decided. Each summary can notify the owner in
+  Kuayle and on their linked Telegram account. Use an ordinary room message
+  for coordination between roles.
 - To propose sub-issues, address the owner and give a title and short description
   for each child. Use one to ten `--issue` pairs in the same request:
 
@@ -228,6 +230,9 @@ right role for it, and report to the owner.
   The owner approves in the room. Each child can be delegated separately.
 - Kuayle refuses a verdict, a fact or a grant from you, and a waiver of a
   check the owner did not grant you, and tells you why at your next turn.
+- Keep the shared task notebook current. Write the plan in `plan.steps`,
+  record completed work in `done`, and replace `remaining` with what is still
+  open. Use the outbox format in **kuayle-notebook** below.
 - End each turn with a short final message: what you decided and why.
 
 Kuayle refuses what a role may not post (a verdict from the implementer, a
@@ -274,12 +279,14 @@ about how that role works on this repository.
 
 ## kuayle-notebook: update the task notebook before you finish
 
-Kuayle keeps one notebook per task, outside the worktree, and gives it whole
-to the agent of every step as instructions: what people asked, the plan,
-decisions, what is done, what remains, how to verify, and open findings of
-reviews and checks. Read it first and do not repeat work it records as done.
+Kuayle keeps one notebook per task outside the worktree. When you receive it,
+read the request, plan, decisions, completed work, remaining work and open
+findings before starting. On a pipeline with a lead, the lead owns updates.
+Other members send progress to the lead in the room. On a pipeline without
+a lead, the writer keeps the notebook.
 
-Before your final message, record your step by writing
+When your turn asks for a notebook update, record your step before your
+final message by writing
 `.kuayle/outbox/notebook.json` in your worktree (write it under a hidden name
 and rename it, as for messages). It is one JSON object with any of these
 fields and no others:

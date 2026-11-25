@@ -159,6 +159,7 @@ type tickPass struct {
 	readSeq  int64
 	// current is the phase the task is in, as the lead last moved it.
 	current string
+	reports []uuid.UUID // inbox rows to announce once this room cursor commits
 	// gh bounds the pass's calls to GitHub (tickGitHubTimeout).
 	gh context.Context
 	// stop ends the pass when the budget has no turn left for a member.
@@ -474,6 +475,8 @@ func (t *tickPass) applyRoomMessage(m domain.TaskMessage) {
 	// The room authenticated the sender and checked its grant on insertion.
 	lead := m.AuthorKind == domain.RoomAuthorMember && deref(m.AuthorRole) == domain.PipelineLeadRole
 	switch {
+	case m.IsLeadReport():
+		t.reports = append(t.reports, m.ID)
 	case m.AuthorKind == domain.RoomAuthorKuayle && m.Kind == domain.RoomFact && m.Data.Fact == "head_sha":
 		_ = json.Unmarshal(m.Data.Value, &t.st.Head)
 	case m.AuthorKind == domain.RoomAuthorMember && m.Kind == domain.RoomPhase:
@@ -1065,6 +1068,9 @@ func (t *tickPass) save(ctx context.Context, entry repository.WorkflowEntry, pha
 		apply.Notes = []domain.NotebookNote{{Event: "Paused for a person's decision: " + strings.TrimPrefix(entry.Reason, domain.WorkflowReasonPrefix)}}
 	}
 	_, err = t.s.Repo.ApplyPipeline(ctx, t.task, apply)
+	if err == nil && len(t.reports) > 0 {
+		t.s.publishLeadReports(ctx, t.task, t.reports)
+	}
 	return err
 }
 

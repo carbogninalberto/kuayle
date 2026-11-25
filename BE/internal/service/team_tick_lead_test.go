@@ -478,3 +478,28 @@ func TestTickTheLeadReadsWhatCameTogetherInOneTurn(t *testing.T) {
 	require.NoError(t, w.f.db.Get(&started, `SELECT count(*) FROM agent_task_transitions tr JOIN task_members m ON m.member_task_id=tr.task_id WHERE m.task_id=$1 AND m.role=$2 AND tr.to_state='queued'`, w.root, domain.PipelineLeadRole))
 	require.Equal(t, 3, started, "each of its turns was started once")
 }
+
+func TestLeadSummaryPublishesOneTaskNotification(t *testing.T) {
+	w := newTickWorld(t, withLead)
+	events := &userEventsFake{}
+	w.f.tasks.SetNotifications(w.f.tasks.Repo, &notificationsFake{}, events)
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == domain.PipelineLeadRole {
+			return tickTurn{final: "Reported progress.", posts: []string{`{"to":"@human","kind":"summary","body":"The tests passed."}`}}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, ToRoles: []string{"lead"}, Body: "Please report."})
+	require.NoError(t, err)
+	w.drain()
+	w.later()
+	require.Len(t, events.events, 1)
+	e := events.events[0]
+	require.Equal(t, w.f.user, e.user)
+	require.Equal(t, w.f.ws, e.workspace)
+	require.Equal(t, "notification.created", e.kind)
+	require.Equal(t, w.root.String(), e.payload["task_id"])
+	require.Equal(t, w.f.issue.String(), e.payload["issue_id"])
+	require.Contains(t, e.payload["title"], "The tests passed.")
+}

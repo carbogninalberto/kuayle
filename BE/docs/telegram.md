@@ -184,6 +184,10 @@ checks at send time, so a moved or revoked issue chat is not delivered. Other
 transitions (queued, preparing, waiting_for_disk, running, validating,
 publishing) do not notify the creator on Telegram.
 
+An accepted pipeline lead summary queues one notice for the task creator when
+**Other issue updates** is enabled and their account is linked to this workspace’s
+bot. The summary appears as quoted agent text, with a link to the conversation.
+
 A coding agent's question to the orchestrator (an outbox file with
 `"kind":"question"` that Kuayle accepted; see the
 [live channel](agent-tasks.md#live-channel)) queues a notice in the same way,

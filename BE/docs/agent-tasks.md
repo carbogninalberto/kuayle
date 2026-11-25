@@ -3312,6 +3312,12 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   reason it can act on (for example "the lead may not post verdict: the lead
   gives no verdict; ask a role that reviews with --request review"), shown at
   its next turn.
+- Each accepted lead `summary` gives the task creator one inbox notification.
+  The same room post queues one Telegram notice when the creator has linked an
+  enabled workspace bot. Turning off **Other issue updates** suppresses both for
+  subsequent reports. The full summary stays in the room. After the tick
+  commits its room cursor, it announces the stored notice through the usual
+  realtime and Web Push path.
 - **What a turn reads.** `domain.RoomInbox` is what a role reads from posts
   newer than its cursor: posts for everyone or for the role, not its own,
   plus its own refused posts with their reasons (a member reads a page of 200
@@ -3879,8 +3885,14 @@ in the prompt (`followUpPrompt`, `followUpNote`).
 and attempt (author `agent`, `kuayle` or `person`, user, run, generation,
 step, and what was cut or ignored), newest 200 per task.
 
-**Receiving it.** Every attempt that is not a review gets the notebook as
-instructions (`Notebook.RenderWith`). People's instructions come first under
+**Receiving it.** Implementing tasks and pipeline leads receive the root task’s
+notebook as instructions (`Notebook.RenderWith`). In a pipeline with a lead,
+the lead maintains `plan.steps`, `done` and `remaining`. Its own run gets
+credit for each update to the shared notebook. Writers can still read it and
+contribute an update. Only the lead receives the closing ask for a missing
+update. In a pipeline without a lead, the writer still receives that ask.
+
+People's instructions come first under
 their own heading; every entry is indented so agent text cannot open a
 heading. It does not repeat what the prompt already holds: where `{{plan}}`
 carries the plan, and where the task text is the request, the notebook points
@@ -3950,7 +3962,7 @@ collected, `Manager.settleClosing` lists what is missing, each as a
 | Missing | Asked of | Ask |
 | --- | --- | --- |
 | a reply to a delivered message of the task's owner ([live channel](#live-channel)) | an attempt that ended well | `domain.ReplyClosingAsk`: the message numbers and the reply format |
-| a task notebook update that counts ([below](#task-notebook)) | an attempt that concluded | `domain.NotebookClosingAsk`: the validator's message, write the file now |
+| a task notebook update that counts ([below](#task-notebook)) | a concluded attempt assigned to update the notebook | `domain.NotebookClosingAsk`: the validator's message, write the file now |
 | a plan short enough to hand on whole ([planning steps](#workflows)) | a planning step whose plan was cut | `domain.PlanClosingAsk`: rewrite it under `domain.PlanMaxCharacters` (12000) characters |
 
 `Manager.askToClose(ctx, attempt, asks)` then continues the attempt's own

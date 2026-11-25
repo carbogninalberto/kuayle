@@ -59,7 +59,7 @@ func TestAnInterruptedAttemptResumesItsSessionForTheMessage(t *testing.T) {
 	session := uuid.NewString()
 	interrupted := &domain.AgentHandoff{AttemptID: uuid.New(), Provider: "claude-code", MachineID: machine, NativeSessionID: session, Status: "cancelled", OtherProfile: true}
 	require.Equal(t, session, taskSession(task, interrupted).ResumeID, "the step's own session, whoever ran the step before it")
-	prompt := withLiveHandoff("Add dark mode", interrupted, true, task.ResumeNativeSession, task.LiveResumed())
+	prompt := withLiveHandoff("Add dark mode", interrupted, true, task.ResumeNativeSession, task.LiveResumed(), nil)
 	require.Contains(t, prompt, "this continues your previous session")
 	require.Contains(t, prompt, "interrupted the previous attempt to tell you something")
 	require.Contains(t, prompt, "the worktree is unchanged")
@@ -68,7 +68,7 @@ func TestAnInterruptedAttemptResumesItsSessionForTheMessage(t *testing.T) {
 
 	// An ordinary resume of a pause is still told it was paused.
 	task.LiveResumeGeneration = nil
-	require.Contains(t, withLiveHandoff("Add dark mode", interrupted, true, true, task.LiveResumed()), "paused by a person")
+	require.Contains(t, withLiveHandoff("Add dark mode", interrupted, true, true, task.LiveResumed(), nil), "paused by a person")
 }
 
 // Send and start now: the attempt continues the session of the previous one,
@@ -83,7 +83,7 @@ func TestAnAttemptStartedForAMessageContinuesTheSessionOfTheSameProfileOnly(t *t
 		require.Equal(t, native, taskSession(task, previous).ResumeID, status)
 	}
 	failed := &domain.AgentHandoff{AttemptID: uuid.New(), Provider: "codex", Status: "failed", MachineID: machine, NativeSessionID: native}
-	prompt := withLiveHandoff("Fix it", failed, true, false, true)
+	prompt := withLiveHandoff("Fix it", failed, true, false, true, nil)
 	require.Contains(t, prompt, "started this attempt to tell you something")
 	require.Contains(t, prompt, "building on the work already in this worktree")
 

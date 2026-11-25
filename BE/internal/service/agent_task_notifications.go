@@ -94,6 +94,26 @@ func (s *AgentTaskService) deliverTaskNotices(ctx context.Context) {
 	}
 }
 
+// publishLeadReports announces the inbox rows stored with the room posts.
+// Only a pass that committed its room cursor publishes. Recheck visibility
+// before sending the stored text to a client or the push worker.
+func (s *AgentTaskService) publishLeadReports(ctx context.Context, task domain.AgentTask, ids []uuid.UUID) {
+	if s.notifications == nil || s.userEvents == nil {
+		return
+	}
+	reports, err := s.Repo.LeadReportNotices(ctx, task, ids)
+	if err != nil {
+		log.WithField("task_id", task.ID).WithError(err).Warn("Could not announce stored lead reports")
+		return
+	}
+	for _, n := range reports {
+		publishNotification(s.userEvents, n.WorkspaceID, n.UserID, notificationEvent{
+			Type: n.Type, Title: n.Title, IssueID: n.IssueID, IssueIdentifier: deref(n.IssueIdentifier),
+			SourceTeams: n.SourceTeamIDs, Extra: map[string]string{"task_id": task.ID.String()},
+		}, s.notifications)
+	}
+}
+
 // deliverTaskWatches pings each claimed watch once (KUA-165): the user's
 // normal notification, plus a short assistant message in the conversation the
 // watch was registered in, without a model call. A watcher whom the creator's
