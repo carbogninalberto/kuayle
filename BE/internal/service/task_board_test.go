@@ -1,7 +1,9 @@
 package service
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,4 +91,40 @@ func TestBoardCutsLongFileLists(t *testing.T) {
 	require.Equal(t, len(many), board[0].ChangedFileCount)
 	require.Len(t, board[0].Overlap[0].Files, domain.MaxAgentBoardOverlapFiles)
 	require.Equal(t, len(many), board[0].Overlap[0].FileCount, "the overlap is computed on every file, not the cut list")
+}
+
+// The board fact (P4.6) stays within the room's bounds however many tasks
+// overlap, and says each one's place in words.
+func TestTheBoardFactIsBounded(t *testing.T) {
+	var overlap []domain.AgentBoardOverlap
+	for i := range 12 {
+		files := []string{}
+		for j := range 8 {
+			files = append(files, fmt.Sprintf("dir/%s%d.go", string(rune('a'+j)), i))
+		}
+		overlap = append(overlap, domain.AgentBoardOverlap{IssueIdentifier: fmt.Sprintf("KUA-%d", i+1), PullRequest: i + 1, Files: files, FileCount: 30, Ahead: i < 3})
+	}
+	overlap[11].Files[0] = "deep/" + strings.Repeat("x", 400) + ".go"
+	overlap[4].PullRequest = 0
+	room := newBoardRoom(overlap)
+	require.Len(t, room.Overlap, boardRoomTasks)
+	require.Equal(t, 2, room.More)
+	for _, task := range room.Overlap {
+		require.Len(t, task.Files, boardRoomFiles)
+		require.Equal(t, 30, task.FileCount)
+	}
+	text := room.text("acme/app")
+	require.Contains(t, text, "KUA-1 (pull request #1) also changes dir/a0.go, dir/b0.go, dir/c0.go and 27 more file(s) and is ahead of this task in the merge order")
+	require.Contains(t, text, "KUA-4 (pull request #4) also changes")
+	require.Contains(t, text, "comes after this task in the merge order")
+	require.Contains(t, text, "KUA-5 also changes dir/a4.go, dir/b4.go, dir/c4.go and 27 more file(s) and has no pull request yet")
+	require.Contains(t, text, "2 more task(s) change some of the same files.")
+	require.Equal(t, "No other active task on acme/app changes the same files.", newBoardRoom([]domain.AgentBoardOverlap{}).text("acme/app"))
+
+	// A long path is cut, and the fact stays far below the room's limit.
+	long := newBoardRoom(overlap[10:])
+	require.LessOrEqual(t, len(long.Overlap[1].Files[0]), boardRoomPathBytes)
+	raw, err := json.Marshal(newBoardRoom(overlap))
+	require.NoError(t, err)
+	require.Less(t, len(raw), domain.RoomMaxBodyBytes)
 }

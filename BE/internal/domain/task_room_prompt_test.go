@@ -88,3 +88,17 @@ func TestRoomWakesForTalkAddressedToTheRole(t *testing.T) {
 		require.True(t, RoomWakes("reviewer", RoomInbox("reviewer", append(waits, post))), name)
 	}
 }
+
+// The board (P4.6) is posted to whoever plans the merge order, but it moves
+// with other tasks, which no turn of this one can change: it waits for the
+// role's next turn. Another fact addressed to the role still calls for one.
+func TestTheBoardWaitsForTheNextTurn(t *testing.T) {
+	board := roomPost(7, RoomFact, RoomAuthorKuayle, "", []string{"implementer"}, "KUA-5 (pull request #12) also changes ui/toggle.ts and is ahead of this task in the merge order.")
+	board.Data.Fact = RoomFactBoard
+	require.False(t, RoomWakes("implementer", RoomInbox("implementer", []TaskMessage{board})))
+	script := roomPost(8, RoomFact, RoomAuthorKuayle, "", []string{"implementer"}, "Check lint failed")
+	script.Data.Fact = PipelineFactScript
+	require.True(t, RoomWakes("implementer", RoomInbox("implementer", []TaskMessage{board, script})))
+	// It is still read at that turn.
+	require.Contains(t, RoomTurnPrompt("implementer", []TaskMessage{board}), "is ahead of this task in the merge order")
+}

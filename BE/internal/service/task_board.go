@@ -148,3 +148,66 @@ func fileList(files []string, count int) string {
 	}
 	return list
 }
+
+// boardRoom is a task's place on its repository's board as its room hears
+// it (the board fact, P4.6): the other active tasks that change the same
+// files, in merge order, each ahead of the task or not, with the files they
+// share. Tasks that share nothing are left out, so their moves post nothing.
+// It names at most boardRoomTasks tasks and boardRoomFiles files of each
+// (More counts the tasks left out), which keeps the post within the room's
+// bounds.
+type boardRoom struct {
+	Overlap []boardRoomTask `json:"overlap"`
+	More    int             `json:"more,omitempty"`
+}
+
+type boardRoomTask struct {
+	Issue       string   `json:"issue"`
+	PullRequest int      `json:"pull_request,omitempty"`
+	Ahead       bool     `json:"ahead"`
+	Files       []string `json:"files"`
+	FileCount   int      `json:"file_count"`
+}
+
+const (
+	boardRoomTasks     = 10
+	boardRoomFiles     = 5
+	boardRoomPathBytes = 200
+)
+
+func newBoardRoom(overlap []domain.AgentBoardOverlap) boardRoom {
+	room := boardRoom{Overlap: []boardRoomTask{}, More: max(len(overlap)-boardRoomTasks, 0)}
+	for _, other := range overlap[:min(len(overlap), boardRoomTasks)] {
+		files := []string{}
+		for _, file := range other.Files[:min(len(other.Files), boardRoomFiles)] {
+			files = append(files, truncateUTF8Bytes(file, boardRoomPathBytes))
+		}
+		room.Overlap = append(room.Overlap, boardRoomTask{Issue: other.IssueIdentifier, PullRequest: other.PullRequest, Ahead: other.Ahead, Files: files, FileCount: other.FileCount})
+	}
+	return room
+}
+
+// text says the board fact in words.
+func (b boardRoom) text(repository string) string {
+	if len(b.Overlap) == 0 {
+		return "No other active task on " + repository + " changes the same files."
+	}
+	parts := make([]string, 0, len(b.Overlap)+1)
+	for _, other := range b.Overlap {
+		name, order := other.Issue, "has no pull request yet"
+		switch {
+		case other.Ahead:
+			order = "is ahead of this task in the merge order"
+		case other.PullRequest > 0:
+			order = "comes after this task in the merge order"
+		}
+		if other.PullRequest > 0 {
+			name += fmt.Sprintf(" (pull request #%d)", other.PullRequest)
+		}
+		parts = append(parts, name+" also changes "+fileList(other.Files, other.FileCount)+" and "+order)
+	}
+	if b.More > 0 {
+		parts = append(parts, fmt.Sprintf("%d more task(s) change some of the same files", b.More))
+	}
+	return strings.Join(parts, "; ") + "."
+}

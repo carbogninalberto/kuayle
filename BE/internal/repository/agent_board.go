@@ -21,7 +21,10 @@ import (
 //   - the approval: when a person approved the merge Kuayle is carrying out
 //     now, at the task's current workflow step or as an assistant merge
 //     waiting for checks. A failed merge waits for a person again and is
-//     not counted.
+//     not counted. On a pipeline, the owner's approval in the tick's memory
+//     (pipeline_state: "approved", and the "approved" and "head_sha" facts
+//     it last posted) counts while the tick holds it for the board's head,
+//     from when its room last heard it hold.
 const boardColumns = `t.id,t.state,t.workflow_node,t.workflow_status,t.updated_at,i.identifier_text,i.title,
  COALESCE(p.repository_full_name,k.repository_full_name) AS repository_full_name,COALESCE(p.pull_request_number,0) AS pull_request_number,
  COALESCE(k.base_branch,'') AS base_branch,COALESCE(head.sha,'') AS head_sha,
@@ -30,7 +33,10 @@ const boardColumns = `t.id,t.state,t.workflow_node,t.workflow_status,t.updated_a
  COALESCE((SELECT (w.merge->>'since')::timestamptz FROM agent_task_workflow_steps w WHERE w.task_id=t.id AND w.sequence=t.workflow_sequence AND w.finished_at IS NULL
    AND w.merge IS NOT NULL AND COALESCE(w.merge->>'failure','')='' AND NOT COALESCE((w.merge->>'deferred')::boolean,false)),
   (SELECT (a.payload->'wait'->>'since')::timestamptz FROM conversation_approvals a WHERE a.status='waiting_checks' AND a.action='merge_pull_request'
-   AND a.issue_id=t.issue_id AND a.payload->>'task_id'=t.id::text ORDER BY a.created_at DESC LIMIT 1)) AS approved_at`
+   AND a.issue_id=t.issue_id AND a.payload->>'task_id'=t.id::text ORDER BY a.created_at DESC LIMIT 1),
+  (SELECT max(m.created_at) FROM task_messages m WHERE t.pipeline AND COALESCE(t.pipeline_state->'approved'->>'head','')<>''
+   AND t.pipeline_state->'facts'->'approved'='true'::jsonb AND t.pipeline_state->'facts'->>'head_sha'=head.sha
+   AND m.task_id=t.id AND m.workspace_id=t.workspace_id AND m.author_kind='kuayle' AND m.kind='fact' AND m.data->>'fact'='approved' AND m.data->'value'='true'::jsonb)) AS approved_at`
 
 const boardJoins = ` LEFT JOIN dev_machine_checkouts k ON k.id=t.checkout_id AND k.workspace_id=t.workspace_id
  LEFT JOIN LATERAL (SELECT g.repository_full_name,g.pull_request_number,g.agent_run_id,g.created_at FROM dev_machine_git_refs g JOIN dev_machine_agent_runs r ON r.id=g.agent_run_id AND r.task_id=t.id

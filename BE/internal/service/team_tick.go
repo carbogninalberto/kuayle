@@ -489,17 +489,14 @@ func (t *tickPass) postFacts(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if sameJSON(t.st.Facts[name], raw) {
+		last, posted := t.st.Facts[name]
+		if !posted {
+			last = roomUnposted[name]
+		}
+		if sameJSON(last, raw) {
 			continue
 		}
-		body := ""
-		if slices.Contains(domain.PipelineConditionFacts, name) && name != factMerged {
-			_, body = t.facts.judge(FactCheck{ID: name, Fact: name})
-		}
-		if name == factCIGreen && t.facts.CI.State == "failing" {
-			body += "\n\n" + ciChecksDetail(t.facts.CI.failing(), "")
-		}
-		if err = t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomFact, Body: truncateUTF8Bytes(body, domain.RoomMaxBodyBytes),
+		if err = t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomFact, ToRoles: roomTo(name, t.p), Body: t.facts.roomText(name),
 			Data: domain.TaskRoomData{Fact: name, Value: raw}, DedupeKey: fmt.Sprintf("fact:%d:%s:%x", t.st.Pass, name, sha256.Sum256(raw))}); err != nil {
 			return err
 		}

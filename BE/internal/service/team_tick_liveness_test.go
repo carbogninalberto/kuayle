@@ -25,7 +25,8 @@ import (
 // what happens around a pipeline task (pushes, CI results, base moves and
 // conflicts, verdicts, the owner's approvals, decisions and posts, member
 // turns that finish, fail or are cancelled, GitHub failing or answering too
-// slowly, script checks, the budget running out) play through the scenario
+// slowly, script checks, the budget running out, another task on the board
+// moving) play through the scenario
 // tests' world (tickWorld): the real worker, tick, repository and room, with
 // GitHub and the machines faked. After every step the worker takes, the task
 // must be
@@ -110,6 +111,10 @@ type liveWorld struct {
 	// checkoutFor counts the events left while the task's worktree is not on
 	// a running machine (its script checks cannot run).
 	checkoutFor int
+	// other is another active task of the creator on the repository, on
+	// the board with this one; others counts those added.
+	other  uuid.UUID
+	others int
 }
 
 func playTickLiveness(t *testing.T, seed uint64) {
@@ -480,6 +485,7 @@ var liveEvents = []liveEvent{
 	{"merges are refused", 3, (*liveWorld).mergeRefused},
 	{"a migration collides", 3, (*liveWorld).migrationCollides},
 	{"the pull request ends", 1, (*liveWorld).pullRequestEnds},
+	{"the board changes", 3, (*liveWorld).boardChanges},
 }
 
 // play picks an event that can happen now and plays it.
@@ -713,6 +719,40 @@ func (l *liveWorld) pullRequestEnds() string {
 	}
 	l.drain()
 	return fmt.Sprintf("someone merges the pull request on GitHub (webhook %t)", webhook)
+}
+
+// boardChanges moves another task of the creator on the repository: it
+// appears, changes the same files as this task or others, has its merge
+// approved (it goes first) or ends. The board fact it brings waits for the
+// writer's next turn; something else wakes the tick.
+func (l *liveWorld) boardChanges() string {
+	b := l.board(`["ui/toggle.ts","ui/theme.ts"]`)
+	happened := ""
+	switch x := l.rng.IntN(4); {
+	case l.other == uuid.Nil:
+		l.others++
+		l.other = l.boardTask(b, 1+l.others, 12+l.others, `["ui/toggle.ts"]`)
+		happened = fmt.Sprintf("ENG-%d (#%d) appears, changing ui/toggle.ts", 1+l.others, 12+l.others)
+	case x == 0:
+		files := []string{`["ui/toggle.ts"]`, `["api/theme.go"]`}[l.rng.IntN(2)]
+		l.exec(`UPDATE dev_machine_agent_runs SET changed_files=$2 WHERE task_id=$1`, l.other, files)
+		happened = "the other task now changes " + files
+	case x == 1:
+		var approved bool
+		require.NoError(l.t, l.f.db.Get(&approved, `SELECT EXISTS(SELECT 1 FROM agent_task_workflow_steps WHERE task_id=$1)`, l.other))
+		if approved {
+			return ""
+		}
+		l.boardApprove(l.other)
+		happened = "the other task's merge is approved"
+	default:
+		l.exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, l.other)
+		l.other = uuid.Nil
+		happened = "the other task ends"
+	}
+	l.wake()
+	l.drain()
+	return "the board changes: " + happened
 }
 
 // settle has everyone cooperate until the task ends. A pause the sequence

@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -464,7 +466,40 @@ func (f TaskFacts) judgeVerdict(check FactCheck, head string) (string, string) {
 
 // roomFacts are the facts a pipeline's tick posts to the task's room when
 // they change, in order.
-var roomFacts = []string{factPRExists, "head_sha", "base_ref", factPRDraft, factHeadContainsBase, factConflict, factMigrationCollision, factCIGreen, factApproved, factOverlap, factMerged, factClosed}
+var roomFacts = []string{factPRExists, "head_sha", "base_ref", factPRDraft, factHeadContainsBase, factConflict, factMigrationCollision, factCIGreen, factApproved, factOverlap, domain.RoomFactBoard, factMerged, factClosed}
+
+// roomUnposted is the value the room is taken to know of a fact Kuayle has
+// not posted yet: the board is posted once something overlaps.
+var roomUnposted = map[string]json.RawMessage{domain.RoomFactBoard: json.RawMessage(`{"overlap":[]}`)}
+
+// roomTo is who a fact is posted to: everyone, but the board goes to
+// whoever plans the merge order, the lead or else the writer (P4.6).
+func roomTo(name string, p domain.Pipeline) []string {
+	if name != domain.RoomFactBoard {
+		return nil
+	}
+	if p.Lead != nil {
+		return []string{domain.PipelineLeadRole}
+	}
+	writer, _ := p.Writer()
+	return []string{writer.Role}
+}
+
+// roomText is the text of a fact's post: what it means for the task when it
+// blocks a check, with the failing checks' details; the board in words.
+func (f TaskFacts) roomText(name string) string {
+	body := ""
+	switch {
+	case name == domain.RoomFactBoard:
+		body = newBoardRoom(f.Overlap).text(f.Repository)
+	case slices.Contains(domain.PipelineConditionFacts, name) && name != factMerged:
+		_, body = f.judge(FactCheck{ID: name, Fact: name})
+	}
+	if name == factCIGreen && f.CI.State == "failing" {
+		body += "\n\n" + ciChecksDetail(f.CI.failing(), "")
+	}
+	return truncateUTF8Bytes(body, domain.RoomMaxBodyBytes)
+}
 
 // roomValue is a fact's value as the room records it; false when unknown.
 func (f TaskFacts) roomValue(name string) (any, bool) {
@@ -492,6 +527,8 @@ func (f TaskFacts) roomValue(name string) (any, bool) {
 			}
 		}
 		return ahead, f.Overlap != nil
+	case domain.RoomFactBoard:
+		return newBoardRoom(f.Overlap), f.Overlap != nil
 	}
 	return nil, false
 }
