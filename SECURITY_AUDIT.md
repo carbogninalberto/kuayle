@@ -389,6 +389,7 @@ private teams, invite and shared links.
 | KS-36 | Low | Fixed (#184) | Release job upgraded agent CLIs to `latest` with no minimum age | `scripts/ci/upgrade-agent-clis.mjs:35` |
 | KS-37 | Low | Fixed (#190) | GitHub webhook had no replay protection; the write check accepted read-only collaborators | `BE/internal/handler/github.go:265`, `BE/internal/service/github_bot_abilities.go:155` |
 | KS-38 | Low | Fixed (#183) | Root `.gitignore` did not cover `.env.*` | `.gitignore` |
+| KS-39 | Critical | Fixed (KUA-299) | Checkout fetched with the repository token under agent-writable git configuration | `devmachine/ide/checkout.sh` (removed), `BE/internal/machine/docker_checkout.go` |
 
 ## Fixed findings
 
@@ -622,6 +623,30 @@ webhook secret invalidates captured deliveries. Tests:
 ### KS-38 — Environment files (Low)
 
 The root `.gitignore` ignores `.env.*` except `.env.example`.
+
+### KS-39 — Checkout leaked the repository token (Critical)
+
+Found after this audit, in review of #391, and reproduced. **Scenario.** Agent
+runs can write all of `/workspace`, including the configuration and hooks of
+the repository caches (`/workspace/repos/<owner>/<repo>.git`) that every task
+worktree of the machine shares. `kuayle-checkout` then ran `git fetch` in that
+cache, or in an existing worktree before a pipeline member's next turn, under
+that configuration while `GIT_ASKPASS` handed out the installation token. A
+`url.<host>.insteadOf` rewrite sent the token to another host, and a hook (for
+example `reference-transaction`) ran with the token at hand. A cache an agent
+created before the first checkout of another repository was used the same way.
+
+**Fix.** The checkout script moved into the backend (`checkoutScript`) and runs
+git only in publication's isolated git directory: an empty configuration, no
+hooks, system and global configuration ignored, `file` and `https` only. The
+token is used for one fetch from the fixed GitHub URL and removed before the
+worktree is written. The diff recorded after a run and the planning-step
+fingerprint use the same directory, so no program an agent configured runs in
+the developer container then either.
+
+**Tests.** `TestCheckoutIgnoresAgentGitConfigurationAndKeepsTheTokenOffOtherHosts`,
+`TestCheckoutLeavesNoCredentialBehind`,
+`TestWorktreeStateAndDiffRunNothingTheAgentConfigured`.
 
 ## October findings revisited
 

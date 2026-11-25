@@ -39,10 +39,14 @@ func newGitScriptEnv(t *testing.T) *gitScriptEnv {
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_AUTHOR_NAME=Kuayle Test", "GIT_AUTHOR_EMAIL=test@example.test",
 		"GIT_COMMITTER_NAME=Kuayle Test", "GIT_COMMITTER_EMAIL=test@example.test",
+		// GitHub URLs resolve to the local remotes, as the network would to
+		// GitHub. The mapping is given in the environment, like a
+		// command-line -c, so it also reaches scripts that ignore every
+		// configuration file.
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=url.file://" + e.remotes + "/.insteadOf", "GIT_CONFIG_VALUE_0=https://github.com/",
+		"GIT_CONFIG_KEY_1=init.defaultBranch", "GIT_CONFIG_VALUE_1=main",
 	}
-	// GitHub URLs resolve to the local remotes, as the egress proxy would to GitHub.
-	e.git("", "config", "--global", "url.file://"+e.remotes+"/.insteadOf", "https://github.com/")
-	e.git("", "config", "--global", "init.defaultBranch", "main")
 	return e
 }
 
@@ -90,18 +94,11 @@ func lastLine(output string) string {
 
 func (e *gitScriptEnv) runCheckout(workspace, repository, workspacePath string) (string, error) {
 	e.t.Helper()
-	secrets, tmp := filepath.Join(e.root, "secrets"), filepath.Join(e.root, "tmp")
-	for _, dir := range []string{secrets, tmp} {
-		require.NoError(e.t, os.MkdirAll(dir, 0o700))
-	}
-	script := filepath.Join(repoRootFromCaller(e.t), "devmachine", "ide", "checkout.sh")
 	working := "kuayle/" + filepath.Base(workspacePath)
-	cmd := exec.Command("sh", script, repository, "main", working, workspacePath)
+	cmd := exec.Command("sh", "-c", checkoutScript, "kuayle-checkout", repository, "main", working, workspacePath)
 	cmd.Stdin = strings.NewReader("installation-token-" + strings.ReplaceAll(repository, "/", "-") + "\n")
 	cmd.Env = append(append([]string{}, e.env...),
 		"KUAYLE_WORKSPACE_ROOT="+workspace,
-		"KUAYLE_CHECKOUT_SECRET_DIR="+secrets,
-		"KUAYLE_CHECKOUT_TMP_DIR="+tmp,
 		"KUAYLE_CHECKOUT_ALLOW_ROOT_OVERRIDE=1",
 		"KUAYLE_GIT_CREDENTIAL_HELPER="+filepath.Join(e.home, ".kuayle-git-credential"),
 	)

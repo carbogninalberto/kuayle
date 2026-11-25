@@ -1382,27 +1382,51 @@ func (r *DockerRuntime) GitState(ctx context.Context, machine *domain.DevMachine
 	if checkout != nil {
 		workspacePath, baseBranch = checkout.WorkspacePath, checkout.BaseBranch
 	}
-	branch, err := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "branch", "--show-current"})
+	git := func(args ...string) (string, error) {
+		return r.execOutput(ctx, developerContainer, append([]string{"/bin/sh", "-c", worktreeGitScript, "kuayle-git", workspacePath}, args...))
+	}
+	branch, err := git("branch", "--show-current")
 	if err != nil {
 		return GitState{}, err
 	}
-	commits, _ := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "rev-list", "origin/" + baseBranch + "..HEAD"})
-	changed, _ := r.execOutput(ctx, developerContainer, []string{"git", "-C", workspacePath, "diff", "--name-only", "origin/" + baseBranch + "...HEAD"})
+	commits, _ := git("rev-list", "origin/"+baseBranch+"..HEAD")
+	changed, _ := git("diff", "--name-only", "origin/"+baseBranch+"...HEAD")
 	state := GitState{Branch: strings.TrimSpace(branch), Commits: nonEmptyLines(commits), ChangedFiles: nonEmptyLines(changed)}
-	// A throwaway index stages everything, so the diff includes new files
-	// without touching the checkout's real index.
 	diff, _ := r.execOutput(ctx, developerContainer, []string{"/bin/sh", "-c", worktreeDiffScript, "kuayle-diff", workspacePath, "origin/" + baseBranch})
 	state.Diff, state.DiffTruncated = capDiff(diff)
 	return state, nil
 }
 
+// What Kuayle reads from a checkout after a run is read in the developer
+// container, next to secrets an agent run is not given, while agent runs can
+// write the checkout's git directory (KUA-299). Like publication, git runs
+// only in publishCheckoutScript's isolated git directory, at the checkout's
+// own HEAD, so nothing the agent configured (filters, fsmonitor, hooks) runs.
+const worktreeHeadScript = `checkout_head=$(head -n 1 "$gitdir/HEAD")
+case $checkout_head in
+  "ref: refs/"*|[0-9a-f]*) printf '%s\n' "$checkout_head" > "$work/checkout/HEAD" ;;
+  *) echo "checkout HEAD is unreadable" >&2; exit 1 ;;
+esac
+`
+
+// worktreeGitScript runs one git command that only reads ($2...) in the
+// checkout at $1.
+const worktreeGitScript = `set -eu
+path=$1 step=read branch=
+shift
+` + publishCheckoutScript + worktreeHeadScript + `g "$@"
+`
+
+// worktreeDiffScript prints the diff of the checkout at $1 against $2. A
+// throwaway index stages everything, so the diff includes new files without
+// touching the checkout's real index.
 const worktreeDiffScript = `set -eu
-index=$(mktemp)
-trap 'rm -f "$index"' EXIT
-export GIT_INDEX_FILE="$index"
-git -C "$1" read-tree HEAD
-git -C "$1" add -A
-git -C "$1" diff --cached --no-color --no-ext-diff "$2"`
+path=$1 base=$2 step=diff branch=
+` + publishCheckoutScript + worktreeHeadScript + `gi() { GIT_INDEX_FILE="$work/index" git -C "$path" --git-dir="$work/checkout" --work-tree="$path" "$@"; }
+g read-tree HEAD
+g add -A
+g diff --cached --no-color --no-ext-diff "$base"
+`
 
 const maxStoredDiffBytes = 1 << 20
 
@@ -1416,23 +1440,6 @@ func capDiff(diff string) (string, bool) {
 		diff = diff[:len(diff)-1]
 	}
 	return diff, true
-}
-
-func (r *DockerRuntime) PrepareCheckout(ctx context.Context, _ *domain.DevMachine, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, token string) error {
-	developerContainer := developerContainerID(services)
-	if developerContainer == "" {
-		return fmt.Errorf("developer container is unavailable")
-	}
-	if token == "" {
-		return fmt.Errorf("repository credential is unavailable")
-	}
-	if err := r.execWithInput(ctx, developerContainer, []string{
-		"/usr/local/bin/kuayle-checkout", checkout.RepositoryFullName, checkout.BaseBranch,
-		checkout.WorkingBranch, checkout.WorkspacePath,
-	}, token+"\n"); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (r *DockerRuntime) TerminateTerminal(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, session *domain.DevMachineTerminalSession) (resultErr error) {
