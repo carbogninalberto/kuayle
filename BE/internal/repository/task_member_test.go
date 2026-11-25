@@ -434,3 +434,28 @@ func TestTheRootTaskListsItsMembersRunsWithTheirRoles(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, runs, 1, "a task of another creator is not the root's member")
 }
+
+// A member's turn reads the commit Kuayle pinned for it (KUA-289): the
+// machine checks that commit out before it mounts the member's worktree
+// read-only. The root task's own runs read none.
+func TestAMembersTurnReadsItsPinnedCommit(t *testing.T) {
+	f := newMemberFixture(t)
+	f.publish(firstCommit)
+	member, err := f.repo.StartMemberTurn(f.ctx, f.task.ID, "reviewer", false)
+	require.NoError(t, err)
+	task := f.memberTask(member)
+	machines := NewDevMachineRepository(f.db)
+	f.runTurn(member, "0c9a6c1e-0000-4000-8000-000000000004", "Read it.", func(task domain.AgentTask) {
+		commit, err := machines.MemberCommit(context.Background(), task.RunID)
+		require.NoError(t, err)
+		require.Equal(t, firstCommit, commit)
+	})
+	var root uuid.UUID
+	require.NoError(t, f.db.Get(&root, `SELECT id FROM dev_machine_agent_runs WHERE task_id=$1 LIMIT 1`, f.task.ID))
+	commit, err := machines.MemberCommit(context.Background(), root)
+	require.NoError(t, err)
+	require.Empty(t, commit, "the writer's run")
+	commit, err = machines.MemberCommit(context.Background(), task.RunID)
+	require.NoError(t, err)
+	require.Equal(t, firstCommit, commit, "the turn's run keeps reading it until the next turn")
+}

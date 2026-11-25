@@ -113,7 +113,8 @@ type PipelineCheck struct {
 }
 
 // PipelineMember is a role of the roster and the profile that plays it.
-// Exactly one role writes code; an on-call role works only when addressed.
+// At least one role writes code, one at a time (the write lock); an on-call
+// role works only when addressed.
 type PipelineMember struct {
 	Role      string    `json:"role"`
 	ProfileID uuid.UUID `json:"profile_id"`
@@ -208,8 +209,8 @@ func ValidatePipeline(p Pipeline, profiles map[uuid.UUID]AgentProfile) []Workflo
 			}
 		}
 	}
-	if writers != 1 {
-		add("writer_count", "", "exactly one role writes code (this pipeline has %d)", writers)
+	if writers == 0 {
+		add("writer_count", "", "at least one role writes code")
 	}
 	if p.Lead != nil {
 		if _, ok := profiles[p.Lead.ProfileID]; !ok {

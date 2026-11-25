@@ -18,15 +18,17 @@ import (
 // remembers between passes is pipeline_state, which only the tick reads.
 
 // startPipeline pins a pipeline version on a new task, whose first turn is
-// the writer's: the iteration delegation creates. The writer is a member
-// from the start; the other roles become members when first addressed.
+// the first writer's: the iteration delegation creates, which holds the
+// write lock. That writer is a member from the start; the other roles become
+// members when first addressed.
 func startPipeline(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, version domain.WorkflowVersion) error {
 	pipeline, err := domain.ParsePipeline(version.Graph)
 	if err != nil {
 		return err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_version_id=$2,workflow_node=$3,workflow_visits='{}',workflow_iterations=1,workflow_status='running',workflow_sequence=1,pipeline=true WHERE id=$1 RETURNING *`,
-		task.ID, version.ID, pipeline.Phases[0].ID); err != nil {
+	writer, _ := pipeline.Writer()
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_version_id=$2,workflow_node=$3,workflow_visits='{}',workflow_iterations=1,workflow_status='running',workflow_sequence=1,pipeline=true,
+ pipeline_state=jsonb_build_object('writer',$4::text) WHERE id=$1 RETURNING *`, task.ID, version.ID, pipeline.Phases[0].ID, writer.Role); err != nil {
 		return err
 	}
 	return ensureWriterMember(ctx, tx, *task, *pipeline)
@@ -47,6 +49,9 @@ type PipelineApply struct {
 	// ReadSeq), a publication, a pause, a failure or completion.
 	Entry   WorkflowEntry
 	ReadSeq int64
+	// Writer is the writer whose turn an iteration starts: it takes the
+	// write lock.
+	Writer domain.PipelineMember
 	// Turns are the turns the pass started, charged to the budget.
 	Turns int
 	// ClaimedWake is the wake-up the worker claimed the task for: an event
@@ -145,10 +150,13 @@ func applyPipelineTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	var err error
 	switch kind := apply.Entry.Kind; {
 	case kind == WorkflowEnterIteration:
+		if err = holdWriteLock(ctx, tx, task, apply.Writer); err != nil {
+			return err
+		}
 		if err = workflowIteration(ctx, tx, task, apply.Entry, apply.Actor); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE task_members SET last_read_seq=GREATEST(last_read_seq,$2),turns=turns+1,updated_at=now() WHERE task_id=$1 AND member_task_id IS NULL`, task.ID, apply.ReadSeq)
+		_, err = tx.ExecContext(ctx, `UPDATE task_members SET last_read_seq=GREATEST(last_read_seq,$2),turns=turns+1,updated_at=now() WHERE task_id=$1 AND member_task_id IS NULL AND role=$3`, task.ID, apply.ReadSeq, apply.Writer.Role)
 	case kind == WorkflowEnterFail:
 		err = beginAgentTaskFailure(ctx, tx, task, apply.FailureClass, apply.Entry.Reason)
 	case task.State != WorkflowEntryState(kind) || reason != apply.Entry.Reason:

@@ -96,6 +96,10 @@ type tickState struct {
 	Wait tickWait `json:"wait,omitzero"`
 	// Scripts are the runs of the script checks, by check ID.
 	Scripts map[string]*scriptRun `json:"scripts,omitempty"`
+	// Writer holds the write lock (KUA-289), and Moves are when it moved:
+	// the repository records both when a writer's turn starts.
+	Writer string          `json:"writer,omitempty"`
+	Moves  json.RawMessage `json:"moves,omitempty"`
 }
 
 type tickWait struct {
@@ -227,7 +231,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 		return err
 	}
 	t := &tickPass{s: s, w: w, task: task, p: *p, profiles: profiles, st: readTickState(task), now: w.now()}
-	t.writer, _ = p.Writer()
+	t.writer = p.Holder(t.st.Writer)
 	deadline := time.Now().Add(tickGitHubTimeout)
 	if step, ok := ctx.Deadline(); ok && step.Add(-tickSaveReserve).Before(deadline) {
 		deadline = step.Add(-tickSaveReserve)
@@ -295,7 +299,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	if err = t.deliver(ctx, index); err != nil {
 		return err
 	}
-	writerDue, err := t.due(ctx, t.writer)
+	writerDue, err := t.writerDue(ctx)
 	if err != nil {
 		return err
 	}
@@ -312,7 +316,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 		if err = t.deliver(ctx, index); err != nil {
 			return err
 		}
-		if writerDue, err = t.due(ctx, t.writer); err != nil {
+		if writerDue, err = t.writerDue(ctx); err != nil {
 			return err
 		}
 	}
@@ -767,7 +771,26 @@ func (t *tickPass) due(ctx context.Context, member domain.PipelineMember) (bool,
 	return err == nil && domain.RoomWakes(member, inbox), err
 }
 
-// deliver starts a turn of every idle member, other than the writer, whose
+// writerDue reports whether a writer's turn is due, and makes it the
+// writer the pass starts: the one holding the write lock first, then the
+// others in roster order. A pass runs only while no writer's turn does, so
+// the lock moves only between turns.
+func (t *tickPass) writerDue(ctx context.Context) (bool, error) {
+	for _, member := range append([]domain.PipelineMember{t.writer}, t.p.Roster...) {
+		if !member.Writer {
+			continue
+		}
+		if due, err := t.due(ctx, member); err != nil || due {
+			if due {
+				t.writer = member
+			}
+			return due, err
+		}
+	}
+	return false, nil
+}
+
+// deliver starts a turn of every idle member, other than the writers, whose
 // unread posts call for one; it owes a verdict when the phase requires it.
 func (t *tickPass) deliver(ctx context.Context, index int) error {
 	for _, member := range t.p.Roster {
@@ -878,9 +901,16 @@ func (t *tickPass) wait(why string, poll bool) repository.WorkflowEntry {
 	if poll {
 		wake = ptr(t.now.Add(tickPoll))
 	}
-	// The time budget also ends a wait.
-	if deadline := (domain.WorkflowGraph{Budget: t.p.Budget.Workflow()}).BudgetDeadline(t.task.Cursor()); deadline != nil && !t.person && (wake == nil || deadline.Before(*wake)) {
-		wake = deadline
+	// The time budget also ends a wait; one that has passed (a pass that
+	// could not read GitHub could not stop the task) is looked at again
+	// after a poll, not at once.
+	if deadline := (domain.WorkflowGraph{Budget: t.p.Budget.Workflow()}).BudgetDeadline(t.task.Cursor()); deadline != nil && !t.person {
+		if !deadline.After(t.now) {
+			deadline = ptr(t.now.Add(tickPoll))
+		}
+		if wake == nil || deadline.Before(*wake) {
+			wake = deadline
+		}
 	}
 	entry.WakeAt = wake
 	return entry
@@ -907,7 +937,7 @@ func (t *tickPass) save(ctx context.Context, entry repository.WorkflowEntry, pha
 	if err != nil {
 		return err
 	}
-	apply := repository.PipelineApply{Sequence: t.task.WorkflowSequence, Phase: phase, State: state, Entry: entry, Turns: t.turns, ReadSeq: t.readSeq, ClaimedWake: t.task.WorkflowWakeAt}
+	apply := repository.PipelineApply{Sequence: t.task.WorkflowSequence, Phase: phase, State: state, Entry: entry, Turns: t.turns, ReadSeq: t.readSeq, ClaimedWake: t.task.WorkflowWakeAt, Writer: t.writer}
 	if entry.Kind == repository.WorkflowEnterPause {
 		apply.Notes = []domain.NotebookNote{{Event: "Paused for a person's decision: " + strings.TrimPrefix(entry.Reason, domain.WorkflowReasonPrefix)}}
 	}

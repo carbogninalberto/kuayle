@@ -387,6 +387,10 @@ func (w *tickWorld) finish(role string, turn tickTurn) {
 
 func (r *tickRuntime) role(task domain.AgentTask) string {
 	if task.Kind != domain.AgentTaskKindReview {
+		// The writer holding the write lock.
+		if holder := domain.PipelineHolderRole(r.w.task().PipelineState); holder != "" {
+			return holder
+		}
 		return "implementer"
 	}
 	var role string
@@ -855,6 +859,27 @@ func TestTickScenario12UnreadableFactWaits(t *testing.T) {
 
 // A wake that lands while a pass runs (a webhook, a member's turn ending)
 // is not lost to the wait that pass schedules: the task is looked at again.
+// A pass that cannot read GitHub once the time budget has passed cannot
+// stop the task: it polls, rather than waking at the deadline that has
+// passed, which would run it again at once while GitHub is down (the
+// liveness test's seed 36).
+func TestTickAnUnreadablePullRequestPastTheTimeBudgetPolls(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	w.drain()
+	w.github.readErr = errors.New("GitHub answered 502")
+	w.exec(`UPDATE agent_tasks SET workflow_started_at=workflow_started_at-interval '3 days',workflow_budget_from=workflow_budget_from-interval '3 days',workflow_wake_at=now() WHERE id=$1`, w.root)
+	w.drain()
+	waiting := w.task()
+	require.Equal(t, "awaiting_review", waiting.State)
+	require.NotNil(t, waiting.WorkflowWakeAt)
+	require.True(t, waiting.WorkflowWakeAt.After(time.Now().Add(tickPoll/2)), "the next pass is a poll away")
+
+	w.github.readErr = nil
+	w.later()
+	require.Equal(t, domain.WorkflowStatusPaused, *w.task().WorkflowStatus, "once GitHub answers, the used-up budget asks a person")
+}
+
 func TestTickKeepsAWakeThatLandsDuringAPass(t *testing.T) {
 	w := newTickWorld(t, nil)
 	w.agent = w.writesAndApproves

@@ -30,13 +30,15 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 		Notebook      *string         `db:"notebook_problem"`
 		FailureRule   *string         `db:"failure_rule"`
 		PriorWorkflow bool            `db:"prior_workflow"`
+		WriterMoved   bool            `db:"writer_moved"`
 	}
 	err := r.db.GetContext(ctx, &row, `SELECT r.id,r.machine_id,r.provider_id,r.native_session_id,r.status::text AS status,r.summary,r.changed_files,
  CASE WHEN p.status='succeeded' THEN r.pull_request_url END AS pull_request,
  CASE WHEN p.status='failed' THEN p.summary END AS publication_failure,
  r.session_continued_at IS NOT NULL AS continued,
  COALESCE(r.result->>'no_final_message','')='true' AS no_final_message,r.notebook_problem,r.failure_rule,
- EXISTS(SELECT 1 FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.sequence=$4 AND s.entered_at>r.created_at) AS prior_workflow
+ EXISTS(SELECT 1 FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.sequence=$4 AND s.entered_at>r.created_at) AS prior_workflow,
+ `+writerMoved+` AS writer_moved
  FROM dev_machine_agent_runs r
  LEFT JOIN dev_machine_agent_run_steps p ON p.agent_run_id=r.id AND p.sequence=1 AND p.step_type='publication'
  WHERE r.task_id=$1 AND r.workspace_id=$2 AND r.id<>$3 ORDER BY r.created_at DESC,r.id LIMIT 1`, task.ID, task.WorkspaceID, task.RunID, task.WorkflowSwitchSequence)
@@ -65,8 +67,9 @@ func (r *AgentTaskRepository) PreviousAttempt(ctx context.Context, task domain.A
 	}
 	_ = json.Unmarshal(row.ChangedFiles, &handoff.ChangedFiles)
 	// An earlier workflow supplies handoff context, but its session is not
-	// used to enter the chosen step, even when the node IDs happen to match.
-	if row.PriorWorkflow {
+	// used to enter the chosen step, even when the node IDs happen to match;
+	// nor is another writer's, when a pipeline's write lock moved since.
+	if row.PriorWorkflow || row.WriterMoved {
 		handoff.OtherProfile = true
 	} else if handoff.OtherProfile, err = r.previousStepProfileDiffers(ctx, task); err != nil {
 		return nil, err

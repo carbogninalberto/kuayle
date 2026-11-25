@@ -19,6 +19,12 @@ import (
 // Kuayle created and the store it asked.
 func reviewTurn(t *testing.T, provider, session string, member bool) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
 	t.Helper()
+	return reviewTurnAt(t, provider, session, member, 2)
+}
+
+// reviewTurnAt is reviewTurn for the attempt of that generation.
+func reviewTurnAt(t *testing.T, provider, session string, member bool, generation int64) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
+	t.Helper()
 	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
 		policy:        testPolicy(ws),
@@ -35,7 +41,7 @@ func reviewTurn(t *testing.T, provider, session string, member bool) (domain.Dev
 	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, Provider: provider, NativeSessionID: session,
 		Summary: "Verdict: request_changes\nThe toggle is not persisted."}}
 	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: provider,
-		Prompt: "You are the @reviewer of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: 2}
+		Prompt: "You are the @reviewer of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: generation}
 	if member {
 		tasks.member = &domain.TaskMember{ID: uuid.New(), WorkspaceID: ws, TaskID: root, Role: "reviewer", MemberTaskID: &task.ID, State: domain.MemberQueued}
 	}
@@ -83,6 +89,21 @@ func TestAMembersNextTurnOnAHarnessWithoutResumeGetsTheHandoff(t *testing.T) {
 			require.False(t, run.PushBranch)
 		})
 	}
+}
+
+// Only the writer holding the write lock writes (KUA-289): a member's turn,
+// its first one too, reads its worktree read-only where its harness can run
+// that way, and otherwise on a detached worktree as reviews do. Any other
+// review is as before.
+func TestAMembersTurnReadsItsWorktreeReadOnlyWhereItsHarnessCan(t *testing.T) {
+	for provider, readOnly := range map[string]bool{"claude-code": true, "codex": true, "opencode": true, "crush": false, "pi": false} {
+		for _, generation := range []int64{1, 2} {
+			run, _ := reviewTurnAt(t, provider, "", true, generation)
+			require.Equal(t, readOnly, run.WorktreeReadOnly, "%s, turn %d", provider, generation)
+		}
+	}
+	run, _ := reviewTurn(t, "codex", "", false)
+	require.False(t, run.WorktreeReadOnly, "a review a graph workflow or the assistant asked for")
 }
 
 // Every other review (one a graph workflow's reviewer step or the assistant

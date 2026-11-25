@@ -67,8 +67,8 @@ func (r *AgentTaskRepository) memberRoot(ctx context.Context, rootID uuid.UUID) 
 	return tx, root, pipeline, nil
 }
 
-// ensureWriterMember creates the member of the role that writes, played by
-// the root task, the first time; its profile is pinned then.
+// ensureWriterMember creates the member of the first writer, played by the
+// root task, the first time; its profile is pinned then.
 func ensureWriterMember(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask, pipeline domain.Pipeline) error {
 	writer, ok := pipeline.Writer()
 	if !ok {
@@ -79,9 +79,38 @@ func ensureWriterMember(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask,
 	return err
 }
 
-// Members lists the members of a pipeline task, oldest first. The member
-// that writes (the root task) exists from the first call; the others exist
-// once they took a turn (StartMemberTurn).
+// holdWriteLock gives a pipeline task's write lock to the writer whose turn
+// the task's next iteration is (KUA-289), in the iteration's transaction:
+// the writers' turns are the root task's attempts, one at a time, so the
+// lock moves only between turns. A move is recorded with its time, which
+// tells one writer's runs from another's; the writer is a member from its
+// first turn, with its profile pinned.
+func holdWriteLock(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, writer domain.PipelineMember) error {
+	if !writer.Writer {
+		return ErrConversationInvalid
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO task_members(workspace_id,task_id,role,profile_id,state) VALUES($1,$2,$3,$4,'idle') ON CONFLICT (task_id,role) DO NOTHING`,
+		task.WorkspaceID, task.ID, writer.Role, writer.ProfileID); err != nil {
+		return err
+	}
+	return tx.GetContext(ctx, task, `UPDATE agent_tasks SET pipeline_state=jsonb_set(pipeline_state,'{writer}',to_jsonb($2::text))||CASE WHEN COALESCE(pipeline_state->>'writer',$2)=$2 THEN '{}'::jsonb
+ ELSE jsonb_build_object('moves',COALESCE(pipeline_state->'moves','[]'::jsonb)||jsonb_build_array(jsonb_build_object('role',$2::text,'at',now()))) END WHERE id=$1 RETURNING *`, task.ID, writer.Role)
+}
+
+// writerMoved is true for a run of a pipeline task (r) after which the
+// write lock moved to another writer: its session is another writer's.
+const writerMoved = `EXISTS(SELECT 1 FROM agent_tasks wt,jsonb_array_elements(COALESCE(wt.pipeline_state->'moves','[]'::jsonb)) move
+ WHERE wt.id=r.task_id AND wt.pipeline AND (move->>'at')::timestamptz>r.created_at)`
+
+// runWriter is the writer that ran a run (r) of pipeline task $1: the one
+// the write lock last moved to before the run, or the first writer.
+const runWriter = `COALESCE((SELECT move->>'role' FROM agent_tasks wt,jsonb_array_elements(COALESCE(wt.pipeline_state->'moves','[]'::jsonb)) move
+ WHERE wt.id=$1 AND (move->>'at')::timestamptz<=r.created_at ORDER BY (move->>'at')::timestamptz DESC LIMIT 1),
+ (SELECT m.role FROM task_members m WHERE m.task_id=$1 AND m.workspace_id=$2 AND m.member_task_id IS NULL ORDER BY m.created_at,m.id LIMIT 1))`
+
+// Members lists the members of a pipeline task, oldest first. The first
+// writer (the root task) exists from the first call; the others exist once
+// they took a turn (StartMemberTurn, or holdWriteLock for a writer).
 func (r *AgentTaskRepository) Members(ctx context.Context, rootID uuid.UUID) ([]domain.TaskMember, error) {
 	tx, root, pipeline, err := r.memberRoot(ctx, rootID)
 	if err != nil {
@@ -394,13 +423,14 @@ func (r *AgentTaskRepository) TaskMember(ctx context.Context, task domain.AgentT
 }
 
 // syncMemberState keeps the state of the member whose turns a task runs in
-// step with the task, in the transition's transaction.
+// step with the task, in the transition's transaction: for a pipeline task,
+// the writer holding its write lock.
 func syncMemberState(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
 	if task.Kind != domain.AgentTaskKindReview && task.WorkflowVersionID == nil {
 		return nil
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE task_members SET state=$3,updated_at=now() WHERE workspace_id=$2 AND (member_task_id=$1 OR (task_id=$1 AND member_task_id IS NULL)) AND state<>$3`,
-		task.ID, task.WorkspaceID, domain.MemberState(task.State))
+	_, err := tx.ExecContext(ctx, `UPDATE task_members SET state=$3,updated_at=now() WHERE workspace_id=$2 AND (member_task_id=$1 OR (task_id=$1 AND member_task_id IS NULL AND ($4='' OR role=$4))) AND state<>$3`,
+		task.ID, task.WorkspaceID, domain.MemberState(task.State), domain.PipelineHolderRole(task.PipelineState))
 	if err != nil || task.Kind != domain.AgentTaskKindReview || domain.MemberState(task.State) != domain.MemberIdle {
 		return err
 	}
@@ -550,6 +580,21 @@ func (r *DevMachineRepository) MissingVerdict(ctx context.Context, runID uuid.UU
  JOIN agent_tasks t ON t.id=m.member_task_id AND t.run_id=r.id
  WHERE r.id=$1 AND m.verdict_asked AND m.pinned_commit IS NOT NULL
  AND NOT EXISTS(SELECT 1 FROM task_verdicts v WHERE v.task_id=m.task_id AND v.role=m.role AND v.run_id=$1 AND v.commit_sha=m.pinned_commit)`, runID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return commit, err
+}
+
+// MemberCommit is the commit the turn of a pipeline member running as run
+// reads (KUA-289): the machine checks it out before it mounts the member's
+// worktree read-only. "" for any other run.
+func (r *DevMachineRepository) MemberCommit(ctx context.Context, runID uuid.UUID) (string, error) {
+	var commit string
+	err := r.db.GetContext(ctx, &commit, `SELECT m.pinned_commit FROM dev_machine_agent_runs r
+ JOIN task_members m ON m.member_task_id=r.task_id AND m.workspace_id=r.workspace_id
+ JOIN agent_tasks t ON t.id=m.member_task_id AND t.run_id=r.id
+ WHERE r.id=$1 AND m.pinned_commit IS NOT NULL`, runID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

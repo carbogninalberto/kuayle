@@ -2988,9 +2988,9 @@ on save and again when a task starts:
 - `roster` (1 to 10 roles): `role` (1 to 32 lowercase letters, digits, `-` or
   `_`; not `kuayle`, `human`, `lead` or `all`, which the room uses),
   `profile_id` (a profile of the workspace that is not archived, with any
-  behaviour and harness for a role that does not write), `writer` (exactly
-  one role, whose profile changes code and which is not `on_call`) and
-  `on_call` (KUA-288). A role is *required* by the checks that name it: a
+  behaviour and harness for a role that does not write), `writer` (at least
+  one role, each with a profile that changes code and not `on_call`; they
+  write one at a time, KUA-289) and `on_call` (KUA-288). A role is *required* by the checks that name it: a
   required `verdict` check makes Kuayle ask the role for its verdict when the
   check's phase needs it, on call or not. An on-call role works only when it
   is addressed by name; a role that is not on call also takes a turn for
@@ -3071,8 +3071,9 @@ with its task by every transition), `turns`, `pinned_commit` (the published
 commit its latest turn read) and `verdict_asked`. A member is an agent task,
 so its runs, session, handoff, logs and transcripts are the existing ones:
 
-- **The writer's turns are the root task's iterations** (`member_task_id`
-  NULL; the member exists from the start). A turn's prompt is the task's
+- **The writers' turns are the root task's iterations** (`member_task_id`
+  NULL; the first writer is a member from the start, another from its first
+  turn). A turn's prompt is the task's
   request, then "the Kuayle pipeline, phase <label>" with the phase's
   `prompt` and the posts the writer has not read (a page of 200, at most
   24,000 bytes of them; the rest waits for the next turn) within the 32 KiB
@@ -3083,6 +3084,20 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   ([native session resume](#native-session-resume-and-handoff)). A turn that
   cannot start yet, because the writer's last attempt is still being wound
   down, waits for the next poll.
+- **The write lock** (KUA-289). Only the writer holding the root task's
+  write lock runs, on the root's worktree, which Kuayle publishes; the
+  root runs one attempt at a time, so a second writer never starts while
+  one works. The lock is the root's `pipeline_state.writer` (the first
+  writer when the task starts), written in the iteration's transaction under
+  the tick's fence: a pass that raced it is refused. A pass runs only while
+  no writer's turn does, so the lock moves only between turns: the pass
+  gives the next turn to the holder when its unread posts call for one, and
+  otherwise to the first other writer, in roster order, that is called. A
+  move is recorded with its time (`pipeline_state.moves`), so the root's
+  runs are listed with the writer that ran each, and the first turn after a
+  move starts a new session with the handoff (another writer's session is
+  never resumed; the writer that takes the lock back does not resume its
+  own earlier one either).
 - **Every other role gets one review task of the root**
   (`insertReviewAgentTask`: kind `review`, never published, no push
   credential, with the root's creator, issue and conversation), created the
@@ -3095,7 +3110,15 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   machine and harness, and otherwise starts with the handoff (always on Pi,
   Crush and custom harnesses). A later turn fetches its
   worktree again first (only a member's task re-queues its checkout, once
-  per turn), so it reads the newest head. Between turns the member's task
+  per turn), so it reads the newest head. A member reads (KUA-289): on a
+  harness that runs read-only (`ReadOnlyWorktreeSupported`: Claude Code,
+  Codex, OpenCode) the machine checks the member's own worktree out,
+  detached, at the commit its turn reads (`MemberCommit`) and mounts it
+  read-only with its `.kuayle` directory writable, as a planning step's;
+  when that cannot be done, and on every other harness, the turn runs on
+  its own writable worktree, detached by the agent as reviews are, whose
+  changes are never published. Reviewers therefore run side by side, while
+  the writers are idle or working. Between turns the member's task
   rests in `blocked` (no notification, session kept; `completed` would purge
   it). A failed or cancelled turn is posted by the tick as a `turn` fact
   with its reason, and the role takes its next turn as after any other (a
@@ -3344,7 +3367,8 @@ the pull request's base branch (`WakeBaseBranchWaits`, also while the owner is
 awaited), the end of a
 member's turn or of a script check's run, a person's post, decision or
 resume, and the tick's own poll or the time budget's end (not while a person
-is awaited). A pull request merged on GitHub completes the task
+is awaited; an end that has passed, because a pass could not read GitHub to
+stop the task, is looked at again after a poll). A pull request merged on GitHub completes the task
 directly. A wake that lands while a pass runs is kept: the pass stores the
 earlier of that wake and its own (`PipelineApply.ClaimedWake`), so it is
 never lost.
@@ -3403,8 +3427,9 @@ approve, continue and stop.
   still derives the phase but posts no `phase` move). `autonomy` is not read:
   approving is a person's decision and waiving the creator's, and a `grant`
   is stored but grants nothing until there is a lead.
-- One writer, the root task. The other roles never publish and have no push
-  credential.
+- Writers write one at a time, on the root task; the other roles never
+  publish and have no push credential. A read-only member cannot run a
+  command that writes into its worktree (some test runners do).
 - Advisory checks other than `script` ones are shown, not acted on.
 - No `deny`: a person approves the head or, where the tick paused, continues
   or stops it.
