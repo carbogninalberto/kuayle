@@ -192,10 +192,18 @@
 			case 'phase':
 				return m['tasks.room_phase']({ phase: phaseLabel(data.phase) });
 			case 'request':
+				if (data.action === 'approve' && data.commit) {
+					return m['tasks.room_merge_approved']({ commit: data.commit.slice(0, 7) });
+				}
 				return m['tasks.room_request']({ action: data.action ?? '' });
-			case 'waiver':
-				return m['tasks.room_waiver']({ check: data.check ?? '' });
+			case 'waiver': {
+				const check = data.check ?? '';
+				if (data.standing) return m['tasks.room_waiver_standing']({ check });
+				const waiver = m['tasks.room_waiver']({ check });
+				return data.commit ? `${waiver} · ${m['tasks.room_commit']({ commit: data.commit.slice(0, 7) })}` : waiver;
+			}
 			case 'grant':
+				if (data.action === 'approve' && !data.check) return m['tasks.room_grant_approval']();
 				return m['tasks.room_grant']({ check: data.check ?? '' });
 			case 'fact':
 				return message.body ? '' : say(factLabel(message));

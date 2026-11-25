@@ -374,9 +374,11 @@ export interface TaskRoomData {
 	verdict?: 'approve' | 'request_changes' | 'comment';
 	commit?: string;
 	role?: string;
-	/** waiver, grant: a check of the pipeline. */
+	/** A waiver or waiver grant names a pipeline check. */
 	check?: string;
-	/** request: review, merge, publish or split. */
+	/** A standing waiver holds for future commits of this task. */
+	standing?: boolean;
+	/** Platform request, delegated approval, or the action the creator grants. */
 	action?: string;
 	/** fact: its name and value. */
 	fact?: string;

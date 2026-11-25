@@ -56,6 +56,9 @@ func roomCalls(member PipelineMember, m TaskMessage) bool {
 		return false
 	case slices.Contains(m.ToRoles, member.Role):
 		return true
+	case m.Kind == RoomRequest && m.Data.Action == RoomActionApprove:
+		// The merge gate consumes a broadcast approval.
+		return false
 	}
 	return !member.OnCall && len(m.ToRoles) == 0 && m.AuthorKind != RoomAuthorKuayle && (m.Kind == RoomSay || m.Kind == RoomAsk || m.Kind == RoomRequest)
 }
@@ -129,8 +132,22 @@ func roomDataLine(m TaskMessage) string {
 	case RoomVerdict:
 		return d.Verdict + " on " + d.Commit
 	case RoomRequest:
+		if d.Action == RoomActionApprove {
+			return "approve " + d.Commit
+		}
 		return d.Action
-	case RoomWaiver, RoomGrant:
+	case RoomGrant:
+		if d.Action == RoomActionApprove && d.Check == "" {
+			return "lead may approve the merge"
+		}
+		return "lead may waive check " + d.Check
+	case RoomWaiver:
+		if d.Standing {
+			return "standing waiver of check " + d.Check
+		}
+		if roomCommit.MatchString(d.Commit) {
+			return "check " + d.Check + " on " + d.Commit
+		}
 		return "check " + d.Check
 	case RoomFact:
 		if len(d.Value) > 0 {

@@ -58,6 +58,7 @@ func outboxFiles(t *testing.T, outbox string) []domain.AgentOutboxMessage {
 
 func TestKuayleSayWritesRoomMessagesKuayleReads(t *testing.T) {
 	dir := t.TempDir()
+	head := strings.Repeat("a", 40)
 	cases := []struct {
 		args  []string
 		stdin string
@@ -69,6 +70,8 @@ func TestKuayleSayWritesRoomMessagesKuayleReads(t *testing.T) {
 		{[]string{"--to", "@implementer", "--verdict", "request_changes", "--commit", "abc1234", "--file", "-"}, "1. The v1 route has no test.",
 			domain.AgentOutboxMessage{To: "@implementer", Body: "1. The v1 route has no test.", Room: &domain.AgentOutboxRoom{ToRoles: []string{"implementer"}, Kind: domain.RoomVerdict, Data: domain.TaskRoomData{Verdict: "request_changes", Commit: "abc1234"}}}},
 		{[]string{"--to", "@reviewer", "--request", "review"}, "", domain.AgentOutboxMessage{To: "@reviewer", Room: &domain.AgentOutboxRoom{ToRoles: []string{"reviewer"}, Kind: domain.RoomRequest, Data: domain.TaskRoomData{Action: "review"}}}},
+		{[]string{"--to", "@all", "--request", "approve", "--commit", head}, "", domain.AgentOutboxMessage{To: "@all", Room: &domain.AgentOutboxRoom{Kind: domain.RoomRequest, Data: domain.TaskRoomData{Action: "approve", Commit: head}}}},
+		{[]string{"--to", "@all", "--waive", "ci", "--standing", "Retired job"}, "", domain.AgentOutboxMessage{To: "@all", Body: "Retired job", Room: &domain.AgentOutboxRoom{Kind: domain.RoomWaiver, Data: domain.TaskRoomData{Check: "ci", Standing: true}}}},
 	}
 	for _, c := range cases {
 		outbox := filepath.Join(t.TempDir(), "outbox")
@@ -92,16 +95,20 @@ func TestKuayleSayWritesRoomMessagesKuayleReads(t *testing.T) {
 func TestKuayleSayRefusesWhatKuayleWouldRefuseAndWritesNothing(t *testing.T) {
 	dir := t.TempDir()
 	for name, args := range map[string][]string{
-		"no recipient":         {"hello"},
-		"an issue":             {"--to", "ENG-12", "hello"},
-		"an empty message":     {"--to", "@reviewer"},
-		"an unknown kind":      {"--to", "@reviewer", "--kind", "shout", "x"},
-		"a bad verdict":        {"--to", "@reviewer", "--verdict", "lgtm", "--commit", "abc1234"},
-		"a commit that is not": {"--to", "@reviewer", "--verdict", "approve", "--commit", "HEAD~1"},
-		"a bad reply":          {"--to", "@reviewer", "--reply-to", "zero", "x"},
-		"too long":             {"--to", "@reviewer", strings.Repeat("x", domain.AgentMessageMaxRunes+1)},
-		"text and a file":      {"--to", "@reviewer", "--file", "notes.md", "x"},
-		"a missing file":       {"--to", "@reviewer", "--file", "missing.md"},
+		"no recipient":                 {"hello"},
+		"an issue":                     {"--to", "ENG-12", "hello"},
+		"an empty message":             {"--to", "@reviewer"},
+		"an unknown kind":              {"--to", "@reviewer", "--kind", "shout", "x"},
+		"a bad verdict":                {"--to", "@reviewer", "--verdict", "lgtm", "--commit", "abc1234"},
+		"a commit that is not":         {"--to", "@reviewer", "--verdict", "approve", "--commit", "HEAD~1"},
+		"waiver without reason":        {"--to", "@all", "--waive", "ci"},
+		"approval without head":        {"--to", "@all", "--request", "approve"},
+		"approval on abbreviated head": {"--to", "@all", "--request", "approve", "--commit", "abc1234"},
+		"standing request":             {"--to", "@all", "--request", "merge", "--standing"},
+		"a bad reply":                  {"--to", "@reviewer", "--reply-to", "zero", "x"},
+		"too long":                     {"--to", "@reviewer", strings.Repeat("x", domain.AgentMessageMaxRunes+1)},
+		"text and a file":              {"--to", "@reviewer", "--file", "notes.md", "x"},
+		"a missing file":               {"--to", "@reviewer", "--file", "missing.md"},
 	} {
 		outbox := filepath.Join(t.TempDir(), "outbox")
 		code, stderr := kuayleSay(t, dir, outbox, "", args...)
