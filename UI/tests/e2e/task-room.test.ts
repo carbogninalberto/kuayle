@@ -320,6 +320,8 @@ test('the room shows who may approve a merge and which commits a waiver covers',
 	await expect(room.locator('[data-seq="2"]')).toContainText('Waived the check legacy-ci for all commits');
 	await expect(room.locator('[data-seq="3"]')).toContainText('Waived the check ci');
 	await expect(room.locator('[data-seq="3"]')).toContainText('Commit abc1234');
+	// The lead's post is one line of its turn (KUA-286); it opens to the post.
+	await room.getByRole('article', { name: 'lead' }).getByRole('button').first().click();
 	await expect(room.locator('[data-seq="4"]')).toContainText('Approved merging abc1234');
 	await expect(room.locator('[data-seq="5"]')).toContainText('Lets the lead create sub-issues without asking');
 
@@ -438,7 +440,11 @@ for (const viewport of [
 		// The issue chat also loads the checks when the task room has never been opened.
 		await page.goto(viewport.name === 'phone' ? '/test/assistant?conversation=chat-1' : '/test/assistant?conversation=chat-1&agent=task-1');
 		const details = page.getByTestId('task-workflow');
-		if (viewport.name === 'phone') await page.getByRole('button', { name: 'Agents', exact: true }).first().click();
+		if (viewport.name === 'phone') {
+			// At phone width the side panels are one menu (KUA-281).
+			await page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'More panels', exact: true }).click();
+			await page.getByRole('menuitemcheckbox', { name: 'Agents' }).click();
+		}
 		await expect(details).toContainText('Team', { timeout: 15_000 });
 		const chart = details.getByTestId('task-workflow-chart');
 		await expect(chart.getByTestId('workflow-node-review')).toHaveAttribute('data-current', 'true');
