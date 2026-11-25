@@ -26,17 +26,18 @@ import (
 //     verdicts and the approval that hold for its head, and the room;
 //  2. posts each fact whose value changed since it last posted it;
 //  3. takes the first phase with an unmet required check as the current one
-//     (no lead decides it in this version) and posts it when it changes;
+//     and posts it when it changes, or, with a lead, the phase the lead
+//     moved to (team_lead.go);
 //  4. runs the platform actions the facts call for, each through the code
-//     that already does it: publishing the writer's turn, asking the current
-//     phase's reviewers for a verdict on the head, bringing a branch behind
+//     that already does it: publishing the writer's turn, asking the roles
+//     whose verdict an unmet required check needs, bringing a branch behind
 //     its base up to date, running failed CI jobs again once, waiting for
 //     the owner's approval, and merging through the merge gate;
 //  5. starts a turn for every member whose unread posts call for one;
 //  6. when nothing is running, pending or awaited, sends the unmet checks
-//     with their reasons to the owner of the current phase, and after
-//     tickStallLimit such passes on the same head and checks pauses for a
-//     person;
+//     with their reasons to the lead, or to the owner of the current phase
+//     when there is none, and after tickStallLimit such passes on the same
+//     head and checks pauses for a person;
 //  7. charges the turns it starts and the working time to the budget;
 //  8. waits for the next event, or polls while something changes by itself.
 //
@@ -141,6 +142,8 @@ type tickPass struct {
 	members  map[string]domain.AgentTask
 	turns    int
 	readSeq  int64
+	// current is the phase the task is in, as the lead last moved it.
+	current string
 	// gh bounds the pass's calls to GitHub (tickGitHubTimeout).
 	gh context.Context
 	// stop ends the pass when the budget has no turn left for a member.
@@ -230,7 +233,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	if err != nil {
 		return err
 	}
-	t := &tickPass{s: s, w: w, task: task, p: *p, profiles: profiles, st: readTickState(task), now: w.now()}
+	t := &tickPass{s: s, w: w, task: task, p: *p, profiles: profiles, st: readTickState(task), now: w.now(), current: deref(task.WorkflowNode)}
 	t.writer = p.Holder(t.st.Writer)
 	deadline := time.Now().Add(tickGitHubTimeout)
 	if step, ok := ctx.Deadline(); ok && step.Add(-tickSaveReserve).Before(deadline) {
@@ -246,7 +249,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 		// The pull request could not be read: nothing is posted, nothing is
 		// sent anywhere; the pass runs again shortly.
 		log.WithField("task_id", task.ID).WithError(t.facts.Err).Warn("A pipeline tick could not read its pull request; it reads it again shortly")
-		return t.save(ctx, t.wait("Kuayle could not read the pull request from GitHub and reads it again shortly", true), deref(task.WorkflowNode))
+		return t.save(ctx, t.wait("Kuayle could not read the pull request from GitHub and reads it again shortly", true), t.current)
 	}
 	if err = t.postFacts(ctx); err != nil {
 		return err
@@ -256,9 +259,10 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	}
 	index, unmet := t.phase()
 	phase := p.Phases[index]
-	// Without a lead Kuayle names the phase; the room takes a lead's phase
-	// moves only from the lead, and this version still derives the phase
-	// when there is one.
+	if err = t.postChecks(ctx); err != nil {
+		return err
+	}
+	// Without a lead Kuayle names the phase; with one, the lead does.
 	if phase.ID != deref(task.WorkflowNode) && p.Lead == nil {
 		if err = s.kuaylePost(ctx, task, domain.TaskRoomPost{Kind: domain.RoomPhase, Body: phase.Label, Data: domain.TaskRoomData{Phase: phase.ID},
 			DedupeKey: fmt.Sprintf("phase:%d:%s", t.st.Pass, phase.ID)}); err != nil {
@@ -288,7 +292,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 			_, unmet = t.phase()
 		}
 	}
-	if err = t.act(ctx, index, unmet); err != nil {
+	if err = t.act(ctx, unmet); err != nil {
 		return err
 	}
 	if entry, done, err := t.mergeGuarded(ctx, index, unmet); err != nil || done {
@@ -297,7 +301,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 		}
 		return t.save(ctx, entry, phase.ID)
 	}
-	if err = t.deliver(ctx, index); err != nil {
+	if err = t.deliver(ctx, unmet); err != nil {
 		return err
 	}
 	writerDue, err := t.writerDue(ctx)
@@ -314,7 +318,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 			}
 			return t.save(ctx, entry, phase.ID)
 		}
-		if err = t.deliver(ctx, index); err != nil {
+		if err = t.deliver(ctx, unmet); err != nil {
 			return err
 		}
 		if writerDue, err = t.writerDue(ctx); err != nil {
@@ -435,6 +439,8 @@ func (t *tickPass) readRoom(ctx context.Context) error {
 		case m.RejectReason != nil:
 		case m.AuthorKind == domain.RoomAuthorKuayle && m.Kind == domain.RoomFact && m.Data.Fact == "head_sha":
 			_ = json.Unmarshal(m.Data.Value, &t.st.Head)
+		case m.AuthorKind == domain.RoomAuthorMember && m.Kind == domain.RoomPhase:
+			t.current = m.Data.Phase // the room takes a member's move only from the lead
 		case m.AuthorKind == domain.RoomAuthorHuman && m.Kind == domain.RoomWaiver:
 			if t.st.Waivers == nil {
 				t.st.Waivers = map[string]string{}
@@ -473,9 +479,13 @@ func (t *tickPass) postScripts(ctx context.Context) error {
 	return nil
 }
 
-// owner is who a phase's unmet checks go to: its role or person, and the
-// writer for a phase Kuayle runs (the writer changes what blocks it).
+// owner is who a phase's unmet checks go to: the lead when there is one;
+// otherwise the phase's role or person, and the writer for a phase Kuayle
+// runs (the writer changes what blocks it).
 func (t *tickPass) owner(phase domain.PipelinePhase) string {
+	if t.p.Lead != nil {
+		return domain.PipelineLeadRole
+	}
 	if _, role := t.p.RosterRole(phase.Owner); !role && phase.Owner != domain.PipelineOwnerHuman {
 		return t.writer.Role
 	}
@@ -518,19 +528,28 @@ func (t *tickPass) postFacts(ctx context.Context) error {
 
 // phase is the first phase with a required check that does not hold and was
 // not waived for the head, with those checks; the last phase when all hold.
+// With a lead, it is the lead's phase (leadPhase).
 func (t *tickPass) phase() (int, []UnmetCheck) {
+	if t.p.Lead != nil {
+		return t.leadPhase()
+	}
 	for i, phase := range t.p.Phases {
-		var checks []FactCheck
-		for _, check := range phase.Checks {
-			if waived, ok := t.st.Waivers[check.ID]; check.Required && (!ok || waived != t.facts.HeadSHA) {
-				checks = append(checks, FactCheck{ID: check.ID, Fact: check.Fact, Role: check.Role})
-			}
-		}
-		if unmet := unmetChecks(t.facts, checks); len(unmet) > 0 {
+		if unmet := unmetChecks(t.facts, t.required(phase)); len(unmet) > 0 {
 			return i, unmet
 		}
 	}
 	return len(t.p.Phases) - 1, nil
+}
+
+// required are a phase's required checks that were not waived for the head.
+func (t *tickPass) required(phase domain.PipelinePhase) []FactCheck {
+	var checks []FactCheck
+	for _, check := range phase.Checks {
+		if waived, ok := t.st.Waivers[check.ID]; check.Required && (!ok || waived != t.facts.HeadSHA) {
+			checks = append(checks, FactCheck{ID: check.ID, Fact: check.Fact, Role: check.Role})
+		}
+	}
+	return checks
 }
 
 // publishTurn is the publication of the task's current turn, when it is due
@@ -575,7 +594,7 @@ func (t *tickPass) exhausted(turns int) (repository.WorkflowEntry, bool) {
 }
 
 // act runs the platform actions the facts call for in the current phase.
-func (t *tickPass) act(ctx context.Context, index int, unmet []UnmetCheck) error {
+func (t *tickPass) act(ctx context.Context, unmet []UnmetCheck) error {
 	f := t.facts
 	var waiting []string
 	for _, check := range unmet {
@@ -629,7 +648,7 @@ func (t *tickPass) act(ctx context.Context, index int, unmet []UnmetCheck) error
 			}
 		}
 	}
-	return t.askReviewers(ctx, index)
+	return t.askReviewers(ctx, unmet)
 }
 
 // mayUpdate reports whether Kuayle may bring the head up to date once more:
@@ -644,13 +663,13 @@ func (t *tickPass) mayUpdate() bool {
 	return err == nil && why == "" && since < maxMergeUpdates
 }
 
-// askReviewers asks each role whose verdict the current phase requires and
-// that has none for the head, once per head.
-func (t *tickPass) askReviewers(ctx context.Context, index int) error {
+// askReviewers asks each role whose verdict an unmet required check needs
+// and that has none for the head, once per head.
+func (t *tickPass) askReviewers(ctx context.Context, unmet []UnmetCheck) error {
 	head := t.facts.HeadSHA
-	for _, check := range t.p.Phases[index].Checks {
+	for _, check := range unmet {
 		verdict, given := t.facts.Verdicts[check.Role]
-		if check.Fact != domain.PipelineFactVerdict || !check.Required || t.facts.Verdicts == nil || (given && verdict.Commit == head) || t.st.Asked[check.Role] == head {
+		if check.Fact != factVerdict || t.facts.Verdicts == nil || (given && verdict.Commit == head) || t.st.Asked[check.Role] == head {
 			continue
 		}
 		started, err := t.startMember(ctx, check.Role, true)
@@ -668,12 +687,12 @@ func (t *tickPass) askReviewers(ctx context.Context, index int) error {
 	return nil
 }
 
-// owesVerdict reports whether the current phase requires a role's verdict
-// on the head and does not have it.
-func (t *tickPass) owesVerdict(index int, role string) bool {
+// owesVerdict reports whether an unmet required check needs a role's
+// verdict on the head and does not have it.
+func (t *tickPass) owesVerdict(unmet []UnmetCheck, role string) bool {
 	verdict, given := t.facts.Verdicts[role]
-	return t.facts.Verdicts != nil && (!given || verdict.Commit != t.facts.HeadSHA) && slices.ContainsFunc(t.p.Phases[index].Checks, func(c domain.PipelineCheck) bool {
-		return c.Fact == domain.PipelineFactVerdict && c.Role == role && c.Required
+	return t.facts.Verdicts != nil && (!given || verdict.Commit != t.facts.HeadSHA) && slices.ContainsFunc(unmet, func(c UnmetCheck) bool {
+		return c.Fact == factVerdict && c.Role == role
 	})
 }
 
@@ -795,9 +814,9 @@ func (t *tickPass) writerDue(ctx context.Context) (bool, error) {
 }
 
 // deliver starts a turn of every idle member, other than the writers, whose
-// unread posts call for one, the lead's too; it owes a verdict when the
-// phase requires it.
-func (t *tickPass) deliver(ctx context.Context, index int) error {
+// unread posts call for one, the lead's too; it owes a verdict when an
+// unmet required check needs it.
+func (t *tickPass) deliver(ctx context.Context, unmet []UnmetCheck) error {
 	for _, member := range t.p.Members() {
 		if member.Writer {
 			continue
@@ -808,7 +827,7 @@ func (t *tickPass) deliver(ctx context.Context, index int) error {
 			}
 			continue
 		}
-		if _, err := t.startMember(ctx, member.Role, t.owesVerdict(index, member.Role)); err != nil {
+		if _, err := t.startMember(ctx, member.Role, t.owesVerdict(unmet, member.Role)); err != nil {
 			return err
 		}
 	}

@@ -119,6 +119,7 @@ func LeadTurnPrompt(turn LeadTurn) string {
 		b.WriteString("\n")
 	}
 
+	b.WriteString("\nYou choose the phase (KUA-301): move the task with kuayle-say --to @all --phase <id> \"why\", forward, back or past a phase. Kuayle runs what the phase you choose needs (it asks a role for a verdict a required check is missing, waits for the owner's approval, merges at the guarded phase), and every required check of the phases up to the merge must hold, or be waived by the owner, before it merges, whatever you move. Kuayle tells you when the checks change, and what the current phase waits on when nobody works.\n")
 	b.WriteString("\nPost in the room with kuayle-say (see \"The task room\" in kuayle-agents):\n")
 	b.WriteString("- kuayle-say --to @implementer --ask \"...\": a question or a message to a role, @human or @all;\n")
 	b.WriteString("- kuayle-say --to @reviewer --request review: a request (review, merge, publish or split);\n")

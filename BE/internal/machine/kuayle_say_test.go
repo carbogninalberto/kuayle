@@ -118,3 +118,25 @@ func TestTheAgentImagesInstallKuayleSay(t *testing.T) {
 		require.Contains(t, string(dockerfile), "COPY --chmod=0755 common/kuayle-say.cjs /usr/local/bin/kuayle-say", image)
 	}
 }
+
+// The lead moves the task with --phase and says why (KUA-301); a move
+// without a reason fails before anything is written.
+func TestKuayleSayMovesThePhaseWithAReason(t *testing.T) {
+	dir, outbox := t.TempDir(), filepath.Join(t.TempDir(), "outbox")
+	code, stderr := kuayleSay(t, dir, outbox, "", "--to", "@all", "--phase", "review", "The", "toggle", "is", "published.")
+	require.Zero(t, code, stderr)
+	messages := outboxFiles(t, outbox)
+	require.Len(t, messages, 1)
+	require.Equal(t, domain.RoomPhase, messages[0].Room.Kind)
+	require.Equal(t, "review", messages[0].Room.Data.Phase)
+	require.Equal(t, "The toggle is published.", messages[0].Body)
+
+	empty := filepath.Join(t.TempDir(), "outbox")
+	code, stderr = kuayleSay(t, dir, empty, "", "--to", "@all", "--phase", "review")
+	require.Equal(t, 2, code)
+	require.Contains(t, stderr, "say why the task moves")
+	code, stderr = kuayleSay(t, dir, empty, "", "--to", "@all", "--phase", "", "Why")
+	require.Equal(t, 2, code)
+	require.Contains(t, stderr, "--phase names a phase")
+	require.Empty(t, outboxFiles(t, empty))
+}

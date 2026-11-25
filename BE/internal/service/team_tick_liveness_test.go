@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -129,6 +130,10 @@ func playTickLiveness(t *testing.T, seed uint64) {
 			// A second writer, one at a time with the first (KUA-289).
 			pipeline.Roster = append(pipeline.Roster, domain.PipelineMember{Role: "frontend", ProfileID: pipeline.Roster[0].ProfileID, Writer: true})
 		}
+		if rand.New(rand.NewPCG(seed, 0x6c656164)).IntN(2) == 0 {
+			// A lead, which moves the phases (KUA-301).
+			pipeline.Lead = &domain.PipelineLead{ProfileID: pipeline.Roster[1].ProfileID}
+		}
 		p = *pipeline
 	})
 	writer, _ := p.Writer()
@@ -208,7 +213,7 @@ func tickLivenessDescribe(p domain.Pipeline) string {
 			writers = append(writers, "@"+member.Role)
 		}
 	}
-	return fmt.Sprintf("%s; budget %d turns, %s; on call: %v; writers: %v", strings.Join(phases, " "), p.Budget.MaxTurns, p.Budget.Workflow().Policy(), onCall, writers)
+	return fmt.Sprintf("%s; budget %d turns, %s; on call: %v; writers: %v; lead: %t", strings.Join(phases, " "), p.Budget.MaxTurns, p.Budget.Workflow().Policy(), onCall, writers, p.Lead != nil)
 }
 
 // writes reports whether a role of the sequence's pipeline writes code.
@@ -261,7 +266,9 @@ func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 	}
 	r := l.turnRand(role, turn)
 	var played tickTurn
-	if l.writes(role) {
+	if role == domain.PipelineLeadRole {
+		played = l.leadTurn(r)
+	} else if l.writes(role) {
 		switch x := r.IntN(10); {
 		case x < 5:
 			played = tickTurn{commit: l.commit(r.IntN(10) < 6), final: "Committed."}
@@ -320,7 +327,55 @@ func (l *liveWorld) otherWriter(role string) string {
 	return ""
 }
 
+// leadTurn is a turn of the lead: it moves the task, forward, back, past a
+// phase or straight to the merge, posts what the room refuses from it, talks
+// to the roles or the owner, fails, or keeps working.
+func (l *liveWorld) leadTurn(r *rand.Rand) tickTurn {
+	phases := l.p.Phases
+	move := func(phase, why string) string {
+		post, _ := json.Marshal(map[string]any{"to": "@all", "kind": "phase", "body": why, "data": map[string]string{"phase": phase}})
+		return string(post)
+	}
+	current := max(slices.IndexFunc(phases, func(phase domain.PipelinePhase) bool { return phase.ID == l.phase() }), 0)
+	switch x := r.IntN(20); {
+	case x < 6:
+		return tickTurn{final: "Moved the task.", posts: []string{move(phases[r.IntN(len(phases))].ID, "This is what the task needs now.")}}
+	case x < 9:
+		return tickTurn{final: "Moved on.", posts: []string{move(phases[min(current+1, len(phases)-1)].ID, "The phase is done.")}}
+	case x < 10:
+		return tickTurn{final: "Tried to move.", posts: []string{move("ship", "Ship it."), move(phases[0].ID, "")}}
+	case x < 12:
+		refused := []string{
+			`{"to":"@all","kind":"verdict","body":"Fine.","data":{"verdict":"approve","commit":"` + sha(1) + `"}}`,
+			`{"to":"@all","kind":"fact","body":"CI is green.","data":{"fact":"ci_green","value":true}}`,
+			`{"to":"@all","kind":"grant","data":{"check":"ci"}}`,
+			`{"to":"@all","kind":"waiver","body":"Flaky.","data":{"check":"ci"}}`,
+		}
+		return tickTurn{final: "Tried what a lead may not do.", posts: []string{refused[r.IntN(len(refused))]}}
+	case x < 14:
+		return tickTurn{final: "Asked the writer.", posts: []string{`{"to":"@` + l.writer + `","kind":"ask","body":"Where are you with the toggle?"}`}}
+	case x < 16:
+		return tickTurn{final: "Reported.", posts: []string{`{"to":"@human","kind":"summary","body":"The toggle is in review."}`}}
+	case x < 17:
+		return tickTurn{fail: "The lead's harness crashed"}
+	case x < 18:
+		return tickTurn{final: "Nothing to do."}
+	}
+	return tickTurn{hold: true}
+}
+
 func (l *liveWorld) cooperate(role string) tickTurn {
+	if role == domain.PipelineLeadRole {
+		// Cooperating, the lead takes the task to the merge, which waits for
+		// every required check before it, and when Kuayle says nobody works
+		// on what blocks it, it asks the writer to fix that.
+		post, _ := json.Marshal(map[string]any{"to": "@all", "kind": "phase", "body": "Everything else is Kuayle's to check.", "data": map[string]string{"phase": l.p.Phases[len(l.p.Phases)-1].ID}})
+		turn := tickTurn{final: "Moved the task to the merge.", posts: []string{string(post)}}
+		if prompts := l.runtime.prompts[role]; len(prompts) > 0 && strings.Contains(prompts[len(prompts)-1], "Nobody is working") {
+			turn.posts = append(turn.posts, `{"to":"@`+l.writer+`","kind":"ask","body":"The merge waits on checks only you can move: fix them, with the base merged in."}`)
+		}
+		return turn
+	}
 	if l.writes(role) {
 		return tickTurn{commit: l.commit(true), final: "Committed, with the base merged in."}
 	}
@@ -442,6 +497,7 @@ func (l *liveWorld) dropCheck() {
 func (l *liveWorld) check(settled bool) {
 	l.t.Helper()
 	l.checkOnCall()
+	l.checkLead()
 	var writing []string
 	require.NoError(l.t, l.f.db.Select(&writing, `SELECT role FROM task_members WHERE task_id=$1 AND member_task_id IS NULL AND state<>'idle'`, l.root))
 	if holder := l.p.Holder(domain.PipelineHolderRole(l.task().PipelineState)).Role; len(writing) > 1 || len(writing) == 1 && writing[0] != holder {
@@ -486,6 +542,26 @@ func (l *liveWorld) check(settled bool) {
 		return
 	}
 	l.violation("the task is in state %s", root.State)
+}
+
+// checkLead: with a lead, Kuayle never moves the phase, the lead's verdicts
+// never count, and the task is only ever in a phase the lead moved it to.
+func (l *liveWorld) checkLead() {
+	l.t.Helper()
+	if l.p.Lead == nil {
+		return
+	}
+	var kuayle, verdicts int
+	require.NoError(l.t, l.f.db.Get(&kuayle, `SELECT count(*) FROM task_messages WHERE task_id=$1 AND kind='phase' AND author_kind='kuayle'`, l.root))
+	require.NoError(l.t, l.f.db.Get(&verdicts, `SELECT count(*) FROM task_verdicts WHERE task_id=$1 AND role=$2`, l.root, domain.PipelineLeadRole))
+	if kuayle > 0 || verdicts > 0 {
+		l.violation("with a lead, Kuayle moved the phase %d time(s) and the lead's verdicts count %d time(s)", kuayle, verdicts)
+	}
+	var moved []string
+	require.NoError(l.t, l.f.db.Select(&moved, `SELECT data->>'phase' FROM task_messages WHERE task_id=$1 AND kind='phase' AND reject_reason IS NULL ORDER BY seq`, l.root))
+	if phase := l.phase(); phase != l.p.Phases[0].ID && !slices.Contains(moved, phase) {
+		l.violation("the task is in phase %s, which the lead never moved it to", phase)
+	}
 }
 
 // checkOnCall: an on-call role is a member only once a post the room took
@@ -658,6 +734,9 @@ func (l *liveWorld) turnEnds() string {
 		turn = l.cooperate(role)
 	case x < 2:
 		turn = tickTurn{fail: "The " + role + "'s run was lost"}
+	case role == domain.PipelineLeadRole:
+		turn = l.leadTurn(l.rng)
+		turn.hold = false
 	case l.writes(role):
 		turn = tickTurn{final: "Done."}
 	case x < 6:
@@ -705,6 +784,9 @@ func (l *liveWorld) ownerSays() string {
 	}
 	if other := l.otherWriter(l.writer); other != "" {
 		roles = append(roles, other)
+	}
+	if l.p.Lead != nil {
+		roles = append(roles, domain.PipelineLeadRole)
 	}
 	role := roles[l.rng.IntN(len(roles))]
 	_, err := l.f.tasks.Repo.PostRoomMessage(l.f.ctx, l.f.ws, l.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Also follow the system theme.", ToRoles: []string{role}})
