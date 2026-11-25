@@ -23,18 +23,18 @@ import (
 // pattern in the repository's exclude file or a directory that ignores
 // itself, still shows as a new entry; work inside a directory that was
 // already ignored (node_modules) does not. Kuayle's own .kuayle/ directory
-// is skipped by path, whether or not the repository excludes it.
+// is skipped by path, whether or not the repository excludes it. Git runs
+// as in worktreeDiffScript, so nothing the agent configured runs, and a
+// core.excludesFile the checkout's configuration names is not read.
 const worktreeStateScript = `set -eu
-cd "$1"
-index=$(mktemp)
-trap 'rm -f "$index"' EXIT
-export GIT_INDEX_FILE="$index"
-head=$(git rev-parse --verify HEAD)
-git read-tree HEAD
-git add -A
-git rm -r -q --cached --ignore-unmatch -- .kuayle
-tree=$(git write-tree)
-ignored=$(git ls-files --others --ignored --exclude-standard --directory | grep -v '^\.kuayle/' | git hash-object --stdin)
+path=$1 step=state branch=
+` + publishCheckoutScript + worktreeHeadScript + `gi() { GIT_INDEX_FILE="$work/index" git -C "$path" --git-dir="$work/checkout" --work-tree="$path" "$@"; }
+head=$(g rev-parse --verify HEAD)
+g read-tree HEAD
+g add -A
+g rm -r -q --cached --ignore-unmatch -- .kuayle
+tree=$(g write-tree)
+ignored=$(g ls-files --others --ignored --exclude-standard --directory | grep -v '^\.kuayle/' | gi hash-object --stdin)
 printf '%s %s %s\n' "$head" "$tree" "$ignored"`
 
 // maxWorktreeChangedFiles bounds the changed paths kept on a run.
@@ -112,7 +112,7 @@ func (r *DockerRuntime) WorktreeChangedFiles(ctx context.Context, services []dom
 	if developer == "" {
 		return nil, fmt.Errorf("developer container is unavailable")
 	}
-	output, err := r.execOutput(ctx, developer, []string{"git", "-C", checkoutWorktreePath(checkout), "diff", "--name-only", "--no-renames", fromTree, toTree})
+	output, err := r.execOutput(ctx, developer, []string{"/bin/sh", "-c", worktreeGitScript, "kuayle-git", checkoutWorktreePath(checkout), "diff", "--name-only", "--no-renames", fromTree, toTree})
 	if err != nil {
 		return nil, err
 	}

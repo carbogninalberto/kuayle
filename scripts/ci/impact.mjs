@@ -106,7 +106,7 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
       continue;
     }
     if (path.startsWith('devmachine/')) {
-      // Go tests inspect and execute checkout/terminal/runner scripts here.
+      // Go tests inspect and execute the start, terminal and runner scripts here.
       flags.backend = true;
       flags.runtime = true;
       if (path === 'devmachine/common/install-agent-clis.sh') add(dev, ['ide', 'headless']);
@@ -119,7 +119,6 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
       else if (path.startsWith('devmachine/agent/')) add(dev, agents);
       else if (path.startsWith('devmachine/headless/')) add(dev, ['headless']);
       else if ([
-        'devmachine/ide/checkout.sh',
         'devmachine/ide/command-event.js',
         'devmachine/ide/shell.sh',
         'devmachine/ide/terminal-session.sh',

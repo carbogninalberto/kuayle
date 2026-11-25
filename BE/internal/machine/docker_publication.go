@@ -56,14 +56,23 @@ var ErrPublishedWorkRemains = errors.New("the task branch on GitHub still holds 
 //
 // It expects $path, $branch and $step, and leaves $work (removed on exit),
 // $gitdir (the checkout's own git directory, read as plain files only) and g.
-const publishCheckoutScript = `export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
+const publishCheckoutScript = isolatedGitEnvironmentScript + checkoutGitDirScript + isolatedGitDirScript
+
+// isolatedGitEnvironmentScript ignores system and global configuration,
+// allows only the file and https transports, and makes $work.
+const isolatedGitEnvironmentScript = `export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0
 export GIT_ALLOW_PROTOCOL=file:https GIT_NO_LAZY_FETCH=1
 work=$(mktemp -d "/tmp/kuayle-$step.XXXXXX")
 trap 'rm -rf "$work"' EXIT
 trap 'rm -rf "$work"; exit 130' INT
 trap 'rm -rf "$work"; exit 143' TERM
 cd "$work"
-gitdir=$path/.git
+`
+
+// checkoutGitDirScript finds the git directory ($gitdir) and the common
+// directory ($common) of the checkout at $path, reading its .git and
+// commondir files as data.
+const checkoutGitDirScript = `gitdir=$path/.git
 if [ -f "$gitdir" ]; then
   link=$(head -n 1 "$gitdir")
   case $link in "gitdir: "*) link=${link#gitdir: } ;; *) echo "checkout is not a git repository" >&2; exit 1 ;; esac
@@ -74,7 +83,11 @@ if [ -f "$gitdir/commondir" ]; then
   link=$(head -n 1 "$gitdir/commondir")
   case $link in /*) common=$link ;; *) common=$gitdir/$link ;; esac
 fi
-if [ ! -f "$gitdir/HEAD" ] || [ ! -d "$common/objects" ] || [ ! -d "$common/refs" ]; then echo "checkout is not a git repository" >&2; exit 1; fi
+`
+
+// isolatedGitDirScript makes $work/checkout, the git directory g runs in,
+// from $gitdir and $common, and defines g.
+const isolatedGitDirScript = `if [ ! -f "$gitdir/HEAD" ] || [ ! -d "$common/objects" ] || [ ! -d "$common/refs" ]; then echo "checkout is not a git repository" >&2; exit 1; fi
 if [ -e "$common/reftable" ]; then echo "checkout uses an unsupported ref storage" >&2; exit 1; fi
 # The object format is read from the checkout's config as data; nothing in that
 # file is applied.

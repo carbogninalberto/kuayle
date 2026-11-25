@@ -488,6 +488,23 @@ with reftable refs is refused. These steps still run in the
 developer container; running them in a container without its secrets would be
 a further hardening.
 
+Checkouts and what Kuayle reads after a run use the same git directory
+(KUA-299). Agent runs can write all of `/workspace`, so also the configuration
+and hooks of the repository caches every worktree shares, and a checkout runs
+with the repository's installation token. `checkoutScript` fetches GitHub's
+branches into the cache from the fixed `https://github.com/<owner>/<repo>` URL,
+with the token behind an ephemeral askpass helper, and removes the token before
+anything else runs: no URL rewrite, proxy, credential helper, hook, fsmonitor
+or filter in the cache's configuration applies. A new worktree is added and its
+files written through the same directory, which also borrows the cache's
+worktree records. What Kuayle keeps in the cache's configuration (origin, the
+branch's upstream, the token-less credential helper of people's IDE and
+terminals) is written as data. That helper hands `GITHUB_TOKEN` only to
+`https://github.com`, so a person's own `git fetch` in a checkout an agent
+redirected sends it nowhere else. The diff Kuayle records after a run and the
+fingerprint taken around a planning step stage the worktree into a throwaway
+index the same way.
+
 ## Agent sandboxing
 
 Autonomous agents cannot answer permission prompts, and their own sandboxes
