@@ -163,7 +163,7 @@
 						<li class="min-w-0 space-y-1.5 px-3 py-2" data-testid="check-{row.check.id}" data-state={row.state}>
 							<div class="flex min-w-0 items-center gap-2">
 								{@render stateIcon(row.state)}
-								<span class="min-w-0 truncate text-sm font-medium">{row.check.id}</span>
+								<span class="max-w-[60%] shrink-0 truncate text-sm font-medium">{row.check.id}</span>
 								<code class="min-w-0 truncate text-xs text-muted-foreground"
 									>{row.check.fact}{row.check.role ? ` · ${row.check.role}` : ''}</code
 								>
