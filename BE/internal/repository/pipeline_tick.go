@@ -32,32 +32,6 @@ func startPipeline(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, ver
 	return ensureWriterMember(ctx, tx, *task, *pipeline)
 }
 
-// PublishedWork is the newest pull request and commit Kuayle published from
-// a task's attempts, whichever attempt published it; nil before anything is
-// published with a pull request.
-func (r *AgentTaskRepository) PublishedWork(ctx context.Context, task domain.AgentTask) (*domain.AgentReviewTarget, error) {
-	target, _, err := publishedTarget(ctx, r.db, task)
-	return target, err
-}
-
-// MemberTasks is the task whose generations are each member's turns, by
-// role, for every member but the writer (whose turns are the root task's).
-func (r *AgentTaskRepository) MemberTasks(ctx context.Context, root domain.AgentTask) (map[string]domain.AgentTask, error) {
-	var rows []struct {
-		Role string `db:"member_role"`
-		domain.AgentTask
-	}
-	if err := r.db.SelectContext(ctx, &rows, `SELECT m.role AS member_role,t.* FROM task_members m JOIN agent_tasks t ON t.id=m.member_task_id AND t.workspace_id=m.workspace_id
- WHERE m.task_id=$1 AND m.workspace_id=$2`, root.ID, root.WorkspaceID); err != nil {
-		return nil, err
-	}
-	tasks := make(map[string]domain.AgentTask, len(rows))
-	for _, row := range rows {
-		tasks[row.Role] = row.AgentTask
-	}
-	return tasks, nil
-}
-
 // PipelineApply is what one pass of a pipeline task's tick, or a person's
 // decision on it, does to the task.
 type PipelineApply struct {

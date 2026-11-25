@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/stretchr/testify/require"
 )
 
@@ -352,4 +354,33 @@ func TestUnmetChecksSayWhatToDo(t *testing.T) {
 		facts.Merged = FactYes
 		require.Empty(t, unmetChecks(facts, []FactCheck{{ID: "merged", Fact: "merged"}}))
 	})
+}
+
+// What an action the tick runs could not do is a check state: wait for a
+// later pass, or unmet for a person; any other error is the pass's.
+func TestActionFactMapsErrorsToCheckStates(t *testing.T) {
+	for err, want := range map[error]string{
+		nil:                                               "",
+		repository.ErrMemberBusy:                          CheckWaiting,
+		repository.ErrAgentTaskConflict:                   CheckWaiting,
+		repository.ErrMachineBusy:                         CheckWaiting,
+		repository.ErrCheckUnavailable:                    CheckWaiting,
+		repository.ErrMemberUnavailable:                   CheckUnmet,
+		repository.ErrConversationInvalid:                 CheckUnmet,
+		fmt.Errorf("start: %w", repository.ErrMemberBusy): CheckWaiting,
+		errors.New("the database went away"):              "",
+	} {
+		require.Equal(t, want, actionFact(err), "%v", err)
+	}
+}
+
+// A publication that left no pull request at a commit is a fact with the
+// reason a person reads; a successful one is none.
+func TestPublicationFactSaysWhyNothingWasPublished(t *testing.T) {
+	text := func(s string) *string { return &s }
+	require.Empty(t, publicationFact(&domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSucceeded}))
+	require.Equal(t, "the checkout is behind", publicationFact(&domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusFailed, Summary: text(domain.PublicationCheckoutBlockedCode + ": the checkout is behind")}))
+	require.Equal(t, "Nothing to publish on main", publicationFact(&domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped, Summary: text("Nothing to publish on main")}))
+	require.Equal(t, domain.NoChangesReason(""), publicationFact(&domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped}))
+	require.Equal(t, "Publishing failed; check the repository connection", publicationFact(&domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusFailed}))
 }

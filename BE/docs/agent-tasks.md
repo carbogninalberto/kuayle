@@ -3158,6 +3158,16 @@ cannot start, and why), `publication` (publishing the writer's turn failed
 or was skipped), `merge` (the merge gate refused, and why), `script`
 (below) and the `verdict` with `none` above.
 
+The facts reader (`service/task_facts.go`, KUA-279) also says what came of
+each action the tick runs, so the tick acts on fact states and handles no
+error of its own: a script check's run for the head (`readScriptFacts`),
+the guarded merge (`readMergeable`: merged, waiting, or refused with a
+reason), a turn or check that cannot start now (`waiting`: the last turn is
+still winding down, the machine is busy or its worktree not ready) or at all
+(`unmet`: a role whose profile was archived, a prompt or command Kuayle
+refuses; `actionFact`), and a publication that left no pull request
+(`publicationFact`).
+
 **Script checks** run the check's `script` as `sh -c` in the root task's
 worktree, through the [manual check](#manual-checks) runner
 (`RunPipelineCheck`), as the task's creator, who needs no permission to run a
@@ -3175,7 +3185,7 @@ posted once as a `script` fact (check, commit, exit code); a failed advisory
 check is posted to its phase's owner and never holds the task up.
 
 **The tick** (KUA-273; `service/team_tick.go`, `repository/pipeline_tick.go`,
-migration 208). `AgentTaskService.step` runs a task marked `pipeline` through
+migration 208; a person's decisions in `service/workflow_pipeline.go`). `AgentTaskService.step` runs a task marked `pipeline` through
 the tick instead of the graph runner. The root task is the writer: when its
 turn ends, a turn that changed the work (or any, while nothing is published
 yet) is published once, a failed one is posted as a `turn` fact, and the
@@ -3232,9 +3242,14 @@ person decides. One pass:
    call for one, owing a verdict when the phase requires its verdict;
 9. when nobody works, nothing is under way and nothing is awaited, posts the
    current phase's unmet checks with their reasons as a `summary` to the
-   phase's owner (the writer for a phase Kuayle owns). A role's turn starts
-   on it in the same pass; for a phase a person owns, the task waits for the
-   person, the budget clock held, and is announced once. What changes by
+   phase's owner (the writer for a phase Kuayle owns), and to the writer as
+   well when only the writer can move a verdict check, whoever owns the
+   phase: the role's verdict on the head did not approve it, or the role
+   reviewed the newest commit Kuayle published and the head is another one
+   (someone else pushed it, and roles review only what Kuayle published).
+   A role's turn starts on it in the same pass; for a phase a person owns,
+   the task waits for the person (unless the writer was sent it too), the
+   budget clock held, and is announced once. What changes by
    itself (CI running, a check run under way, a fact not readable) is
    awaited, and read again every minute, for at most `mergeWaitTimeout` on
    the same head and checks; after that it is sent on like any unmet check,
@@ -3265,7 +3280,8 @@ tests' worker, tick, repository and room. After every worker step the task
 must be working (a turn under way), waiting on a fact that changes by itself
 with a wake at most one poll away, waiting on a person (paused, or the clock
 held for a person), or ended with no member's turn left running; after the
-sequence, with everyone cooperating, it must end. A failure prints its seed
+sequence, with everyone cooperating, it must end, needing at most one
+Continue beyond its budget's. A failure prints its seed
 and events: `TICK_LIVENESS_SEED=<n>` replays one sequence,
 `TICK_LIVENESS_SEEDS` and `TICK_LIVENESS_FROM` play more, and
 `TICK_LIVENESS_TRACE=1` lists the events of passing seeds too.
