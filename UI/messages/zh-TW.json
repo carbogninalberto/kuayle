@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "來自 GitHub 審查",
 	"lessons.by_person": "由 {name} 提案",
 	"lessons.edited": "已編輯",
+	"lessons.for_role": "僅限 {role} 角色",
 	"lessons.lesson": "經驗",
 	"lessons.empty": "尚無經驗",
 	"lessons.drop_confirm": "捨棄此提案？",

@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Z recenze na GitHubu",
 	"lessons.by_person": "Navrhl(a) {name}",
 	"lessons.edited": "Upraveno",
+	"lessons.for_role": "Jen pro roli {role}",
 	"lessons.lesson": "Poučení",
 	"lessons.empty": "Zatím žádná poučení",
 	"lessons.drop_confirm": "Zahodit tento návrh?",

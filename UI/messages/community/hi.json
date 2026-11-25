@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "GitHub समीक्षा से",
 	"lessons.by_person": "{name} द्वारा प्रस्तावित",
 	"lessons.edited": "संपादित",
+	"lessons.for_role": "केवल {role} भूमिका के लिए",
 	"lessons.lesson": "सीख",
 	"lessons.empty": "अभी कोई सीख नहीं",
 	"lessons.drop_confirm": "यह प्रस्ताव हटाएँ?",

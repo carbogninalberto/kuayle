@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Из ревью GitHub",
 	"lessons.by_person": "Предложение от {name}",
 	"lessons.edited": "Изменено",
+	"lessons.for_role": "Только для роли {role}",
 	"lessons.lesson": "Урок",
 	"lessons.empty": "Пока нет уроков",
 	"lessons.drop_confirm": "Отклонить это предложение?",

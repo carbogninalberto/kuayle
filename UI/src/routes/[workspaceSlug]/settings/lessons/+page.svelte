@@ -195,6 +195,9 @@
 									{#if link}<a href={link} class="rounded-sm underline underline-offset-4 outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
 											>{origin(lesson)}</a
 										>{:else}<span>{origin(lesson)}</span>{/if}
+									{#if lesson.role}<span aria-hidden="true">·</span><span data-testid="lesson-role"
+											>{m['lessons.for_role']({ role: lesson.role })}</span
+										>{/if}
 									{#if wasEdited(lesson)}<span aria-hidden="true">·</span>
 										<Popover.Root>
 											<Popover.Trigger
@@ -246,7 +249,12 @@
 							<span class="mt-0.5 w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums" aria-hidden="true"
 								>{index + 1}</span
 							>
-							<p class="min-w-0 flex-1 text-sm break-words">{lesson.text}</p>
+							<div class="min-w-0 flex-1">
+								<p class="text-sm break-words">{lesson.text}</p>
+								{#if lesson.role}<p class="mt-0.5 text-xs text-muted-foreground" data-testid="lesson-role">
+										{m['lessons.for_role']({ role: lesson.role })}
+									</p>{/if}
+							</div>
 							{#if isPrivate(lesson)}{@render teamMark()}{/if}
 							{#if canManage}<DropdownMenu.Root>
 									<DropdownMenu.Trigger>

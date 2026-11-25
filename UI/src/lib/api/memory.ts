@@ -11,6 +11,8 @@ export interface Lesson {
 	id: string;
 	repository: string;
 	team_id: string | null;
+	/** The role of a team workflow's roster the lesson is for; null: every task. */
+	role: string | null;
 	state: LessonState;
 	/** What agents read once the lesson is approved. */
 	text: string;

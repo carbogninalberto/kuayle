@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Dintr-o revizuire GitHub",
 	"lessons.by_person": "Propusă de {name}",
 	"lessons.edited": "Editată",
+	"lessons.for_role": "Doar pentru rolul {role}",
 	"lessons.lesson": "Lecție",
 	"lessons.empty": "Încă nicio lecție",
 	"lessons.drop_confirm": "Elimini această propunere?",

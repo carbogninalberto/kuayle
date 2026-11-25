@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Fra en GitHub-gennemgang",
 	"lessons.by_person": "Foreslået af {name}",
 	"lessons.edited": "Redigeret",
+	"lessons.for_role": "Kun til rollen {role}",
 	"lessons.lesson": "Erfaring",
 	"lessons.empty": "Ingen erfaringer endnu",
 	"lessons.drop_confirm": "Kassér dette forslag?",
