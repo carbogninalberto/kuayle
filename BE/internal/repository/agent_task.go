@@ -722,8 +722,16 @@ func (e *MachineSlotWaitError) Unwrap() error { return ErrMachineSlotWait }
 
 // taskSlotLimit bounds how many active tasks share a machine: its own
 // max_tasks, or the workspace policy's task_machine_max_tasks when it has none.
-// The reusable-machine query and the full-machine lookup both use it.
+// The reusable-machine query and the full-machine lookup both use it, and a
+// pipeline member's turn (memberSlot).
 const taskSlotLimit = "COALESCE(m.max_tasks, policy.task_machine_max_tasks)"
+
+// holdsTaskSlot is a task (alias) that takes one of its machine's task slots:
+// an active one that holds its machine. Placement and member turns count the
+// same tasks.
+func holdsTaskSlot(alias string) string {
+	return alias + ".state NOT IN ('completed','cancelled','failed','blocked','awaiting_review') AND " + taskHoldsMachine(alias)
+}
 
 // machineSelectionSQL is a machine that suits a task of its creator, without
 // the free task slot condition: both the machine a task shares and the full
@@ -732,7 +740,7 @@ func machineSelectionSQL() string {
 	return `FROM dev_machines m
  JOIN dev_machine_workspace_policies policy ON policy.workspace_id=m.workspace_id AND policy.enabled
  CROSS JOIN LATERAL (SELECT count(*) AS tasks FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6
-  AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review') AND ` + taskHoldsMachine("t") + `) load
+  AND ` + holdsTaskSlot("t") + `) load
  CROSS JOIN LATERAL (SELECT load.tasks=0
   AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
   AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased') AND o.action IN ('validate_agent','publish_agent')) AS idle) state

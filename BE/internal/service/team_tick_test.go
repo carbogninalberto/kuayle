@@ -386,20 +386,25 @@ type tickRuntime struct {
 func (w *tickWorld) finish(role string, turn tickTurn) {
 	w.t.Helper()
 	for run, held := range w.runtime.held {
-		if held != role {
-			continue
+		if held == role {
+			w.finishRun(run, turn)
+			return
 		}
-		status := domain.DevMachineAgentRunStatusSucceeded
-		if turn.fail != "" {
-			status = domain.DevMachineAgentRunStatusFailed
-			w.runtime.runs[run].FailureCause = &turn.fail
-		}
-		w.exec(`UPDATE dev_machine_agent_runs SET status=$2,summary=$3,completed_at=now() WHERE id=$1`, run, status, turn.final)
-		w.runtime.runs[run].Status = status
-		delete(w.runtime.held, run)
-		return
 	}
 	w.t.Fatalf("no turn of the @%s is held", role)
+}
+
+// finishRun ends a held run as turn says.
+func (w *tickWorld) finishRun(run uuid.UUID, turn tickTurn) {
+	w.t.Helper()
+	status := domain.DevMachineAgentRunStatusSucceeded
+	if turn.fail != "" {
+		status = domain.DevMachineAgentRunStatusFailed
+		w.runtime.runs[run].FailureCause = &turn.fail
+	}
+	w.exec(`UPDATE dev_machine_agent_runs SET status=$2,summary=$3,completed_at=now() WHERE id=$1`, run, status, turn.final)
+	w.runtime.runs[run].Status = status
+	delete(w.runtime.held, run)
 }
 
 func (r *tickRuntime) role(task domain.AgentTask) string {

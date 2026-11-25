@@ -28,10 +28,10 @@ import (
 // turns that finish, fail or are cancelled, publications under way for a
 // pass or two or failing, GitHub failing or answering too slowly, script
 // checks, the budget running out, another task on the board moving, an
-// on-call role addressed or not, a second writer called) play through the
-// scenario tests' world (tickWorld): the real worker, tick, repository and
-// room, with GitHub and the machines faked. After every step the worker
-// takes, the task must be
+// on-call role addressed or not, a second writer called, other work
+// taking the machine's task slots) play through the scenario tests' world
+// (tickWorld): the real worker, tick, repository and room, with GitHub and
+// the machines faked. After every step the worker takes, the task must be
 //
 //   - working: the writer's turn, or a member's, is under way;
 //   - waiting on a fact that changes by itself, named in its reason, with a
@@ -124,6 +124,11 @@ type liveWorld struct {
 	// head and unmet checks (the tick's stall key) since a person decided.
 	stuck    int
 	stuckKey string
+	// slotTasks are other tasks holding the machine's task slots, for fullFor
+	// more events; waited counts the checks that found a role's turn waiting
+	// to start (in the tick's queue).
+	slotTasks       []uuid.UUID
+	fullFor, waited int
 }
 
 func playTickLiveness(t *testing.T, seed uint64) {
@@ -489,6 +494,9 @@ func (l *liveWorld) check(settled bool) {
 		}
 	}
 	root := l.task()
+	if len(l.queued(l.root)) > 0 {
+		l.waited++
+	}
 	roles, members := l.memberTasks()
 	busy := ""
 	for _, role := range roles {
@@ -609,6 +617,7 @@ var liveEvents = []liveEvent{
 	{"a migration collides", 3, (*liveWorld).migrationCollides},
 	{"the pull request ends", 1, (*liveWorld).pullRequestEnds},
 	{"the board changes", 3, (*liveWorld).boardChanges},
+	{"the machine fills up", 4, (*liveWorld).machineFills},
 }
 
 // play picks an event that can happen now and plays it.
@@ -627,6 +636,9 @@ func (l *liveWorld) play() {
 					g := l.github
 					g.downFor, g.slowFor, g.refuseFor, g.methodFor = max(g.downFor-1, 0), max(g.slowFor-1, 0), max(g.refuseFor-1, 0), max(g.methodFor-1, 0)
 					l.checkoutFor = max(l.checkoutFor-1, 0)
+					if l.fullFor = max(l.fullFor-1, 0); l.fullFor == 0 {
+						l.freeSlots()
+					}
 					return
 				}
 				break
@@ -869,6 +881,34 @@ func (l *liveWorld) migrationCollides() string {
 	return fmt.Sprintf("a migration collides with the base: %t", l.github.collision)
 }
 
+// machineFills gives the machine one or two task slots, as its own limit or
+// the workspace's, and other work takes them all for a few events: the
+// roles' turns wait for a slot. The limit stays; the slots free when the
+// other work ends, which wakes nobody.
+func (l *liveWorld) machineFills() string {
+	if len(l.slotTasks) > 0 {
+		return ""
+	}
+	limit, whose := 1+l.rng.IntN(2), "the machine's"
+	if l.rng.IntN(2) == 0 {
+		l.slots(&limit, domain.MaxTaskMachineMaxTasks)
+	} else {
+		l.slots(nil, limit)
+		whose = "the workspace's"
+	}
+	l.slotTasks, l.fullFor = l.occupy(limit), 1+l.rng.IntN(3)
+	l.drain()
+	return fmt.Sprintf("%s limit is %d task slot(s), and other work takes them for %d event(s)", whose, limit, l.fullFor)
+}
+
+func (l *liveWorld) freeSlots() {
+	if len(l.slotTasks) > 0 {
+		l.release(l.slotTasks)
+		l.slotTasks = nil
+		l.note("     the other work ends: its task slots free")
+	}
+}
+
 func (l *liveWorld) pullRequestEnds() string {
 	g := l.github
 	if g.status.HeadSHA == "" || g.status.State != "open" {
@@ -932,11 +972,12 @@ func (l *liveWorld) settle() {
 	l.cooperative = true
 	continued := 0
 	g := l.github
-	g.downFor, g.slowFor, g.refuseFor, g.methodFor, g.unknown, l.checkoutFor = 0, 0, 0, 0, false, 0
+	g.downFor, g.slowFor, g.refuseFor, g.methodFor, g.unknown, l.checkoutFor, l.fullFor = 0, 0, 0, 0, false, 0, 0
+	l.freeSlots()
 	for round := 1; round <= tickLivenessSettle; round++ {
 		if l.ended() {
 			root := l.task()
-			l.t.Logf("seed %d: %s after %d events and %d cooperative rounds, %d worker steps, %d head(s) merged: %s", l.seed, root.State, len(l.events), round-1, l.steps, len(g.merged), oneLine(root.Reason, 200))
+			l.t.Logf("seed %d: %s after %d events and %d cooperative rounds, %d worker steps (%d with a turn waiting to start), %d head(s) merged: %s", l.seed, root.State, len(l.events), round-1, l.steps, l.waited, len(g.merged), oneLine(root.Reason, 200))
 			return
 		}
 		l.note("cooperative round %d", round)

@@ -536,13 +536,15 @@ func (f TaskFacts) roomValue(name string) (any, bool) {
 // actionFact is what an error of a platform action a pipeline's tick runs
 // (starting a turn or a script check) means for the check waiting on it:
 // CheckWaiting when the action can run at a later pass (the last turn is
-// still winding down, the machine is busy or its worktree not ready),
-// CheckUnmet when it cannot run as asked (a role whose profile was archived,
-// a prompt or command Kuayle refuses), which a person decides; "" for no
-// error or any other, which is the pass's own.
+// still winding down, the machine is busy or its worktree not ready, no
+// task slot is free for the turn), CheckUnmet when it cannot run as asked
+// (a role whose profile was archived, a prompt or command Kuayle refuses),
+// which a person decides; "" for no error or any other, which is the pass's
+// own.
 func actionFact(err error) string {
 	switch {
-	case errors.Is(err, repository.ErrMemberBusy), errors.Is(err, repository.ErrAgentTaskConflict), errors.Is(err, repository.ErrMachineBusy), errors.Is(err, repository.ErrCheckUnavailable):
+	case errors.Is(err, repository.ErrMemberBusy), errors.Is(err, repository.ErrAgentTaskConflict), errors.Is(err, repository.ErrMachineBusy), errors.Is(err, repository.ErrCheckUnavailable),
+		errors.Is(err, repository.ErrNoTaskSlot):
 		return CheckWaiting
 	case errors.Is(err, repository.ErrMemberUnavailable), errors.Is(err, repository.ErrConversationInvalid):
 		return CheckUnmet
