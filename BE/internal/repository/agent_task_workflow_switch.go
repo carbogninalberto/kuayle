@@ -55,8 +55,7 @@ func (r *AgentTaskRepository) SwitchWorkflow(ctx context.Context, ws, id uuid.UU
 		return nil, nil, err
 	}
 	plan.ToVersion = newest.Version
-	if domain.WorkflowKind(newest.Graph) != domain.WorkflowKind(pinned.Graph) {
-		plan.Refused = domain.WorkflowSwitchKind
+	if plan.Refused = workflowSwitchKind(pinned, newest); plan.Refused != "" {
 		return plan, nil, nil
 	}
 	if plan.Refused = domain.WorkflowSwitchBlocked(*task); plan.Refused != "" {
@@ -148,8 +147,7 @@ func continueWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, 
 		plan.Refused = domain.WorkflowSwitchTargetStale
 		return plan, nil, nil
 	}
-	if domain.WorkflowKind(version.Graph) != domain.WorkflowKind(pinned.Graph) {
-		plan.Refused = domain.WorkflowSwitchKind
+	if plan.Refused = workflowSwitchKind(pinned, *version); plan.Refused != "" {
 		return plan, nil, nil
 	}
 	graph, err := domain.ParseWorkflowGraph(version.Graph)
@@ -187,6 +185,19 @@ func continueWorkflow(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, 
 		return nil, nil, err
 	}
 	return plan, task, tx.Commit()
+}
+
+// workflowSwitchKind says why a task pinned to one version cannot move to
+// another for their kinds, or "": a task never changes engine, and a task on
+// a pipeline stays on the version it started on.
+func workflowSwitchKind(pinned, to domain.WorkflowVersion) string {
+	switch kind := domain.WorkflowKind(pinned.Graph); {
+	case domain.WorkflowKind(to.Graph) != kind:
+		return domain.WorkflowSwitchKind
+	case kind == domain.WorkflowKindPipeline:
+		return domain.WorkflowSwitchPipeline
+	}
+	return ""
 }
 
 func workflowSwitchTimeSpent(task domain.AgentTask, now time.Time) int64 {
