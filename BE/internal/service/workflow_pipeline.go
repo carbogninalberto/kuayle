@@ -163,3 +163,59 @@ func (s *AgentTaskService) decidePipeline(ctx context.Context, ws, id uuid.UUID,
 	}
 	return decided, err
 }
+
+// PipelineDraft is a pipeline drafted from a graph workflow
+// (domain.DraftPipeline), or the reasons it has none.
+type PipelineDraft struct {
+	Pipeline *domain.Pipeline       `json:"pipeline"`
+	Reasons  []domain.WorkflowIssue `json:"reasons"`
+}
+
+// DraftPipeline drafts a pipeline from a workflow's latest version (for
+// "standard", the Standard workflow as the workspace runs it, or as the
+// editor's first copy of it), for whoever may read the workflow. It saves
+// nothing: the person saves the draft as a new workflow, and the graph keeps
+// running as it is. With pipelines off there is nothing to draft for.
+func (s *WorkflowService) DraftPipeline(ctx context.Context, ws uuid.UUID, id string) (*PipelineDraft, error) {
+	if _, _, err := s.access(ctx, ws); err != nil {
+		return nil, err
+	}
+	if !s.tasks.PipelinesEnabled() {
+		return nil, ErrPipelinesDisabled
+	}
+	var raw json.RawMessage
+	if id == domain.StandardWorkflowID {
+		standard, err := s.standardView(ctx, ws, true)
+		if err != nil {
+			return nil, err
+		}
+		raw = standard.Graph
+	} else {
+		workflowID, err := uuid.Parse(id)
+		if err != nil {
+			return nil, repository.ErrWorkflowNotFound
+		}
+		w, err := s.repo.Workflow(ctx, ws, workflowID)
+		if err != nil {
+			return nil, err
+		}
+		raw = w.Graph
+	}
+	graph, err := domain.ParseWorkflowGraph(raw)
+	if err != nil {
+		var invalid *domain.WorkflowInvalidError
+		if errors.As(err, &invalid) {
+			return &PipelineDraft{Reasons: invalid.Issues}, nil
+		}
+		return nil, err
+	}
+	profiles, err := s.repo.ActiveProfiles(ctx, ws)
+	if err != nil {
+		return nil, err
+	}
+	pipeline, reasons := domain.DraftPipeline(*graph, profiles)
+	if reasons == nil {
+		reasons = []domain.WorkflowIssue{}
+	}
+	return &PipelineDraft{Pipeline: pipeline, Reasons: reasons}, nil
+}

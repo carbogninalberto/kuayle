@@ -2850,7 +2850,8 @@ Routes (workspace, session only): `GET/POST /agent-profiles`,
 `PUT/DELETE /agent-profiles/:profileId`, `GET/POST /workflows`,
 `POST /workflows/validate`, `GET/PUT /workflows/:workflowId`,
 `POST /workflows/:workflowId/duplicate|archive`, `GET /workflows/:workflowId/audit`,
-`PUT /workflow-defaults`; under dev machines `GET /agent-tasks/:taskId/workflow`
+`PUT /workflow-defaults`, `POST /workflows/:workflowId/draft-pipeline`
+([drafting a pipeline](#team-workflows-experimental)); under dev machines `GET /agent-tasks/:taskId/workflow`
 (graph, path, visit counts and `runs`) and `POST /agent-tasks/:taskId/workflow/decision`
 (`approve`/`deny` an approval node, `continue`/`stop` at a limit; only the
 task's creator or an owner or admin who can see the issue, for the step
@@ -2973,8 +2974,8 @@ configuration: every reader asks `AgentTaskService.PipelinesEnabled`, which
 reads `InstanceConfigService.PipelinesEnabled` on each use, so the change
 applies without a restart (other replicas within five seconds; see
 [instance configuration](../../TECHNICAL.md#instance-configuration)).
-Off, creating, saving or duplicating a pipeline, making one a default and
-starting a task on one answer `403 PIPELINES_DISABLED` (a delegation from the
+Off, creating, saving, duplicating or drafting a pipeline, making one a
+default and starting a task on one answer `403 PIPELINES_DISABLED` (a delegation from the
 assistant says "Pipeline workflows are turned off on this server"). Saved
 pipelines stay readable, and a task already on one keeps running: the tick
 does not read the switch. `GET /workflows` returns the switch as
@@ -3046,6 +3047,44 @@ reviewer's `verdict`), CI checks (implementer; `head_contains_base`,
 writer and Reviewer; no lead; 40 turns and 2,880 minutes, then `ask`.
 Settings shows a pipeline read only, with a notice (`PipelineView.svelte`);
 there is no editor.
+
+**Drafting a pipeline from a graph** (KUA-283; `domain/pipeline_draft.go`).
+`POST /workflows/:workflowId/draft-pipeline` (session only, any member who
+reads workflows, the workspace's own workflows only; `standard` is the
+Standard workflow as the workspace runs it, or the editor's first copy of it)
+answers `200` with `{"pipeline": …, "reasons": []}`, or `"pipeline": null`
+and the reasons, located on steps like the editor's problems. It saves
+nothing and never changes or switches the graph, whose tasks keep running on
+it: a person saves the draft as a new workflow. `DraftPipeline` drafts only
+from a graph that is one path once the ways back are set aside: a transition
+to a step every path to its source passes through (changes requested, a CI
+failure, a denied approval, a retry) is implied, since an unmet check sends
+the work back; so are transitions to an end that fails, and a publish step's
+`no_changes` transition to an end. Each step on the path is a phase with its
+ID and name:
+
+| Graph step | Phase |
+| --- | --- |
+| agent that changes code | owned by the writer, `implementer` (its profile), with the step's prompt less the graph's `{{…}}` variables |
+| agent that reviews | owned by the writer; requires a `verdict` from the role its profile plays (`reviewer`, then `reviewer-2`, …) |
+| publish | owned by Kuayle; requires `pr_exists` |
+| CI check | owned by the writer; requires `head_contains_base` (`up-to-date`; Kuayle updates a branch that is behind, so it never strands a task) and `ci_green` (`ci`), and reports `migration_collision` (`migrations`) as advisory: it informs, never blocks |
+| approval | owned by a person; requires `approved` |
+| merge, or the done end after a ship approval that merges on approval | the last phase, guarded |
+| retired local check | none (it does nothing today) |
+
+Every other check is required, and check IDs follow the `team` template. Visit limits, timeouts and the prompts of review and
+approval steps are dropped; the budget keeps its minutes and policy, and its
+iterations become `max_turns` of iterations × roles (at most 200), since a
+pipeline charges every role's turn. No lead. The reasons, by code: the
+graph's own problems (its validator's codes); `branching` (a step with two
+ways on); `planning_step` (no check says a plan is done); `stage_assistant`;
+`second_writer` (another profile that changes code); `early_approval` (before
+anything is published: a pipeline approves the published head);
+`code_after_approval` (a pipeline merges only a head a person approved);
+`dead_end` (only ways back or to a failed end); `pipeline` (the workflow
+already is one); and what `ValidatePipeline` finds in the draft, such as
+`missing_approval` for a merge no person approves first.
 
 **The room** (KUA-261; `domain/task_room.go`, `repository/task_room.go`,
 table `task_messages`, migration 206) is one ordered log per pipeline task,

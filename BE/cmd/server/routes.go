@@ -510,6 +510,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/workflows/:workflowId", h.workflow.Get, domain.PermWorkflowsRead)
 	sessionOnly(ws, http.MethodPut, "/workflows/:workflowId", h.workflow.Save)
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/duplicate", h.workflow.Duplicate)
+	// Drafts a pipeline from a graph workflow and saves nothing (KUA-283).
+	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/draft-pipeline", h.workflow.DraftPipeline)
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/archive", h.workflow.Archive)
 	sessionOnly(ws, http.MethodDelete, "/workflows/:workflowId", h.workflow.Delete)
 	sessionOnly(ws, http.MethodGet, "/workflows/:workflowId/audit", h.workflow.Audit)
