@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/repository"
 )
 
 // Kuayle reads what is true about a task's pull request without a model, once,
@@ -459,4 +460,227 @@ func (f TaskFacts) judgeVerdict(check FactCheck, head string) (string, string) {
 		return CheckUnmet, fmt.Sprintf("%s did not approve %s (%s). Next step: address %s's findings, push, and ask %s to review again.", role, head, verdict.Verdict, role, role)
 	}
 	return "", ""
+}
+
+// roomFacts are the facts a pipeline's tick posts to the task's room when
+// they change, in order.
+var roomFacts = []string{factPRExists, "head_sha", "base_ref", factPRDraft, factHeadContainsBase, factConflict, factMigrationCollision, factCIGreen, factApproved, factOverlap, factMerged, factClosed}
+
+// roomValue is a fact's value as the room records it; false when unknown.
+func (f TaskFacts) roomValue(name string) (any, bool) {
+	yesNo := map[string]Fact{factPRExists: f.PRExists, factPRDraft: f.PRDraft, factHeadContainsBase: f.HeadContainsBase, factConflict: f.Conflict,
+		factMigrationCollision: f.MigrationCollision, factApproved: f.Approved, factMerged: f.Merged, factClosed: f.Closed}
+	if fact, ok := yesNo[name]; ok {
+		return fact == FactYes, fact != FactUnknown
+	}
+	switch name {
+	case "head_sha":
+		return f.HeadSHA, f.HeadSHA != ""
+	case "base_ref":
+		return f.BaseRef, f.BaseRef != ""
+	case factCIGreen:
+		failing := []string{}
+		for _, check := range f.CI.failing() {
+			failing = append(failing, check.Name)
+		}
+		return map[string]any{"state": f.CI.State, "head": f.CI.Head, "failing": failing}, f.CI.State != "" && f.CI.Head == f.HeadSHA && f.CI.Green != FactUnknown
+	case factOverlap:
+		ahead := []string{}
+		for _, other := range f.Overlap {
+			if other.Ahead {
+				ahead = append(ahead, other.IssueIdentifier)
+			}
+		}
+		return ahead, f.Overlap != nil
+	}
+	return nil, false
+}
+
+// actionFact is what an error of a platform action a pipeline's tick runs
+// (starting a turn or a script check) means for the check waiting on it:
+// CheckWaiting when the action can run at a later pass (the last turn is
+// still winding down, the machine is busy or its worktree not ready),
+// CheckUnmet when it cannot run as asked (a role whose profile was archived,
+// a prompt or command Kuayle refuses), which a person decides; "" for no
+// error or any other, which is the pass's own.
+func actionFact(err error) string {
+	switch {
+	case errors.Is(err, repository.ErrMemberBusy), errors.Is(err, repository.ErrAgentTaskConflict), errors.Is(err, repository.ErrMachineBusy), errors.Is(err, repository.ErrCheckUnavailable):
+		return CheckWaiting
+	case errors.Is(err, repository.ErrMemberUnavailable), errors.Is(err, repository.ErrConversationInvalid):
+		return CheckUnmet
+	}
+	return ""
+}
+
+// publicationFact is why the publication of a pipeline writer's turn left no
+// pull request at a commit, as the room hears it; "" when it did.
+func publicationFact(result *domain.DevMachineAgentRunStep) string {
+	switch {
+	case result.Status == domain.DevMachineAgentRunStepStatusSucceeded:
+		return ""
+	case domain.PublicationCheckoutBlockReason(result.Summary) != "":
+		return domain.PublicationCheckoutBlockReason(result.Summary)
+	case result.Status == domain.DevMachineAgentRunStepStatusSkipped:
+		return publicationSkippedReason(result)
+	}
+	return publicationFailureReason(result, "Publishing failed; check the repository connection")
+}
+
+// scriptRun is a pipeline script check's latest run, kept in the tick's
+// memory: the published commit it checks in the task's worktree, the check
+// run in flight, its exit code and the end of its output once it ended, why
+// it could not run, and whether the room heard the result.
+type scriptRun struct {
+	Commit string     `json:"commit"`
+	Step   *uuid.UUID `json:"step,omitempty"`
+	Exit   *int       `json:"exit,omitempty"`
+	Output string     `json:"output,omitempty"`
+	Why    string     `json:"why,omitempty"`
+	Posted bool       `json:"posted,omitempty"`
+}
+
+// scriptOutputBytes bounds the end of a check's output the room keeps.
+const scriptOutputBytes = 2000
+
+// pipelineScripts are the script checks of a pipeline's phases up to the
+// one at upto.
+func pipelineScripts(p domain.Pipeline, upto int) []domain.PipelineCheck {
+	var checks []domain.PipelineCheck
+	for _, phase := range p.Phases[:upto+1] {
+		for _, check := range phase.Checks {
+			if check.Fact == domain.PipelineFactScript {
+				checks = append(checks, check)
+			}
+		}
+	}
+	return checks
+}
+
+// readScriptFacts records the runs of the checks that ended, and returns
+// each check's fact for the head: its run, when that run's commit is the head
+// or one the head merely merged the base into (covered, as for verdicts).
+func (s *AgentTaskService) readScriptFacts(ctx context.Context, task domain.AgentTask, checks []domain.PipelineCheck, runs map[string]*scriptRun, head string, covered func(string) (string, error)) (map[string]ScriptFact, error) {
+	facts := map[string]ScriptFact{}
+	for _, check := range checks {
+		run := runs[check.ID]
+		if run == nil {
+			facts[check.ID] = ScriptFact{State: "pending"}
+			continue
+		}
+		if run.Step != nil {
+			status, exit, output, err := s.Repo.PipelineCheckResult(ctx, task, *run.Step, scriptOutputBytes)
+			if err != nil {
+				return nil, err
+			}
+			if status == domain.DevMachineAgentRunStepStatusSucceeded || status == domain.DevMachineAgentRunStepStatusFailed {
+				run.Step, run.Exit, run.Output, run.Posted = nil, exit, output, false
+				if exit == nil {
+					run.Why = "the check could not finish"
+				}
+			}
+		}
+		fact := ScriptFact{State: "pending"}
+		switch commit, err := covered(run.Commit); {
+		case err != nil:
+			fact = ScriptFact{State: "unavailable", Why: "GitHub did not say whether the head is the commit it checked"}
+		case commit != head:
+		case run.Step != nil:
+			fact.State = "running"
+		case run.Exit != nil && *run.Exit == 0:
+			fact.State = "passed"
+		case run.Exit != nil:
+			fact = ScriptFact{State: "failed", Exit: *run.Exit, Output: run.Output}
+		case run.Why != "":
+			fact = ScriptFact{State: "unavailable", Why: run.Why}
+		}
+		facts[check.ID] = fact
+	}
+	return facts, nil
+}
+
+// runScriptChecks runs, in the task's worktree through the manual check
+// runner, the checks that have no run for the head (or could not run), on
+// commit. A check that cannot start now (actionFact) is unavailable and
+// tried again at the next pass. It reports whether it changed any run.
+func (s *AgentTaskService) runScriptChecks(ctx context.Context, task domain.AgentTask, checks []domain.PipelineCheck, facts map[string]ScriptFact, runs map[string]*scriptRun, commit string) (bool, error) {
+	changed := false
+	for _, check := range checks {
+		if state := facts[check.ID].State; state != "pending" && state != "unavailable" {
+			continue
+		}
+		run := &scriptRun{Commit: commit}
+		step, err := s.Repo.RunPipelineCheck(ctx, task, "Pipeline check "+check.ID, []string{"sh", "-c", check.Script})
+		switch {
+		case actionFact(err) != "":
+			run.Why = err.Error()
+			facts[check.ID] = ScriptFact{State: "unavailable", Why: run.Why}
+		case err != nil:
+			return changed, err
+		default:
+			run.Step = &step.ID
+			facts[check.ID] = ScriptFact{State: "running"}
+		}
+		runs[check.ID], changed = run, true
+	}
+	return changed, nil
+}
+
+// MergeFact is the guarded merge of a pipeline as a fact (KUA-279): what came
+// of Kuayle merging the head through the merge gate. A merge that waits (on
+// CI, its own branch update, GitHub settling or not answering in time) is
+// tried again at the next pass; a refused one says why, for a person.
+type MergeFact struct {
+	State  string
+	Reason string
+}
+
+const (
+	mergeMerged  = "merged"
+	mergeWaiting = "waiting"
+	mergeRefused = "refused"
+)
+
+// readMergeable merges the pull request at wait.Head through the merge gate,
+// as approver (the task's creator when nil, the approval was waived), who
+// must still be allowed to decide the task. wait is updated in place; only
+// an error reading Kuayle's own records is returned.
+func (s *AgentTaskService) readMergeable(ctx, gh context.Context, task domain.AgentTask, target *domain.AgentReviewTarget, wait *domain.MergeWait, approver *uuid.UUID, now time.Time) (MergeFact, error) {
+	w := s.workflow
+	if w.merger == nil {
+		return MergeFact{mergeRefused, "Kuayle cannot merge pull requests here"}, nil
+	}
+	if wait.Method == "" {
+		method, err := w.pulls.ResolveMergeMethod(gh, task.WorkspaceID, target.Repository)
+		if errors.Is(err, ErrMergeMethodNotAllowed) {
+			return MergeFact{mergeRefused, upperFirst(err.Error())}, nil
+		}
+		if err != nil {
+			return MergeFact{State: mergeWaiting}, nil
+		}
+		wait.Method = method
+	}
+	actor := task.CreatorID
+	if approver != nil {
+		actor = *approver
+		access := domain.WithAccess(ctx, domain.Access{WorkspaceID: task.WorkspaceID, UserID: actor})
+		if _, err := s.Repo.WorkflowDecisionTask(access, task.WorkspaceID, task.ID); errors.Is(err, repository.ErrConversationNotFound) || errors.Is(err, repository.ErrAgentTaskUnauthorized) {
+			return MergeFact{mergeRefused, "The person who approved can no longer merge this task's pull request"}, nil
+		} else if err != nil {
+			return MergeFact{}, err
+		}
+	}
+	hold, err := w.gate().merge(gh, task.WorkspaceID, actor, target.Repository, target.PullRequestNumber, wait, w.merger)
+	switch {
+	case err != nil:
+		return MergeFact{State: mergeWaiting}, nil // GitHub could not be reached in time
+	case hold.merged || hold.mergedElsewhere:
+		return MergeFact{State: mergeMerged}, nil
+	case hold.waits(wait) && now.Before(wait.Deadline):
+		wait.Waiting = truncateRunes(hold.reason, 600)
+		return MergeFact{mergeWaiting, wait.Waiting}, nil
+	case hold.waits(wait):
+		return MergeFact{mergeRefused, mergeWaitExpiredRefusal(target.PullRequestNumber, wait)}, nil
+	}
+	return MergeFact{mergeRefused, hold.reason}, nil
 }

@@ -3158,6 +3158,16 @@ cannot start, and why), `publication` (publishing the writer's turn failed
 or was skipped), `merge` (the merge gate refused, and why), `script`
 (below) and the `verdict` with `none` above.
 
+The facts reader (`service/task_facts.go`, KUA-279) also says what came of
+each action the tick runs, so the tick acts on fact states and handles no
+error of its own: a script check's run for the head (`readScriptFacts`),
+the guarded merge (`readMergeable`: merged, waiting, or refused with a
+reason), a turn or check that cannot start now (`waiting`: the last turn is
+still winding down, the machine is busy or its worktree not ready) or at all
+(`unmet`: a role whose profile was archived, a prompt or command Kuayle
+refuses; `actionFact`), and a publication that left no pull request
+(`publicationFact`).
+
 **Script checks** run the check's `script` as `sh -c` in the root task's
 worktree, through the [manual check](#manual-checks) runner
 (`RunPipelineCheck`), as the task's creator, who needs no permission to run a
@@ -3175,7 +3185,7 @@ posted once as a `script` fact (check, commit, exit code); a failed advisory
 check is posted to its phase's owner and never holds the task up.
 
 **The tick** (KUA-273; `service/team_tick.go`, `repository/pipeline_tick.go`,
-migration 208). `AgentTaskService.step` runs a task marked `pipeline` through
+migration 208; a person's decisions in `service/workflow_pipeline.go`). `AgentTaskService.step` runs a task marked `pipeline` through
 the tick instead of the graph runner. The root task is the writer: when its
 turn ends, a turn that changed the work (or any, while nothing is published
 yet) is published once, a failed one is posted as a `turn` fact, and the
