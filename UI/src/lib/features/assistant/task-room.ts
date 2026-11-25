@@ -7,8 +7,8 @@ import type { TaskMessage } from '$lib/api/agent-tasks';
 // role's turn is one run of its agent: everything the turn posted is one
 // row, where its first post is, and opens the run's transcript. A turn that
 // has not posted yet is a row too, from its run, where it started (KUA-321),
-// so a running turn is never missing. The server decides who may read the room and orders it; this only shapes what it
-// returned.
+// so a running turn is never missing. The server decides who may read the
+// room and orders it; this only shapes what it returned.
 
 /** The most posts one read of the room returns. */
 export const ROOM_PAGE = 200;
