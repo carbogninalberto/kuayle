@@ -266,10 +266,25 @@ func ValidateWorktreeScanRequest(req domain.WorktreeScanRequest) error {
 		if req.Limit > domain.WorktreeScanMaxList {
 			return ErrConversationInvalid
 		}
+	case domain.WorktreeScanTree:
+		if !validWorktreeScanRef(req.Ref) || req.Limit != 0 {
+			return ErrConversationInvalid
+		}
+	case domain.WorktreeScanShow:
+		if !validWorktreeScanRef(req.Ref) || !domain.ValidTaskFilePath(req.Path) || req.StartLine < 1 ||
+			req.EndLine < req.StartLine || req.EndLine-req.StartLine >= domain.TaskFileLinesMax || req.Limit != 0 {
+			return ErrConversationInvalid
+		}
 	default:
 		return ErrConversationInvalid
 	}
 	return nil
+}
+
+// validWorktreeScanRef is the commit a tree or show scan reads: the task
+// branch (HEAD) or a full commit id, never an expression git would evaluate.
+func validWorktreeScanRef(ref string) bool {
+	return ref == "HEAD" || domain.ValidCommitID(ref)
 }
 
 func validWorktreeScanText(value string, minimum, maximum int) bool {

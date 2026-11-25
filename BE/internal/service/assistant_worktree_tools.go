@@ -201,18 +201,33 @@ func worktreeScanFinished(scan *domain.WorktreeScan) bool {
 }
 
 func (t *AssistantTools) awaitWorktreeScan(ctx context.Context, ws uuid.UUID, scan *domain.WorktreeScan) (*domain.WorktreeScan, error) {
+	scan, err := awaitWorktreeScan(ctx, t.worktreeScans, ws, scan, t.worktreeScanWait)
+	if errors.Is(err, errWorktreeScanWait) {
+		return nil, toolFailure("the machine did not answer within 20 s; it may be busy — try again")
+	}
+	if err != nil {
+		return nil, worktreeScanFailure(err)
+	}
+	return scan, nil
+}
+
+// errWorktreeScanWait: a queued scan did not finish within the wait.
+var errWorktreeScanWait = errors.New("the machine did not answer in time")
+
+// awaitWorktreeScan polls a queued scan every 250 ms until it finishes, the
+// wait (20 s when unset) passes or ctx ends.
+func awaitWorktreeScan(ctx context.Context, store worktreeScanStore, ws uuid.UUID, scan *domain.WorktreeScan, wait time.Duration) (*domain.WorktreeScan, error) {
 	if worktreeScanFinished(scan) {
 		return scan, nil
 	}
-	wait := t.worktreeScanWait
 	if wait <= 0 {
 		wait = worktreeScanTimeout
 	}
 	deadline := time.Now().Add(wait)
 	for {
-		current, err := t.worktreeScans.GetWorktreeScan(ctx, ws, scan.ID)
+		current, err := store.GetWorktreeScan(ctx, ws, scan.ID)
 		if err != nil {
-			return nil, worktreeScanFailure(err)
+			return nil, err
 		}
 		if current != nil {
 			scan = current
@@ -222,7 +237,7 @@ func (t *AssistantTools) awaitWorktreeScan(ctx context.Context, ws uuid.UUID, sc
 		}
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return nil, toolFailure("the machine did not answer within 20 s; it may be busy — try again")
+			return nil, errWorktreeScanWait
 		}
 		timer := time.NewTimer(min(remaining, worktreeScanPollInterval))
 		select {

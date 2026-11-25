@@ -712,7 +712,11 @@ deadline stops it, and checks only tracked modifications per worktree. rg
 respects the checkout's ignore files, read paths cannot leave the checkout, and
 output, line, file and match counts are bounded. A status or read result's
 `branch` and `commit` name the task's branch ref: an agent that switched
-branches leaves its own working tree, which is what the scan reads.
+branches leaves its own working tree, which is what the scan reads. The `tree`
+and `show` kinds read a commit with `git ls-tree` and `git cat-file` instead of
+the worktree, for a task creator's
+[files at a commit](BE/docs/agent-tasks.md#files-at-a-commit): untracked and
+ignored files are never part of them.
 
 Every task attempt runs inside a tracked [agent session](BE/docs/agent-tasks.md#agent-sessions)
 (migration 84, `agent_sessions`): an implementing task keeps one session across

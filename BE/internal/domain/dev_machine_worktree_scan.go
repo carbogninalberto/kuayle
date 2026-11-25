@@ -21,6 +21,11 @@ const (
 	WorktreeScanStatus WorktreeScanKind = "status"
 	// WorktreeScanList lists the task worktrees under /workspace/tasks.
 	WorktreeScanList WorktreeScanKind = "list"
+	// WorktreeScanTree lists the files one commit of a task checkout
+	// tracks, and WorktreeScanShow reads a line range of one of them. Both
+	// read the commit with git, never the worktree (KUA-280).
+	WorktreeScanTree WorktreeScanKind = "tree"
+	WorktreeScanShow WorktreeScanKind = "show"
 	// Machine-only Docker reads use the same bounded, read-only scan queue.
 	MachineScanContainers    WorktreeScanKind = "containers"
 	MachineScanContainerLogs WorktreeScanKind = "container_logs"
@@ -60,6 +65,9 @@ type WorktreeScanRequest struct {
 	StartLine       int              `json:"start_line,omitempty"`
 	EndLine         int              `json:"end_line,omitempty"`
 	Limit           int              `json:"limit,omitempty"`
+	// Ref is the commit a tree or show scan reads: HEAD (the task branch's
+	// tip) or a full commit id.
+	Ref string `json:"ref,omitempty"`
 }
 
 // WorktreeMatch is one rg match.
@@ -97,6 +105,11 @@ type WorktreeScanResult struct {
 	LastSubject string            `json:"last_subject,omitempty"`
 	Worktrees   []WorktreeSummary `json:"worktrees,omitempty"`
 	Truncated   bool              `json:"truncated"`
+	// A show scan's file: Missing means the commit tracks no file at that
+	// path; a Binary or TooLarge file carries no content.
+	Missing  bool `json:"missing,omitempty"`
+	Binary   bool `json:"binary,omitempty"`
+	TooLarge bool `json:"too_large,omitempty"`
 }
 
 // WorktreeScan is one queued scan and, once the manager ran it, its result or

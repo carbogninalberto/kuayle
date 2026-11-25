@@ -229,6 +229,8 @@ func worktreeScanCommand(job WorktreeScanJob) ([]string, error) {
 		return []string{"sh", "-c", worktreeStatusScript, "kuayle-worktree-scan", job.Path, job.Branch, job.BaseBranch, scanBool(job.PublicationStatus)}, nil
 	case domain.WorktreeScanList:
 		return []string{"sh", "-c", worktreeListScript, "kuayle-worktree-scan", job.Path}, nil
+	case domain.WorktreeScanTree, domain.WorktreeScanShow:
+		return worktreeFilesCommand(job)
 	default:
 		return nil, fmt.Errorf("unsupported worktree scan kind")
 	}
@@ -297,6 +299,12 @@ func parseWorktreeScan(job WorktreeScanJob, output string, truncated bool) (*dom
 	if job.Request.Kind == domain.WorktreeScanList {
 		worktrees, more := parseWorktreeList(output, domain.WorktreeScanMaxList)
 		return &domain.WorktreeScanResult{Worktrees: worktrees, Truncated: truncated || more}, nil
+	}
+	switch job.Request.Kind {
+	case domain.WorktreeScanTree:
+		return parseWorktreeTree(output, truncated)
+	case domain.WorktreeScanShow:
+		return parseWorktreeShow(job.Request, output, truncated)
 	}
 	header, err := parseWorktreeHeader(output)
 	if err != nil {
