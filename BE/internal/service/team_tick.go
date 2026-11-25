@@ -35,8 +35,8 @@ import (
 //  5. starts a turn for every member whose unread posts call for one;
 //  6. when nothing is running, pending or awaited, sends the unmet checks
 //     with their reasons to the owner of the current phase, and after
-//     tickStallLimit such passes on the same head and checks pauses for a
-//     person;
+//     tickStallLimit such passes, or turns of the writer that changed
+//     nothing, on the same head and checks pauses for a person;
 //  7. charges the turns it starts and the working time to the budget;
 //  8. waits for the next event, or polls while something changes by itself.
 //
@@ -112,12 +112,17 @@ type tickApproval struct {
 	By   uuid.UUID `json:"by"`
 }
 
-// tickStall counts the passes in a row that found nobody working on Head
-// with the same unmet checks (Key).
+// tickStall counts the rounds in a row without progress on Head with the
+// same unmet checks (Key): passes that found nobody working, and turns of
+// the writer that ended without changing either (KUA-297). Run is the
+// writer's turn the tick last weighed; Turned, that the count holds it, so
+// the summary pass that follows it counts no second time.
 type tickStall struct {
-	Key   string `json:"key,omitempty"`
-	Head  string `json:"head,omitempty"`
-	Count int    `json:"count,omitempty"`
+	Key    string `json:"key,omitempty"`
+	Head   string `json:"head,omitempty"`
+	Count  int    `json:"count,omitempty"`
+	Run    string `json:"run,omitempty"`
+	Turned bool   `json:"turned,omitempty"`
 }
 
 func readTickState(task domain.AgentTask) tickState {
@@ -181,8 +186,12 @@ func (s *AgentTaskService) pipelineTurnEnded(ctx context.Context, task domain.Ag
 
 // pipelinePublished is the worker's report of the publication of the
 // writer's turn once it ended: anything but a pull request at a commit is a
-// fact.
+// fact. A pause asked for meanwhile takes effect first; once resumed, the
+// worker reads the publication again and reports it.
 func (s *AgentTaskService) pipelinePublished(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
+	if task.WorkflowPauseRequest != nil {
+		return s.Repo.ParkWorkflow(ctx, task)
+	}
 	if why := publicationFact(result); why != "" {
 		value, _ := json.Marshal(map[string]string{"status": string(result.Status), "run": task.RunID.String()})
 		if err := s.kuaylePost(ctx, task, domain.TaskRoomPost{Kind: domain.RoomFact, Body: why,
@@ -287,6 +296,9 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 		} else if ran {
 			_, unmet = t.phase()
 		}
+	}
+	if entry, paused := t.turnEnded(phase, unmet); paused {
+		return t.save(ctx, entry, phase.ID)
 	}
 	if err = t.act(ctx, index, unmet); err != nil {
 		return err
@@ -811,29 +823,79 @@ func (t *tickPass) deliver(ctx context.Context, index int) error {
 	return nil
 }
 
+// stallKey names the head, the phase and its unmet checks with their
+// states, which the stall counts rounds on.
+func (t *tickPass) stallKey(phase domain.PipelinePhase, unmet []UnmetCheck) string {
+	keys := make([]string, 0, len(unmet))
+	for _, check := range unmet {
+		keys = append(keys, check.ID+":"+check.State)
+	}
+	return t.facts.HeadSHA + "|" + phase.ID + "|" + strings.Join(keys, ",")
+}
+
+// turnEnded counts the writer's last turn, once, at the first pass after it
+// ended (and was published): a turn that left the head and the unmet checks
+// as the tick last saw them made no progress, whoever asked for it; one that
+// changed either starts the count again (KUA-297). The count is the stall's.
+func (t *tickPass) turnEnded(phase domain.PipelinePhase, unmet []UnmetCheck) (repository.WorkflowEntry, bool) {
+	run := t.task.RunID.String()
+	if t.st.Stall.Run == run {
+		return repository.WorkflowEntry{}, false
+	}
+	key := t.stallKey(phase, unmet)
+	if len(unmet) == 0 || t.st.Stall.Key != key {
+		t.st.Stall = tickStall{Key: key, Head: t.facts.HeadSHA, Run: run}
+		return repository.WorkflowEntry{}, false
+	}
+	t.st.Stall.Count++
+	t.st.Stall.Run, t.st.Stall.Turned = run, true
+	return t.noProgress(phase, unmet)
+}
+
+// noProgress is the pause for a person once tickStallLimit rounds in a row
+// made no progress on the same head and checks.
+func (t *tickPass) noProgress(phase domain.PipelinePhase, unmet []UnmetCheck) (repository.WorkflowEntry, bool) {
+	if t.st.Stall.Count < tickStallLimit {
+		return repository.WorkflowEntry{}, false
+	}
+	reasons := make([]string, 0, len(unmet))
+	for _, check := range unmet {
+		reasons = append(reasons, "- "+check.ID+": "+check.Reason)
+	}
+	head := shortSHA(t.facts.HeadSHA)
+	if head == "" {
+		head = "the unpublished work"
+	}
+	why := fmt.Sprintf("Nobody made progress on %s in %d rounds; %s waits on: %s", head, t.st.Stall.Count, phase.Label, strings.Join(reasons, " "))
+	return repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: truncateUTF8Bytes(domain.WorkflowReasonPrefix+why, 1900) + ". Continue or stop the workflow"}, true
+}
+
 // stall sends the current phase's unmet checks to its owner when nobody
 // works, nothing is under way and nothing is awaited, and to the writer too
-// when only the writer can move one (writerActs); after tickStallLimit such
-// passes in a row on the same head and checks it pauses for a person.
+// when only the writer can move one (writerActs); after tickStallLimit
+// rounds in a row without progress on the same head and checks (such
+// passes, and the writer's turns that changed nothing) it pauses for a
+// person.
 func (t *tickPass) stall(ctx context.Context, phase domain.PipelinePhase, unmet []UnmetCheck) (repository.WorkflowEntry, bool, error) {
 	if t.busy || t.pending || t.poll || t.person || len(unmet) == 0 {
 		return repository.WorkflowEntry{}, false, nil
 	}
-	keys := make([]string, 0, len(unmet))
 	reasons := make([]string, 0, len(unmet))
 	for _, check := range unmet {
-		keys = append(keys, check.ID+":"+check.State)
 		reasons = append(reasons, "- "+check.ID+": "+check.Reason)
 	}
-	key := t.facts.HeadSHA + "|" + phase.ID + "|" + strings.Join(keys, ",")
-	if t.st.Stall.Key == key {
+	switch key := t.stallKey(phase, unmet); {
+	case t.st.Stall.Key != key:
+		t.st.Stall = tickStall{Key: key, Head: t.facts.HeadSHA, Count: 1, Run: t.st.Stall.Run}
+	case t.st.Stall.Turned:
+		// The writer's turn that ended on them was counted: this pass is
+		// the same round.
+		t.st.Stall.Turned = false
+	default:
 		t.st.Stall.Count++
-	} else {
-		t.st.Stall = tickStall{Key: key, Head: t.facts.HeadSHA, Count: 1}
 	}
-	if t.st.Stall.Count >= tickStallLimit {
-		why := fmt.Sprintf("Nobody made progress on %s in %d passes; %s waits on: %s", shortSHA(t.facts.HeadSHA), t.st.Stall.Count, phase.Label, strings.Join(reasons, " "))
-		return repository.WorkflowEntry{Kind: repository.WorkflowEnterPause, Reason: truncateUTF8Bytes(domain.WorkflowReasonPrefix+why, 1900) + ". Continue or stop the workflow"}, true, nil
+	if entry, paused := t.noProgress(phase, unmet); paused {
+		return entry, true, nil
 	}
 	owner := t.owner(phase)
 	t.person = owner == domain.PipelineOwnerHuman
