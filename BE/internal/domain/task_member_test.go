@@ -16,8 +16,9 @@ func TestOnlyATakenReviewRequestAsksForAVerdict(t *testing.T) {
 	refused := request
 	reason := "refused"
 	refused.RejectReason = &reason
-	require.True(t, RoomReviewRequested([]TaskMessage{merge, request}))
-	require.False(t, RoomReviewRequested([]TaskMessage{merge, refused, roomPost(5, RoomAsk, RoomAuthorHuman, "", nil, "review?")}))
+	reviewer := PipelineMember{Role: "reviewer"}
+	require.True(t, RoomReviewRequested(reviewer, []TaskMessage{merge, request}))
+	require.False(t, RoomReviewRequested(reviewer, []TaskMessage{merge, refused, roomPost(5, RoomAsk, RoomAuthorHuman, "", nil, "review?")}))
 }
 
 // A turn asked for a verdict is a review of the pinned commit that may also

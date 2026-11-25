@@ -177,6 +177,87 @@ func TestPipelineWithALeadAndExpertsIsValid(t *testing.T) {
 	require.Empty(t, ValidatePipeline(p, profiles))
 }
 
+// A roster's roles: one writer, whose profile changes code; the roles a
+// required check names (verdicts), which Kuayle asks when their phase needs
+// them; and on-call roles, which work only when addressed. Any profile and
+// harness may play a role that does not write.
+func TestPipelineRosters(t *testing.T) {
+	implementer, reviewer, profiles := exampleProfiles()
+	planner, crush, pi := uuid.New(), uuid.New(), uuid.New()
+	profiles[planner] = AgentProfile{ID: planner, Name: "Planner", Behaviour: AgentBehaviourPlans, Harness: "opencode"}
+	profiles[crush] = AgentProfile{ID: crush, Name: "Crush builder", Behaviour: AgentBehaviourChangesCode, Harness: "crush"}
+	profiles[pi] = AgentProfile{ID: pi, Name: "Pi reviewer", Behaviour: AgentBehaviourReviews, Harness: "pi"}
+	verdict := func(role string, required bool) PipelineCheck {
+		return PipelineCheck{ID: role, Fact: PipelineFactVerdict, Role: role, Required: required}
+	}
+	good := map[string]func(p *Pipeline){
+		"the team template": func(*Pipeline) {},
+		"an on-call expert nothing requires": func(p *Pipeline) {
+			p.Roster = append(p.Roster, PipelineMember{Role: "uiux", ProfileID: reviewer, OnCall: true})
+		},
+		"an on-call expert with an advisory verdict": func(p *Pipeline) {
+			p.Roster = append(p.Roster, PipelineMember{Role: "uiux", ProfileID: reviewer, OnCall: true})
+			p.Phases[2].Checks = append(p.Phases[2].Checks, verdict("uiux", false))
+		},
+		"an on-call role a required check asks for its verdict": func(p *Pipeline) {
+			p.Roster = append(p.Roster, PipelineMember{Role: "security", ProfileID: reviewer, OnCall: true})
+			p.Phases[2].Checks = append(p.Phases[2].Checks, verdict("security", true))
+		},
+		"an on-call role that owns a phase": func(p *Pipeline) {
+			p.Roster = append(p.Roster, PipelineMember{Role: "uiux", ProfileID: reviewer, OnCall: true})
+			p.Phases[2].Owner = "uiux"
+		},
+		"roles played by any profile on any harness": func(p *Pipeline) {
+			p.Roster[0].ProfileID = crush
+			p.Roster = append(p.Roster, PipelineMember{Role: "architect", ProfileID: planner}, PipelineMember{Role: "second-opinion", ProfileID: pi, OnCall: true},
+				PipelineMember{Role: "pair", ProfileID: implementer})
+			p.Phases[2].Checks = append(p.Phases[2].Checks, verdict("second-opinion", true), verdict("pair", false))
+		},
+	}
+	for name, change := range good {
+		p := TeamPipeline(implementer, reviewer)
+		change(&p)
+		require.Empty(t, ValidatePipeline(p, profiles), name)
+	}
+	bad := map[string]struct {
+		change func(p *Pipeline)
+		code   string
+	}{
+		"no writer": {func(p *Pipeline) { p.Roster[0].Writer = false }, "writer_count"},
+		"two writers": {func(p *Pipeline) {
+			p.Roster[1] = PipelineMember{Role: "reviewer", ProfileID: implementer, Writer: true}
+			p.Phases[2].Checks = nil
+		}, "writer_count"},
+		"a writer on call":        {func(p *Pipeline) { p.Roster[0].OnCall = true }, "invalid_writer"},
+		"a writer that plans":     {func(p *Pipeline) { p.Roster[0].ProfileID = planner }, "invalid_writer"},
+		"a verdict of the writer": {func(p *Pipeline) { p.Phases[2].Checks = []PipelineCheck{verdict("implementer", true)} }, "invalid_check"},
+		"a verdict of no role":    {func(p *Pipeline) { p.Phases[2].Checks = []PipelineCheck{verdict("security", true)} }, "invalid_check"},
+		"an archived profile":     {func(p *Pipeline) { p.Roster[1].ProfileID = uuid.New() }, "missing_profile"},
+	}
+	for name, c := range bad {
+		p := TeamPipeline(implementer, reviewer)
+		c.change(&p)
+		require.Equal(t, []string{c.code}, issueCodes(ValidatePipeline(p, profiles)), name)
+	}
+}
+
+// A pipeline saved before on-call roles were read (KUA-258's shape, as the
+// API stored it) still parses and validates unchanged: the roster has no new
+// field, and whether a role is required is read from the checks.
+func TestAStoredPipelineStaysValid(t *testing.T) {
+	implementer, reviewer, profiles := exampleProfiles()
+	stored := fmt.Sprintf(`{"kind":"pipeline","phases":[{"id":"implement","label":"Implement","owner":"implementer"},
+ {"id":"review","label":"Review","owner":"implementer","checks":[{"id":"reviewer","fact":"verdict","role":"reviewer","required":true},{"id":"uiux","fact":"verdict","role":"uiux"}]},
+ {"id":"approval","label":"Approval","owner":"human","checks":[{"id":"owner","fact":"approved","required":true}]},
+ {"id":"merge","label":"Merge","owner":"kuayle","guarded":true}],
+ "roster":[{"role":"implementer","profile_id":%q,"writer":true},{"role":"reviewer","profile_id":%q},{"role":"uiux","profile_id":%q,"on_call":true}],
+ "autonomy":{"approve":"human"},"budget":{"max_turns":40,"max_minutes":2880,"on_exhausted":"ask"}}`, implementer, reviewer, reviewer)
+	p, err := ParsePipeline([]byte(stored))
+	require.NoError(t, err)
+	require.Empty(t, ValidatePipeline(*p, profiles))
+	require.Equal(t, []PipelineMember{{Role: "implementer", ProfileID: implementer, Writer: true}, {Role: "reviewer", ProfileID: reviewer}, {Role: "uiux", ProfileID: reviewer, OnCall: true}}, p.Roster)
+}
+
 // Every fact with a defined "met" can be required (owner decision on
 // KUA-258): the plan's conditions, not only those of the team template.
 // Values such as the head or base name are reported, never required.

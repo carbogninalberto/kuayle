@@ -295,7 +295,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	if err = t.deliver(ctx, index); err != nil {
 		return err
 	}
-	writerDue, err := t.due(ctx, t.writer.Role)
+	writerDue, err := t.due(ctx, t.writer)
 	if err != nil {
 		return err
 	}
@@ -312,7 +312,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 		if err = t.deliver(ctx, index); err != nil {
 			return err
 		}
-		if writerDue, err = t.due(ctx, t.writer.Role); err != nil {
+		if writerDue, err = t.due(ctx, t.writer); err != nil {
 			return err
 		}
 	}
@@ -764,10 +764,10 @@ func (t *tickPass) mergeGuarded(ctx context.Context, index int, unmet []UnmetChe
 	return repository.WorkflowEntry{}, false, nil
 }
 
-// due reports whether a role's unread posts call for a turn.
-func (t *tickPass) due(ctx context.Context, role string) (bool, error) {
-	inbox, err := t.s.Repo.MemberInbox(ctx, t.task.ID, role)
-	return err == nil && domain.RoomWakes(role, inbox), err
+// due reports whether a member's unread posts call for a turn.
+func (t *tickPass) due(ctx context.Context, member domain.PipelineMember) (bool, error) {
+	inbox, err := t.s.Repo.MemberInbox(ctx, t.task.ID, member.Role)
+	return err == nil && domain.RoomWakes(member, inbox), err
 }
 
 // deliver starts a turn of every idle member, other than the writer, whose
@@ -777,7 +777,7 @@ func (t *tickPass) deliver(ctx context.Context, index int) error {
 		if member.Writer {
 			continue
 		}
-		if due, err := t.due(ctx, member.Role); err != nil || !due {
+		if due, err := t.due(ctx, member); err != nil || !due {
 			if err != nil {
 				return err
 			}

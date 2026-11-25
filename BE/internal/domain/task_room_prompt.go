@@ -27,21 +27,25 @@ func RoomInbox(role string, posts []TaskMessage) []TaskMessage {
 	return inbox
 }
 
-// RoomWakes reports whether a role's inbox (RoomInbox) calls for a turn: a
-// post addressed to the role, or one a person or another role wrote to
-// everyone to talk (say, ask, request). What only records a state (a fact,
-// a phase, a verdict, a summary) to everyone waits for the next turn.
-func RoomWakes(role string, inbox []TaskMessage) bool {
-	for _, m := range inbox {
-		switch {
-		case m.RejectReason != nil:
-		case slices.Contains(m.ToRoles, role):
-			return true
-		case len(m.ToRoles) == 0 && m.AuthorKind != RoomAuthorKuayle && (m.Kind == RoomSay || m.Kind == RoomAsk || m.Kind == RoomRequest):
-			return true
-		}
+// RoomWakes reports whether a member's inbox (RoomInbox) calls for a turn
+// (roomCalls). What only records a state (a fact, a phase, a verdict, a
+// summary) to everyone waits for the next turn.
+func RoomWakes(member PipelineMember, inbox []TaskMessage) bool {
+	return slices.ContainsFunc(inbox, func(m TaskMessage) bool { return roomCalls(member, m) })
+}
+
+// roomCalls reports whether a post the room took calls on a member: it is
+// addressed to the member's role, or a person or another role wrote it to
+// everyone to talk (say, ask, request). An on-call role is called only by
+// name, so what is said to everyone never starts it.
+func roomCalls(member PipelineMember, m TaskMessage) bool {
+	switch {
+	case m.RejectReason != nil:
+		return false
+	case slices.Contains(m.ToRoles, member.Role):
+		return true
 	}
-	return false
+	return !member.OnCall && len(m.ToRoles) == 0 && m.AuthorKind != RoomAuthorKuayle && (m.Kind == RoomSay || m.Kind == RoomAsk || m.Kind == RoomRequest)
 }
 
 // RoomTurnPrompt is the room section of a member's turn prompt: each post of

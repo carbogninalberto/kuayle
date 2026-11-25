@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -88,15 +89,13 @@ func (p Pipeline) Writer() (PipelineMember, bool) {
 // RosterRole is the roster member that plays a role.
 func (p Pipeline) RosterRole(name string) (PipelineMember, bool) { return p.role(name) }
 
-// RoomReviewRequested reports whether a role's inbox (RoomInbox) asks it for
-// a review: a request for a review that the room took.
-func RoomReviewRequested(inbox []TaskMessage) bool {
-	for _, m := range inbox {
-		if m.Kind == RoomRequest && m.RejectReason == nil && m.Data.Action == RoomRequestReview {
-			return true
-		}
-	}
-	return false
+// RoomReviewRequested reports whether a member's inbox (RoomInbox) asks it
+// for a review: a request for a review that the room took and that calls on
+// the member (roomCalls: an on-call role only when addressed).
+func RoomReviewRequested(member PipelineMember, inbox []TaskMessage) bool {
+	return slices.ContainsFunc(inbox, func(m TaskMessage) bool {
+		return m.Kind == RoomRequest && m.Data.Action == RoomRequestReview && roomCalls(member, m)
+	})
 }
 
 // MemberTurn is what the turn of a member that does not write code is
@@ -126,7 +125,7 @@ const MemberInstructionsBytes = 4000
 // message; any other turn answers what it was asked.
 func MemberTurnPrompt(turn MemberTurn) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are the @%s of the team working on this task. Kuayle continues your session across your turns: what you found before still holds, so build on it. Another role writes the code; you read it and answer in the task room.\n\n", turn.Role)
+	fmt.Fprintf(&b, "You are the @%s of the team working on this task. Kuayle continues your session across your turns where your harness can, and otherwise ends this prompt with what your previous turn did: what you found before still holds, so build on it. Another role writes the code; you read it and answer in the task room.\n\n", turn.Role)
 	instructions := strings.TrimSpace(turn.Instructions)
 	if len(instructions) > MemberInstructionsBytes {
 		instructions = strings.ToValidUTF8(instructions[:MemberInstructionsBytes], "")

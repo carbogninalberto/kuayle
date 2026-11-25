@@ -26,13 +26,14 @@ func reviewTurn(t *testing.T, provider, session string, member bool) (domain.Dev
 		agentProvider: &domain.DevMachineAgentProvider{ProviderID: provider, Enabled: true, RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`)},
 		checkouts:     []domain.DevMachineCheckout{{ID: checkout, WorkspaceID: ws, MachineID: machine, Status: "ready", WorkspacePath: "/workspace/tasks/check", RepositoryFullName: "example/test", BaseBranch: "main", WorkingBranch: "task/check"}},
 	}}
-	store.policy.AllowedProviders = json.RawMessage(`["opencode","codex","claude-code"]`)
+	store.policy.AllowedProviders = json.RawMessage(`["opencode","codex","claude-code","crush","pi"]`)
 	machines := newTestDevMachineService(store)
-	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""))
+	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""), agent.NewCrushProvider(""), agent.NewPiProvider(""))
 	root := uuid.New()
 	// The previous turn ran on the same harness (AgentHandoff.Provider, which
 	// PreviousAttempt reads from the run): only it can continue the session.
-	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, Provider: provider, NativeSessionID: session}}
+	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, Provider: provider, NativeSessionID: session,
+		Summary: "Verdict: request_changes\nThe toggle is not persisted."}}
 	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: provider,
 		Prompt: "You are the @reviewer of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: 2}
 	if member {
@@ -63,6 +64,23 @@ func TestAMembersNextTurnResumesItsSession(t *testing.T) {
 			require.Contains(t, run.Prompt, "this continues your previous session")
 			require.Contains(t, run.Prompt, "You are the @reviewer")
 			require.False(t, run.PushBranch, "a member that reviews never pushes")
+		})
+	}
+}
+
+// A role may be played on any harness (KUA-288). One that keeps no session
+// across runs (Crush, Pi) takes its next turn in a new session, with the
+// handoff that says so and what its previous turn concluded.
+func TestAMembersNextTurnOnAHarnessWithoutResumeGetsTheHandoff(t *testing.T) {
+	for _, provider := range []string{"crush", "pi"} {
+		t.Run(provider, func(t *testing.T) {
+			run, tasks := reviewTurn(t, provider, "", true)
+			require.Equal(t, 1, tasks.previousCalls, "the member's previous turn is read")
+			require.Nil(t, run.NativeSessionID)
+			require.Contains(t, run.Prompt, "You are the @reviewer")
+			require.Contains(t, run.Prompt, "this is a new session on the same branch and worktree; the previous session cannot be resumed")
+			require.Contains(t, run.Prompt, "The toggle is not persisted.", "the previous turn's final message")
+			require.False(t, run.PushBranch)
 		})
 	}
 }

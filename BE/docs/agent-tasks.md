@@ -2981,9 +2981,15 @@ on save and again when a task starts:
   a command, the one field with author content.
 - `roster` (1 to 10 roles): `role` (1 to 32 lowercase letters, digits, `-` or
   `_`; not `kuayle`, `human`, `lead` or `all`, which the room uses),
-  `profile_id` (a profile of the workspace that is not archived), `writer`
-  (exactly one role, whose profile changes code and which is not `on_call`)
-  and `on_call`.
+  `profile_id` (a profile of the workspace that is not archived, with any
+  behaviour and harness for a role that does not write), `writer` (exactly
+  one role, whose profile changes code and which is not `on_call`) and
+  `on_call` (KUA-288). A role is *required* by the checks that name it: a
+  required `verdict` check makes Kuayle ask the role for its verdict when the
+  check's phase needs it, on call or not. An on-call role works only when it
+  is addressed by name; a role that is not on call also takes a turn for
+  what a person or another role says to everyone. Neither is a new field, so
+  a pipeline saved before keeps its meaning.
 - `lead` (a `profile_id`, optional), `autonomy` (`approve`, and `waive` per
   check ID: `human`, or `lead` when there is a lead) and `budget`
   (`max_turns` up to 200, `max_minutes` up to 30 days, zero for no limit;
@@ -3107,13 +3113,23 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   When the role's previous turn read another commit, the prompt names
   `git diff <old> <new>` so it checks what changed.
 - **When a turn starts** (`domain.RoomWakes`): when the role's unread posts
-  hold one addressed to it, or a `say`, `ask` or `request` that a person or
-  another role wrote to everyone. A fact, phase move, verdict or summary to
-  everyone waits for the role's next turn. The tick also starts a role's turn
-  to ask it for a verdict, and a stall summary addressed to it starts one
-  (below). A member whose turn is queued or running, or whose task waits on
-  a usage limit, is not started again. Any member turn's end, failed or
-  cancelled too, wakes the root's tick.
+  hold one addressed to it, or, for a role that is not `on_call`, a `say`,
+  `ask` or `request` that a person or another role wrote to everyone. A
+  fact, phase move, verdict or summary to everyone waits for the role's next
+  turn, and so does everything said to everyone for an on-call role (a
+  `request` for a review asks an on-call role for its verdict only when
+  addressed to it). The tick also starts a role's turn to ask it for a
+  verdict, and a stall summary addressed to it starts one (below). A member
+  whose turn is queued or running, or whose task waits on a usage limit, is
+  not started again. Any member turn's end, failed or cancelled too, wakes
+  the root's tick.
+- **A role becomes a member at its first turn.** Before that it has no
+  `task_members` row, no task and no runs: an on-call role that nobody
+  addresses costs nothing. Its first turn reads the newest page of the room
+  (what was said before it joined is history, and the post that called it is
+  the newest), and it is created however its harness resumes; a harness that
+  cannot resume (Pi, Crush, a custom one) takes every later turn in a new
+  session with the handoff of its previous one.
 
 **Verdicts** (table `task_verdicts`; `agent_reviews` stays for requested
 reviews). A member's turn owes a verdict for its pinned commit when the tick
@@ -3353,8 +3369,6 @@ approve, continue and stop.
   is stored but grants nothing until there is a lead.
 - One writer, the root task. The other roles never publish and have no push
   credential.
-- `on_call` is validated but not read: every role other than the writer
-  works only when the room calls for it or the tick asks it for a verdict.
 - Advisory checks other than `script` ones are shown, not acted on.
 - No `deny`: a person approves the head or, where the tick paused, continues
   or stops it.

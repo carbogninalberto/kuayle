@@ -98,11 +98,15 @@ func (r *AgentTaskRepository) Members(ctx context.Context, rootID uuid.UUID) ([]
 	return members, tx.Commit()
 }
 
-// unreadPosts lists the room after a role's cursor, oldest first, bounded.
+// unreadPosts lists the room after a role's cursor, oldest first, bounded:
+// the oldest page for a member, and the newest for a role that is not one
+// yet (KUA-288), whose first turn is called by the newest posts; what was
+// said before it joined is history it may skip.
 func unreadPosts(ctx context.Context, q sqlx.QueryerContext, root domain.AgentTask, role string) ([]domain.TaskMessage, error) {
 	posts := []domain.TaskMessage{}
-	err := sqlx.SelectContext(ctx, q, &posts, `SELECT * FROM task_messages WHERE task_id=$1 AND workspace_id=$2
- AND seq>COALESCE((SELECT last_read_seq FROM task_members WHERE task_id=$1 AND role=$3),0) ORDER BY seq LIMIT $4`, root.ID, root.WorkspaceID, role, memberTurnPosts)
+	err := sqlx.SelectContext(ctx, q, &posts, `SELECT * FROM (SELECT * FROM task_messages WHERE task_id=$1 AND workspace_id=$2
+ AND seq>COALESCE((SELECT last_read_seq FROM task_members WHERE task_id=$1 AND role=$3),0)
+ ORDER BY CASE WHEN EXISTS(SELECT 1 FROM task_members WHERE task_id=$1 AND role=$3) THEN seq ELSE -seq END LIMIT $4) page ORDER BY seq`, root.ID, root.WorkspaceID, role, memberTurnPosts)
 	return posts, err
 }
 
@@ -201,12 +205,13 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		turn.Since = *member.PinnedCommit
 	}
 	if target != nil {
-		turn.VerdictAsked = askVerdict || domain.RoomReviewRequested(domain.RoomInbox(role, posts))
+		turn.VerdictAsked = askVerdict || domain.RoomReviewRequested(roster, domain.RoomInbox(role, posts))
 		if turn.CI, err = recordedReviewCI(ctx, tx, published, target.CommitSHA); err != nil {
 			return nil, err
 		}
 	}
-	// What does not fit this turn's prompt waits for the next turn.
+	// What does not fit this turn's prompt waits for the next turn; a first
+	// turn keeps the newest posts instead.
 	var prompt string
 	for {
 		turn.Posts = posts
@@ -214,8 +219,12 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		if len(prompt) <= memberPromptBytes || len(posts) <= 1 {
 			break
 		}
-		posts = posts[:len(posts)-1]
-		turn.VerdictAsked = target != nil && (askVerdict || domain.RoomReviewRequested(domain.RoomInbox(role, posts)))
+		if member == nil {
+			posts = posts[1:]
+		} else {
+			posts = posts[:len(posts)-1]
+		}
+		turn.VerdictAsked = target != nil && (askVerdict || domain.RoomReviewRequested(roster, domain.RoomInbox(role, posts)))
 	}
 	if len(prompt) > memberPromptBytes {
 		return nil, ErrConversationInvalid
