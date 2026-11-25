@@ -3255,6 +3255,21 @@ person decides. One pass:
 The tick has no branch for a particular failure: a new situation is a fact
 with a reason, sent to whoever owns the phase.
 
+**Liveness** (KUA-278). `TestTickLiveness`
+(`service/team_tick_liveness_test.go`) plays seeded random sequences of what
+happens around a pipeline task (pushes, CI results, base moves and conflicts,
+verdicts, the owner's approvals, decisions and posts, member turns that
+finish, fail or are cancelled, GitHub failing or answering too slowly, script
+check results, merges refused, the budget running out) through the scenario
+tests' worker, tick, repository and room. After every worker step the task
+must be working (a turn under way), waiting on a fact that changes by itself
+with a wake at most one poll away, waiting on a person (paused, or the clock
+held for a person), or ended with no member's turn left running; after the
+sequence, with everyone cooperating, it must end. A failure prints its seed
+and events: `TICK_LIVENESS_SEED=<n>` replays one sequence,
+`TICK_LIVENESS_SEEDS` and `TICK_LIVENESS_FROM` play more, and
+`TICK_LIVENESS_TRACE=1` lists the events of passing seeds too.
+
 **Wakes.** The worker runs a pass when `workflow_wake_at` is due. It is set
 by a CI result from GitHub (and its failure details, once read), a move of
 the pull request's base branch (`WakeBaseBranchWaits`, also while the owner is
