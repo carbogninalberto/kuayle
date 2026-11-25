@@ -759,6 +759,9 @@ proposal in a session action that creates and audits all children together.
 An accepted lead summary records the creator’s inbox notification and queues
 linked Telegram delivery in the room transaction. The lead maintains the root task’s notebook
 across turns. In pipelines without a lead, the writer keeps that duty.
+The workflow
+panel reads the same task room as the thread to show check results alongside
+the pinned phase chart and the roles with a running turn.
 See [the team workflow contract](BE/docs/agent-tasks.md#team-workflows-experimental).
 
 A failed CI suite on a task's pull request carries what GitHub reported about

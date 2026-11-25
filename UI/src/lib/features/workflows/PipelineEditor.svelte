@@ -36,7 +36,7 @@
 		pipelineForSave,
 		pipelineGraph
 	} from './pipeline-editor';
-	import { ownerLabel, pipelineIssueLabel } from './pipeline-labels';
+	import { ownerLabel, phaseCaption, pipelineIssueLabel } from './pipeline-labels';
 
 	// The editor of a pipeline workflow (KUA-284): the phases drawn on the
 	// workflow canvas, left to right with no loop edges (an unmet check is
@@ -121,16 +121,6 @@
 	function pick(issue: WorkflowIssue) {
 		tab = issueSection(issue);
 		if (issue.node_id) selected = issue.node_id;
-	}
-
-	// The phase a card stands for: who owns it and how many checks it has.
-	function describe(node: { id: string }) {
-		const phase = pipeline.phases.find((candidate) => candidate.id === node.id);
-		if (!phase) return '';
-		const count = phase.checks?.length ?? 0;
-		return [ownerLabel(phase.owner), count ? m['workflows.pipeline_editor.check_count']({ count }) : '']
-			.filter(Boolean)
-			.join(' · ');
 	}
 
 	// Server-side validation, debounced while editing.
@@ -311,7 +301,7 @@
 				bind:api={flow}
 				class="h-full rounded-none border-0 bg-transparent"
 				label={m['workflows.pipeline_editor.canvas']()}
-				{describe}
+				describe={(node) => phaseCaption(pipeline, node.id)}
 				edgeLabels={false}
 				onselect={(next) => next?.kind === 'node' && select(next.id)}
 			/>

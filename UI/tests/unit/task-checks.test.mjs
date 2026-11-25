@@ -123,10 +123,10 @@ test('facts, CI, verdicts, scripts and overlap each say how they stand for the h
 	assert.deepEqual(brief(checks.ci), ['unmet', '1 check(s) failed on abc1234: lint.', null, at(8)]);
 	assert.deepEqual(brief(checks.migrations), ['met', '', null, at(10)]);
 	// The reviewer approved the earlier head, the security role asked for changes on this one.
-	assert.deepEqual(brief(checks.reviewer), ['unmet', '', { kind: 'old_verdict', role: 'reviewer', commit: '0011223' }, at(5)]);
+	assert.deepEqual(brief(checks.reviewer), ['unmet', '', { kind: 'old_verdict', role: 'reviewer', commit: '0011223' }, at(6)]);
 	assert.deepEqual(brief(checks.security), ['unmet', '', { kind: 'not_approved', role: 'security', verdict: 'request_changes' }, at(9)]);
 	// The script ran on the earlier head: it runs again on this one.
-	assert.deepEqual(brief(checks.lint), ['waiting', '', null, null]);
+	assert.deepEqual(brief(checks.lint), ['waiting', '', null, at(6)]);
 	assert.deepEqual(brief(checks.others), ['waiting', '', { kind: 'merges_first', issues: 'KUA-7' }, at(12)]);
 	assert.deepEqual(brief(checks.owner), ['unknown', '', null, null]);
 
@@ -136,7 +136,7 @@ test('facts, CI, verdicts, scripts and overlap each say how they stand for the h
 	const stale = byId(pipelineChecks(pipeline, [...room, fact(14, 'ci_green', { state: 'passing', head: OLD, failing: [] })], 'integrate', false));
 	assert.equal(stale.ci.state, 'unknown');
 	const missing = byId(pipelineChecks(pipeline, room.slice(0, 8), 'integrate', false));
-	assert.deepEqual(brief(missing.security), ['unmet', '', { kind: 'no_verdict', role: 'security' }, null]);
+	assert.deepEqual(brief(missing.security), ['unmet', '', { kind: 'no_verdict', role: 'security' }, at(6)]);
 });
 
 test("a waiver holds for the head it was given on, and only the owner's", () => {
@@ -190,4 +190,30 @@ test('with a lead, a phase before the current one is not claimed passed', () => 
 	const led = { ...pipeline, lead: { profile_id: 'p-lead' } };
 	const checks = byId(pipelineChecks(led, [], 'review', false));
 	assert.equal(checks.pr.state, 'unknown');
+});
+
+test('new heads invalidate earlier results at the head change, and later verdicts keep their own date', () => {
+	const room = [
+		fact(1, 'pr_exists', true),
+		fact(2, 'head_sha', OLD),
+		fact(3, 'ci_green', { state: 'passing', head: OLD }),
+		verdict(4, 'reviewer', 'approve', OLD),
+		fact(5, 'head_sha', HEAD),
+		verdict(6, 'security', 'approve', OLD)
+	];
+	const checks = byId(pipelineChecks(pipeline, room, 'integrate', false));
+	assert.equal(checks.ci.since, at(5));
+	assert.equal(checks.reviewer.since, at(5));
+	assert.equal(checks.security.since, at(6));
+});
+
+test('a head without CI is met when Kuayle reported no blocking reason, and waits when it gave one', () => {
+	const start = [fact(1, 'pr_exists', true), fact(2, 'head_sha', HEAD)];
+	const noCI = { head: HEAD, state: 'none', failing: [] };
+	const first = fact(3, 'ci_green', noCI, 'Waiting for a check to register.');
+	const later = fact(4, 'ci_green', noCI);
+	assert.deepEqual(brief(byId(pipelineChecks(pipeline, [...start, first], 'integrate', false)).ci),
+		['waiting', first.body, null, at(3)]);
+	assert.deepEqual(brief(byId(pipelineChecks(pipeline, [...start, later], 'integrate', false)).ci),
+		['met', '', null, at(4)]);
 });

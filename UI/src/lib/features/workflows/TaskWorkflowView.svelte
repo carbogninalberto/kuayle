@@ -10,9 +10,11 @@
 	import { useTaskRun } from '$lib/features/assistant/task-run.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
+	import PipelineRunDetails from './PipelineRunDetails.svelte';
 	import RunChart from './RunChart.svelte';
+	import { taskRunChart } from './task-run-chart';
 	import { statusLabel } from './labels';
-	import { leftToRight, pendingDecision, runChartGraph, runOverlay } from './workflow-graph';
+	import { pendingDecision } from './workflow-graph';
 
 	// A task's workflow run: the graph with the current step highlighted and
 	// the decisions a person can make (an approval, or a reached limit). The
@@ -32,26 +34,19 @@
 	const slug = $derived(chat.slug);
 	const taskId = $derived(task.id);
 
-	const shared = useTaskRun(untrack(() => chat), () => task, { chart: true });
+	const shared = useTaskRun(untrack(() => chat), () => task, { chart: true, room: true });
 	const run = $derived(shared.view);
 	const failed = $derived(shared.followsWorkflow ? shared.failed : shared.chartFailed);
 	const load = () => shared.load();
 	let deciding = $state(false);
 
-	// A pipeline (KUA-252) has no graph to chart: its task shows its room in
-	// the agent view, and this only what it runs on.
-	const graphRun = $derived(shared.pipeline ? null : run);
-	const overlay = $derived(graphRun ? runOverlay(graphRun) : null);
-	// A pipeline's owner approves the head, or continues or stops where its
-	// tick paused; it has nothing to deny.
+	const pipeline = $derived(shared.pipeline);
+	const chart = $derived(run ? taskRunChart(run) : null);
+	const overlay = $derived(chart?.overlay);
 	const decision = $derived(run ? pendingDecision(run) : null);
 	const nodeLabel = (id: string | null | undefined) =>
-		(id && (shared.pipeline?.phases.find((p) => p.id === id) ?? run?.graph.nodes?.find((n) => n.id === id))?.label) || id || '';
+		(id && (pipeline?.phases ?? run?.graph.nodes)?.find((node) => node.id === id)?.label) || id || '';
 
-	// The chart runs left to right at a readable size, opens on the step the
-	// task is at and pans when the panel is narrower; Expand shows it full-screen.
-	const layout = $derived(graphRun ? leftToRight(graphRun.graph) : null);
-	const chart = $derived(layout && overlay ? runChartGraph(layout, overlay) : null);
 	const name = $derived(run ? (run.builtin ? m['workflows.standard']() : run.name) : '');
 	let expanded = $state(false);
 
@@ -140,7 +135,8 @@
 		{#if overlay && chart}
 			<!-- No minimap in the side panel's short chart: it would cover most of it. -->
 			<RunChart
-				graph={chart}
+				graph={chart.graph}
+				{pipeline}
 				profiles={run.profiles}
 				run={overlay}
 				label={m['workflows.task.title']()}
@@ -157,7 +153,8 @@
 				>
 					<Dialog.Title class="pr-10">{m['workflows.task.expanded_title']({ name })}</Dialog.Title>
 					<RunChart
-						graph={chart}
+						graph={chart.graph}
+						{pipeline}
 						profiles={run.profiles}
 						run={overlay}
 						label={m['workflows.task.title']()}
@@ -167,6 +164,25 @@
 					/>
 				</Dialog.Content>
 			</Dialog.Root>
+		{/if}
+
+		{#if pipeline}
+			{#if shared.roomFailed}
+				<div class="flex items-center justify-between gap-2" role="alert">
+					<p class="text-sm text-destructive">{m['tasks.load_error']()}</p>
+					<Button variant="ghost" size="sm" onclick={() => void shared.loadRoom()}><RefreshCw />{m['tasks.refresh']()}</Button>
+				</div>
+			{:else if shared.roomLoaded}
+				<PipelineRunDetails
+					{pipeline}
+					phase={run.node}
+					done={task.state === 'completed' || run.status === 'done'}
+					room={chat.taskRooms[taskId] ?? []}
+					runs={run.runs ?? []}
+				/>
+			{:else}
+				<p role="status" class="text-xs text-muted-foreground">{m['assistant.loading']()}</p>
+			{/if}
 		{/if}
 	{:else}
 		<p class="text-xs text-muted-foreground">{m['assistant.loading']()}</p>

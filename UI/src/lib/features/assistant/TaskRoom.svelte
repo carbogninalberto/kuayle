@@ -19,7 +19,7 @@
 	import AgentStepRun from './AgentStepRun.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import TurnLine from './TurnLine.svelte';
-	import { ROOM_PAGE, factLabel, foldText, roomRead, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow } from './task-room';
+	import { factLabel, foldText, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow } from './task-room';
 	import { shownRows, turnSummary, workTokens, type ThreadFilter } from './thread-rows';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
@@ -66,60 +66,13 @@
 		approving = seq;
 		try {
 			await agentTasks.approveSplit(chat.slug, task.id, seq);
-			await load();
+			await run.loadRoom();
 		} catch (error) {
 			appToast.apiError(error, m['issue.toast.failed_sub_issues']());
 		} finally {
 			approving = null;
 		}
 	}
-
-	let loaded = $state(false);
-	let failed = $state(false);
-	let loading = false,
-		again = false,
-		disposed = false;
-	$effect(() => () => (disposed = true));
-	// The task has a room: the composer writes to it.
-	$effect(() => untrack(() => chat.acceptRoomMessages(task.id, [])));
-
-	async function load() {
-		if (loading) {
-			again = true;
-			return;
-		}
-		loading = true;
-		try {
-			let after = roomRead(chat.taskRooms[task.id] ?? []);
-			for (let page = 0; page < 50; page++) {
-				const messages = (await agentTasks.room(chat.slug, task.id, after)).messages ?? [];
-				if (disposed) return;
-				chat.acceptRoomMessages(task.id, messages);
-				if (messages.length < ROOM_PAGE) break;
-				after = messages[messages.length - 1].seq;
-			}
-			loaded = true;
-			failed = false;
-		} catch {
-			if (!disposed) failed = true;
-		} finally {
-			loading = false;
-			if (again && !disposed) {
-				again = false;
-				void load();
-			}
-		}
-	}
-	$effect(() => {
-		void run.view;
-		untrack(() => void load());
-	});
-	$effect(() => {
-		void chat.taskRoomCursor[task.id];
-		untrack(() => {
-			if (roomRead(room) < (room.at(-1)?.seq ?? 0)) void load();
-		});
-	});
 
 	// A turn opens the run that wrote it. Runs are read with the task's run;
 	// one the room names before that read has it read again, once.
@@ -459,10 +412,10 @@
 		<p class="text-sm text-muted-foreground">{m['tasks.filter_empty']()}</p>
 		{#if onreset}<Button variant="ghost" size="sm" onclick={onreset}>{m['tasks.filter_reset']()}</Button>{/if}
 	</div>{/if}
-{#if !rows.length && !failed}<p class="text-sm text-muted-foreground" role="status">
-		{loaded ? m['tasks.room_empty']() : m['assistant.loading']()}
+{#if !rows.length && !run.roomFailed}<p class="text-sm text-muted-foreground" role="status">
+		{run.roomLoaded ? m['tasks.room_empty']() : m['assistant.loading']()}
 	</p>{/if}
-{#if failed}<div class="flex flex-wrap items-center gap-2">
+{#if run.roomFailed}<div class="flex flex-wrap items-center gap-2">
 		<p role="alert" class="text-sm text-destructive">{m['tasks.load_error']()}</p>
-		<Button variant="ghost" size="sm" onclick={() => void load()}><RefreshCw />{m['tasks.refresh']()}</Button>
+		<Button variant="ghost" size="sm" onclick={() => void run.loadRoom()}><RefreshCw />{m['tasks.refresh']()}</Button>
 	</div>{/if}

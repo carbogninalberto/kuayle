@@ -37,7 +37,8 @@ export interface TaskChecks {
 	rows: CheckRow[];
 }
 
-type Said = { value: unknown; body: string; at: string };
+type Observation = { at: string; seq: number };
+type Said = Observation & { value: unknown; body: string };
 
 const want: Record<string, boolean> = {
 	pr_draft: false,
@@ -67,7 +68,7 @@ export function pipelineChecks(
 	done: boolean
 ): TaskChecks {
 	const facts = new Map<string, Said>();
-	const verdicts = new Map<string, { verdict: string; commit: string; at: string }>();
+	const verdicts = new Map<string, Observation & { verdict: string; commit: string }>();
 	const scripts = new Map<string, { commit: string; exit: number; body: string; at: string }>();
 	const waivers = new Map<string, { head: string; at: string }>();
 	let head = '';
@@ -81,10 +82,10 @@ export function pipelineChecks(
 					scripts.set(run.check, { commit: run.commit ?? '', exit: run.exit, body: message.body, at: message.created_at });
 				continue;
 			}
-			facts.set(data.fact, { value: data.value, body: message.body, at: message.created_at });
+			facts.set(data.fact, { value: data.value, body: message.body, at: message.created_at, seq: message.seq });
 			if (data.fact === 'head_sha' && typeof data.value === 'string') head = data.value;
 		} else if (message.author_kind === 'member' && message.kind === 'verdict' && data.verdict && message.author_role) {
-			verdicts.set(message.author_role, { verdict: data.verdict, commit: data.commit ?? '', at: message.created_at });
+			verdicts.set(message.author_role, { verdict: data.verdict, commit: data.commit ?? '', at: message.created_at, seq: message.seq });
 		} else if (message.author_kind === 'human' && message.kind === 'waiver' && data.check) {
 			// It holds for the head the room last named (the tick's readRoom).
 			waivers.set(data.check, { head, at: message.created_at });
@@ -92,6 +93,10 @@ export function pipelineChecks(
 	}
 
 	const short = head.slice(0, 7);
+	const headChange = facts.get('head_sha');
+	// A recorded result stopped applying when the head changed, or when a
+	// later result came in for the old head. The room sequence orders both.
+	const staleSince = (result: Observation) => headChange && headChange.seq > result.seq ? headChange.at : result.at;
 	function judge(check: PipelineCheck): Omit<CheckRow, 'check' | 'phase'> {
 		// Every check needs the pull request first, as the tick judges.
 		const pr = facts.get('pr_exists');
@@ -101,24 +106,26 @@ export function pipelineChecks(
 		if (check.fact === 'verdict') {
 			const role = check.role ?? '';
 			const given = verdicts.get(role);
-			if (!given) return { state: 'unmet', reason: '', note: { kind: 'no_verdict', role } };
+			if (!given) return { state: 'unmet', reason: '', note: { kind: 'no_verdict', role }, since: headChange?.at ?? pr.at };
 			if (!sameCommit(head, given.commit))
-				return { state: 'unmet', reason: '', note: { kind: 'old_verdict', role, commit: given.commit.slice(0, 7) }, since: given.at };
+				return { state: 'unmet', reason: '', note: { kind: 'old_verdict', role, commit: given.commit.slice(0, 7) }, since: staleSince(given) };
 			if (given.verdict !== 'approve')
 				return { state: 'unmet', reason: '', note: { kind: 'not_approved', role, verdict: given.verdict }, since: given.at };
 			return { state: 'met', reason: '', since: given.at };
 		}
 		if (check.fact === 'script') {
 			const run = scripts.get(check.id);
-			if (!run || !sameCommit(head, run.commit)) return { state: 'waiting', reason: '' };
+			if (!run || !sameCommit(head, run.commit)) return { state: 'waiting', reason: '', since: headChange?.at ?? pr.at };
 			return run.exit === 0 ? { state: 'met', reason: '', since: run.at } : { state: 'unmet', reason: run.body, since: run.at };
 		}
 		const said = facts.get(check.fact);
 		if (!said) return { state: 'unknown', reason: '' };
 		if (check.fact === 'ci_green') {
 			const ci = (said.value ?? {}) as { state?: string; head?: string };
-			if (!sameCommit(head, ci.head)) return { state: 'unknown', reason: said.body, since: said.at };
-			if (ci.state === 'passing') return { state: 'met', reason: '', since: said.at };
+			if (!sameCommit(head, ci.head)) return { state: 'unknown', reason: said.body, since: staleSince(said) };
+			// For a repository without CI the tick accepts 'none' after its
+			// grace period. Its post includes a reason while it is still waiting.
+			if (ci.state === 'passing' || (ci.state === 'none' && !said.body)) return { state: 'met', reason: '', since: said.at };
 			if (ci.state === 'failing') return { state: 'unmet', reason: said.body, since: said.at };
 			if (ci.state === 'pending' || ci.state === 'none') return { state: 'waiting', reason: said.body, since: said.at };
 			return { state: 'unknown', reason: said.body, since: said.at };

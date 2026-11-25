@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { factLabel, foldText, mergeRoom, roomRead, roomRows, roomSplits, rowRoles } from '../../src/lib/features/assistant/task-room.ts';
+import { factLabel, foldText, mergeRoom, readRoomPages, roomRead, roomRows, roomSplits, rowRoles } from '../../src/lib/features/assistant/task-room.ts';
 
 // The room of a pipeline task as rows: what the owner, Kuayle and each
 // role's turn posted, in the room's order.
@@ -263,4 +263,17 @@ test('only accepted lead proposals offer a split, until Kuayle confirms that exa
 		{ ...kuayle(8, 'fact', { fact: 'split_approved' }), reply_to: 1 }
 	];
 	assert.deepEqual([...roomSplits(messages)], [[1, { issues, approved: true }], [5, { issues, approved: false }]]);
+});
+
+test('a pipeline run reads every room page after the last contiguous post', async () => {
+	let room = [owner(1, 'a'), owner(3, 'arrived live')];
+	const afters = [];
+	const messages = Array.from({ length: 201 }, (_, i) => owner(i + 2, String(i + 2)));
+	await readRoomPages(roomRead(room), async (after) => {
+		afters.push(after);
+		return messages.filter((message) => message.seq > after).slice(0, 200);
+	}, (page) => { room = mergeRoom(room, page); });
+	assert.deepEqual(afters, [1, 201]);
+	assert.equal(room.length, 202);
+	assert.equal(room[2].body, 'arrived live');
 });

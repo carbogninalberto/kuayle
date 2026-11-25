@@ -3710,8 +3710,13 @@ decisions (phase moves, verdicts, waivers, grants, the approval). The room is
 read once, kept by `task.room_message` events (`ConversationState.taskRooms`,
 once per `seq`) and read on from the last unbroken `seq` when the task's run
 is read again or a post arrives after a gap. The composer posts a `say` there
-(text only, with a `request_id`). The side panel names the pipeline, draws no
-graph and offers approve, continue and stop.
+(text only, with a `request_id`). The workflow panel (KUA-304) draws the
+pinned phases from left to right and highlights the task's current phase.
+Below the chart it lists the roster, marks roles with a running turn, and
+shows each check with the reason and timestamp available from the room
+(`task-checks.ts`, as the Checks tab below); it reads the same room as the
+thread (`TaskRun.loadRoom`). The panel offers approve, continue and stop when
+the task allows them.
 
 **Checks tab** (KUA-286, `TaskChecks.svelte`, `task-checks.ts`). A side panel
 tab lists each check of each phase with its state for the head (met, not met,
