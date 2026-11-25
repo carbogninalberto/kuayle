@@ -3114,6 +3114,29 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   (below). A member whose turn is queued or running, or whose task waits on
   a usage limit, is not started again. Any member turn's end, failed or
   cancelled too, wakes the root's tick.
+- **Capacity** (KUA-298; `repository/task_member_slot.go`). A role's turn is
+  an agent task, so it takes a task slot like any task
+  ([task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas)): the
+  machine's own `max_tasks`, or the workspace policy's
+  `task_machine_max_tasks` when it has none, bounds the tasks and the roles'
+  turns working on one machine together, counted as placement counts them
+  (tasks there in an active state; `blocked` and `awaiting_review` do not
+  count). A turn runs on its member task's machine, or for a first turn (or
+  when that machine is gone) on the root task's, which `StartMemberTurn`
+  gives it so the slot counts at once; with neither live, placement picks one
+  as for any task. `StartMemberTurn` checks the slot under the workspace lock
+  that placement and attempts take, so two ticks never both take the last
+  one. A turn that finds no free slot is `ErrNoTaskSlot`, a waiting fact
+  (`actionFact`): nothing starts, the role stays in the tick's `queue`, and
+  the tick polls, so it never stalls or pauses over it. The turns waiting for
+  one machine start oldest unread first, across tasks: a turn also waits
+  while another task's queue holds a role waiting for the same machine whose
+  oldest unread post (`domain.RoomInbox` after its cursor) is older (ties by
+  task and role). A queue entry counts only while its task waits in
+  `awaiting_review` and is not paused, and its role's task rests without a
+  usage limit; each pass rebuilds the queue. The writer's turns are the root
+  task's own attempts, which the existing limit holds when their run starts
+  (`CreateAgentRun`), not the tick.
 
 **Verdicts** (table `task_verdicts`; `agent_reviews` stays for requested
 reviews). A member's turn owes a verdict for its pinned commit when the tick
@@ -3163,7 +3186,8 @@ each action the tick runs, so the tick acts on fact states and handles no
 error of its own: a script check's run for the head (`readScriptFacts`),
 the guarded merge (`readMergeable`: merged, waiting, or refused with a
 reason), a turn or check that cannot start now (`waiting`: the last turn is
-still winding down, the machine is busy or its worktree not ready) or at all
+still winding down, the machine is busy or its worktree not ready, no task
+slot is free for the turn) or at all
 (`unmet`: a role whose profile was archived, a prompt or command Kuayle
 refuses; `actionFact`), and a publication that left no pull request
 (`publicationFact`).
@@ -3198,7 +3222,8 @@ memory between passes in `agent_tasks.pipeline_state`: the facts last posted,
 the room read so far, the creator's waivers, which head each role was asked
 about, the approval, the last published turn, branch updates, the CI rerun,
 the merge, the script checks' runs, since when the phase waits on checks
-that change by themselves, and the stall counter. Every save is fenced by
+that change by themselves, the stall counter, and the roles whose turn could
+not start yet (`queue`). Every save is fenced by
 the worker's lease, the task's `workflow-runner` advisory lock and its
 sequence, which moves on only when the phase or the status changes or a
 person decides. One pass:
@@ -3239,7 +3264,8 @@ person decides. One pass:
    approval, tries again). A pipeline without a guarded phase completes once
    every check holds;
 8. starts a turn for every idle role other than the writer whose unread posts
-   call for one, owing a verdict when the phase requires its verdict;
+   call for one, owing a verdict when the phase requires its verdict, while
+   its machine has a free task slot (capacity, above);
 9. when nobody works, nothing is under way and nothing is awaited, posts the
    current phase's unmet checks with their reasons as a `summary` to the
    phase's owner (the writer for a phase Kuayle owns), and to the writer as
@@ -3265,7 +3291,8 @@ person decides. One pass:
     task (`fail`);
 12. otherwise waits for the next wake, or polls in a minute while something
     changes by itself (CI running, a check run, a fact not readable, a role
-    or the writer still winding down, a branch update or a merge under way).
+    or the writer still winding down, a role's turn waiting for a task slot,
+    a branch update or a merge under way).
 
 The tick has no branch for a particular failure: a new situation is a fact
 with a reason, sent to whoever owns the phase.
@@ -3275,7 +3302,8 @@ with a reason, sent to whoever owns the phase.
 happens around a pipeline task (pushes, CI results, base moves and conflicts,
 verdicts, the owner's approvals, decisions and posts, member turns that
 finish, fail or are cancelled, GitHub failing or answering too slowly, script
-check results, merges refused, the budget running out) through the scenario
+check results, merges refused, the budget running out, other work taking the
+machine's task slots) through the scenario
 tests' worker, tick, repository and room. After every worker step the task
 must be working (a turn under way), waiting on a fact that changes by itself
 with a wake at most one poll away, waiting on a person (paused, or the clock

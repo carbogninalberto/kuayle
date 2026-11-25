@@ -139,7 +139,8 @@ func (r *AgentTaskRepository) MarkMemberRead(ctx context.Context, rootID uuid.UU
 // Kuayle published from the root task's attempts; it must end with a
 // verdict for that commit when asked (askVerdict, or a review request in
 // the posts it reads). A member whose turn is queued or running, or whose
-// task waits on a usage limit, is ErrMemberBusy.
+// task waits on a usage limit, is ErrMemberBusy; a turn that finds no free
+// task slot on its machine (memberSlot) is ErrNoTaskSlot.
 func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.UUID, role string, askVerdict bool) (*domain.TaskMember, error) {
 	tx, root, pipeline, err := r.memberRoot(ctx, rootID)
 	if err != nil {
@@ -170,6 +171,15 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 			return nil, err
 		}
 		if member.State != domain.MemberIdle || (task.State != "blocked" && task.State != "failed" && task.State != "cancelled") || task.UsageLimitMessage != nil {
+			return nil, ErrMemberBusy
+		}
+		// Nothing of the previous turn may still be active.
+		var pending bool
+		if err = tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
+ OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview','cleanup_task'))`, task.ID, task.CheckoutID); err != nil {
+			return nil, err
+		}
+		if pending {
 			return nil, ErrMemberBusy
 		}
 	case errors.Is(err, sql.ErrNoRows):
@@ -224,6 +234,15 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 	if member != nil {
 		read = member.LastReadSeq
 	}
+	// The turn takes a task slot on its machine, or waits for one.
+	machine, err := memberSlot(ctx, tx, *root, role, task, read)
+	if err != nil {
+		return nil, err
+	}
+	var slot any
+	if machine != uuid.Nil {
+		slot = machine
+	}
 	if len(posts) > 0 {
 		read = posts[len(posts)-1].Seq
 	}
@@ -239,6 +258,11 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		if task, err = insertReviewAgentTask(ctx, tx, *root, *root.ConversationID, root.CreatorID, input, prompt, reason); err != nil {
 			return nil, err
 		}
+		if slot != nil {
+			if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET machine_id=$2 WHERE id=$1 RETURNING *`, task.ID, slot); err != nil {
+				return nil, err
+			}
+		}
 		member = &domain.TaskMember{}
 		if err = tx.GetContext(ctx, member, `INSERT INTO task_members(workspace_id,task_id,role,profile_id,member_task_id,last_read_seq,state,turns,pinned_commit,verdict_asked)
  VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$9) RETURNING *`, root.WorkspaceID, root.ID, role, profile.ID, task.ID, read, domain.MemberState(task.State), pinned, turn.VerdictAsked); err != nil {
@@ -249,18 +273,9 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		}
 		return member, tx.Commit()
 	}
-	// Nothing of the previous turn may still be active.
-	var pending bool
-	if err = tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
- OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview','cleanup_task'))`, task.ID, task.CheckoutID); err != nil {
-		return nil, err
-	}
-	if pending {
-		return nil, ErrMemberBusy
-	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET prompt=$2,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET prompt=$2,machine_id=COALESCE($3,machine_id),generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,
  usage_limit_resumes=0,resume_native_session=false,platform_retries=0,platform_retry_pending=false,live_resume_generation=NULL,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now()
- WHERE id=$1 RETURNING *`, task.ID, prompt); err != nil {
+ WHERE id=$1 RETURNING *`, task.ID, prompt, slot); err != nil {
 		return nil, err
 	}
 	if err = tx.GetContext(ctx, member, `UPDATE task_members SET last_read_seq=$2,turns=turns+1,pinned_commit=$3,verdict_asked=$4,updated_at=now() WHERE id=$1 RETURNING *`,

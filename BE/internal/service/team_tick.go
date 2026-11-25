@@ -96,6 +96,10 @@ type tickState struct {
 	Wait tickWait `json:"wait,omitzero"`
 	// Scripts are the runs of the script checks, by check ID.
 	Scripts map[string]*scriptRun `json:"scripts,omitempty"`
+	// Queue are the roles whose turn the last pass could not start yet (no
+	// free task slot, the last turn winding down): turns waiting for a slot
+	// start oldest unread first, across tasks (repository.memberSlot).
+	Queue []string `json:"queue,omitempty"`
 }
 
 type tickWait struct {
@@ -228,6 +232,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	}
 	t := &tickPass{s: s, w: w, task: task, p: *p, profiles: profiles, st: readTickState(task), now: w.now()}
 	t.writer, _ = p.Writer()
+	t.st.Queue = nil
 	deadline := time.Now().Add(tickGitHubTimeout)
 	if step, ok := ctx.Deadline(); ok && step.Add(-tickSaveReserve).Before(deadline) {
 		deadline = step.Add(-tickSaveReserve)
@@ -675,8 +680,9 @@ func (t *tickPass) owesVerdict(index int, role string) bool {
 // startMember starts a turn of a role that does not write, and says
 // whether it did: not while it is busy, nor when the budget has no turn left
 // (the pass stops the task then). A role whose last turn is still being
-// wound down is tried again at the next poll; one that cannot take a turn at
-// all is a fact, and a person decides.
+// wound down, or whose machine has no free task slot, waits in the queue and
+// is tried again at the next poll; one that cannot take a turn at all is a
+// fact, and a person decides.
 func (t *tickPass) startMember(ctx context.Context, role string, askVerdict bool) (bool, error) {
 	if task, ok := t.members[role]; ok && domain.MemberState(task.State) != domain.MemberIdle {
 		t.busy = true
@@ -689,7 +695,9 @@ func (t *tickPass) startMember(ctx context.Context, role string, askVerdict bool
 	member, err := t.s.Repo.StartMemberTurn(ctx, t.task.ID, role, askVerdict)
 	switch actionFact(err) {
 	case CheckWaiting:
-		t.poll = true
+		if t.poll = true; !slices.Contains(t.st.Queue, role) {
+			t.st.Queue = append(t.st.Queue, role)
+		}
 		return false, nil
 	case CheckUnmet:
 		why := fmt.Sprintf("The @%s cannot take a turn: %s", role, err)
