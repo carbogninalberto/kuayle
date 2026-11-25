@@ -473,16 +473,16 @@ var roomFacts = []string{factPRExists, "head_sha", "base_ref", factPRDraft, fact
 var roomUnposted = map[string]json.RawMessage{domain.RoomFactBoard: json.RawMessage(`{"overlap":[]}`)}
 
 // roomTo is who a fact is posted to: everyone, but the board goes to
-// whoever plans the merge order, the lead or else the writer (P4.6).
-func roomTo(name string, p domain.Pipeline) []string {
+// whoever plans the merge order (P4.6): the lead, or else the writer
+// holding the write lock (KUA-289), whose role the tick recorded as holder.
+func roomTo(name string, p domain.Pipeline, holder string) []string {
 	if name != domain.RoomFactBoard {
 		return nil
 	}
 	if p.Lead != nil {
 		return []string{domain.PipelineLeadRole}
 	}
-	writer, _ := p.Writer()
-	return []string{writer.Role}
+	return []string{p.Holder(holder).Role}
 }
 
 // roomText is the text of a fact's post: what it means for the task when it

@@ -501,7 +501,7 @@ func (t *tickPass) postFacts(ctx context.Context) error {
 		if sameJSON(last, raw) {
 			continue
 		}
-		if err = t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomFact, ToRoles: roomTo(name, t.p), Body: t.facts.roomText(name),
+		if err = t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomFact, ToRoles: roomTo(name, t.p, t.st.Writer), Body: t.facts.roomText(name),
 			Data: domain.TaskRoomData{Fact: name, Value: raw}, DedupeKey: fmt.Sprintf("fact:%d:%s:%x", t.st.Pass, name, sha256.Sum256(raw))}); err != nil {
 			return err
 		}

@@ -3352,7 +3352,8 @@ active tasks that change some of the same files, in merge order, each
 `ahead` of this task or not, with the shared files (`{"overlap":[{"issue",
 "pull_request","ahead","files","file_count"}],"more"}`, at most 10 tasks and
 5 files each, the text naming them). It is posted to whoever plans the merge
-order: the `lead` when the pipeline has one, otherwise the writer. It is
+order: the `lead` when the pipeline has one, otherwise the writer holding
+the write lock (KUA-289; the first writer before the lock moved). It is
 posted only when it changes, from nothing overlapping on: tasks that share
 no file are left out, so their moves post nothing; a change of the overlap
 or of the order among the overlapping tasks posts it again, and the board
