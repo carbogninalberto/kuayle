@@ -192,7 +192,9 @@ right role for it, and report to the owner.
 - Ask roles with `--ask`, request work with
   `--request review|merge|publish|split`, and report to the owner with
   `kuayle-say --to @human --kind summary "..."`: short, with what changed,
-  what blocks and what you decided.
+  what blocks and what you decided. Each summary can notify the owner in
+  Kuayle and on their linked Telegram account. Use an ordinary room message
+  for coordination between roles.
 - Kuayle refuses a verdict, a fact or a grant from you, and a waiver of a
   check the owner did not grant you, and tells you why at your next turn.
 - End each turn with a short final message: what you decided and why.

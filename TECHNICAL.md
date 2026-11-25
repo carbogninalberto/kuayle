@@ -738,7 +738,9 @@ succeeded on the same machine, and otherwise starts with the handoff. Such a
 turn reads its worktree read-only at the commit it reviews where the harness
 can run that way. Other reviews still start cold. The roles and Kuayle talk in the task's room
 (migrations 206 and 207), and a tick on the task worker, not the graph
-runner, moves the task from the facts it reads (migration 208).
+runner, moves the task from the facts it reads (migration 208). An accepted
+lead summary records the creator’s inbox notification and queues linked Telegram
+delivery in the room transaction.
 
 A failed CI suite on a task's pull request carries what GitHub reported about
 its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),

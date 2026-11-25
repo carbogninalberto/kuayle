@@ -584,8 +584,14 @@ func liveMessageEvents(ctx context.Context, tx *sqlx.Tx, messages []domain.Agent
 	return nil
 }
 
-// liveQuestionRunes bounds the agent's question in a Telegram notice.
-const liveQuestionRunes = 1500
+// telegramAgentExcerpt quotes bounded, untrusted agent text for Telegram.
+func telegramAgentExcerpt(body string) string {
+	const limit = 1500
+	if utf8.RuneCountInString(body) > limit {
+		body = string([]rune(body)[:limit]) + "…"
+	}
+	return "```\n" + strings.ReplaceAll(body, "```", "` ` `") + "\n```"
+}
 
 // notifyLiveQuestion queues a Telegram notice of an agent's question for the
 // task's creator when they linked Telegram on an enabled bot, like task
@@ -601,12 +607,7 @@ func notifyLiveQuestion(ctx context.Context, tx *sqlx.Tx, message domain.AgentLi
 	if err = tx.GetContext(ctx, &linked, `SELECT EXISTS(SELECT 1 FROM telegram_links l JOIN telegram_settings s ON s.workspace_id=l.workspace_id WHERE l.workspace_id=$1 AND l.user_id=$2 AND s.enabled)`, owner.WorkspaceID, owner.CreatorID); err != nil || !linked {
 		return err
 	}
-	body := message.Body
-	if utf8.RuneCountInString(body) > liveQuestionRunes {
-		body = string([]rune(body)[:liveQuestionRunes]) + "…"
-	}
-	body = strings.ReplaceAll(body, "```", "` ` `")
-	text := fmt.Sprintf("%s · %s: the coding agent asks:\n```\n%s\n```\nThis is the agent's own text. Answer it in Kuayle.", owner.Identifier, owner.Title, body)
+	text := fmt.Sprintf("%s · %s: the coding agent asks:\n%s\nThis is the agent's own text. Answer it in Kuayle.", owner.Identifier, owner.Title, telegramAgentExcerpt(message.Body))
 	_, err = tx.ExecContext(ctx, `INSERT INTO telegram_deliveries(workspace_id,user_id,telegram_user_id,conversation_id,text)
  SELECT l.workspace_id,l.user_id,l.telegram_user_id,$3,$4 FROM telegram_links l WHERE l.workspace_id=$1 AND l.user_id=$2`, owner.WorkspaceID, owner.CreatorID, owner.ConversationID, text)
 	return err

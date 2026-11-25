@@ -78,6 +78,12 @@ type TaskMessage struct {
 	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
 }
 
+// IsLeadReport marks an accepted summary from the pipeline's managing member.
+func (m TaskMessage) IsLeadReport() bool {
+	return m.Kind == RoomSummary && m.AuthorKind == RoomAuthorMember && m.AuthorRole != nil &&
+		*m.AuthorRole == PipelineLeadRole && m.RejectReason == nil
+}
+
 // TaskRoomData is the structured part of a post; each kind reads its own
 // fields.
 type TaskRoomData struct {

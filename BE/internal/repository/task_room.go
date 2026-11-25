@@ -339,6 +339,11 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 	if err != nil {
 		return nil, err
 	}
+	if message.IsLeadReport() {
+		if err = recordLeadReport(ctx, tx, *task, message); err != nil {
+			return nil, err
+		}
+	}
 	if message.Kind == domain.RoomVerdict && message.RejectReason == nil {
 		if err = recordVerdict(ctx, tx, message); err != nil {
 			return nil, err

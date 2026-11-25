@@ -3141,6 +3141,12 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   reason it can act on (for example "the lead may not post verdict: the lead
   gives no verdict; ask a role that reviews with --request review"), shown at
   its next turn.
+- Each accepted lead `summary` gives the task creator one inbox notification.
+  The same room post queues one Telegram notice when the creator has linked an
+  enabled workspace bot. Turning off **Other issue updates** suppresses both for
+  subsequent reports. The full summary stays in the room. After the tick
+  commits its room cursor, it announces the stored notice through the usual
+  realtime and Web Push path.
 - **What a turn reads.** `domain.RoomInbox` is what a role reads from posts
   newer than its cursor: posts for everyone or for the role, not its own,
   plus its own refused posts with their reasons (a member reads a page of 200
