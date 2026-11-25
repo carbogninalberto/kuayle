@@ -35,6 +35,9 @@ export interface PanelDefinition {
 	component: Component<{ context: PanelContext }>;
 	// Hidden from the panel switcher (and closed) while this returns false.
 	available?: () => boolean;
+	// The panel scrolls inside its own regions: the host gives it the full
+	// height instead of scrolling it (no scroller inside another).
+	scrolls?: boolean;
 }
 
 /** Which side panel is open; the choice is remembered per person. */

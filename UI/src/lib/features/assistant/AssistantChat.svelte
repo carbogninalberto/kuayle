@@ -55,6 +55,8 @@
 	import AgentPanel from './panels/AgentPanel.svelte';
 	import DiffSidePanel from './panels/DiffSidePanel.svelte';
 	import WorkflowPanel from './panels/WorkflowPanel.svelte';
+	import FilesPanel from './panels/FilesPanel.svelte';
+	import { FolderTree } from '@lucide/svelte';
 	import { PanelHost, type PanelContext, type PanelDefinition } from './panels/panel-host.svelte';
 	import {
 		conversationIndicator,
@@ -178,7 +180,9 @@
 		{ id: 'agent', label: m['assistant.panel_agents'], icon: Bot, component: AgentPanel, available: () => !!chat.issue },
 		{ id: 'diff', label: m['assistant.panel_diff'], icon: FileDiff, component: DiffSidePanel, available: () => !!chat.diffView },
 		// The task's workflow (KUA-95): its graph, current step and path.
-		{ id: 'workflow', label: m['assistant.panel_workflow'], icon: WorkflowIcon, component: WorkflowPanel, available: () => !!chat.issue }
+		{ id: 'workflow', label: m['assistant.panel_workflow'], icon: WorkflowIcon, component: WorkflowPanel, available: () => !!chat.issue },
+		// The task's files at its head, with a preview and its diff (KUA-285).
+		{ id: 'files', label: m['tasks.files_panel'], icon: FolderTree, component: FilesPanel, available: () => !!chat.issue, scrolls: true }
 	];
 	const availablePanels = $derived(panels.filter((panel) => panel.available?.() ?? true));
 	const activePanel = $derived.by(() => {

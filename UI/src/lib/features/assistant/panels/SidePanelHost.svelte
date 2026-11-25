@@ -16,7 +16,8 @@
 
 <div class="flex h-full min-h-0 min-w-0 flex-col bg-background" data-testid="side-panel">
 	<div class="flex h-12 shrink-0 items-center gap-1 border-b px-2">
-		<div class="flex min-w-0 flex-1 items-center gap-0.5" role="toolbar" aria-label={m['assistant.panels']()}>
+		<!-- A narrow column shows the switcher's icons only; the names stay for screen readers and hover. -->
+		<div class="@container flex min-w-0 flex-1 items-center gap-0.5" role="toolbar" aria-label={m['assistant.panels']()}>
 			{#each panels as panel (panel.id)}
 				<!-- Labelled buttons, no tooltip: a drawer focuses the first one on open. -->
 				<Button
@@ -24,8 +25,9 @@
 					size="sm"
 					class="h-8 gap-1.5 px-2 text-xs"
 					aria-pressed={panel.id === active.id}
+					title={panel.label()}
 					onclick={() => context.open(panel.id)}
-					><panel.icon class="size-3.5" /><span class="max-[420px]:sr-only">{panel.label()}</span></Button
+					><panel.icon class="size-3.5" /><span class="max-[420px]:sr-only @max-md:sr-only">{panel.label()}</span></Button
 				>
 			{/each}
 		</div>
@@ -33,9 +35,9 @@
 			><X /></Button
 		>
 	</div>
-	<!-- The diff manages its own scrolling; other panels scroll here. -->
+	<!-- The diff and panels that say so manage their own scrolling; other panels scroll here. -->
 	<div
-		class="min-h-0 flex-1 {active.id === 'diff' ? 'flex flex-col' : 'overflow-y-auto'}"
+		class="min-h-0 flex-1 {active.id === 'diff' || active.scrolls ? 'flex flex-col' : 'overflow-y-auto'}"
 		role="region"
 		aria-label={active.label()}
 	>
