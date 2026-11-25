@@ -80,7 +80,7 @@ func LeadTurnPrompt(turn LeadTurn) string {
 	} else {
 		b.WriteString("Nothing is published yet. ")
 	}
-	b.WriteString("You read the work read-only and have no repository credentials: do not edit, commit or push anything; Kuayle discards any change.\n")
+	b.WriteString("You read the work read-only and have no repository credentials. Do not edit repository files, commit or push. Keep the task notebook current through the writable outbox: record the plan, what is done and what remains.\n")
 
 	b.WriteString("\nThe team:\n")
 	for _, member := range turn.Pipeline.Roster {

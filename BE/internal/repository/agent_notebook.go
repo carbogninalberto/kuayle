@@ -46,11 +46,34 @@ type notebookTask struct {
 	Node        *string    `db:"workflow_node"`
 	Version     *uuid.UUID `db:"workflow_version_id"`
 	CreatedAt   time.Time  `db:"created_at"`
+	// Required is set when resolving a notebook for an agent turn.
+	Required bool `db:"required"`
 }
 
 func notebookTaskOf(ctx context.Context, q sqlx.QueryerContext, id uuid.UUID) (*notebookTask, error) {
 	var task notebookTask
 	err := sqlx.GetContext(ctx, q, &task, `SELECT id,workspace_id,creator_id,kind,prompt,run_id,generation,workflow_sequence,workflow_node,workflow_version_id,created_at FROM agent_tasks WHERE id=$1`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &task, err
+}
+
+// notebookTaskForTurn resolves a writer or lead to its root notebook. The
+// plan, request and phase belong to the root, while the run and generation
+// that get credit for the update belong to the turn. The writer reads the
+// notebook even when the pinned pipeline has a lead that keeps it.
+func notebookTaskForTurn(ctx context.Context, tx *sqlx.Tx, taskID uuid.UUID) (*notebookTask, error) {
+	var task notebookTask
+	err := tx.GetContext(ctx, &task, `SELECT root.id,root.workspace_id,root.creator_id,root.kind,root.prompt,turn.run_id,turn.generation,
+ root.workflow_sequence,root.workflow_node,root.workflow_version_id,root.created_at,
+ (member.id IS NOT NULL OR version.graph->'lead'->>'profile_id' IS NULL) AS required
+ FROM agent_tasks turn
+ LEFT JOIN task_members member ON member.member_task_id=turn.id AND member.workspace_id=turn.workspace_id AND member.role=$2 AND turn.kind=$3
+ JOIN agent_tasks root ON root.id=COALESCE(member.task_id,turn.id) AND root.workspace_id=turn.workspace_id AND root.creator_id=turn.creator_id AND root.kind=$4
+ LEFT JOIN workflow_versions version ON version.id=root.workflow_version_id AND version.workspace_id=root.workspace_id AND version.graph->>'kind'=$5
+ WHERE turn.id=$1 AND (member.id IS NULL OR version.graph->'lead'->>'profile_id' IS NOT NULL)`,
+		taskID, domain.PipelineLeadRole, domain.AgentTaskKindReview, domain.AgentTaskKindImplement, domain.WorkflowKindPipeline)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -246,8 +269,8 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 		return err
 	}
 	defer tx.Rollback()
-	task, err := notebookTaskOf(ctx, tx, taskID)
-	if err != nil || task == nil || task.Kind != domain.AgentTaskKindImplement {
+	task, err := notebookTaskForTurn(ctx, tx, taskID)
+	if err != nil || task == nil {
 		return err
 	}
 	row, notebook, err := lockNotebook(ctx, tx, *task)
@@ -259,7 +282,7 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 	for _, file := range files {
 		update, notes, parseErr := domain.ParseNotebookUpdate(file.Data, file.Oversize)
 		if parseErr != nil {
-			if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_problem=$2 WHERE id=$1 AND task_id=$3`, task.RunID, truncateBytes(parseErr.Error(), 1000), task.ID); err != nil {
+			if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_problem=$2 WHERE id=$1 AND task_id=$3`, task.RunID, truncateBytes(parseErr.Error(), 1000), taskID); err != nil {
 				return err
 			}
 			continue
@@ -271,7 +294,7 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 		sections := merged.ApplyUpdate(update, time.Now())
 		document, encodeErr := json.Marshal(merged)
 		if encodeErr != nil || len(document) > domain.NotebookMaxBytes {
-			if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_problem='the notebook would grow past its size limit; shorten the update' WHERE id=$1 AND task_id=$2`, task.RunID, task.ID); err != nil {
+			if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_problem='the notebook would grow past its size limit; shorten the update' WHERE id=$1 AND task_id=$2`, task.RunID, taskID); err != nil {
 				return err
 			}
 			continue
@@ -282,7 +305,7 @@ func (r *DevMachineRepository) recordNotebookUpdates(ctx context.Context, taskID
 		// instead: it is enough only for an attempt that itself changed
 		// nothing, which the manager decides when the attempt ends.
 		changed := string(document) != string(copied)
-		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=notebook_updates+CASE WHEN $3 THEN 1 ELSE 0 END,notebook_unchanged=notebook_unchanged OR NOT $3,notebook_problem=NULL WHERE id=$1 AND task_id=$2`, task.RunID, task.ID, changed); err != nil {
+		if _, err = tx.ExecContext(ctx, `UPDATE dev_machine_agent_runs SET notebook_updates=notebook_updates+CASE WHEN $3 THEN 1 ELSE 0 END,notebook_unchanged=notebook_unchanged OR NOT $3,notebook_problem=NULL WHERE id=$1 AND task_id=$2`, task.RunID, taskID, changed); err != nil {
 			return err
 		}
 		// What was cut or ignored is said in the notebook, once, so the next
@@ -334,8 +357,8 @@ func (r *DevMachineRepository) RecordNotebookFallback(ctx context.Context, runID
 	if run.Problem != nil && domain.IsNotebookNotUpdated(*run.Problem) {
 		return *run.Problem, nil
 	}
-	task, err := notebookTaskOf(ctx, tx, *run.TaskID)
-	if err != nil || task == nil || task.Kind != domain.AgentTaskKindImplement {
+	task, err := notebookTaskForTurn(ctx, tx, *run.TaskID)
+	if err != nil || task == nil {
 		return "", err
 	}
 	row, notebook, err := lockNotebook(ctx, tx, *task)
@@ -421,13 +444,13 @@ func (r *DevMachineRepository) RecordClosingSeconds(ctx context.Context, runID u
 
 // AttemptNotebook returns the notebook the task's next attempt receives,
 // creating it (with the task's request) when the task has none yet.
-func (r *AgentTaskRepository) AttemptNotebook(ctx context.Context, task domain.AgentTask) (*domain.Notebook, error) {
+func (r *AgentTaskRepository) AttemptNotebook(ctx context.Context, task domain.AgentTask) (*domain.AttemptNotebook, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	current, err := notebookTaskOf(ctx, tx, task.ID)
+	current, err := notebookTaskForTurn(ctx, tx, task.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +461,7 @@ func (r *AgentTaskRepository) AttemptNotebook(ctx context.Context, task domain.A
 	if err != nil {
 		return nil, err
 	}
-	return &notebook, tx.Commit()
+	return &domain.AttemptNotebook{Notebook: notebook, Required: current.Required}, tx.Commit()
 }
 
 // Notebook returns the task's notebook and its newest changes to the task's

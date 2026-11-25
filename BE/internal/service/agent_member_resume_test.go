@@ -58,7 +58,7 @@ func memberTurnAt(t *testing.T, provider, session, role string, generation int64
 	if role != "" {
 		tasks.member = &domain.TaskMember{ID: uuid.New(), WorkspaceID: ws, TaskID: root, Role: role, MemberTaskID: &task.ID, State: domain.MemberQueued}
 	}
-	runtime := &devMachineTaskRuntime{machines: machines, tasks: tasks}
+	runtime := &devMachineTaskRuntime{machines: machines, tasks: tasks, notebooks: &notebookSourceFake{notebook: recordedNotebook(), required: true}}
 	_, err := runtime.Attempt(context.Background(), task)
 	require.NoError(t, err)
 	require.Len(t, store.agentRuns, 1)
@@ -215,6 +215,24 @@ func TestTheLeadsTurnReadsReadOnlyWithoutCredentials(t *testing.T) {
 				require.False(t, name == "GITHUB_TOKEN" || strings.HasPrefix(name, "KUAYLE_"), "%s gets %s", provider, name)
 			}
 			require.Contains(t, run.Prompt, "You are the @lead")
+		}
+	}
+}
+
+func TestOnlyTheLeadMemberOwesANotebookUpdate(t *testing.T) {
+	for _, role := range []string{"reviewer", domain.PipelineLeadRole} {
+		for _, provider := range []string{"codex", "crush"} {
+			t.Run(role+"/"+provider, func(t *testing.T) {
+				run, _ := memberTurnAt(t, provider, "", role, 1)
+				if role == domain.PipelineLeadRole {
+					require.True(t, run.NotebookRequired, "a missing update must trigger the notebook closing ask")
+					require.Contains(t, run.Prompt, domain.NotebookUpdateHelp)
+					require.Contains(t, run.Prompt+string(run.ProfileFiles), "Theme tokens added in UI/src/app.css")
+				} else {
+					require.False(t, run.NotebookRequired)
+					require.NotContains(t, run.Prompt, domain.NotebookUpdateHelp)
+				}
+			})
 		}
 	}
 }

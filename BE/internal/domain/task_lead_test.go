@@ -100,6 +100,8 @@ func TestALeadTurnPromptSaysWhatTheLeadDoes(t *testing.T) {
 		"You are the @lead",
 		"you write no code and give no verdict",
 		"no repository credentials",
+		"Keep the task notebook",
+		"plan, what is done and what remains",
 		"@implementer writes the code",
 		"@reviewer reviews",
 		"@uiux reviews, on call",

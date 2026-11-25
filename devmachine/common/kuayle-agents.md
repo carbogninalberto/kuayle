@@ -197,6 +197,9 @@ right role for it, and report to the owner.
   for coordination between roles.
 - Kuayle refuses a verdict, a fact or a grant from you, and a waiver of a
   check the owner did not grant you, and tells you why at your next turn.
+- Keep the shared task notebook current. Write the plan in `plan.steps`,
+  record completed work in `done`, and replace `remaining` with what is still
+  open. Use the outbox format in **kuayle-notebook** below.
 - End each turn with a short final message: what you decided and why.
 
 Kuayle refuses what a role may not post (a verdict from the implementer, a
@@ -241,12 +244,14 @@ and shown as refused in Kuayle. Review tasks cannot propose lessons.
 
 ## kuayle-notebook: update the task notebook before you finish
 
-Kuayle keeps one notebook per task, outside the worktree, and gives it whole
-to the agent of every step as instructions: what people asked, the plan,
-decisions, what is done, what remains, how to verify, and open findings of
-reviews and checks. Read it first and do not repeat work it records as done.
+Kuayle keeps one notebook per task outside the worktree. When you receive it,
+read the request, plan, decisions, completed work, remaining work and open
+findings before starting. On a pipeline with a lead, the lead owns updates.
+Other members send progress to the lead in the room. On a pipeline without
+a lead, the writer keeps the notebook.
 
-Before your final message, record your step by writing
+When your turn asks for a notebook update, record your step before your
+final message by writing
 `.kuayle/outbox/notebook.json` in your worktree (write it under a hidden name
 and rename it, as for messages). It is one JSON object with any of these
 fields and no others:

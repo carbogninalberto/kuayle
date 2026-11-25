@@ -145,6 +145,13 @@ type Notebook struct {
 	NextFinding int `json:"next_finding"`
 }
 
+// AttemptNotebook is the shared task notebook an attempt reads and whether
+// the attempt owes an update before it closes.
+type AttemptNotebook struct {
+	Notebook
+	Required bool
+}
+
 // NewNotebook is an empty notebook with every section present.
 func NewNotebook() Notebook {
 	n := Notebook{}
