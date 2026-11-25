@@ -101,5 +101,9 @@ the same post under the [notification contract](../../../BE/docs/telegram.md#tas
 Register new backend configuration variables in the [config registry](../../../BE/internal/config/registry.go).
 Mark credentials `Secret`. Give a setting a `Runtime` rule only when every reader
 resolves it per use through [InstanceConfigService](../../../BE/internal/service/instance_config.go).
+A setting the API reads once may get a `Restart` rule only if the API alone reads it, it is not
+a secret and not a forbidden kind (`restartForbidden`: credentials, database/Redis, JWT, SYSADMINS,
+SSRF guards, internal URLs, variables other services read); it is then edited through
+apply-and-restart ([restart-only settings](../../../TECHNICAL.md#restart-only-settings-apply-and-restart)).
 See [instance configuration](../../../TECHNICAL.md#instance-configuration) for the settings API
 and the [Web Push contract](../../../BE/docs/web-push.md) for notification delivery.

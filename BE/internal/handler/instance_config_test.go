@@ -7,14 +7,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/config"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/instanceconfigtest"
 	"github.com/kuayle/kuayle-backend/internal/service"
 	"github.com/labstack/echo/v5"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -194,4 +197,186 @@ func TestInstanceConfigUpdateValidatesAndResets(t *testing.T) {
 
 	rec = callInstanceConfig(t, h.Reset, http.MethodDelete, "", admin, "DATABASE_URL")
 	require.Equal(t, http.StatusConflict, rec.Code)
+}
+
+// newRestartHandlerForTest is a handler whose service can edit restart-only
+// settings; the restart itself is counted instead of stopping the test.
+func newRestartHandlerForTest(t *testing.T, admin uuid.UUID, supervised bool) (*InstanceConfigHandler, *instanceconfigtest.RestartStore, *atomic.Int32) {
+	t.Helper()
+	cfg := &config.Config{
+		JWTSecret: secretSentinel + "jwt0123456789abcdef0123456789", IssueDeleteGracePeriod: 720 * time.Hour, PasskeysEnabled: true,
+		PasskeyRPDisplayName: "Kuayle", SSOInstanceDefaultRole: "member", WorkflowPipelines: true, BackupTimeout: 2 * time.Hour,
+		DatabaseURL: "postgres://kuayle:" + secretSentinel + "@db/kuayle",
+	}
+	cfg.SMTP.Password = secretSentinel + "smtp"
+	store := instanceconfigtest.NewRestartStore()
+	startup := service.ResolveStartup(context.Background(), store, cfg, true, time.Now, logrus.New())
+	svc := service.NewInstanceConfigService(startup.Config, &memoryOverrides{rows: map[string]domain.InstanceConfigOverride{}})
+	var exits atomic.Int32
+	svc.SetRestart(service.NewInstanceRestart(store, startup, supervised, func() { exits.Add(1) }))
+	return NewInstanceConfigHandler(svc, func(id uuid.UUID) bool { return id == admin }), store, &exits
+}
+
+func TestRestartEndpointsRequireSysadmin(t *testing.T) {
+	admin, member := uuid.New(), uuid.New()
+	h, store, exits := newRestartHandlerForTest(t, admin, true)
+	body := `{"changes":{"PASSKEYS_ENABLED":"false"}}`
+	for name, handler := range map[string]echo.HandlerFunc{"validate": h.ValidateRestart, "apply": h.ApplyRestart} {
+		t.Run(name, func(t *testing.T) {
+			rec := callInstanceConfig(t, handler, http.MethodPost, body, member, "")
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			require.Equal(t, "private, no-store", rec.Header().Get("Cache-Control"))
+			require.NotContains(t, rec.Body.String(), secretSentinel)
+		})
+	}
+	require.Empty(t, store.Overrides, "a refused request stores nothing")
+	require.Empty(t, store.Runs)
+	time.Sleep(20 * time.Millisecond)
+	require.Zero(t, exits.Load(), "a refused request does not stop the API")
+}
+
+func TestValidateRestartReportsErrorsPerVariableAndStoresNothing(t *testing.T) {
+	admin := uuid.New()
+	h, store, _ := newRestartHandlerForTest(t, admin, true)
+	rec := callInstanceConfig(t, h.ValidateRestart, http.MethodPost,
+		`{"changes":{"SMTP_PORT":"99999","SSO_OIDC_DEFAULT_ROLE":"owner","JWT_SECRET":"x","OIDC_ALLOW_PRIVATE_NETWORK":"true","PASSKEYS_ENABLED":"false"}}`, admin, "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var plan struct {
+		Valid   bool `json:"valid"`
+		Changes []struct{ Name, From, To string }
+		Issues  []struct{ Name, Message string }
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &plan))
+	require.False(t, plan.Valid)
+	byName := map[string]string{}
+	for _, issue := range plan.Issues {
+		byName[issue.Name] = issue.Message
+	}
+	require.Len(t, byName, 4)
+	require.Contains(t, byName["SMTP_PORT"], "between 1 and 65535")
+	require.Contains(t, byName["SSO_OIDC_DEFAULT_ROLE"], "member, guest")
+	require.Contains(t, byName["JWT_SECRET"], "cannot be changed")
+	require.Contains(t, byName["OIDC_ALLOW_PRIVATE_NETWORK"], "cannot be changed")
+	require.NotContains(t, rec.Body.String(), secretSentinel)
+	require.Empty(t, store.Overrides)
+	require.Empty(t, store.Runs)
+
+	ok := callInstanceConfig(t, h.ValidateRestart, http.MethodPost, `{"changes":{"PASSKEYS_ENABLED":"false"}}`, admin, "")
+	require.Equal(t, http.StatusOK, ok.Code)
+	require.JSONEq(t, `{"valid":true,"changes":[{"name":"PASSKEYS_ENABLED","from":"true","to":"false"}],"issues":[]}`, ok.Body.String())
+	require.Empty(t, store.Overrides, "a valid dry run still stores nothing")
+
+	empty := callInstanceConfig(t, h.ValidateRestart, http.MethodPost, `{"changes":{}}`, admin, "")
+	require.Equal(t, http.StatusBadRequest, empty.Code)
+}
+
+func TestApplyRestartRecordsTheRunAndStopsTheAPI(t *testing.T) {
+	admin := uuid.New()
+	h, store, exits := newRestartHandlerForTest(t, admin, true)
+	rec := callInstanceConfig(t, h.ApplyRestart, http.MethodPost, `{"changes":{"SMTP_PORT":"2525","PASSKEY_RP_DISPLAY_NAME":"Acme"}}`, admin, "")
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	require.NotContains(t, rec.Body.String(), secretSentinel)
+	var run struct {
+		ID          uuid.UUID `json:"id"`
+		Status      string    `json:"status"`
+		RequestedBy uuid.UUID `json:"requested_by"`
+		Changes     []struct{ Name, From, To string }
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &run))
+	require.Equal(t, "restarting", run.Status)
+	require.Equal(t, admin, run.RequestedBy)
+	require.Len(t, run.Changes, 2)
+	require.Equal(t, map[string]string{"SMTP_PORT": "2525", "PASSKEY_RP_DISPLAY_NAME": "Acme"}, store.Overrides)
+
+	// Apply again while the run waits for its outcome.
+	again := callInstanceConfig(t, h.ApplyRestart, http.MethodPost, `{"changes":{"PASSKEYS_ENABLED":"false"}}`, admin, "")
+	require.Equal(t, http.StatusConflict, again.Code)
+	require.Contains(t, again.Body.String(), "RESTART_IN_PROGRESS")
+	require.Len(t, store.Runs, 1)
+	require.Eventually(t, func() bool { return exits.Load() == 1 }, 3*time.Second, 10*time.Millisecond)
+
+	list := callInstanceConfig(t, h.List, http.MethodGet, "", admin, "")
+	require.Equal(t, http.StatusOK, list.Code)
+	require.NotContains(t, list.Body.String(), secretSentinel)
+	var body struct {
+		Restart struct {
+			Supported bool `json:"supported"`
+			Run       struct {
+				ID     uuid.UUID `json:"id"`
+				Status string    `json:"status"`
+			} `json:"run"`
+		} `json:"restart"`
+		Variables []struct {
+			Name            string `json:"name"`
+			RestartEditable bool   `json:"restart_editable"`
+			Tunable         bool   `json:"tunable"`
+			Rule            *struct {
+				Min string `json:"min"`
+				Max string `json:"max"`
+			} `json:"rule"`
+		} `json:"variables"`
+	}
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &body))
+	require.True(t, body.Restart.Supported)
+	require.Equal(t, run.ID, body.Restart.Run.ID)
+	require.Equal(t, "restarting", body.Restart.Run.Status)
+	editable := []string{}
+	for _, variable := range body.Variables {
+		if variable.RestartEditable {
+			editable = append(editable, variable.Name)
+			require.False(t, variable.Tunable, variable.Name)
+		}
+		switch variable.Name {
+		case "SMTP_PORT":
+			require.Equal(t, "1", variable.Rule.Min)
+			require.Equal(t, "65535", variable.Rule.Max)
+		case "JWT_SECRET", "DATABASE_URL", "SYSADMINS", "OIDC_ALLOW_PRIVATE_NETWORK", "FRONTEND_URL":
+			require.False(t, variable.RestartEditable, variable.Name)
+		}
+	}
+	require.ElementsMatch(t, config.RestartEditableNames(), editable)
+}
+
+func TestApplyRestartRefusesInvalidValuesAndAnUnsupervisedAPI(t *testing.T) {
+	admin := uuid.New()
+	h, store, exits := newRestartHandlerForTest(t, admin, true)
+	invalid := callInstanceConfig(t, h.ApplyRestart, http.MethodPost, `{"changes":{"SMTP_PORT":"0","JWT_SECRET":"x"}}`, admin, "")
+	require.Equal(t, http.StatusBadRequest, invalid.Code)
+	var failure struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details []struct{ Field, Message string }
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(invalid.Body.Bytes(), &failure))
+	require.Equal(t, "INVALID_CONFIG_VALUE", failure.Error.Code)
+	require.Len(t, failure.Error.Details, 2)
+
+	unchanged := callInstanceConfig(t, h.ApplyRestart, http.MethodPost, `{"changes":{"PASSKEYS_ENABLED":"true"}}`, admin, "")
+	require.Equal(t, http.StatusBadRequest, unchanged.Code)
+	require.Contains(t, unchanged.Body.String(), "NO_CHANGES")
+
+	unsupervised, unsupervisedStore, unsupervisedExits := newRestartHandlerForTest(t, admin, false)
+	rec := callInstanceConfig(t, unsupervised.ApplyRestart, http.MethodPost, `{"changes":{"PASSKEYS_ENABLED":"false"}}`, admin, "")
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Body.String(), "RESTART_UNSUPPORTED")
+	dry := callInstanceConfig(t, unsupervised.ValidateRestart, http.MethodPost, `{"changes":{"PASSKEYS_ENABLED":"false"}}`, admin, "")
+	require.Equal(t, http.StatusOK, dry.Code, "the dry run needs no supervisor")
+
+	for _, s := range []*instanceconfigtest.RestartStore{store, unsupervisedStore} {
+		require.Empty(t, s.Overrides)
+		require.Empty(t, s.Runs)
+	}
+	time.Sleep(20 * time.Millisecond)
+	require.Zero(t, exits.Load()+unsupervisedExits.Load())
+}
+
+// The runtime endpoints still refuse a restart-only variable: it changes only
+// through the dry run and the apply.
+func TestRuntimeEndpointsStillRefuseRestartOnlyVariables(t *testing.T) {
+	admin := uuid.New()
+	h, store, _ := newRestartHandlerForTest(t, admin, true)
+	rec := callInstanceConfig(t, h.Update, http.MethodPut, `{"value":"false"}`, admin, "PASSKEYS_ENABLED")
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Empty(t, store.Overrides)
 }

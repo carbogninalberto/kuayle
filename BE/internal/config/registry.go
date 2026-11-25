@@ -92,6 +92,11 @@ type Variable struct {
 	// without a restart. Nil means the variable is set in .env and needs a
 	// restart.
 	Runtime *RuntimeRule
+	// Restart, when set, lets a sysadmin change the value from Settings and
+	// apply it with an explicit restart of the API (restart.go). Only a
+	// variable the API alone reads that is neither a secret nor one of the
+	// forbidden kinds (restartForbidden) may carry a rule.
+	Restart *RestartRule
 	// Standalone variables are read outside Config, by a command of the
 	// server binary.
 	Standalone bool
@@ -103,11 +108,12 @@ var registry = []Variable{
 	{Name: "ENVIRONMENT", Group: GroupServer, Description: "development, or anything else for production rules: example secrets are refused outside development."},
 	{Name: "FRONTEND_URL", Group: GroupServer, Description: "Public origin of the web app; links, CORS, cookies and webhook URLs derive from it."},
 	{Name: "AUTOMATION_WORKER_EXTERNAL", Group: GroupServer, Description: "Runs automations in a separate automation-worker process instead of inside the API."},
+	{Name: "RESTART_SUPERVISED", Group: GroupServer, Description: "Tells the API that Docker or another supervisor starts it again when it exits; \"Apply and restart\" needs it."},
 
 	// Data
 	{Name: "DATABASE_URL", Group: GroupData, Description: "PostgreSQL connection URL, including its credentials.", Secret: true},
 	{Name: "REDIS_URL", Group: GroupData, Description: "Redis connection URL.", Secret: true},
-	{Name: "ISSUE_DELETE_GRACE_PERIOD", Group: GroupData, Description: "How long deleted issues, comments and wiki pages stay restorable before the hourly purge removes them."},
+	{Name: "ISSUE_DELETE_GRACE_PERIOD", Group: GroupData, Description: "How long deleted issues, comments and wiki pages stay restorable before the hourly purge removes them.", Restart: &RestartRule{Kind: KindDuration, Min: time.Hour, Max: 8760 * time.Hour}},
 
 	// Security
 	{Name: "JWT_SECRET", Group: GroupSecurity, Description: "Signs sessions and derives the keys that encrypt stored credentials; keep it on every replica and backup.", Secret: true},
@@ -117,16 +123,16 @@ var registry = []Variable{
 	// Sign-in
 	{Name: VarDisableRegistration, Group: GroupSignIn, Description: "Allows sign-up only with an invite link.",
 		Runtime: &RuntimeRule{Kind: KindBool}},
-	{Name: "PASSKEYS_ENABLED", Group: GroupSignIn, Description: "Offers passkey sign-in and registration."},
+	{Name: "PASSKEYS_ENABLED", Group: GroupSignIn, Description: "Offers passkey sign-in and registration.", Restart: &RestartRule{Kind: KindBool}},
 	{Name: "PASSKEY_RP_ID", Group: GroupSignIn, Description: "Passkey relying party ID; defaults to the host of FRONTEND_URL."},
 	{Name: "PASSKEY_RP_ORIGINS", Group: GroupSignIn, Description: "Comma-separated origins allowed in passkey ceremonies; defaults to FRONTEND_URL."},
-	{Name: "PASSKEY_RP_DISPLAY_NAME", Group: GroupSignIn, Description: "Name authenticators show for this instance."},
+	{Name: "PASSKEY_RP_DISPLAY_NAME", Group: GroupSignIn, Description: "Name authenticators show for this instance.", Restart: &RestartRule{Kind: KindString, Format: FormatText, MaxLen: 64}},
 	{Name: "SSO_OIDC_WORKSPACE_SLUG", Group: GroupSignIn, Description: "Workspace whose OIDC sign-in this instance configures; its settings page becomes read-only."},
 	{Name: "SSO_OIDC_ISSUER", Group: GroupSignIn, Description: "Issuer URL of the instance-level OIDC provider."},
 	{Name: "SSO_OIDC_CLIENT_ID", Group: GroupSignIn, Description: "Client ID of the instance-level OIDC application."},
 	{Name: "SSO_OIDC_CLIENT_SECRET", Group: GroupSignIn, Description: "Client secret of the instance-level OIDC application.", Secret: true},
 	{Name: "SSO_OIDC_ALLOWED_DOMAINS", Group: GroupSignIn, Description: "Comma-separated email domains allowed to sign in through the instance OIDC provider."},
-	{Name: "SSO_OIDC_DEFAULT_ROLE", Group: GroupSignIn, Description: "Role of a person who joins through instance OIDC: member or guest."},
+	{Name: "SSO_OIDC_DEFAULT_ROLE", Group: GroupSignIn, Description: "Role of a person who joins through instance OIDC: member or guest.", Restart: &RestartRule{Kind: KindString, Choices: []string{"member", "guest"}}},
 	{Name: "SSO_OIDC_REQUIRE_SSO", Group: GroupSignIn, Description: "Requires members of the SSO workspace to sign in with OIDC."},
 	{Name: "SAML_SP_CERT_FILE", Group: GroupSignIn, Description: "Path to the certificate Kuayle signs SAML requests with."},
 	{Name: "SAML_SP_KEY_FILE", Group: GroupSignIn, Description: "Path to the private key Kuayle signs SAML requests with.", Secret: true},
@@ -144,15 +150,15 @@ var registry = []Variable{
 	{Name: "S3_REGION", Group: GroupStorage, Description: "Region of the upload bucket."},
 	{Name: "S3_ACCESS_KEY", Group: GroupStorage, Description: "Access key ID for the upload bucket.", Secret: true},
 	{Name: "S3_SECRET_KEY", Group: GroupStorage, Description: "Secret access key for the upload bucket.", Secret: true},
-	{Name: "S3_PUBLIC", Group: GroupStorage, Description: "Serves uploads from public bucket URLs instead of signed ones."},
-	{Name: "S3_CDN_BASE_URL", Group: GroupStorage, Description: "Base URL of a CDN in front of the bucket."},
+	{Name: "S3_PUBLIC", Group: GroupStorage, Description: "Serves uploads from public bucket URLs instead of signed ones.", Restart: &RestartRule{Kind: KindBool}},
+	{Name: "S3_CDN_BASE_URL", Group: GroupStorage, Description: "Base URL of a CDN in front of the bucket.", Restart: &RestartRule{Kind: KindString, Format: FormatURL, Schemes: []string{"https", "http"}, AllowEmpty: true}},
 
 	// Email
-	{Name: "SMTP_HOST", Group: GroupEmail, Description: "SMTP server for password reset and notification email; empty turns email off."},
-	{Name: "SMTP_PORT", Group: GroupEmail, Description: "SMTP server port."},
+	{Name: "SMTP_HOST", Group: GroupEmail, Description: "SMTP server for password reset and notification email; empty turns email off.", Restart: &RestartRule{Kind: KindString, Format: FormatHost, AllowEmpty: true}},
+	{Name: "SMTP_PORT", Group: GroupEmail, Description: "SMTP server port.", Restart: &RestartRule{Kind: KindInt, IntMin: 1, IntMax: 65535}},
 	{Name: "SMTP_USERNAME", Group: GroupEmail, Description: "SMTP user name.", Secret: true},
 	{Name: "SMTP_PASSWORD", Group: GroupEmail, Description: "SMTP password.", Secret: true},
-	{Name: "SMTP_FROM", Group: GroupEmail, Description: "Sender address of outgoing email."},
+	{Name: "SMTP_FROM", Group: GroupEmail, Description: "Sender address of outgoing email.", Restart: &RestartRule{Kind: KindString, Format: FormatEmail, AllowEmpty: true}},
 
 	// Web Push
 	{Name: "VAPID_PUBLIC_KEY", Group: GroupPush, Description: "Web Push public key; when set, the environment manages push instead of Settings."},
@@ -184,7 +190,7 @@ var registry = []Variable{
 	{Name: "SLACK_CLIENT_SECRET", Group: GroupIntegrations, Description: "Client secret of the Slack app.", Secret: true},
 	{Name: "SLACK_SIGNING_SECRET", Group: GroupIntegrations, Description: "Secret that signs Slack requests.", Secret: true},
 	{Name: "TELEGRAM_WEBHOOK_URL", Group: GroupIntegrations, Description: "Relay URL for Telegram webhooks in development; a relay URL lets anyone read the events, so it is not shown.", Secret: true},
-	{Name: "FORGE_WEBHOOK_BASE_URL", Group: GroupIntegrations, Description: "Origin of the forge webhook URL shown to workspace admins; defaults to FRONTEND_URL."},
+	{Name: "FORGE_WEBHOOK_BASE_URL", Group: GroupIntegrations, Description: "Origin of the forge webhook URL shown to workspace admins; defaults to FRONTEND_URL.", Restart: &RestartRule{Kind: KindString, Format: FormatURL, Schemes: []string{"https", "http"}, AllowEmpty: true}},
 
 	// Assistant
 	{Name: "VOICE_URL", Group: GroupAssistant, Description: "Internal address of the voice transcription service."},

@@ -47,6 +47,11 @@ func (s SlackConfig) Configured() bool {
 type Config struct {
 	AutomationWorkerExternal bool `envconfig:"AUTOMATION_WORKER_EXTERNAL" default:"false"`
 
+	// RestartSupervised says a supervisor, such as the Compose restart policy,
+	// starts the API again when it exits. Settings -> Instance configuration
+	// offers "Apply and restart" only then.
+	RestartSupervised bool `envconfig:"RESTART_SUPERVISED" default:"false"`
+
 	Port        int    `envconfig:"PORT" default:"8080"`
 	DatabaseURL string `envconfig:"DATABASE_URL" required:"true"`
 	RedisURL    string `envconfig:"REDIS_URL" required:"true"`
@@ -451,51 +456,60 @@ func Load() (*Config, error) {
 	if err := envconfig.Process("", &cfg); err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
+	if err := cfg.finalize(); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// finalize validates the values as a whole and derives the parsed fields. It
+// is idempotent, so WithOverrides runs it again on a copy.
+func (cfg *Config) finalize() error {
 	if len(cfg.JWTSecret) < 32 {
-		return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters")
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
 	}
 	if err := cfg.VAPID.validate(); err != nil {
-		return nil, err
+		return err
 	}
 	if cfg.SystemUpdaterToken != "" && len(cfg.SystemUpdaterToken) < 32 {
-		return nil, fmt.Errorf("SYSTEM_UPDATER_TOKEN must be at least 32 characters")
+		return fmt.Errorf("SYSTEM_UPDATER_TOKEN must be at least 32 characters")
 	}
 	if cfg.VoiceURL != "" && cfg.VoiceInternalToken != "" && len(cfg.VoiceInternalToken) < 32 {
-		return nil, fmt.Errorf("VOICE_INTERNAL_TOKEN must be at least 32 characters")
+		return fmt.Errorf("VOICE_INTERNAL_TOKEN must be at least 32 characters")
 	}
 	if err := cfg.rejectPlaceholderSecrets(); err != nil {
-		return nil, err
+		return err
 	}
 	if cfg.IssueDeleteGracePeriod <= 0 {
-		return nil, fmt.Errorf("ISSUE_DELETE_GRACE_PERIOD must be a positive duration such as 720h")
+		return fmt.Errorf("ISSUE_DELETE_GRACE_PERIOD must be a positive duration such as 720h")
 	}
 	if err := cfg.validateInstanceSSO(); err != nil {
-		return nil, err
+		return err
 	}
 	if strings.TrimSpace(cfg.WebSearchSearXNGURL) != "" {
 		parsed, err := validate.OperatorBaseURL(cfg.WebSearchSearXNGURL)
 		if err != nil {
-			return nil, fmt.Errorf("WEB_SEARCH_SEARXNG_URL %w", err)
+			return fmt.Errorf("WEB_SEARCH_SEARXNG_URL %w", err)
 		}
 		cfg.searxngURL = parsed
 	}
 	if strings.TrimSpace(cfg.ForgeWebhookBaseURL) != "" {
 		parsed, err := validate.OperatorBaseURL(cfg.ForgeWebhookBaseURL)
 		if err != nil {
-			return nil, fmt.Errorf("FORGE_WEBHOOK_BASE_URL %w", err)
+			return fmt.Errorf("FORGE_WEBHOOK_BASE_URL %w", err)
 		}
 		cfg.ForgeWebhookBaseURL = parsed.String()
 	}
 	sysadmins, err := parseSysadmins(cfg.Sysadmins)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	cfg.sysadminIDs = sysadmins
 	if err := cfg.DevMachine.Validate(cfg.FrontendURL); err != nil {
-		return nil, fmt.Errorf("dev machine config: %w", err)
+		return fmt.Errorf("dev machine config: %w", err)
 	}
 	cfg.DevMachine.Domain = strings.Trim(strings.ToLower(cfg.DevMachine.Domain), ".")
-	return &cfg, nil
+	return nil
 }
 
 // validateInstanceSSO refuses a half-configured or unsafe instance-level SSO.

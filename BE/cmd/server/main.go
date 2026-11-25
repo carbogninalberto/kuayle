@@ -76,7 +76,21 @@ func main() {
 	// Settings -> Instance configuration: sysadmin overrides of the variables
 	// a running server reads per use (internal/config/registry.go). The
 	// readers below ask it on every use, so a change needs no restart.
-	instanceConfig := service.NewInstanceConfigService(cfg, repository.NewInstanceConfigRepository(db))
+	//
+	// The restart-only settings a sysadmin applied (KUA-311) are merged over
+	// the environment here, before anything reads cfg. The API server also
+	// owns the state of the apply that started it: it confirms the run once
+	// healthy (below) or rolls it back. The automation worker only reads.
+	instanceConfigRepo := repository.NewInstanceConfigRepository(db)
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), 15*time.Second)
+	startup := service.ResolveStartup(startupCtx, instanceConfigRepo, cfg, !(len(os.Args) == 2 && os.Args[1] == "automation-worker"), time.Now, log.StandardLogger())
+	cancelStartup()
+	cfg = startup.Config
+	// requestRestart makes the server exit; the supervisor starts it again.
+	restartCtx, requestRestart := context.WithCancel(context.Background())
+	defer requestRestart()
+	instanceConfig := service.NewInstanceConfigService(cfg, instanceConfigRepo)
+	instanceConfig.SetRestart(service.NewInstanceRestart(instanceConfigRepo, startup, cfg.RestartSupervised, requestRestart))
 
 	workspaceRepo := repository.NewWorkspaceRepository(db)
 	hub := realtime.NewHub(workspaceRepo.RealtimeAccess)
@@ -642,8 +656,13 @@ func main() {
 	// Start
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Infof("Starting server on %s", addr)
-	serverCtx, stopServer := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	serverCtx, stopServer := signal.NotifyContext(restartCtx, os.Interrupt, syscall.SIGTERM)
 	defer stopServer()
+	// After an apply and restart this start has to prove itself: healthy
+	// within the timeout, or the previous settings come back and the server
+	// exits to start again with them.
+	go service.WatchRestartHealth(serverCtx, instanceConfigRepo, startup.Run, apiHealthProbe(cfg.Port, db),
+		service.RestartHealthTimeout, 2*time.Second, requestRestart, log.StandardLogger())
 	start := echo.StartConfig{Address: addr, HideBanner: true, HidePort: true}
 	if err := start.Start(serverCtx, e); err != nil {
 		log.Fatalf("Server failed: %v", err)

@@ -1790,6 +1790,8 @@ The API requires a sysadmin session, rejects SSO-scoped sessions and returns
 | `GET /api/system/config` | Returns each variable's effective value and source (override, environment or default). Secrets expose only set/unset status. A URL carrying credentials, a query or a fragment is withheld. |
 | `PUT /api/system/config/:name` | Validates and stores a runtime override in `instance_config_overrides`. Returns `400 INVALID_CONFIG_VALUE` for an invalid value and `409 CONFIG_READ_ONLY` for a startup-only setting. |
 | `DELETE /api/system/config/:name` | Removes the override. The environment value or built-in default takes effect again. |
+| `POST /api/system/config/restart/validate` | Dry run of `{"changes": {"NAME": "value" \| null}}` (null returns to the environment value). Returns `{valid, changes: [{name, from, to}], issues: [{name?, message}]}`; stores nothing. |
+| `POST /api/system/config/restart/apply` | Validates again, stores the overrides, records a run and makes the API exit shortly after the `202` answer. `400 INVALID_CONFIG_VALUE` (with `details`) or `NO_CHANGES`, `409 RESTART_UNSUPPORTED` (no supervisor) or `RESTART_IN_PROGRESS`. |
 
 The runtime readers are `AgentTaskService.PipelinesEnabled`
 (`WORKFLOW_PIPELINES_ENABLED`, default `true`), registration
@@ -1804,6 +1806,51 @@ use. Writes and resets record the actor and both values in the audit log as
 `system.config_updated` and `system.config_reset`. See the
 [operator guide](docs/self-hosting.md#instance-configuration) for editing
 and resetting a setting.
+
+#### Restart-only settings (apply and restart)
+
+A [`RestartRule`](BE/internal/config/restart.go) on a registry entry puts a
+variable on the allowlist (`GET` marks it `restart_editable` with its `rule`).
+It must be read by the API alone, not be a secret, and not match
+`restartForbidden`: credentials and keys, `DATABASE_URL`/`REDIS_URL`,
+`JWT_*`, `SYSADMINS`, `ENVIRONMENT`, `PORT`, `FRONTEND_URL`, the
+`*_ALLOW_PRIVATE_NETWORK` switches and allow/deny lists, internal service URLs,
+`DEV_MACHINE_*`, `BACKUP_*` and `STORAGE_*`. [The registry test](BE/internal/config/restart_test.go)
+fails if a forbidden or secret variable carries a rule, and `RestartEditable`
+re-checks on every use. A rule checks type, range, choice and URL, host or email
+format; `Config.WithOverrides` then lays the values over a copy of the
+configuration and re-runs `finalize` (the cross-variable checks `Load` applies),
+without touching the process environment, so the dry run is safe in a running server.
+
+**Where the overrides live.** In `instance_config_overrides` (the same table as
+the runtime ones), not in `.env`: the updater never rewrites `.env` and no file
+needs a writable mount. Each apply is one row of `instance_config_restart_runs`
+(migration 212): who, when, `changes` (effective old → new values) and
+`previous` (the overrides before, for rollback). A partial unique index allows
+one active run. `service.ResolveStartup` merges the stored overrides over the
+environment before anything reads `cfg`; the automation worker only reads.
+
+**Apply and rollback.** `Apply` (supervised only, `RESTART_SUPERVISED=true`) stores
+the overrides and the run (`restarting`) in one transaction, audits
+`system.config_restart_requested`, then cancels the server context; the process
+exits and the supervisor (Compose `restart: unless-stopped`) starts it. Each start
+that finds an active run counts it (`applying`). `WatchRestartHealth` probes
+`/health` and the database every two seconds and marks the run `confirmed`; after
+`RestartHealthTimeout` (90s) it rolls back (restores `previous` for the changed
+variables only, in one transaction), audits `system.config_restart_rolled_back` and
+exits so the supervisor starts the API with the old values. A start that crashes
+before it can report is counted: the fourth start, one more than ten minutes after
+the first, or one whose merged configuration is invalid rolls back too. If the
+stored values cannot make a valid configuration at all, the environment alone is
+used and the page shows a notice. Audit events carry actor, run, time and
+`{variable, from, to}`; editable variables are never secrets, and a value that
+looks like it carries credentials is logged as `(withheld)`.
+
+**Not covered yet** (follow-up): the machine manager, gateway, voice service and
+updater read their own environment, so their variables (and every `DEV_MACHINE_*`
+variable the API shares with them) stay read-only. The same table and
+`WithOverrides` pattern can serve them once each service reads the table at its
+start and the apply restarts it too.
 
 The optional `searxng` Compose profile runs a pinned SearXNG image for the
 assistant's `web_search` (see [self-hosted web search](docs/self-hosting.md#self-hosted-web-search-optional)).

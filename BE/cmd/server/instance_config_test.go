@@ -46,6 +46,8 @@ func TestInstanceConfigRequiresAnUnscopedSysadminSession(t *testing.T) {
 				{"GET", "/api/system/config", ""},
 				{"PUT", "/api/system/config/" + config.VarWorkflowPipelines, `{"value":"false"}`},
 				{"DELETE", "/api/system/config/" + config.VarWorkflowPipelines, ""},
+				{"POST", "/api/system/config/restart/validate", `{"changes":{"PASSKEYS_ENABLED":"false"}}`},
+				{"POST", "/api/system/config/restart/apply", `{"changes":{"PASSKEYS_ENABLED":"false"}}`},
 			} {
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(route.method, route.path, strings.NewReader(route.body))
