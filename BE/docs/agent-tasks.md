@@ -174,8 +174,8 @@ Migration 157 adds the read-only `scan_worktree` machine operation and
 glob, a line range of one file, or git status — or lists the worktrees under
 `/workspace/tasks`; it never changes the checkout and needs no credentials.
 Two kinds read a commit instead of the worktree, for
-[files at a commit](#files-at-a-commit): `tree` lists the regular files the
-commit tracks (its result may take 4 MiB, migration 210) and `show` returns a
+[files at a commit](#files-at-a-commit): `tree` lists one directory of the
+commit (or searches its paths; its result may take 4 MiB, migration 210) and `show` returns a
 page of one of them. A
 task scan is allowed while the agent works: it does not take
 `lockMachineForCheck`, and `LeaseOperations` lets it lease beside an agent
@@ -3787,7 +3787,8 @@ and cancellation remain available to authorized users.
 - `GET /agent-tasks/:taskId/sessions` returns the task's agent sessions and the
   review sessions of its published work ([agent sessions](#agent-sessions)).
 - `GET /agent-tasks/:taskId/files` and `GET /agent-tasks/:taskId/files/content`
-  list the files a commit of the task tracks and return a page of one of them
+  list one directory of the files a commit of the task tracks (or search
+  their paths) and return a page of one of them
   ([files at a commit](#files-at-a-commit)); creator only,
   `Cache-Control: private, no-store`.
 
@@ -3830,12 +3831,25 @@ group (demo guard), authorize through `lockAgentTask` like every task read
 person outside the workspace is refused by its membership check), and answer
 `Cache-Control: private, no-store`.
 
-- `GET /agent-tasks/:taskId/files?ref=` returns `{commit, files: [{path,
-  changed}], truncated}`, sorted by path. `changed` marks the files the newest
-  attempt that recorded any changed (the board's rule). The listing holds at
-  most the workspace's `task_files_max` files (its Dev Machine policy, set by
-  admins in Settings → Dev Machines: default 30,000, from 100 to 30,000;
-  migration 210), from either source; `truncated` says more were left out.
+- `GET /agent-tasks/:taskId/files?ref=&path=` (KUA-319) returns one directory
+  of the commit, never the whole repository: `{commit, path, tree, entries:
+  [{name, path, kind, sha, size, changed}], truncated}`. `path` is the
+  directory (empty for the root; one trailing slash is allowed) and `tree` its
+  git tree SHA. Entries are directories (`kind: "tree"`) first, then files
+  (`kind: "blob"`, with `size` in bytes), each group by name; `sha` is the
+  tree's or blob's git object id. `changed` marks the files the newest attempt
+  that recorded any changed (the board's rule) and a directory holding one. A
+  directory holds at most the workspace's `task_files_max` entries (its Dev
+  Machine policy, set by admins in Settings → Dev Machines: default 30,000,
+  from 100 to 30,000; migration 210), from either source; `truncated` says more
+  were left out, and the panel says so on that folder. A `path` that is not a
+  clean relative directory (`..`, `.`, `.git`, an absolute path, control
+  characters) is `400 INVALID_PATH`; a path the commit does not track as a
+  directory (missing, or a file) is `404 FILE_NOT_FOUND`.
+- `GET /agent-tasks/:taskId/files?ref=&query=` searches the commit's file paths
+  instead (case-insensitive text, at most 200 bytes, never with `path`): the same
+  shape with `entries` holding the matching files by whole `path`, at most 500
+  (`truncated` says there are more) and `matches` counting all of them.
 - `GET /agent-tasks/:taskId/files/content?path=&ref=&start=&end=` returns
   `{path, commit, content, start, end, total_lines, truncated, binary,
   too_large}`: lines `start` to `end` (1-based; by default from line 1), at most
@@ -3854,45 +3868,74 @@ commit Kuayle published. Before anything
 is published, the head is the task branch's tip on the machine, and a `ref` the
 attempts did not record is read only while it is still that tip.
 
-**Where it is read.** The head and commits Kuayle published are read from a
-temporary GitHub checkout of that commit (`RepositoryCheckouts`, shared with
-the assistant's repository scans: 30,000 files, 2 MiB per file, 15 minutes);
-the listing leaves out links and the files the commit's `.gitignore` names,
-and a read goes through the checkout's index and `os.Root`. The head before a
-publication, and an attempt's own commits, are read on the task's machine by
-the `tree` and `show` [worktree scans](#worktree-scans): `git ls-tree` and
-`git cat-file` of that commit in the publication preamble's throwaway git
-directory, keeping only regular files (modes `100644` and `100755`; links,
-directories and nested repositories are left out). The machine needs a ready
-checkout on a running machine (`409 FILES_UNAVAILABLE` otherwise), counts
-against the requester's four unfinished scans (`429 FILES_BUSY`) and answers
-within 20 s (`502 FILES_FAILED` otherwise, as for a GitHub failure). A `tree`
-result may take 4 MiB (migration 210: 30,000 paths averaging about 135 bytes;
-this repository's average 42), so the machine lists as many files as the
-GitHub checkout; a listing of longer paths stops at that bound (`truncated`).
-Every other scan result keeps 64 KiB, so the machine's pages are about 60 KiB.
-Scan rows, listings included, are kept for an hour.
+**Where it is read.** A directory of the head and of commits Kuayle published
+is listed through GitHub's trees API (`pkg/github/trees.go`, read-only
+installation token): the commit's root tree, then each directory of `path` by
+the SHA its parent's entry names, so no archive is downloaded and nothing but
+the directories on the path is read. Links and submodules are not listed. A
+file's content is still read from a temporary GitHub checkout of that commit
+(`RepositoryCheckouts`, shared with the assistant's repository scans: 30,000
+files, 2 MiB per file, 15 minutes), downloaded the first time a file of the
+commit is opened, never to list; the read goes through the checkout's index
+and `os.Root` and leaves out the files the commit's `.gitignore` names. The
+head before a publication, and an attempt's own commits, are read on the
+task's machine by the `tree` and `show` [worktree scans](#worktree-scans): a
+`tree` scan is `git ls-tree -l` of the one directory (`<commit>:<path>`, no
+`-r`) and `show` is `git cat-file` of a file, in the publication preamble's
+throwaway git directory, keeping only regular files (modes `100644` and
+`100755`) and directories. The machine needs a ready checkout on a running
+machine (`409 FILES_UNAVAILABLE` otherwise), counts against the requester's
+four unfinished scans (`429 FILES_BUSY`) and answers within 20 s (`502
+FILES_FAILED` otherwise, as for a GitHub failure). A `tree` result may take
+4 MiB (migration 210); a directory's entries are counted with their SHAs and
+sizes, so a directory stops at that bound (`truncated`) before 30,000 entries
+when its names are long. A search is the one place the whole commit is read:
+GitHub's recursive tree of the root (up to 100,000 entries, so at most 30,000
+files are searched), or `git ls-tree -r` on the machine, filtered on the
+server. Every other scan result keeps 64 KiB, so the machine's pages are about
+60 KiB. Scan rows, listings included, are kept for an hour.
+
+**Tree cache** (`service/agent_task_files_cache.go`). The directories and
+search indexes read from GitHub are cached in memory by git tree SHA, which
+names their content and never changes: a directory that did not change keeps
+its SHA across commits, so a new head reads only the trees whose SHA is new,
+and tasks of the same workspace and repository share them. Keys carry the
+workspace and repository, and a request is authorised by the task before the
+cache is looked up. Each commit's root tree SHA is cached the same way. Bounds:
+least recently used entries go beyond 2,000 trees or 200,000 listed names in
+all (about 30 MB), and an entry not read for an hour expires. The machine's
+listings are not cached (the tree SHA is known only once git has read it), and
+a failed read caches nothing. File contents are read on demand and are not
+part of this cache. The read-only installation token the trees API calls use is
+reused in memory for at most 5 minutes per repository (never stored), so
+expanding folders one after another does not mint a token each time.
 
 Neither source reads the worktree: untracked, ignored, staged and edited files
 (a `.env` beside the code) are never listed or served.
 
-**Files panel** (KUA-285; `panels/FilesPanel.svelte`, `TaskFiles.svelte`,
-`FilePreview.svelte`, rules in `task-files.ts` and `code-highlight.ts`). The
-issue chat's side panel lists the task open in the agent view (or the newest)
-at its head: a tree built by `fileTree` with first-level folders open and
-deeper ones closed, the changed files and the folders holding them marked, and
-a path filter (text, case-insensitive, at most 500 matches shown) that opens
-every folder until it is cleared. A file opens below the tree (a resizable
-split) at the listing's commit, so a moved head answers `FILE_NOT_FOUND` or
-`INVALID_REF` and the panel offers to reload the listing. Lines are numbered in
+**Files panel** (KUA-285, KUA-319; `panels/FilesPanel.svelte`,
+`TaskFiles.svelte`, `FilePreview.svelte`, rules in `task-files.ts` and
+`code-highlight.ts`). The issue chat's side panel lists the task open in the
+agent view (or the newest) at its head: opening it reads the root alone, and a
+folder is read, at the commit the root was read at, when it is expanded
+(folders start closed; a reload reads the root again and the folders that
+were open). The tree is built by `treeNodes` from the directories read so far,
+with the changed files and the folders holding them marked, a folder that is
+loading or failed (with a retry) and a folder the server cut. The path filter
+(text, case-insensitive) is the server's search once typing pauses, shows at
+most 500 matches and opens every folder of them until it is cleared. A file
+opens below the tree (a resizable split) at the listing's commit, so a moved
+head answers `FILE_NOT_FOUND` or `INVALID_REF` and the panel offers to reload
+the listing. Lines are numbered in
 Code Block and highlighted by lowlight, loaded on first use, with the language
 taken from the file name; a page over 100,000 characters is shown plain.
 Previous/next page by line range (`start = end + 1`, back to where the earlier
 page started). A changed file has a File/Diff toggle showing its part of the
 stored diff of the newest attempt that recorded changed files (the listing's
-rule), parsed once per listing. A `404`/`403` reads as "only the creator";
+rule), parsed once per reload. A `404`/`403` reads as "only the creator";
 `FILES_UNAVAILABLE`, `FILES_BUSY` and failures offer to try again. The panel
-reads once when opened and on reload; it does not follow the head live.
+reads when opened, when a folder is expanded and on reload; it does not follow
+the head live.
 
 ## Web task controls
 

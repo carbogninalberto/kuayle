@@ -65,8 +65,10 @@ type WorktreeScanRequest struct {
 	StartLine       int              `json:"start_line,omitempty"`
 	EndLine         int              `json:"end_line,omitempty"`
 	Limit           int              `json:"limit,omitempty"`
-	// Ref is the commit a tree or show scan reads: HEAD (the task branch's
-	// tip) or a full commit id.
+	// Ref is the commit a tree or show scan reads (HEAD, the task branch's
+	// tip, or a full commit id). A tree scan lists the one directory Path
+	// (the root when empty) without recursion (KUA-319); with a Pattern it
+	// searches every path of the commit for that text instead.
 	Ref string `json:"ref,omitempty"`
 }
 
@@ -95,6 +97,9 @@ type WorktreeScanResult struct {
 	Dirty       bool              `json:"dirty"`
 	Matches     []WorktreeMatch   `json:"matches,omitempty"`
 	Files       []string          `json:"files,omitempty"`
+	Entries     []TreeEntry       `json:"entries,omitempty"`      // a tree scan's directory
+	Tree        string            `json:"tree,omitempty"`         // that directory's tree SHA
+	FileMatches int               `json:"file_matches,omitempty"` // a tree search's matching files
 	Content     string            `json:"content,omitempty"`
 	StartLine   int               `json:"start_line,omitempty"`
 	EndLine     int               `json:"end_line,omitempty"`
@@ -105,8 +110,8 @@ type WorktreeScanResult struct {
 	LastSubject string            `json:"last_subject,omitempty"`
 	Worktrees   []WorktreeSummary `json:"worktrees,omitempty"`
 	Truncated   bool              `json:"truncated"`
-	// A show scan's file: Missing means the commit tracks no file at that
-	// path; a Binary or TooLarge file carries no content.
+	// A show scan's file or a tree scan's directory: Missing means the
+	// commit tracks nothing at that path; a Binary or TooLarge file carries no content.
 	Missing  bool `json:"missing,omitempty"`
 	Binary   bool `json:"binary,omitempty"`
 	TooLarge bool `json:"too_large,omitempty"`

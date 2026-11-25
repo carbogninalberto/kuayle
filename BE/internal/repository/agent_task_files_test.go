@@ -13,13 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A tree or show scan names the commit it reads and, for show, a clean path
+// A tree or show scan names the commit it reads and a clean path (a tree
+// scan'"'"'s is the directory it lists, or it searches instead, never both)
 // and a line range no longer than a page.
 func TestTreeAndShowScanRequestsNameACommitAndACleanPath(t *testing.T) {
 	commit := strings.Repeat("a", 40)
 	for _, valid := range []domain.WorktreeScanRequest{
 		{Kind: domain.WorktreeScanTree, Ref: "HEAD"},
 		{Kind: domain.WorktreeScanTree, Ref: commit},
+		{Kind: domain.WorktreeScanTree, Ref: "HEAD", Path: "src/lib"},
+		{Kind: domain.WorktreeScanTree, Ref: "HEAD", Pattern: "App", Limit: domain.TaskFileSearchMax},
 		{Kind: domain.WorktreeScanShow, Ref: commit, Path: "src/app.go", StartLine: 1, EndLine: domain.TaskFileLinesMax},
 	} {
 		require.NoError(t, ValidateWorktreeScanRequest(valid), valid)
@@ -28,6 +31,11 @@ func TestTreeAndShowScanRequestsNameACommitAndACleanPath(t *testing.T) {
 		{Kind: domain.WorktreeScanTree},
 		{Kind: domain.WorktreeScanTree, Ref: "main"},
 		{Kind: domain.WorktreeScanTree, Ref: "HEAD~1"},
+		{Kind: domain.WorktreeScanTree, Ref: "HEAD", Path: "../outside"},
+		{Kind: domain.WorktreeScanTree, Ref: "HEAD", Path: "/etc"},
+		{Kind: domain.WorktreeScanTree, Ref: "HEAD", Path: "src/./lib"},
+		{Kind: domain.WorktreeScanTree, Ref: "HEAD", Path: "src", Pattern: "app"},
+		{Kind: domain.WorktreeScanTree, Ref: "HEAD", Pattern: strings.Repeat("a", domain.TaskFileQueryMax+1)},
 		{Kind: domain.WorktreeScanShow, Ref: commit, Path: "../outside", StartLine: 1, EndLine: 1},
 		{Kind: domain.WorktreeScanShow, Ref: commit, Path: "./src/app.go", StartLine: 1, EndLine: 1},
 		{Kind: domain.WorktreeScanShow, Ref: commit, Path: "/etc/passwd", StartLine: 1, EndLine: 1},
