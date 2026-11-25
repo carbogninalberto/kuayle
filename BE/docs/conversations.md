@@ -210,8 +210,7 @@ usage of the 50-message model window, changes, background tasks), Agents (each
 coding task with the path it took), Workflow, Files (a task's files at its
 head with a preview and its diff, see [files at a commit](agent-tasks.md#files-at-a-commit)),
 Notebook and Checks (the open task's, see the agent view below) and Diff
-panels. New panels, such as a
-future workflow editor, register as one more `PanelDefinition`. Unknown tool
+panels. Register new panels with a `PanelDefinition`. Unknown tool
 names render through the generic step chip; [tool-chips.ts](../../UI/src/lib/features/assistant/tool-chips.ts)
 registers per-tool labels, icons or renderers. The one composer sends to the
 assistant or, when aimed at a running task, to its agent through the live

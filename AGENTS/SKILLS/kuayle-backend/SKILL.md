@@ -80,19 +80,26 @@ challenges are consumed before verification, and a session minted by a passkey e
 with that passkey. Test ceremonies with the software authenticator in
 [internal/passkeytest](../../../BE/internal/passkeytest/authenticator.go).
 
-For task/runtime work, follow the [agent task contract](../../../BE/docs/agent-tasks.md). Keep the [runtime agent skill](../../../devmachine/common/kuayle-agents.md) consistent with the implementation prompt and publication contract.
-Keep native task ownership, pre-dispatch encrypted credential snapshots, atomic
-log/activity persistence and physical cancellation checks intact. Its status
-section distinguishes implemented backend contracts from workflows not yet enabled.
+For task/runtime work, follow the [agent task contract](../../../BE/docs/agent-tasks.md).
+Keep the [machine-agent instructions](../../../devmachine/common/kuayle-agents.md)
+consistent with the turn prompts and publication contract. Preserve native task
+ownership, pre-dispatch encrypted credential snapshots, atomic log/activity
+persistence and physical cancellation checks.
 
 For periodic delegation, follow the [automation worker and replay contract](../../../BE/docs/agent-tasks.md#automations).
+Graph workflows use [stage assistant routing](../../../BE/docs/agent-tasks.md#configurable-workflows).
+For pipelines, the [team workflow contract](../../../BE/docs/agent-tasks.md#team-workflows)
+covers room permissions, verdicts, grants (a split grant too), waivers, splits and board visibility.
+Keep role permissions in [TaskRoomRefusal](../../../BE/internal/domain/task_room.go)
+and authenticate the sender in the [room repository](../../../BE/internal/repository/task_room.go).
+Represent new conditions as [facts](../../../BE/internal/service/task_facts.go).
+Keep error-specific branches out of the [tick](../../../BE/internal/service/team_tick.go)
+and exercise [TestTickLiveness](../../../BE/internal/service/team_tick_liveness_test.go)
+when changing scheduling or platform actions. For lead reports, cover replay of
+the same post under the [notification contract](../../../BE/docs/telegram.md#task-notifications).
 
-For workflow changes, preserve the [stage assistant routing contract](../../../BE/docs/agent-tasks.md#configurable-workflows) across delegation, retries and native stage execution.
-For experimental team workflows (pipelines), follow the [team workflow contract](../../../BE/docs/agent-tasks.md#team-workflows-experimental): the room's permission matrix and atomic grant/waiver audit, creator-session approval of split requests (or the creator's split grant), the creator-only repository board in lead turns, verdicts bound to published commits, the tick's fence, and a new situation as a fact rather than a branch in the tick.
-
-For lead reports, follow the [task notification channel contract](../../../BE/docs/telegram.md#task-notifications) and cover replay of the same room post.
-
-For instance settings and notification delivery, follow the [Web Push contract](../../../BE/docs/web-push.md).
-A new environment variable needs an entry in the [config registry](../../../BE/internal/config/registry.go)
-(its test fails otherwise): mark credentials `Secret`, and give it a `Runtime` rule only when every
-reader reads it per use through `InstanceConfigService`; see [instance configuration](../../../TECHNICAL.md#instance-configuration).
+Register new backend configuration variables in the [config registry](../../../BE/internal/config/registry.go).
+Mark credentials `Secret`. Give a setting a `Runtime` rule only when every reader
+resolves it per use through [InstanceConfigService](../../../BE/internal/service/instance_config.go).
+See [instance configuration](../../../TECHNICAL.md#instance-configuration) for the settings API
+and the [Web Push contract](../../../BE/docs/web-push.md) for notification delivery.

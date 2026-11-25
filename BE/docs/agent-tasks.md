@@ -13,11 +13,9 @@ Kuayle without merging ([accepting without merge](#accepting-without-merge)). CI
 task creator's own issue comments queue bounded follow-up attempts; reviews by a second agent run only on
 request (migration 84). That fixed flow is the built-in Standard workflow;
 workspaces can design their own as [configurable workflows](#configurable-workflows)
-(migration 118). Experimental [team workflows](#team-workflows-experimental),
-off unless the server turns them on, run a task with a team of agent roles
-that talk in the task's room, moved by a tick that reads facts. See
-[remaining workflow work](#remaining-workflow-work) for what is not
-implemented.
+(migration 118). [Team workflows](#team-workflows) run a task with a roster,
+a shared room and an optional lead. See [issue lifecycle](#issue-lifecycle)
+for how a task updates its issue.
 
 Terminology: texts users read (transition reasons such as "Native coding
 iteration failed; stopping execution before retry", "New execution iteration
@@ -183,8 +181,8 @@ task scan is allowed while the agent works: it does not take
 `lockMachineForCheck`, and `LeaseOperations` lets it lease beside an agent
 attempt, publication, check or tool run while a running scan never
 blocks other work. A task target must be the requester's own task with a ready
-checkout on its running machine; a machine-only target is only for the list
-scan and must be a running machine the requester created.
+checkout on its running machine. Machine-only scans use a running machine the
+requester created to list its worktrees or read its Docker containers and logs.
 
 The scan row and its operation share an ID (idempotency key
 `worktree-scan:<id>`, one attempt). The manager loads the checkout's path,
@@ -488,8 +486,7 @@ with reftable refs is refused. These steps still run in the
 developer container; running them in a container without its secrets would be
 a further hardening.
 
-Checkouts and what Kuayle reads after a run use the same git directory
-(KUA-299). Agent runs can write all of `/workspace`, so also the configuration
+Checkouts and post-run reads also use an isolated git directory. Agent runs can write all of `/workspace`, so also the configuration
 and hooks of the repository caches every worktree shares, and a checkout runs
 with the repository's installation token. `checkoutScript` fetches GitHub's
 branches into the cache from the fixed `https://github.com/<owner>/<repo>` URL,
@@ -503,7 +500,7 @@ terminals) is written as data. That helper hands `GITHUB_TOKEN` only to
 `https://github.com`, so a person's own `git fetch` in a checkout an agent
 redirected sends it nowhere else. The diff Kuayle records after a run and the
 fingerprint taken around a planning step stage the worktree into a throwaway
-index the same way.
+index the same way. See [security audit KS-39](../../SECURITY_AUDIT.md#ks-39--checkout-leaked-the-repository-token-critical).
 
 ## Agent sandboxing
 
@@ -955,7 +952,7 @@ they can still see (the repository shares `ownTaskRows`/`ownTaskVisible` with
 - `approved_at`: when a person approved the merge Kuayle is carrying out now (an
   unfailed merge wait on the current workflow step, or an assistant
   `merge_pull_request` waiting for checks). For a task on a
-  [pipeline](#team-workflows-experimental) it is the owner's approval the tick
+  [pipeline](#team-workflows) it is the owner's approval the tick
   holds for the board's head (KUA-293): `pipeline_state` has an approval, and
   the `approved` and `head_sha` facts the tick last posted say it holds for
   that head (across Kuayle's verified merges of the base, as the tick counts
@@ -2454,7 +2451,7 @@ machines, so such lessons cannot yet arise from tasks; the rule is enforced
 in the queries all the same.
 
 **Roles** (KUA-282, migration 209). A lesson may be for one role of a
-[team workflow](#team-workflows-experimental)'s roster (`role`, the roster's role name; `NULL` is every task). An outbox
+[team workflow](#team-workflows)'s roster (`role`, the roster's role name; `NULL` is every task). An outbox
 lesson from a pipeline task's member is proposed for the role that task plays
 (`WorkspaceMemoryRepository.TaskRole`, read from `task_members` in the task's
 workspace): the root task's for the role of the writer holding its write
@@ -2870,7 +2867,7 @@ Routes (workspace, session only): `GET/POST /agent-profiles`,
 `POST /workflows/validate`, `GET/PUT /workflows/:workflowId`,
 `POST /workflows/:workflowId/duplicate|archive`, `GET /workflows/:workflowId/audit`,
 `PUT /workflow-defaults`, `POST /workflows/:workflowId/draft-pipeline`
-([drafting a pipeline](#team-workflows-experimental)); under dev machines `GET /agent-tasks/:taskId/workflow`
+([drafting a pipeline](#pipeline-editor-and-templates)); under dev machines `GET /agent-tasks/:taskId/workflow`
 (graph, path, visit counts and `runs`) and `POST /agent-tasks/:taskId/workflow/decision`
 (`approve`/`deny` an approval node, `continue`/`stop` at a limit; only the
 task's creator or an owner or admin who can see the issue, for the step
@@ -2973,847 +2970,380 @@ move where it happened. The task card shows "Paused" with one Resume button,
 and offers Pause in its menu; `WorkflowPauseControl.svelte` is the same
 control as a standalone component.
 
-### Team workflows (experimental)
+### Team workflows
 
-A team workflow (KUA-252) is a workflow version whose JSON has
-`"kind": "pipeline"`: ordered phases, each naming what must be true to move
-on, worked by a roster of agent roles that talk in the task's room. Kuayle
-reads the facts, runs the platform actions (publish, update the branch, rerun
-CI, merge) and guards the merge. Absent or `"graph"` is the graph engine
-above. `ParseWorkflowGraph` refuses a pipeline, so the graph runner never runs
-one, and a task never changes engine: a move between kinds is refused as
-`workflow_kind`, and **Continue on another workflow…** does not offer
-pipelines. A task on a pipeline also stays on the version it started on: a
-move to a newer version or to another pipeline is refused as
-`pipeline_pinned` (its members and room were built for that roster and
-those phases), and its card offers neither move. Standard stays a graph.
+A team workflow (a pipeline) runs one issue with a roster of agent roles. The
+roles talk in a shared room. An optional lead chooses the phase and reports
+to the task creator. Kuayle reads the facts, publishes the writer's work and
+guards the merge. A task pins its pipeline version at creation. Its roster,
+room and phases stay together for the life of the task. Switching between
+graph and pipeline engines is refused (`workflow_kind`), as is switching a
+running pipeline to another pipeline or version (`pipeline_pinned`). The
+built-in Standard workflow uses the graph engine.
 
-**The switch.** `WORKFLOW_PIPELINES_ENABLED` (`config.WorkflowPipelines`,
-default `true`) is read by the API process and the automation worker; both
-Compose files pass it through (`WORKFLOW_PIPELINES_ENABLED` in `.env`, see
-`.env.example`). A sysadmin can override it in Settings -> Instance
-configuration: every reader asks `AgentTaskService.PipelinesEnabled`, which
-reads `InstanceConfigService.PipelinesEnabled` on each use, so the change
-applies without a restart (other replicas within five seconds; see
-[instance configuration](../../TECHNICAL.md#instance-configuration)).
-Off, creating, saving, duplicating or drafting a pipeline, making one a
-default and starting a task on one answer `403 PIPELINES_DISABLED` (a delegation from the
-assistant says "Pipeline workflows are turned off on this server"). Saved
-pipelines stay readable, and a task already on one keeps running: the tick
-does not read the switch. `GET /workflows` returns the switch as
-`pipelines_enabled`, and the task composer offers pipelines only while it is
-on. On, owners and admins save pipelines like graphs, including the built-in
-pipeline templates of `POST /workflows` (`team`, `standard_pipeline`,
-`review_loop_pipeline` and `full_cycle_pipeline`), and a task starts on a
-pipeline chosen in the task composer or set as a scope's default.
-`POST /workflows/validate` checks a pipeline with `ValidatePipeline` either
-way.
+#### Pipeline editor and templates
 
-**Where a pipeline is chosen** (KUA-291). Everywhere a workflow is chosen
-offers a pipeline only while the switch is on (`startable` in
-`workflow-choice.ts`), and the server refuses one otherwise:
+In **Settings → Workflows**, workspace owners and admins can create and edit
+a pipeline. The editor draws phases from left to right. Select a phase to
+edit its label, owner, prompt and checks. The roster defines the roles and
+their profiles. The workflow also sets the lead, delegated decisions and
+budget. Validation places problems on the affected phase, roster or settings.
+Other members with workflow read access can inspect the definition.
 
-- The task composer and a delegation's approval card (`WorkflowChoice.svelte`):
-  with a pipeline chosen, the note says its writer role's profile decides the
-  agent and model. `delegate_issue`, and the approver's choice on the card,
-  refuse a pipeline while the switch is off with "… is a pipeline, and
-  pipeline workflows are turned off on this server" (a tool failure, or
-  `422 INVALID_APPROVAL_EDIT`), so nothing is proposed that cannot start.
-- A scope's default (`PUT /workflow-defaults`, `WorkflowDefaultsCard.svelte`):
-  off, a pipeline is not offered and is refused, but a scope whose default
-  already is one keeps showing it, and a task that would start on it is
-  refused rather than run on another workflow.
-- An automation (`POST /agent-automations`, `AutomationsCard.svelte`): a rule
-  may follow or pin a pipeline, whose writer's profile must be active as a
-  graph's first agent step's must; off, `403 PIPELINES_DISABLED`.
-- The switch route: as above, never across kinds or off a pipeline's version.
+Start with a blank pipeline or the pipeline version of Standard, Review loop
+or Full cycle. The three templates are drafted from the corresponding graph
+templates using the built-in profiles. The API accepts
+`standard_pipeline`, `review_loop_pipeline`, `full_cycle_pipeline` and
+`team` on `POST /workflows`. The `team` template starts with an implementer
+and reviewer, checks publication, review, integration and approval before
+merge, and asks a person after 40 turns or 2,880 working minutes.
 
-**The definition** (`domain/pipeline.go`). `ParsePipeline` refuses unknown
-fields, and `ValidatePipeline`, separate from the graph's validator, checks it
-on save and again when a task starts:
+**Draft a pipeline** on a graph previews an editable copy.
+`POST /workflows/:workflowId/draft-pipeline` returns the draft and an empty
+`reasons` array, or a null pipeline and reasons located on the graph steps.
+The preview is session-only and scoped to workflows the member can read.
+Saving the draft creates a separate workflow. Existing graph tasks finish
+on the versions they pinned.
 
-- `phases` (1 to 50, in order): `id`, a one-line `label` (80 characters), an
-  `owner` (a role of the roster, `kuayle` or `human`), an optional `prompt`
-  (4,000 bytes, given to the writer's turns in that phase), `checks` (at most
-  20 per phase; check IDs are unique across the pipeline) and `guarded`,
-  allowed only on the last phase when Kuayle owns it: the merge. A guarded
-  merge needs a required `approved` check in a phase before it
-  (`missing_approval`): the owner merges.
-- A check requires one fact and is `required` (the task stays in its phase
-  until it holds or the creator waives it for the head) or advisory. The
-  facts are a closed list, each with a defined "met":
+The converter follows a single forward path after removing back edges,
+failed ends and no-change exits. It maps a coding step to a writer phase,
+a review to that role's verdict, publication to a pull request check,
+CI to required up-to-date and CI checks plus an advisory migration check,
+approval to a head approval, and merge to a guarded final phase. It omits
+retired local checks. It carries over the working-time budget and exhaustion
+policy, and multiplies iterations by roster size for the turn budget, capped
+at 200. Step visit limits, timeouts and prompts for review or approval steps
+are dropped. Branching paths, planning steps, stage assistants, a second
+writer profile, approval before publication and code changes after approval
+are examples that need a person to design the pipeline.
+See [the converter](../internal/domain/pipeline_draft.go).
 
-  | Fact | Met when |
-  | --- | --- |
-  | `pr_exists` | Kuayle published a pull request for the task |
-  | `pr_draft` | the pull request is not a draft |
-  | `head_contains_base` | the head contains the base's tip (the branch is not behind) |
-  | `conflict` | the pull request does not conflict with its base |
-  | `migration_collision` | no migration number of the branch collides with the base's |
-  | `ci_green` | CI passed on the head |
-  | `approved` | a person approved merging the head |
-  | `merged` | the pull request is merged |
-  | `closed` | the pull request is not closed without merging |
-  | `overlap` | no task ahead in the repository's merge order ([the board](#merging-only-up-to-date-heads)) changes the same files |
-  | `verdict` (with `role`) | that role, which is not the writer, approved the head |
-  | `script` (with `script`) | the command (at most 4,000 bytes), run in the task's worktree, exits 0 |
+Choose a saved pipeline in the task composer, the assistant's delegation
+approval, a scope default or an automation. Its first writer's profile
+supplies the starting agent and model. An automation can follow the workflow
+or pin a version. `GET /workflows` returns the effective switch in
+`pipelines_enabled`. Pipelines are enabled by default. A sysadmin can change
+`WORKFLOW_PIPELINES_ENABLED` at runtime in [Instance configuration](../../docs/self-hosting.md#instance-configuration).
+Disabling it hides pipelines from new choices and blocks creating, saving,
+duplicating, drafting, setting a pipeline default or starting a pipeline
+task. An existing pipeline default stays visible and a start against it is
+refused. Saved definitions remain readable, validation still works and
+tasks already on a pipeline continue.
 
-  Values such as the head, the base and the board are posted to the room,
-  never required. Only a `verdict` names a role, and only a `script` carries
-  a command, the one field with author content.
-- `roster` (1 to 10 roles): `role` (1 to 32 lowercase letters, digits, `-` or
-  `_`; not `kuayle`, `human`, `lead` or `all`, which the room uses),
-  `profile_id` (a profile of the workspace that is not archived, with any
-  behaviour and harness for a role that does not write), `writer` (at least
-  one role, each with a profile that changes code and not `on_call`; they
-  write one at a time, KUA-289) and `on_call` (KUA-288). A role is *required* by the checks that name it: a
-  required `verdict` check makes Kuayle ask the role for its verdict when the
-  check's phase needs it, on call or not. An on-call role works only when it
-  is addressed by name; a role that is not on call also takes a turn for
-  what a person or another role says to everyone. Neither is a new field, so
-  a pipeline saved before keeps its meaning.
-- `lead` (a `profile_id`, optional: any profile of the workspace that is not
-  archived, which the pipeline plays as the role that manages; no role of the
-  roster is called `lead`, so a pipeline has at most one), `autonomy`
-  (`approve`, and `waive` per check ID: `human`, or `lead` when there is a
-  lead) and `budget`
-  (`max_turns` up to 200, `max_minutes` up to 30 days, zero for no limit;
-  `on_exhausted` `ask`, or `fail`, the default).
+#### Pipeline checks
 
-When a task starts, every role's profile and the lead's go through the
-workspace policy as a graph step's does, the first turn is the writer's with the writer's profile
-and the first phase's prompt, and the task is marked `pipeline` (also in its
-JSON, so every view knows). A pipeline's roster and lead keep their profiles
-in use, as graph steps do. The `team` template: phases implement
-(implementer), pull request (Kuayle; `pr_exists`), review (implementer; the
-reviewer's `verdict`), CI checks (implementer; `head_contains_base`,
-`ci_green`, `migration_collision`), approval (human; `approved`) and merge
-(Kuayle, guarded), every check required; the built-in Implementer as the
-writer and Reviewer; no lead; 40 turns and 2,880 minutes, then `ask`.
-The pipeline versions of the graph templates (KUA-290; `pipelineTemplate`,
-`service/workflow.go`), `standard_pipeline`, `review_loop_pipeline` and
-`full_cycle_pipeline`, are `standard` (the editable copy), `review_loop` and
-`full_cycle` with the built-in profiles, drafted by `DraftPipeline` (below)
-when they are created, so a change to a graph template reaches its pipeline.
-Standard's phases are implement, publish, human review and merge, with only
-the writer and no budget; Review loop and Full cycle have implement, open
-pull request, the reviewer's verdict, CI, ready to ship and merge, with 16
-turns in a day then `fail`, and 20 turns in two days then `ask`. A draft
-with reasons answers `422 INVALID_WORKFLOW` with them.
-With the switch on, Settings → Workflows edits a pipeline in
-`PipelineEditor.svelte` (KUA-284; state and the saved JSON in
-`pipeline-editor.ts`): the phases drawn on the workflow canvas, left to right
-with no loop edges, and a panel with a form per phase (name, owner, prompt,
-the guarded merge on the last phase, and checks over the closed fact list,
-each required or advisory, with who may waive a required one), the roster
-(role, profile, the one writer, on call), the lead, who approves merging and
-the budget. It saves through `PUT /workflows/:workflowId` like a graph, shows
-`POST /workflows/validate`'s issues on the phase, the roles or the settings
-they concern; members see it read only. The page reads the switch from
-`GET /workflows` (`pipelines_enabled`). The new-workflow dialog offers the
-three pipeline templates above and a blank pipeline (one phase worked by the
-writer). With the switch off, a pipeline is shown read only, with a notice
-(`PipelineView.svelte`).
+The version stores `"kind": "pipeline"`, ordered `phases` and a `roster`.
+The API checks the definition on save and on task start. It validates all
+role and lead profiles against the workspace's active profiles and checks
+the workspace's execution policy at startup. See [the definition and validator](../internal/domain/pipeline.go).
 
-**Drafting a pipeline from a graph** (KUA-283; `domain/pipeline_draft.go`).
-`POST /workflows/:workflowId/draft-pipeline` (session only, any member who
-reads workflows, the workspace's own workflows only; `standard` is the
-Standard workflow as the workspace runs it, or the editor's first copy of it)
-answers `200` with `{"pipeline": …, "reasons": []}`, or `"pipeline": null`
-and the reasons, located on steps like the editor's problems. It saves
-nothing and never changes or switches the graph, whose tasks keep running on
-it: a person saves the draft as a new workflow. Settings → Workflows offers
-**Draft a pipeline** on each graph workflow while the switch is on; it opens
-`/settings/workflows/:workflowId/pipeline-draft`, which shows the draft in
-the pipeline editor, unsaved, whose first save creates the workflow, or lists
-the reasons on the steps they name. `DraftPipeline` drafts only
-from a graph that is one path once the ways back are set aside: a transition
-to a step every path to its source passes through (changes requested, a CI
-failure, a denied approval, a retry) is implied, since an unmet check sends
-the work back; so are transitions to an end that fails, and a publish step's
-`no_changes` transition to an end. Each step on the path is a phase with its
-ID and name:
+- A pipeline has 1–50 phases. Each has a unique ID, a one-line label of up to
+  80 characters, an owner (a roster role, `human` or `kuayle`), an optional
+  writer prompt of up to 4,000 bytes and at most 20 checks. Check IDs are
+  unique across phases.
+- The roster has 1–10 roles. Names begin with a lowercase letter and can
+  contain up to 32 lowercase letters, digits, hyphens and underscores in
+  total. Kuayle reserves `kuayle`, `human`, `lead` and `all`.
+  At least one role is a writer, with a profile that changes code. A writer
+  cannot be on call. The editor's writer selector designates one role.
+  The definition and runtime support several writers taking turns.
+- A required check blocks a guarded action until it holds or has a valid
+  waiver. An advisory check informs the team. Only the last phase can be
+  guarded. Kuayle must own it and an earlier phase must contain a required
+  approval check. The merge gate still applies when a check is waived.
+- The optional budget limits turns (up to 200) and working minutes (up to
+  30 days). Zero leaves that limit open. Exhaustion pauses for a person
+  with `ask` or fails the task with `fail`, the default.
 
-| Graph step | Phase |
+Every check requires a published pull request. Kuayle then evaluates the
+selected fact for that task.
+
+| Check fact | What satisfies it |
 | --- | --- |
-| agent that changes code | owned by the writer, `implementer` (its profile), with the step's prompt less the graph's `{{…}}` variables |
-| agent that reviews | owned by the writer; requires a `verdict` from the role its profile plays (`reviewer`, then `reviewer-2`, …) |
-| publish | owned by Kuayle; requires `pr_exists` |
-| CI check | owned by the writer; requires `head_contains_base` (`up-to-date`; Kuayle updates a branch that is behind, so it never strands a task) and `ci_green` (`ci`), and reports `migration_collision` (`migrations`) as advisory: it informs, never blocks |
-| approval | owned by a person; requires `approved` |
-| merge, or the done end after a ship approval that merges on approval | the last phase, guarded |
-| retired local check | none (it does nothing today) |
+| `pr_exists` | Kuayle has a published pull request for the task. |
+| `pr_draft` | The pull request is ready for review. |
+| `head_contains_base` | The head includes the base tip. |
+| `conflict` | The branch merges cleanly into its base. |
+| `migration_collision` | The branch and base have no colliding migration number. |
+| `ci_green` | Checks passed on the head, or Kuayle verified that the repository has no CI after the grace period. |
+| `approved` | A workflow decision or authorized lead approval covers the head. |
+| `merged` | The pull request was merged. |
+| `closed` | The pull request has not been closed without merging. A merged pull request ends the task. |
+| `overlap` | No visible task ahead in merge order changes the same files. |
+| `verdict` | The named non-writer role approved the head. |
+| `script` | The pinned command (up to 4,000 bytes) exited zero for the head. |
 
-Every other check is required, and check IDs follow the `team` template. Visit limits, timeouts and the prompts of review and
-approval steps are dropped; the budget keeps its minutes and policy, and its
-iterations become `max_turns` of iterations × roles (at most 200), since a
-pipeline charges every role's turn. No lead. The reasons, by code: the
-graph's own problems (its validator's codes); `branching` (a step with two
-ways on); `planning_step` (no check says a plan is done); `stage_assistant`;
-`second_writer` (another profile that changes code); `early_approval` (before
-anything is published: a pipeline approves the published head);
-`code_after_approval` (a pipeline merges only a head a person approved);
-`dead_end` (only ways back or to a failed end); `pipeline` (the workflow
-already is one); and what `ValidatePipeline` finds in the draft, such as
-`missing_approval` for a merge no person approves first.
+A script check uses the [manual check runner](#manual-checks) to run
+`sh -c` in the root worktree. Kuayle starts scripts in phases through the
+current phase after publication. It records a result per check and published
+commit. A busy or unavailable machine is retried. The tick reports failures
+with bounded output and sends advisory failures to the phase owner. A push
+outside Kuayle can leave the check without a result for the new head.
+Kuayle carries a verdict or script result through up to 12 verified merges of
+the base on top of its commit. An approval covers up to three such updates.
 
-**The room** (KUA-261; `domain/task_room.go`, `repository/task_room.go`,
-table `task_messages`, migration 206) is one ordered log per pipeline task,
-kept on the root task. Each post has a `seq` allocated under the task's
-`workflow-runner` advisory lock; an author (`human`, the creator; `member`,
-with its role and member; or `kuayle`); recipients (`to_roles`, empty for
-everyone: roles, `human`, or `lead` when there is one); a `kind`; text; a
-structured `data` part (phase, verdict and commit, check, request action,
-fact name and value); an optional `reply_to`, an earlier post; and a
-`dedupe_key`, whose repetition returns the first post. `TaskRoomRefusal` says
-who may post what:
+#### Pipeline room
 
-| Kind | Creator | Writer | Other roles | Lead | Kuayle |
-| --- | --- | --- | --- | --- | --- |
-| `say`, `ask` | yes | yes | yes | yes | no |
-| `verdict` (`approve`, `request_changes` or `comment`, for a commit) | no | no | for its own role | no | no |
-| `phase` | no | no | no | yes | only without a lead |
-| `request` (`review`, `merge`, `publish` or `split`) | except `split` | `review` only | no | yes | no |
-| `request` with action `approve` | no | no | no | with approval authority | no |
-| `waiver` (of a check) | yes | no | no | checks granted to it | no |
-| `grant` (approve, split, or waive one check) | yes | no | no | no | no |
-| `fact` | no | no | no | no | yes |
-| `summary` | no | no | no | yes | yes |
+The root task owns one ordered log in `task_messages`. Each post has a
+sequence, author, recipients (empty for everyone), kind, text and structured
+data. A reply can name an earlier sequence. A dedupe key makes replay return
+the original post. The server derives a member's role from its sending task
+and run. The [room validator](../internal/domain/task_room.go) enforces these
+permissions before a message can affect the workflow.
 
-Text is at most 16 KiB, 4,000 characters from agents, and `say` and `ask`
-need some; the structured part is at most 16 KiB. Each sender has an hourly
-budget, refusals included: 20 posts per role (the agent messages' limit) and
-30 for the creator (the live channel's, `429 ROOM_MESSAGE_LIMIT`); Kuayle has
-none. A role's first post over its budget in the hour is kept as a refused
-post, so the role hears at its next turn that its posts are dropped
-(KUA-315); its later posts that hour are dropped. A person's refused post
-is not stored (`400 ROOM_POST_REFUSED` with the reason). A role's refused post
-is stored with its `reject_reason` (200 characters), without recipients or
-data, is never delivered and is shown to its sender at its next turn. Every
-stored post writes a `task.room_message` conversation event in its
-transaction, and a person's post wakes the task's tick.
+| Kind or request | Allowed sender |
+| --- | --- |
+| `say`, `ask` | Creator, writer, other roster roles, lead |
+| `verdict` | Non-writer roster member for its own role and a recognized commit |
+| `phase` | Lead with a reason, or Kuayle on a pipeline without a lead |
+| `request` for `review` | Creator, writer, lead |
+| `request` for `publish` or `merge` | Creator, lead |
+| `request` for `split` | Lead member |
+| `request` for `approve` | Lead with approval authority, naming the full room head |
+| `waiver` | Creator, or lead authorized for that check |
+| `grant` | Creator |
+| `fact` | Kuayle |
+| `summary` | Lead or Kuayle |
 
-**Grants and waivers** (KUA-305). The pinned definition can delegate merge
-approval with `autonomy.approve: "lead"` and individual checks with
-`autonomy.waive`, for example `{"ci":"lead"}`. The creator can also grant
-authority for this task through the session-only
-`POST /agent-tasks/:taskId/room` route. Send one post for each permission.
+`GET /agent-tasks/:taskId/room?after=<seq>` reads up to 200 posts in order
+and returns `Cache-Control: private, no-store`.
+`POST /agent-tasks/:taskId/room` accepts `kind`, `body`, `to`, `data`,
+`reply_to` and a replay-safe `request_id`. Both routes require the task
+creator's session and are behind the Dev Machine demo guard. A graph task
+returns `409 ROOM_UNAVAILABLE`. Every stored post emits `task.room_message`
+in the same transaction. A creator's post wakes the tick.
 
-- Merge approval uses `{"kind":"grant","data":{"role":"lead","action":"approve"}}`.
-- Splitting without approval uses `{"kind":"grant","data":{"role":"lead","action":"split"}}`
-  (KUA-313, below).
-- Waiving the CI check uses `{"kind":"grant","data":{"role":"lead","action":"waive","check":"ci"}}`.
+Agents write room posts through the outbox with `kuayle-say`. The helper
+writes the file atomically and addresses a role, `@human` or `@all`.
+The body and structured part are each limited to 16 KiB, with a further
+4,000-character limit on agent text. The room allows 20 posts per role
+and 30 per creator per hour. A refused agent post within the rate limit is
+stored with a reason for its sender's next turn. It reaches no recipient.
+A role's first post over the limit in an hour is kept the same way, so the
+role hears that its posts are dropped; its later posts that hour are dropped
+(KUA-315).
+A refused human post returns the reason to the caller. A publish or merge
+request can call a role's attention to the work. The platform action itself
+depends on the tick and the merge gate. See the [runtime posting guide](../../devmachine/common/kuayle-agents.md#the-task-room).
 
-The existing `{"kind":"grant","data":{"check":"ci"}}` form grants the lead
-that one waiver. The lead exercises approval by
-posting `request` with `data.action="approve"` and the full room head in
-`data.commit`. The existing merge gate still checks the head and all other
-required checks. A review verdict and a request to merge have their own
-meanings. Message bodies, PR comments and agent output cannot grant authority.
+#### Grants, waivers and split requests
 
-The creator or an authorized lead waives a named check by posting `waiver`
-with `data.check` and a reason in `body`. By default the waiver covers the
-last head Kuayle posted in the room. With `data.standing=true` it also
-covers future heads of this task. Kuayle stores each accepted room grant,
-waiver and delegated approval in `workflow_audit_events` in the same
-transaction as the room post. Replaying a post with the same dedupe key
-returns the original decision.
+The pinned definition may grant merge approval with `autonomy.approve` set
+to `lead` and delegate waiving individual check IDs in `autonomy.waive`.
+The creator can also post a task-specific grant through the room route.
+Each post grants one permission:
 
-**Splitting an issue.** The lead proposes 1–10 children in a `request`
-with `data.action = "split"` and `data.issues`, an array of objects with
-a title (1–500 characters) and a description (1–1,000 characters).
-The task creator reviews the list in the room and selects **Create sub-issues**.
-Only that session action authorizes Kuayle to create the children. Room text,
-including an affirmative reply from the creator, has no effect on approval.
+- `{"kind":"grant","data":{"role":"lead","action":"approve"}}` grants head approval.
+- `{"kind":"grant","data":{"role":"lead","action":"split"}}` lets the lead's later split requests skip approval (below).
+- `{"kind":"grant","data":{"role":"lead","action":"waive","check":"ci"}}` grants a waiver for the check named `ci`. The check-only grant form also delegates that waiver.
 
-Kuayle creates all children under the task’s issue, in its workspace and team.
-The same transaction writes a `split_approved` workflow audit event with the
-creator, request sequence, parent and child IDs, and posts a Kuayle
-`split_approved` fact replying to the proposal. Approving the same request again
-returns success and preserves the original children. Each child can later be
-delegated as its own task with its own working branch.
+To exercise delegated approval the lead posts a request with
+`data.action="approve"` and the full room head in `data.commit`. To waive a
+check, its authorized sender posts `waiver` with `data.check` and a reason
+in `body`. The waiver covers the head last reported in the room. Setting
+`data.standing=true` extends it to subsequent heads of this task. Each
+accepted grant, waiver and delegated approval writes a workflow audit event
+in the same transaction as the post. Text in the room, a PR comment or
+agent output cannot delegate authority.
 
-**A granted split** (KUA-313). When the creator posted a `grant` with
-`data.action = "split"` for the lead (only the creator's session route posts
-one; text and agents' posts never grant it), a split request the lead makes
-after it needs no approval: the tick's next pass, which the accepted request
-wakes, creates the children for the creator, exactly as the approval would
-(`AgentTaskRepository.CarryOutGrantedSplits`, before the pass reads GitHub).
-Its `split_approved` audit event has no actor and names the
-`grant_sequence`, the lead's role and run; the same `split_approved` fact
-replies to the request, and the created issues reach the workspace and its
-webhooks as an approved split's do. A request is carried out once, by
-either path. The grant never widens the creator's rights: issue:create on
-the parent's team is applied at the write; while the creator no longer
-reaches the task nothing is done; a request that cannot be carried out (a
-child with no visible text once sanitized, for example) gets a
-`split_refused` fact and audit event once, and the creator can still approve
-it. A request made before the grant waits for the creator's approval.
+The lead can request a split into 1–10 children with `data.action="split"`
+and `data.issues`, each with a title (1–500 characters) and description
+(1–1,000 characters). **Create sub-issues** calls
+`POST /agent-tasks/:taskId/room/:seq/approve-split`. This requires the
+creator's session and permission to create issues in the parent's team.
+Kuayle creates the children in that workspace and team, writes the
+`split_approved` audit event and posts the matching fact atomically.
+Approval returns `204`. Replaying it creates no additional children. The children can
+then be delegated as separate tasks with their own branches.
 
-**Agents post through the outbox** (KUA-267). An outbox file whose `to` is
-`@role`, `@human` or `@all` is a room post (`domain.ParseAgentOutboxMessage`:
-`kind`, `say` by default; `body`; `reply_to`; `data`). `RecordAgentOutbox`
-hands those files to `RecordRoomOutbox` before the agent messages: they are
-posted for the role the sending task plays (a member's task as its role, the
-root task as the writer), with the run and the agent messages' dedupe key. A
-file that does not parse or is too large is stored as a refused post with the
-reason. On a task without a pipeline the file goes on to the agent messages,
-which refuse it ("the task room is only for tasks on a pipeline workflow").
-The images ship `kuayle-say` (`devmachine/common/kuayle-say.cjs`, installed as
-`/usr/local/bin/kuayle-say`), which validates and writes the file
-atomically; agents learn it from "The task room" in the `kuayle-agents`
-skill.
+After the creator's `split` grant (only the creator's session route posts
+one; text and agent output never grant it), a split request the lead makes
+later needs no approval (KUA-313). The tick pass the accepted request wakes
+creates the children for the creator, as the approval would
+(`AgentTaskRepository.CarryOutGrantedSplits`), before it reads GitHub. The
+`split_approved` audit event has no actor and records the grant's sequence;
+the same fact replies in the room, and the issues reach the workspace and
+its webhooks. Each request is carried out once, by either path. The grant
+never widens the creator's rights: issue creation in the parent's team is
+checked at the write, and nothing happens while the creator cannot reach
+the task. A request that cannot be carried out gets one `split_refused`
+fact and audit event and stays open to the creator's approval. A request
+made before the grant waits for approval.
 
-**Members and turns** (KUA-271; `domain/task_member.go`,
-`repository/task_member.go`, table `task_members`, migration 207). A member is
-a role working on one pipeline task: one per role per task, so each role
-keeps one native session for the task, continued across its turns. Its
-profile is pinned when it is created. It keeps its room cursor
-(`last_read_seq`), its `state` (`idle`, `queued` or `running`, kept in step
-with its task by every transition), `turns`, `pinned_commit` (the published
-commit its latest turn read) and `verdict_asked`. A member is an agent task,
-so its runs, session, handoff, logs and transcripts are the existing ones:
+#### Members and turns
 
-- **The writers' turns are the root task's iterations** (`member_task_id`
-  NULL; the first writer is a member from the start, another from its first
-  turn). A turn's prompt is the task's
-  request, then "the Kuayle pipeline, phase <label>" with the phase's
-  `prompt` and the posts the writer has not read (a page of 200, at most
-  24,000 bytes of them; the rest waits for the next turn) within the 32 KiB
-  prompt, with the writer profile's and the scope's instructions; the turn
-  also gets the writer profile's instructions file and skills, as a graph
-  step does. Each turn is the root's next attempt, so it continues the
-  writer's session as any follow-up does
-  ([native session resume](#native-session-resume-and-handoff)). A turn that
-  cannot start yet, because the writer's last attempt is still being wound
-  down, waits for the next poll.
-- **The write lock** (KUA-289). Only the writer holding the root task's
-  write lock runs, on the root's worktree, which Kuayle publishes; the
-  root runs one attempt at a time, so a second writer never starts while
-  one works. The lock is the root's `pipeline_state.writer` (the first
-  writer when the task starts), written in the iteration's transaction under
-  the tick's fence: a pass that raced it is refused. A pass runs only while
-  no writer's turn does, so the lock moves only between turns: the pass
-  gives the next turn to the holder when its unread posts call for one, and
-  otherwise to the first other writer, in roster order, that is called. A
-  move is recorded with its time (`pipeline_state.moves`), so the root's
-  runs are listed with the writer that ran each, and the first turn after a
-  move starts a new session with the handoff (another writer's session is
-  never resumed; the writer that takes the lock back does not resume its
-  own earlier one either).
-- **Every other role gets one review task of the root**
-  (`insertReviewAgentTask`: kind `review`, never published, no push
-  credential, with the root's creator, issue and conversation), created the
-  first time `StartMemberTurn` starts the role. Each later turn is the next
-  generation of that same task. `Attempt` reads the previous attempt for a
-  member's task (every other review still starts cold), so the turn resumes
-  the role's session (`claude --resume`, `codex exec resume`,
-  `opencode run --session`, `qwen --resume`, `kimi --session` or
-  `goose run --resume --name`) when its previous turn succeeded on the same
-  machine and harness, and otherwise starts with the handoff (always on Pi,
-  Crush and custom harnesses). A later turn fetches its
-  worktree again first (only a member's task re-queues its checkout, once
-  per turn), so it reads the newest head. A member reads (KUA-289): on a
-  harness that runs read-only (`ReadOnlyWorktreeSupported`: Claude Code,
-  Codex, OpenCode) the machine checks the member's own worktree out,
-  detached, at the commit its turn reads (`MemberCommit`) and mounts it
-  read-only with its `.kuayle` directory writable, as a planning step's;
-  when that cannot be done, and on every other harness, the turn runs on
-  its own writable worktree, detached by the agent as reviews are, whose
-  changes are never published. Reviewers therefore run side by side, while
-  the writers are idle or working. Between turns the member's task
-  rests in `blocked` (no notification, session kept; `completed` would purge
-  it). A failed or cancelled turn is posted by the tick as a `turn` fact
-  with its reason, and the role takes its next turn as after any other (a
-  cancelled review task may be queued again only when it is a member's). A
-  role whose last turn is still being wound down is tried again at the next
-  poll. A role that cannot take its first turn, because its profile was
-  archived, is a `turn` fact, and the task pauses for a person. When the
-  root task ends (merged, failed, stopped or cancelled) its members' turns
-  still under way are cancelled, as a graph's reviews are.
-- **The lead** (KUA-300; `domain/task_lead.go`). A pipeline's `lead` is a
-  member like the roles that do not write: role `lead`, the lead's profile
-  pinned at its first turn, one review task reused across turns (its session
-  resumes), read-only where its harness can, no push credential and never
-  published (security invariant 3). Its behaviour is `manages`
-  (`domain.AgentBehaviourManages`, `Pipeline.Behaviour`): no profile stores
-  it, so the profile editor never offers it, and a pipeline gives it to the
-  profile it names as its lead. It is never asked for a verdict. Its prompt
-  (`domain.LeadTurnPrompt`) says it manages, writes no code and gives no
-  verdict, and lists the team, the phases with their checks (required or
-  advisory) and the current phase, how to post (questions, requests,
-  `summary` to `@human`), how to move the task (`kuayle-say --to @all
-  --phase <id> "why"`, KUA-301) and its room. A `phase` move needs a phase
-  of the pipeline and a reason; anything else is refused, with the phases
-  it may name. The room refuses its `verdict`,
-  `fact`, `grant`, and a `waiver` of a check nobody granted it, each with a
-  reason it can act on (for example "the lead may not post verdict: the lead
-  gives no verdict; ask a role that reviews with --request review"), shown at
-  its next turn.
-- Each accepted lead `summary` gives the task creator one inbox notification.
-  The same room post queues one Telegram notice when the creator has linked an
-  enabled workspace bot. Turning off **Other issue updates** suppresses both for
-  subsequent reports. The full summary stays in the room. After the tick
-  commits its room cursor, it announces the stored notice through the usual
-  realtime and Web Push path.
-- **What a turn reads.** `domain.RoomInbox` is what a role reads from posts
-  newer than its cursor: posts for everyone or for the role, not its own,
-  plus its own refused posts with their reasons (a member reads a page of 200
-  within the 32 KiB prompt; the rest waits). `domain.RoomTurnPrompt` lists
-  them with number, author and kind, the text fenced as data, and says how
-  to answer. A member's prompt (`domain.MemberTurnPrompt`) starts with its
-  standing contract: it is the `@role` of the team, its session continues,
-  another role writes the code and it changes nothing. A turn asked for a
-  verdict is the review of the newest commit Kuayle published from the
-  root's attempts (`AgentReviewPrompt`, with the CI Kuayle knows on it);
-  another turn gets the profile's instructions and answers what it was asked.
-  When the role's previous turn read another commit, the prompt names
-  `git diff <old> <new>` so it checks what changed.
-- **Delta reviews** (KUA-292). A role's second and later review passes (a
-  turn asked for a verdict once the role has given one) carry "Your earlier
-  review" (`domain.MemberReview`, read by `earlierReview` when the turn
-  starts): the commit its latest verdict named and that verdict, the head it
-  reviews now, `git diff <reviewed>..<head>` to start from, and its own
-  earlier findings, fenced as data: the verdict's text and the final message
-  of its last turn, each at most 2,000 bytes (`MemberFindingsBytes`; a final
-  message that carries the findings quotes them once). Asked again on the
-  commit it reviewed, it gets its findings without a diff. The block is part
-  of the turn's prompt, so a turn that resumes the role's session gets it as
-  well, and the handoff does not repeat the final message it quotes. The
-  first pass, and a turn that only answers the room, are unchanged. Whether
-  a verdict holds for a newer head is not changed by this: across merges of
-  the base Kuayle verified it still holds, and the role is not asked again.
-- **Role memory** (KUA-282). Every turn, the writer's and any other role's,
-  reads the approved lessons for every task and those for its role; a
-  `MEMORY` outbox line from a member proposes a lesson for its role, which a
-  workspace owner or admin decides as any other
-  ([workspace memory](#workspace-memory), **Roles**).
-- **When a turn starts** (`domain.RoomWakes`): when the role's unread posts
-  hold one addressed to it, or, for a role that is not `on_call`, a `say`,
-  `ask` or `request` that a person or another role wrote to everyone. A
-  fact, phase move, verdict or summary to everyone waits for the role's next
-  turn, and so does everything said to everyone for an on-call role (a
-  `request` for a review asks an on-call role for its verdict only when
-  addressed to it), and the `board` fact addressed to it (it moves with
-  other tasks). The tick also starts a role's turn to ask it for a verdict,
-  and a stall summary addressed to it starts one (below). A member whose
-  turn is queued or running, or whose task waits on a usage limit, is not
-  started again. Any member turn's end, failed or cancelled too, wakes the
-  root's tick.
-- **When the lead wakes** (KUA-302, `domain.LeadWakes`): for a post from
-  the owner (to everyone or to it), a question (`ask`) addressed to it, and
-  what Kuayle sends it: a digest of each member's turn that ended (a
-  `summary` per run, the writer's and every other role's: how it ended, the
-  verdict it gave and the first five lines, at most 800 characters, of its
-  final message, never the transcript), a change in the required checks
-  (the `checks` fact), a stall summary, and the budget passing 50, 80 and
-  100 percent (a `budget` fact, once per mark and again after each
-  extension; the larger of the turns charged and the working time; with a
-  lead, the tick also wakes at the next mark of the time budget). Talk
-  between roles, a message (not a question) addressed to it, the
-  `advisory` fact, facts to everyone and its own refused posts wait for its
-  next turn. A pass starts at most one turn of the lead, and that turn
-  reads everything that came since its last one, so events are batched.
-- **Across issues** (KUA-312). Issues on the same roster share its lead
-  profile. Each issue's lead has its own member task. A later turn resumes
-  that task's native session under the usual harness and machine rules.
-  Each wake includes a fresh, fenced snapshot of the creator's board for
-  the published repository, or the checkout's repository before publication.
-  It lists other active issues in merge order, with their phase (task state
-  for work without a workflow step), merge position and recorded file overlap
-  with this issue. The board uses the same workspace, creator and team
-  visibility as `GET /agent-tasks/board`. The prompt shows when entries are
-  omitted to fit the 4 KiB fence. Changing the board alone leaves the lead asleep.
-- **A role becomes a member at its first turn.** Before that it has no
-  `task_members` row, no task and no runs: an on-call role that nobody
-  addresses costs nothing. Its first turn reads the newest page of the room
-  (what was said before it joined is history, and the post that called it is
-  the newest), and it is created however its harness resumes; a harness that
-  cannot resume (Pi, Crush, a custom one) takes every later turn in a new
-  session with the handoff of its previous one.
-- **Capacity** (KUA-298; `repository/task_member_slot.go`). A role's turn is
-  an agent task, so it takes a task slot like any task
-  ([task machine reuse](../../TECHNICAL.md#resource-limits-and-quotas)): the
-  machine's own `max_tasks`, or the workspace policy's
-  `task_machine_max_tasks` when it has none, bounds the tasks and the roles'
-  turns working on one machine together, counted as placement counts them
-  (tasks there in an active state; `blocked` and `awaiting_review` do not
-  count). A turn runs on its member task's machine, or for a first turn (or
-  when that machine is gone) on the root task's, which `StartMemberTurn`
-  gives it so the slot counts at once; with neither live, placement picks one
-  as for any task. `StartMemberTurn` checks the slot under the workspace lock
-  that placement and attempts take, so two ticks never both take the last
-  one. A turn that finds no free slot is `ErrNoTaskSlot`, a waiting fact
-  (`actionFact`): nothing starts, the role stays in the tick's `queue`, the
-  task's reason ends with "Waiting to start: @role", and the tick polls, so
-  it never stalls or pauses over it. The turns waiting for
-  one machine start oldest unread first, across tasks: a turn also waits
-  while another task's queue holds a role waiting for the same machine whose
-  oldest unread post (`domain.RoomInbox` after its cursor) is older (ties by
-  task and role). A queue entry counts only while its task waits in
-  `awaiting_review` and is not paused, and its role's task rests without a
-  usage limit; each pass rebuilds the queue. The writer's turns are the root
-  task's own attempts, which the existing limit holds when their run starts
-  (`CreateAgentRun`), not the tick.
+A role takes one turn at a time on an issue. The first writer starts the
+root task. Other members are created when first called and pin their
+profile then. Turns read unread room posts addressed to the role or to
+everyone, plus the reasons for its own refused posts. The stored cursor
+lets later turns pick up where the last prompt stopped.
 
-**Verdicts** (table `task_verdicts`; `agent_reviews` stays for requested
-reviews). A member's turn owes a verdict for its pinned commit when the tick
-asked it (`StartMemberTurn(..., askVerdict)`; Kuayle may not post
-`request`), when its unread posts hold a `request` for a review, or when the
-current phase requires its verdict on the head and has none as the turn
-starts. A `verdict` post counts
-only from the member task of its role (`author_member_id`), for the commit its
-turn reads or another one Kuayle published from the root's attempts
-(`dev_machine_git_refs`, source `published`: Kuayle keeps no clone to ask
-git). An abbreviated commit is stored whole; an unknown or ambiguous one is
-refused with the reason. A turn that owes a verdict and posted none is asked
-once more in its own session (`domain.VerdictClosingAsk`, through the
-[closing continuation](#closing-continuation): Claude Code, Codex and
-OpenCode), unless its final message has a `Verdict:` line. When the turn
-ends, that line (`ParseAgentReview`) is posted as the member's verdict.
-Without one, Kuayle posts a `verdict` fact with `"verdict": "none"` ("The
-@reviewer ended its turn without a verdict for commit …"): the check stays
-unmet, and the tick does not ask the role again on that head, so the next
-stall sends the check to the phase's owner. A verdict, or the owner's
-approval, given on an older commit holds for the head only when the head is
-that commit plus merges of the base that Kuayle verified (`verifiedUpdates`).
+- **Writers.** All writers share the root task's worktree. The write lock
+  (`pipeline_state.writer`) can move only between turns. When several
+  writers are called the holder goes first, otherwise roster order decides.
+  Each turn is a root attempt. The prompt includes the original request,
+  current phase and unread room posts. A change of holder starts a fresh
+  session with a handoff. The workflow run records which writer acted.
+- **Reviewers.** Each non-writer uses its own review task, pinned to the
+  issue and reused across turns. Each turn refreshes its own checkout.
+  Claude Code, Codex and OpenCode can mount the pinned commit read-only,
+  leaving the outbox writable. A fallback writable checkout stays private
+  to the role. Kuayle never publishes these tasks or grants them push
+  credentials. They can run alongside the writer. Between turns the task
+  rests in `blocked`, preserving its session. See [session resume and handoff](#native-session-resume-and-handoff).
+- **When a role wakes.** An addressed post calls an idle role. A regular
+  role also responds to a person's or member's broadcast talk, questions
+  and requests, except a broadcast approval. An on-call role needs a
+  direct call or a required verdict. A board update alone wakes nobody.
+  A role already working or waiting on a usage limit stays on its current
+  turn. A finished, failed or cancelled member turn wakes the root tick.
+- **Capacity.** Member turns use the same [task machine slots](../../TECHNICAL.md#task-machine-reuse)
+  as other tasks. A non-writer uses its member task's machine, or the
+  root's for its first turn when available. The workspace placement lock
+  protects the last slot. Full machines queue turns by oldest unread post
+  across tasks. The tick reports the queued roles and polls. The root
+  writer takes its slot when its attempt starts.
+- **Memory.** A turn reads the approved lessons that apply to every task
+  and to its role. A member's `MEMORY` outbox entry proposes a lesson for
+  that role. See [workspace memory](#workspace-memory).
 
-**Facts.** Each pass reads the newest pull request Kuayle published from the
-root's attempts (`PublishedWork`) with `readTaskFacts`, the read the merge
-gate uses, plus each role's latest verdict, the owner's approval, the script
-checks' runs and the board's overlap. What the pass asks of GitHub (these
-reads, a branch update, a CI rerun, the merge) has its own deadline inside
-the worker's step (`tickGitHubTimeout`, 12 seconds, ending at least 5
-seconds before the step does so the pass can still save): a read that runs
-out is a fact that could not be read, not an error, and an action that runs
-out is tried at the next pass. Kuayle posts a `fact` for each value that
-changed since it last posted it, in this order: `pr_exists`, `head_sha`,
-`base_ref`, `pr_draft`, `head_contains_base`, `conflict`,
-`migration_collision`, `ci_green` (state, head and failing checks, with the
-checks' details when it fails), `approved`, `overlap` (the tasks ahead that
-change the same files), `board`, `merged`, `closed`. A fact that blocks a check
-carries its reason and next step (`unmetChecks`). A value Kuayle could not
-read is not posted, and a check on it is `unknown`, never unmet: it is read
-again. Kuayle also posts facts of its own: `turn` (a role's turn failed or
-cannot start, and why), `publication` (publishing the writer's turn failed
-or was skipped), `merge` (the merge gate refused, and why), `script`
-(below) and the `verdict` with `none` above.
+A required review check asks the named role for a verdict on the published
+commit. A direct review request can also ask for one. The room accepts
+`approve`, `request_changes` or `comment` only from the member for that
+role. The commit must be the one pinned to the turn or one Kuayle published
+from this task. An unambiguous abbreviation is expanded. Later review passes
+include the role's last verdict, commit and bounded earlier findings. On a
+new head the prompt supplies the diff range from the reviewed commit. On
+the same head it supplies the findings alone.
 
-**The board in the room** (KUA-293). The `board` fact is the task's place
-on its repository's [board](#merging-only-up-to-date-heads): the other
-active tasks that change some of the same files, in merge order, each
-`ahead` of this task or not, with the shared files (`{"overlap":[{"issue",
-"pull_request","ahead","files","file_count"}],"more"}`, at most 10 tasks and
-5 files each, the text naming them). It is posted to whoever plans the merge
-order: the `lead` when the pipeline has one, otherwise the writer holding
-the write lock (KUA-289; the first writer before the lock moved). It is
-posted only when it changes, from nothing overlapping on: tasks that share
-no file are left out, so their moves post nothing; a change of the overlap
-or of the order among the overlapping tasks posts it again, and the board
-emptying posts "No other active task … changes the same files". It never
-starts a turn by itself: the writer (or the lead) reads it at its next
-turn. The board stays the creator's (below), in the task's workspace.
+A turn that owes a verdict may receive a [closing ask](#closing-continuation).
+Kuayle accepts a final `Verdict:` line if the role did not post its verdict
+in the room. With neither, Kuayle posts a `verdict` fact with value `none`.
+The check remains unmet and the tick routes the stall to its owner rather
+than spending more turns asking for the same verdict.
 
-The facts reader (`service/task_facts.go`, KUA-279) also says what came of
-each action the tick runs, so the tick acts on fact states and handles no
-error of its own: a script check's run for the head (`readScriptFacts`),
-the guarded merge (`readMergeable`: merged, waiting, or refused with a
-reason), a turn or check that cannot start now (`waiting`: the last turn is
-still winding down, the machine is busy or its worktree not ready, no task
-slot is free for the turn) or at all
-(`unmet`: a role whose profile was archived, a prompt or command Kuayle
-refuses; `actionFact`), and a publication that left no pull request
-(`publicationFact`).
+#### Pipeline lead
 
-**Script checks** run the check's `script` as `sh -c` in the root task's
-worktree, through the [manual check](#manual-checks) runner
-(`RunPipelineCheck`), as the task's creator, who needs no permission to run a
-command of their own: the command comes from the pinned version, which only
-the people who manage workflows write. The checks of the phases up to the
-current one run once a pull request is published, once per published commit
-and check, and again on a new head; a run on a commit counts for a head that
-only merged the base into it (`verifiedUpdates`), as verdicts do. While a
-run is under way the check waits, and its end wakes the tick. Exit 0 meets
-the check; another exit leaves it unmet with the end of its output (at most
-2,000 bytes, fenced as data) as the reason. A check that cannot run (no
-ready worktree on a running machine, the machine busy with an attempt) is
-`unknown`, never unmet, and is tried again at the next pass. A check that
-already ran on the newest published commit is not run on it again when the
-head is a commit someone else pushed (the writer's worktree does not hold
-it): it is `unknown` until Kuayle publishes the head. Each result is
-posted once as a `script` fact (check, commit, exit code); a failed advisory
-check is posted to its phase's owner and never holds the task up.
+Set the optional `lead.profile_id` to an active workspace profile. On this
+pipeline it runs with the `manages` behaviour. It uses the same isolated
+review-task lifecycle as other non-writers. The lead coordinates the roles,
+maintains the root [task notebook](#task-notebook) and reports to the
+creator. It cannot write code, give review verdicts, grant authority or post
+facts.
 
-**The tick** (KUA-273; `service/team_tick.go`, `repository/pipeline_tick.go`,
-migration 208; a person's decisions in `service/workflow_pipeline.go`). `AgentTaskService.step` runs a task marked `pipeline` through
-the tick instead of the graph runner. The root task is the writer: when its
-turn ends, a turn that changed the work (or any, while nothing is published
-yet) is published once, a failed one is posted as a `turn` fact, and the
-task waits in `awaiting_review`, where a pass runs on every wake. A
-publication runs on the machine, which may publish only while the task is
-`publishing`: the task stays there while the worker reads it queued or
-running, and only its outcome reaches the tick (KUA-297). The
-tick keeps its position in the workflow columns (`workflow_node` is the
-current phase; `workflow_status`, `workflow_wake_at`, `workflow_sequence`;
-`workflow_iterations` counts the turns charged; the budget clock), so the
-claim query, pause, resume and the existing views keep working, and its
-memory between passes in `agent_tasks.pipeline_state`: the facts last posted,
-the room read so far, the accepted waivers, which head each role was asked
-about, the approval, the last published turn, branch updates, the CI rerun,
-the merge, the script checks' runs, since when the phase waits on checks
-that change by themselves, the stall counter, and the roles whose turn could
-not start yet (`queue`). Every save is fenced by
-the worker's lease, the task's `workflow-runner` advisory lock and its
-sequence, which moves on only when the phase or the status changes or a
-person decides. One pass:
+A lead can move forward, back or past a phase with a reason, for example
+`kuayle-say --to @all --phase review "The pull request is ready for review"`.
+The move chooses the work to do next. All required checks through the chosen
+phase still count. Once they hold, the lead chooses the next phase. Without
+a lead, the tick selects the first phase with an outstanding required check,
+or the last phase when all hold.
 
-1. reads the facts, the verdicts, approval and script runs that hold for the
-   head, the overlap and the room since the last pass (a `waiver` covers the head
-   the room last named, or every head when standing). A verdict or a script run holds
-   across merges of the base that Kuayle verified on top of its commit, up to
-   `maxUpdateChain` (12); the owner's approval across at most
-   `maxMergeUpdates` (3) of them, the merge's own (KUA-277). A pull request that cannot be
-   read, or GitHub that does not answer in time, is waited for: nothing is
-   posted or started, and the pass runs again in a minute;
-2. posts the facts that changed and each script check's result once;
-3. takes the first phase with a required check that does not hold and is not
-   waived for the head as the current one (the last phase when every check
-   holds), and posts `phase` when it changes. With a lead (KUA-301,
-   `service/team_lead.go`) the tick derives no phase: the task is in the
-   phase the lead last moved it to (the first one until it moves), and its
-   unmet checks are the required checks of that phase and of every phase
-   before it that do not hold and are not waived, so a move skips no check
-   the merge needs. When they all hold before the last phase, the lead owes
-   the next move, which is unmet as a check of its own (`phase:<id>`, "move
-   the task on"). With a lead, Kuayle also posts the checks' states to the
-   lead when they change: a `checks` fact for the required ones and an
-   `advisory` fact for the others (each a map from check ID to `met`,
-   `unmet`, `waiting` or `waived`, with the reasons of those that do not
-   hold; a check that cannot be read keeps its last state), a digest of each
-   member's turn that ended and the budget's marks (below, "When the lead
-   wakes");
-4. completes the task when the pull request is merged, and publishes a
-   finished turn of the writer that was not published yet;
-5. starts the script checks of the phases up to the current one that have no
-   run for the head (or could not run);
-6. acts through the existing code, each action at most once per head or
-   turn: posts each member's turn that failed; brings a branch that is behind
-   its base and merges cleanly up to date (`updateBranch`, at most
-   `maxMergeUpdates`, 3, per published commit, and once the owner's approval
-   holds for the head as many again counted from the approved head, so a busy
-   base cannot spend the approved merge's updates; KUA-277); runs the failed Actions jobs
-   once more when CI still fails on a head the writer was already sent and
-   did not change; asks each role whose verdict an unmet required check
-   needs and that has none for the head, once per head; and waits for the
-   owner's approval when an `approved` check is unmet;
-7. at the guarded last phase, once every required check holds, merges
-   through the merge gate as the person who approved the head (the creator
-   when the approval was waived), who must still be allowed to decide. A
-   merge that waits on the gate longer than `mergeWaitTimeout` (2 hours) is
-   refused. A refused merge is a `merge` fact; when the facts read next send
-   the work back to an earlier phase, the merge starts afresh once they hold
-   again, and otherwise the task pauses for a person (Continue, or a new
-   approval, tries again). The guarded phase also needs a head that does not
-   conflict with its base while GitHub says it does, whatever was waived: no
-   merge can happen then, and the conflict is an unmet `conflict` check the
-   writer resolves (KUA-309), not a refused merge for a person. A pipeline
-   without a guarded phase completes once every check holds;
-8. starts a turn for every idle role other than the writer, and for the
-   lead, whose unread posts call for one, owing a verdict when the phase
-   requires its verdict, while its machine has a free task slot (capacity,
-   above);
-9. when nobody works, nothing is under way and nothing is awaited, posts the
-   current phase's unmet checks with their reasons as a `summary` to the
-   lead, or without a lead to the phase's owner (the writer for a phase
-   Kuayle owns), and to the writer as
-   well, lead or not, when only the writer can move an unmet check
-   (`writerActs`): a verdict check, whoever owns the phase, when the role's
-   verdict on the head did not approve it, or the role reviewed the newest
-   commit Kuayle published and the head is another one (someone else pushed
-   it, and roles review only what Kuayle published); and, unless a person
-   owns the phase, any check a commit of the writer moves that Kuayle no
-   longer acts on: no pull request yet, the branch behind or conflicting with
-   its base, a migration collision, failed CI, a script check that failed or
-   that cannot run on a head Kuayle did not publish (KUA-309).
-   A role's turn starts on it in the same pass; for a phase a person owns,
-   the task waits for the person (unless the writer was sent it too), the
-   budget clock held, and is announced once. What changes by
-   itself (CI running, a check run under way, a fact not readable) is
-   awaited, and read again every minute, for at most `mergeWaitTimeout` on
-   the same head and checks; after that it is sent on like any unmet check,
-   so checks that never report stall too. The stall counts rounds without
-   progress on the same head, phase and unmet checks: such a summary pass,
-   and a turn of the writer that ended (and was published) without changing
-   them, whoever's post started it (the summary pass right after that turn
-   is the same round); a turn that publishes a new head or changes the unmet
-   checks starts the count again (KUA-297). The third round pauses instead
-   (`blocked`, status `paused`) and asks a person;
-10. starts the writer's turn when its unread posts call for one (a summary
-    addressed to it does);
-11. charges every turn it starts, writer's or member's, and the working time
-    to the pipeline's budget like a graph workflow's iterations, the clock
-    held while a person is awaited: a turn the budget has no room for is not
-    started, and a used-up budget pauses for a person (`ask`) or fails the
-    task (`fail`);
-12. otherwise waits for the next wake, or polls in a minute while something
-    changes by itself (CI running, a check run, a fact not readable, a role
-    or the writer still winding down, a role's turn waiting for a task slot,
-    a branch update or a merge under way).
+The lead wakes for creator posts it can read, questions addressed to it,
+a digest of a finished member turn, changed required checks, a stall, or
+budget usage crossing 50, 80 or 100 percent. Events accumulate for one turn.
+Advisory changes and ordinary talk between roles wait for its next turn.
+A lead `summary` stays in the room and creates one inbox notification for the
+creator when **Other issue updates** is enabled and the issue is visible. A
+linked, enabled Telegram bot can deliver the same report. See [task notifications](telegram.md#task-notifications).
 
-The tick has no branch for a particular failure: a new situation is a fact
-with a reason, sent to whoever owns the phase.
+A roster can reuse a lead profile across issues, but each issue has its own
+member task and session. Every lead turn includes a fresh snapshot of the
+creator's [repository board](#merging-only-up-to-date-heads), fenced and
+bounded to 4 KiB. It lists other visible active issues in merge order with
+their phase or task state and shared files. Separately, the room's `board`
+fact reports changes in overlap, including tasks ahead and behind. It goes
+to the lead, or the current writer on a pipeline without a lead. Neither
+the board fact nor a board change by itself calls a turn.
 
-**Liveness** (KUA-278). `TestTickLiveness`
-(`service/team_tick_liveness_test.go`) plays seeded random sequences of what
-happens around a pipeline task (pushes, CI results, base moves and conflicts,
-verdicts, the owner's approvals, decisions and posts, member turns that
-finish, fail or are cancelled, publications under way for a pass or two,
-GitHub failing or answering too slowly, script check results, merges
-refused, the budget running out, another task on the repository's board
-moving, other work taking the machine's task slots, and in half the seeds
-a lead that moves the task at random and posts what it may not, and that
-writers ask questions or send messages; KUA-301, KUA-302) through the
-scenario tests' worker, tick, repository and room. After every worker step
-the task must be working (a turn or its publication under way), waiting on
-a fact that changes by itself with a wake at most one poll away, waiting
-on a person (paused, or the clock held for a person), or ended with no
-member's turn left running; the room must never have heard of a
-publication still under way; and the writer never starts more than
-`tickStallLimit` turns in a row on the same stall key unless a person
-decided in between; after the
-sequence, with everyone cooperating, it must end, needing at most one
-Continue beyond its budget's. A failure prints its seed
-and events: `TICK_LIVENESS_SEED=<n>` replays one sequence,
-`TICK_LIVENESS_SEEDS` and `TICK_LIVENESS_FROM` play more, and
-`TICK_LIVENESS_TRACE=1` lists the events of passing seeds too.
+#### Pipeline tick
 
-**Wakes.** The worker runs a pass when `workflow_wake_at` is due. It is set
-by a CI result from GitHub (and its failure details, once read), a move of
-the pull request's base branch (`WakeBaseBranchWaits`, also while the owner is
-awaited), the end of a
-member's turn or of a script check's run, a person's post, decision or
-resume, and the tick's own poll or the time budget's end (not while a person
-is awaited; an end that has passed, because a pass could not read GitHub to
-stop the task, is looked at again after a poll). A pull request merged on GitHub completes the task
-directly. A wake that lands while a pass runs is kept: the pass stores the
-earlier of that wake and its own (`PipelineApply.ClaimedWake`), so it is
-never lost.
+The [tick](../internal/service/team_tick.go) runs on the root task's worker.
+It reads the newest published PR, the room cursor, verdicts, approval, script
+results and board. It posts changed facts, with reasons where a check blocks.
+Room values such as `head_sha`, `base_ref` and `board` provide context.
+The lead also receives `checks`, `advisory` and `budget` updates. Only the
+[check facts](#pipeline-checks) can appear in a pipeline definition.
 
-**Decisions.** `POST /agent-tasks/:taskId/workflow/decision`, with the
-`sequence` the person saw, from the creator or an owner or admin who can see
-the issue, as for a graph workflow (offered in the task's workflow panel):
+1. A successful writer turn goes through [publication](#publication) once
+   when it changed the work or the task has no published PR. The root stays
+   in `publishing` while publication is queued or running. Only the terminal
+   outcome reaches the tick. Failure or a skipped publication can yield a
+   `publication` fact. A failed turn yields a `turn` fact.
+2. The tick starts script checks, asks for missing verdicts and wakes idle
+   roles when their inbox calls them. It can update a clean, eligible branch
+   that is behind its base and rerun failed CI once on an unchanged head.
+   Unreadable GitHub state is retried. A check that could not be read is
+   unknown. A running check or a queued turn waits for a wake or poll.
+3. At the final phase, with a published PR and all required checks met or
+   waived, an unguarded pipeline completes. A guarded pipeline uses the
+   [merge gate](#merging-only-up-to-date-heads) for the recorded head and
+   approver (the creator for delegated or waived approval). A refused merge
+   produces a `merge` fact. If later facts cannot send the work back to an
+   earlier phase, the task pauses for a decision. While GitHub reports that
+   the head conflicts with its base, the guarded phase also has an unmet
+   `conflict` check, whatever was waived: no merge happens and the writer
+   resolves it (KUA-309).
+4. When work stalls, Kuayle sends the unmet checks and reasons to the lead,
+   or to the phase owner if there is no lead. The writer also gets the
+   summary, lead or not, when only it can move an unmet check (`writerActs`):
+   review findings, or a head someone else pushed that no role can review;
+   and, unless a person owns the phase, a missing pull request, a branch
+   behind or conflicting with its base, a migration collision, failed CI, or
+   a script check that failed or cannot run on a head Kuayle did not publish
+   (KUA-309). Three rounds without
+   progress on the same head, phase and checks pause the task. A writer
+   turn that leaves the same stall unresolved counts toward that limit. Working
+   time and every turn count against the budget. Time waiting for a person
+   is held.
 
-- `approve`, where the current phase (with a lead, any phase up to it) has
-  an `approved` check and the task waits, records that person's approval of
-  the head the room last named and starts a new merge;
-- `continue`, where the tick paused, asks every role again, counts stalls
-  and waits anew, tries a refused merge again and grants another budget of
-  the same size when it is used up;
-- `stop`, where it paused, fails the task.
+The worker lease, the task's advisory lock and its workflow sequence fence
+each save. A concurrent wake is preserved. Base pushes, CI updates, the end
+of member turns or script checks and human posts or decisions wake the
+task. While waiting for external state, the tick normally polls once a
+minute. The [facts reader](../internal/service/task_facts.go) translates
+action outcomes into facts with reasons (`actionFact`, `readMergeable`).
+Handle a new situation there rather than branching on its error in the tick.
+[TestTickLiveness](../internal/service/team_tick_liveness_test.go) checks
+that the task works, waits on a scheduled wake or person, or finishes with
+its members stopped. Replay a failing seed with `TICK_LIVENESS_SEED`.
 
-Anything else, `deny` included, answers `409 WORKFLOW_CONFLICT`. The
-decision reads the task as it is locked for it, so a pass that ran meanwhile
-is neither lost nor overwritten. Each decision is recorded in
-`workflow_audit_events`. The creator's
-[pause and resume](#pause-and-resume) apply as to a graph workflow (a pause
-asked for while the writer's turn is being published takes effect once the
-publication ended, and resuming reads its outcome again), and a
-retried pipeline task starts again with its writer's turn, on another budget
-of the same size, asking every role again.
+`POST /agent-tasks/:taskId/workflow/decision` accepts the displayed
+`sequence` from the creator or a workspace owner or admin with issue
+visibility. **Approve** records the room head while the task is waiting
+at an approval check (with a lead, a check through its current phase).
+**Continue** after a tick pause resets the stall, retries reviews and a
+refused merge, and extends an exhausted budget by the same allowance.
+**Stop** at that pause fails the task. Other decisions or a stale sequence
+return `409 WORKFLOW_CONFLICT`. Kuayle audits the decision under the task
+lock. Creator [pause and resume](#pause-and-resume) also apply. A retry
+starts again with a writer turn and a fresh budget.
 
-**Routes and events** (session-only and behind the demo guard, like every
-task route):
+#### Pipeline run view
 
-- `GET /agent-tasks/:taskId/room?after=<seq>` (at most 200 posts, oldest
-  first, refused ones with their reason; `Cache-Control: private, no-store`)
-  and `POST /agent-tasks/:taskId/room` (`kind`, `body`, `to`, `data`,
-  `reply_to` and a `request_id` that makes a repeated post return the first)
-  are the creator's (`lockAgentTask`). A task not pinned to a pipeline answers
-  `409 ROOM_UNAVAILABLE`.
-- `POST /agent-tasks/:taskId/room/:seq/approve-split` approves the stored
-  proposal at that sequence. It takes no body, requires the creator’s session
-  and issue creation permission in the parent’s team, and returns `204`.
-- `GET /agent-tasks/:taskId/workflow` (`StepRuns`) lists the runs of the
-  members' tasks with the `role` each played (the root's own runs are the
-  writer's); a member run's transcript is read through its `task_id`, the
-  member's task, which has the root's creator.
-- `task.room_message` carries each stored post to the conversation; the
-  task's transitions and workflow events are the existing ones.
+Open a pipeline task to see its room. On wide screens the task column sits
+beside the room and the right panel can be resized. Narrow layouts use
+drawers. The composer posts a message to the room. Filter the thread by
+role or decision, expand grouped facts for the reasons, or open a role's
+turn for its messages, verdict, duration, token usage and transcript.
+The view uses conversation events and fetches missing sequences after a
+gap. Member runs appear under the root with their role in
+`GET /agent-tasks/:taskId/workflow`.
 
-**The view** (KUA-268, KUA-286). The agent view of a task marked `pipeline`
-shows its room instead of a timeline (`TaskRoom.svelte`, rows from
-`task-room.ts`), one line per event: the creator's posts; Kuayle's facts in a
-row folded into one line ("CI running, then CI passed") that opens to each
-fact with Kuayle's reason, while its phase moves, the `approved` fact and a
-fact addressed to the owner stand alone; and each role's turn (its posts with
-one `run_id`) as one line with the role, the first line of the run's final
-message (`summary`, else of its newest post), the duration, the tokens it
-worked through (input plus output) and its status, with its verdict and a
-question marked. The line opens to the harness and model, the turn's posts (a
-refused one muted with its reason) and the run's transcript. The thread is
-filtered by role (lines a role wrote or that are addressed to it) or to the
-decisions (phase moves, verdicts, waivers, grants, the approval). The room is
-read once, kept by `task.room_message` events (`ConversationState.taskRooms`,
-once per `seq`) and read on from the last unbroken `seq` when the task's run
-is read again or a post arrives after a gap. The composer posts a `say` there
-(text only, with a `request_id`). The workflow panel (KUA-304) draws the
-pinned phases from left to right and highlights the task's current phase.
-Below the chart it lists the roster, marks roles with a running turn, and
-shows each check with the reason and timestamp available from the room
-(`task-checks.ts`, as the Checks tab below); it reads the same room as the
-thread (`TaskRun.loadRoom`). The panel offers approve, continue and stop when
-the task allows them.
-
-**Checks tab** (KUA-286, `TaskChecks.svelte`, `task-checks.ts`). A side panel
-tab lists each check of each phase with its state for the head (met, not met,
-waiting, not known yet, waived), Kuayle's reason and since when, read from the
-room only: the facts Kuayle posted when they changed, the roles' verdicts and
-the creator's waivers, judged as `TaskFacts.judge` does (every check needs the
-pull request; a verdict or script result counts for the head it names; a
-waiver for the head the room last named). Without a lead, the required checks
-of a phase before the current one are shown met, since the tick only moved
-past it when they held or were waived. A verdict that covers the head through
-Kuayle's base merges alone (`verifyUpdate`) is not known to the view and reads
-as one for an earlier commit. The creator approves there, through the
-workflow decision route the tick reads (the room has no approval kind; Kuayle
-posts the `approved` fact afterwards), and waives a required check that does
-not hold by posting a `waiver` to the room through `POST /agent-tasks/:taskId/room`
-(session-only, creator-only through `lockAgentTask`, with a `request_id`).
-The tab is offered for a pipeline task; the server decides who may use it.
-Browser coverage: `UI/tests/e2e/task-thread.test.ts` (filters, folding, a graph
-workflow's steps, the Checks tab), with the models in
-`UI/tests/unit/thread-rows.test.mjs`, `task-room.test.mjs` and `task-checks.test.mjs`.
-
-**Limits of this first version.**
-
-- The lead's `summary` posts stay in the room; they do not reach the
-  owner's notifications yet (P5.4). Running lead turns is separate from
-  permission to approve or waive a check (grants and waivers, above).
-- Writers write one at a time, on the root task; the other roles never
-  publish and have no push credential. A read-only member cannot run a
-  command that writes into its worktree (some test runners do).
-- Advisory checks other than `script` ones are shown, not acted on.
-- No `deny`: a person approves the head or, where the tick paused, continues
-  or stops it.
-- The owner's composer posts only `say`; `ask`, `request`, `waiver`, `grant`
-  and `reply_to` are API only. Requests for `merge` or `publish` are stored and
-  can start a role’s turn. A lead’s `split` request offers the creator the
-  approval action in the room.
-- A member has no task card of its own: its turns are rows of the root's
-  room and runs of the root's workflow view, with their role.
-- The board the tick reads is the creator's (the board's visibility), so
-  `overlap` and `board` see only the creator's own active tasks on the
-  repository. A `board` fact addressed to the `lead` waits until a lead
-  runs. The board reads a pipeline task's approval from what the tick last
-  posted: a new head GitHub reported before the tick read it is not
-  approved, and while GitHub cannot say whether the approval still holds
-  for a new head, the board keeps the tick's last answer.
+The **Workflow** panel shows the pinned phases left to right, highlights the
+current phase and marks the active roster roles. **Checks** shows each
+phase's required and advisory checks, their latest known state, reason and
+time. These views read the room. A missing fact is unknown, and the server
+can recognize a verified base update that a displayed verdict cannot.
+The creator can approve the head or waive a required check from Checks.
+The workflow panel offers the decisions available at the current state.
+The [Files panel](#files-at-a-commit) shows the tree and preview for one
+commit, with the stored diff available for changed files.
 
 ### Moving a task to a newer workflow version
 
-A task is pinned to the workflow version it started on; saving the workflow
-only affects later tasks. Its creator can move a running task to the newest
-version (KUA-130). It is never automatic.
+Saving a graph workflow affects later tasks. The creator of a running graph
+task can move it to the newest compatible graph version. The task stays on
+its pinned version until the creator confirms the move.
 
 - `GET /agent-tasks/:taskId/workflow/switch` says what the move would do and
   changes nothing: `from_version`, `to_version`, the step the task continues on
@@ -3858,8 +3388,8 @@ version (KUA-130). It is never automatic.
 
 ### Continuing on a chosen workflow step
 
-The task creator can pick a destination workflow and step from **Continue on
-another workflow…** in the task card menu (KUA-174). The rest rule in
+On a graph task, the creator can pick a destination graph workflow and step
+from **Continue on another workflow…** in the task card menu. The rest rule in
 `domain.WorkflowSwitchBlocked` allows a switch when a person has paused the
 task and its attempt has stopped, or when the task is waiting in the workflow.
 Confirming the switch releases the pause and the worker enters the selected step.
@@ -4014,7 +3544,7 @@ collected, `Manager.settleClosing` lists what is missing, each as a
 | --- | --- | --- |
 | a reply to a delivered message of the task's owner ([live channel](#live-channel)) | an attempt that ended well | `domain.ReplyClosingAsk`: the message numbers and the reply format |
 | a task notebook update that counts ([below](#task-notebook)) | a concluded attempt assigned to update the notebook | `domain.NotebookClosingAsk`: the validator's message, write the file now |
-| a plan short enough to hand on whole ([planning steps](#workflows)) | a planning step whose plan was cut | `domain.PlanClosingAsk`: rewrite it under `domain.PlanMaxCharacters` (12000) characters |
+| a plan short enough to hand on whole ([planning steps](#configurable-workflows)) | a planning step whose plan was cut | `domain.PlanClosingAsk`: rewrite it under `domain.PlanMaxCharacters` (12000) characters |
 
 `Manager.askToClose(ctx, attempt, asks)` then continues the attempt's own
 session once with one short prompt (`domain.ClosingPrompt`) that lists them,
@@ -4201,18 +3731,6 @@ vars, runtime credentials or tokens, log chunks or diffs, or the closing
 continuation's command line (only when it was asked and for how long). There
 is no Debug view in the app: the action downloads the file, and the file is
 the input for an LLM.
-
-## Remaining workflow work
-
-The worker progresses through preparation, native execution (with native
-session resume), publication to `awaiting_review`,
-and completes when the recorded pull request merges. CI failures and trusted
-change requests queue bounded follow-up attempts. Work can also be accepted in
-Kuayle without merging. Agents coordinate through issues, dependencies, the
-related-work context and [agent messages](#agent-messaging), never through
-shared branches. A successful process exit must never mark an issue Done.
-Team workflows are experimental; what their first version does not do is
-listed under [team workflows](#team-workflows-experimental).
 
 ## HTTP controls and replay
 
