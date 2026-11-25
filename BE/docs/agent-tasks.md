@@ -3106,6 +3106,20 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   another turn gets the profile's instructions and answers what it was asked.
   When the role's previous turn read another commit, the prompt names
   `git diff <old> <new>` so it checks what changed.
+- **Delta reviews** (KUA-292). A role's second and later review passes (a
+  turn asked for a verdict once the role has given one) carry "Your earlier
+  review" (`domain.MemberReview`, read by `earlierReview` when the turn
+  starts): the commit its latest verdict named and that verdict, the head it
+  reviews now, `git diff <reviewed>..<head>` to start from, and its own
+  earlier findings, fenced as data: the verdict's text and the final message
+  of its last turn, each at most 2,000 bytes (`MemberFindingsBytes`; a final
+  message that carries the findings quotes them once). Asked again on the
+  commit it reviewed, it gets its findings without a diff. The block is part
+  of the turn's prompt, so a turn that resumes the role's session gets it as
+  well, and the handoff does not repeat the final message it quotes. The
+  first pass, and a turn that only answers the room, are unchanged. Whether
+  a verdict holds for a newer head is not changed by this: across merges of
+  the base Kuayle verified it still holds, and the role is not asked again.
 - **When a turn starts** (`domain.RoomWakes`): when the role's unread posts
   hold one addressed to it, or a `say`, `ask` or `request` that a person or
   another role wrote to everyone. A fact, phase move, verdict or summary to

@@ -200,6 +200,11 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 	if member != nil && member.PinnedCommit != nil {
 		turn.Since = *member.PinnedCommit
 	}
+	if member != nil {
+		if turn.Reviewed, err = earlierReview(ctx, tx, *member); err != nil {
+			return nil, err
+		}
+	}
 	if target != nil {
 		turn.VerdictAsked = askVerdict || domain.RoomReviewRequested(domain.RoomInbox(role, posts))
 		if turn.CI, err = recordedReviewCI(ctx, tx, published, target.CommitSHA); err != nil {
@@ -274,6 +279,21 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		return nil, err
 	}
 	return member, tx.Commit()
+}
+
+// earlierReview is what a member's earlier review left for its next pass
+// (P4.4): its role's latest verdict, and the final message of its last
+// turn (the newest run of its task, as PreviousAttempt orders them); nil
+// before the role gave a verdict.
+func earlierReview(ctx context.Context, tx *sqlx.Tx, member domain.TaskMember) (*domain.MemberReview, error) {
+	var review domain.MemberReview
+	err := tx.GetContext(ctx, &review, `SELECT v.commit_sha,v.verdict,v.findings,
+ COALESCE((SELECT r.summary FROM dev_machine_agent_runs r WHERE r.task_id=$4 AND r.workspace_id=$2 ORDER BY r.created_at DESC,r.id LIMIT 1),'') AS last_message
+ FROM task_verdicts v WHERE v.task_id=$1 AND v.workspace_id=$2 AND v.role=$3 ORDER BY v.seq DESC LIMIT 1`, member.TaskID, member.WorkspaceID, member.Role, member.MemberTaskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &review, err
 }
 
 // pipelinePublicationRun is the last run of a pipeline task (t) that
