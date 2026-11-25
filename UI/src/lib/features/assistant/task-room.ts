@@ -89,6 +89,18 @@ export function roomRows(messages: readonly TaskMessage[]): RoomRow[] {
 	return rows;
 }
 
+/**
+ * Whether a row starts open: a role's turn that holds a split the owner has
+ * not approved yet (roomSplits), so the proposal and its approval are in view
+ * in the folded thread (KUA-309). Every other turn starts folded.
+ */
+export function openByDefault(row: RoomRow, splits: ReturnType<typeof roomSplits>): boolean {
+	return row.type === 'member' && row.messages.some((message) => {
+		const split = splits.get(message.seq);
+		return !!split && !split.approved;
+	});
+}
+
 /** The roles a row concerns: the role that wrote it, or the roles it was addressed to. */
 export function rowRoles(row: RoomRow): string[] {
 	if (row.type === 'member') return [row.role];

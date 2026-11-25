@@ -19,7 +19,7 @@
 	import AgentStepRun from './AgentStepRun.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import TurnLine from './TurnLine.svelte';
-	import { factLabel, foldText, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow } from './task-room';
+	import { factLabel, foldText, openByDefault, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow } from './task-room';
 	import { shownRows, turnSummary, workTokens, type ThreadFilter } from './thread-rows';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
@@ -114,6 +114,8 @@
 		return ms === undefined || ms < 1000 ? '' : formatDuration(ms);
 	}
 	let opened = $state<Record<string, boolean>>({});
+	// A turn holding a split the owner has not approved starts open.
+	const turnOpen = (row: RoomRow) => opened[row.key] ?? openByDefault(row, splits);
 
 	const phaseLabel = (id = '') => run.pipeline?.phases.find((phase) => phase.id === id)?.label || id;
 	const verdictLabel: Record<string, () => string> = {
@@ -360,7 +362,7 @@
 			>{/if}
 	{/snippet}
 	<Message.Root align="start" role="article" aria-label={row.role} data-row="turn">
-		<Collapsible.Root class="min-w-0 flex-1" bind:open={() => opened[row.key] ?? false, (open) => (opened[row.key] = open)}>
+		<Collapsible.Root class="min-w-0 flex-1" bind:open={() => turnOpen(row), (open) => (opened[row.key] = open)}>
 			<Collapsible.Trigger
 				class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
 			>
@@ -375,7 +377,7 @@
 				/>
 			</Collapsible.Trigger>
 			<Collapsible.Content>
-				{#if opened[row.key]}<div class="ml-2.5 flex min-w-0 flex-col gap-3 border-l py-3 pl-4 sm:pl-5">
+				{#if turnOpen(row)}<div class="ml-2.5 flex min-w-0 flex-col gap-3 border-l py-3 pl-4 sm:pl-5">
 						{#if known}<p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground" data-testid="turn-details">
 								{#if known.provider}<AgentLogo agent={known.provider} size="sm" class="size-4" /><span
 										>{agentInfo(known.provider).name}</span

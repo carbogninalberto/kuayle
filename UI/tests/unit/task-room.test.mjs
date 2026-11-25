@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { factLabel, foldText, mergeRoom, readRoomPages, roomRead, roomRows, roomSplits, rowRoles } from '../../src/lib/features/assistant/task-room.ts';
+import { factLabel, foldText, mergeRoom, openByDefault, readRoomPages, roomRead, roomRows, roomSplits, rowRoles } from '../../src/lib/features/assistant/task-room.ts';
 
 // The room of a pipeline task as rows: what the owner, Kuayle and each
 // role's turn posted, in the room's order.
@@ -276,4 +276,17 @@ test('a pipeline run reads every room page after the last contiguous post', asyn
 	assert.deepEqual(afters, [1, 201]);
 	assert.equal(room.length, 202);
 	assert.equal(room[2].body, 'arrived live');
+});
+
+test('a turn holding a split the owner has not approved opens by default, so its approval is in view', () => {
+	const issues = [{ title: 'Search by identifier', description: 'Add exact identifier matching.' }];
+	const proposal = { ...member(1, 'lead', 'run-lead', 'request', 'Two parts'), data: { action: 'split', issues } };
+	const talk = member(2, 'reviewer', 'run-rev', 'say', 'Looks right.');
+	let room = [proposal, talk];
+	let rows = roomRows(room);
+	assert.equal(openByDefault(rows[0], roomSplits(room)), true);
+	assert.equal(openByDefault(rows[1], roomSplits(room)), false, 'other turns stay folded');
+	room = [...room, { ...kuayle(3, 'fact', { fact: 'split_approved' }), reply_to: 1 }];
+	rows = roomRows(room);
+	assert.equal(openByDefault(rows[0], roomSplits(room)), false, 'once approved it folds like any turn');
 });
