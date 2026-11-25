@@ -339,6 +339,7 @@ test('the creator reads the proposed sub-issues and approves the exact split fro
 	});
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 	const proposal = page.getByRole('article', { name: 'lead' });
+	await expect(proposal).toBeVisible({ timeout: 20_000 });
 	const approve = proposal.getByRole('button', { name: 'Create sub-issues' });
 	for (const issue of issues) {
 		await expect(proposal).toContainText(issue.title);
