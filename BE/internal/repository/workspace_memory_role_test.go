@@ -160,3 +160,38 @@ func TestARolesLessonsReachOnlyThatRole(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, role, "a review that is no member's plays no role")
 }
+
+// With several writers (KUA-289) the root task plays the writer holding
+// its write lock: that writer's turn reads the lessons for its role, and a
+// MEMORY line of the turn proposes for it, wherever the lock moves.
+func TestTheRootTaskPlaysTheWriterHoldingTheWriteLock(t *testing.T) {
+	f := newRoleMemoryFixture(t)
+	_, err := f.repo.Members(f.ctx, f.task.ID)
+	require.NoError(t, err)
+	implementer := f.reload("implementer")
+	hold := func(role string) {
+		t.Helper()
+		tx, err := f.db.Beginx()
+		require.NoError(t, err)
+		defer tx.Rollback()
+		var root domain.AgentTask
+		require.NoError(t, tx.Get(&root, `SELECT * FROM agent_tasks WHERE id=$1`, f.task.ID))
+		require.NoError(t, holdWriteLock(f.ctx, tx, &root, domain.PipelineMember{Role: role, ProfileID: implementer.ProfileID, Writer: true}))
+		require.NoError(t, tx.Commit())
+	}
+	role := func() string {
+		t.Helper()
+		var root domain.AgentTask
+		require.NoError(t, f.db.Get(&root, `SELECT * FROM agent_tasks WHERE id=$1`, f.task.ID))
+		role, err := f.memory.TaskRole(context.Background(), root)
+		require.NoError(t, err)
+		return role
+	}
+
+	hold("styler")
+	require.Equal(t, "styler", role())
+	require.Equal(t, "styler", *f.propose(f.task.ID, "Use the design tokens.").Role)
+	hold("implementer")
+	require.Equal(t, "implementer", role(), "the lock moved back")
+	require.Equal(t, "implementer", *f.propose(f.task.ID, "Run make check before pushing.").Role)
+}

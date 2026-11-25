@@ -187,7 +187,8 @@ func (s *WorkspaceMemoryService) Audit(ctx context.Context, ws, id uuid.UUID) ([
 // A proposed, dropped or retired lesson is never part of it, and a private
 // team's lesson reaches only that team's tasks. A lesson for a role of a team
 // workflow reaches only the tasks that play that role on a pipeline (the
-// root task for the writer's role, a member's task for its own); every other
+// root task for the role of the writer holding its write lock, a member's
+// task for its own); every other
 // task receives the lessons without a role. The text is what a workspace
 // owner or admin approved, so it is the workspace's own configuration, like
 // the project's agent instructions.

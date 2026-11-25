@@ -2440,8 +2440,10 @@ in the queries all the same.
 [team workflow](#team-workflows-experimental)'s roster (`role`, the roster's role name; `NULL` is every task). An outbox
 lesson from a pipeline task's member is proposed for the role that task plays
 (`WorkspaceMemoryRepository.TaskRole`, read from `task_members` in the task's
-workspace): the root task's for the writer's role, a member's review task for
-its own role, which is how a role that does not write code proposes at all.
+workspace): the root task's for the role of the writer holding its write
+lock (KUA-289; the first writer before any moved it), a member's review task
+for its own role, which is how a role that does not write code proposes at
+all.
 The agent never names the role. Every other task proposes for every task, as
 before. A role's proposal is decided like any other; the API returns `role`
 on each lesson and takes none (`POST /memory/lessons` refuses the field), and

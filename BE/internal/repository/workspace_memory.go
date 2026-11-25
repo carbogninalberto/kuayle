@@ -578,10 +578,13 @@ func (r *WorkspaceMemoryRepository) ApprovedTexts(ctx context.Context, ws, team 
 	return texts, err
 }
 
-// taskRole is the role task $1 plays on its pipeline, in workspace $2: the
-// writer's for a pipeline's root task (its member has no task of its own),
-// a member's for that member's task; no row for any other task.
-const taskRole = `SELECT m.role FROM task_members m WHERE m.workspace_id=$2 AND (m.member_task_id=$1 OR (m.task_id=$1 AND m.member_task_id IS NULL))`
+// taskRole is the role task $1 plays on its pipeline, in workspace $2: for
+// a pipeline's root task, the writer holding its write lock (KUA-289; the
+// writers' members have no task of their own), else its first writer; a
+// member's for that member's task; no row for any other task.
+const taskRole = `SELECT m.role FROM task_members m LEFT JOIN agent_tasks t ON m.member_task_id IS NULL AND t.id=m.task_id AND t.workspace_id=m.workspace_id
+ WHERE m.workspace_id=$2 AND (m.member_task_id=$1 OR (m.task_id=$1 AND m.member_task_id IS NULL))
+ ORDER BY m.role IS NOT DISTINCT FROM t.pipeline_state->>'writer' DESC,m.created_at,m.id LIMIT 1`
 
 // TaskRole is the role a task plays on its pipeline, which decides the
 // lessons for a role it receives; "" for a task that plays none (a task
