@@ -1,6 +1,7 @@
 package service
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
@@ -10,14 +11,18 @@ import (
 // The lead asked to split the issue, as a turn's outbox post does.
 const leadSplitPost = `{"to":"@human","kind":"request","body":"Two parts","data":{"action":"split","issues":[{"title":"Parser","description":"Write the parser"},{"title":"Docs","description":"Document the parser"}]}}`
 
-// splitWorld is a pipeline task with a lead that asks for a split at its
-// turn; the owner calls the lead once the work is published.
+// splitWorld is a pipeline task with a lead that asks for a split when the
+// owner asks it; otherwise it takes the task to the merge, as a lead moves
+// the phases (KUA-301) and wakes for each role's turn (KUA-302).
 func splitWorld(t *testing.T) *tickWorld {
 	t.Helper()
 	w := newTickWorld(t, withLead)
 	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
-		if role == domain.PipelineLeadRole {
+		if prompts := w.runtime.prompts[role]; role == domain.PipelineLeadRole && len(prompts) > 0 && strings.Contains(prompts[len(prompts)-1], "one issue or two") {
 			return tickTurn{final: "Asked for a split.", posts: []string{leadSplitPost}}
+		}
+		if role == domain.PipelineLeadRole {
+			return leadMove("merge", "Everything else is Kuayle's to check.")
 		}
 		return w.writesAndApproves(role, turn, task)
 	}
@@ -31,7 +36,6 @@ func (w *tickWorld) callLead() {
 	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, ToRoles: []string{domain.PipelineLeadRole}, Body: "Is this one issue or two?"})
 	require.NoError(w.t, err)
 	w.drain()
-	require.Equal(w.t, 1, w.runtime.turns[domain.PipelineLeadRole])
 	var requests int
 	require.NoError(w.t, w.f.db.Get(&requests, `SELECT count(*) FROM task_messages WHERE task_id=$1 AND author_role='lead' AND kind='request' AND data->>'action'='split' AND reject_reason IS NULL`, w.root))
 	require.Equal(w.t, 1, requests, "the room took the lead's request")
