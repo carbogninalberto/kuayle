@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -25,6 +26,18 @@ func reviewTurn(t *testing.T, provider, session string, member bool) (domain.Dev
 // reviewTurnAt is reviewTurn for the attempt of that generation.
 func reviewTurnAt(t *testing.T, provider, session string, member bool, generation int64) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
 	t.Helper()
+	role := ""
+	if member {
+		role = "reviewer"
+	}
+	return memberTurnAt(t, provider, session, role, generation)
+}
+
+// memberTurnAt is the attempt of that generation of a review task that runs
+// the turns of a pipeline task's member playing role; "" for any other
+// review.
+func memberTurnAt(t *testing.T, provider, session, role string, generation int64) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
+	t.Helper()
 	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
 		policy:        testPolicy(ws),
@@ -41,9 +54,9 @@ func reviewTurnAt(t *testing.T, provider, session string, member bool, generatio
 	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, Provider: provider, NativeSessionID: session,
 		Summary: "Verdict: request_changes\nThe toggle is not persisted."}}
 	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: provider,
-		Prompt: "You are the @reviewer of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: generation}
-	if member {
-		tasks.member = &domain.TaskMember{ID: uuid.New(), WorkspaceID: ws, TaskID: root, Role: "reviewer", MemberTaskID: &task.ID, State: domain.MemberQueued}
+		Prompt: "You are the @" + cmp.Or(role, "reviewer") + " of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: generation}
+	if role != "" {
+		tasks.member = &domain.TaskMember{ID: uuid.New(), WorkspaceID: ws, TaskID: root, Role: role, MemberTaskID: &task.ID, State: domain.MemberQueued}
 	}
 	runtime := &devMachineTaskRuntime{machines: machines, tasks: tasks}
 	_, err := runtime.Attempt(context.Background(), task)
@@ -182,5 +195,26 @@ func TestOnlyAMembersNextTurnRefreshesItsWorktree(t *testing.T) {
 		refresh, err := runtime.checkoutRefresh(context.Background(), c.task)
 		require.NoError(t, err)
 		require.Equal(t, c.want, refresh, name)
+	}
+}
+
+// The lead manages and reads (KUA-300, invariant 3): every turn of its
+// reads its worktree read-only where its harness can, as the roles that
+// review do, and runs without push, so the machine asks GitHub for no token
+// and its environment has none (TestReviewAttemptsReceiveNoGitHubCredential);
+// nothing it may select is a credential Kuayle manages.
+func TestTheLeadsTurnReadsReadOnlyWithoutCredentials(t *testing.T) {
+	for _, provider := range []string{"claude-code", "codex", "opencode"} {
+		for _, generation := range []int64{1, 2} {
+			run, _ := memberTurnAt(t, provider, "", domain.PipelineLeadRole, generation)
+			require.True(t, run.WorktreeReadOnly, "%s, turn %d", provider, generation)
+			require.False(t, run.PushBranch, "%s, turn %d: no push, so no GitHub token", provider, generation)
+			var secrets []string
+			require.NoError(t, json.Unmarshal(run.AllowedSecrets, &secrets))
+			for _, name := range secrets {
+				require.False(t, name == "GITHUB_TOKEN" || strings.HasPrefix(name, "KUAYLE_"), "%s gets %s", provider, name)
+			}
+			require.Contains(t, run.Prompt, "You are the @lead")
+		}
 	}
 }

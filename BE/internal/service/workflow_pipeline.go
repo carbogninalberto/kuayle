@@ -34,8 +34,8 @@ func (s *AgentTaskService) pipelineRefusal(raw []byte) error {
 
 // startablePipeline checks a pipeline a task starts on, as runnableWorkflow
 // checks a graph: valid with the workspace's active profiles, and every role
-// allowed by the workspace policy. It returns the writer's profile, whose
-// harness and model the first turn runs.
+// and the lead allowed by the workspace policy. It returns the writer's
+// profile, whose harness and model the first turn runs.
 func (s *AgentTaskService) startablePipeline(ctx context.Context, ws uuid.UUID, version *domain.WorkflowVersion) (*domain.Pipeline, domain.AgentProfile, error) {
 	pipeline, err := domain.ParsePipeline(version.Graph)
 	if err != nil {
@@ -48,7 +48,7 @@ func (s *AgentTaskService) startablePipeline(ctx context.Context, ws uuid.UUID, 
 	if len(domain.ValidatePipeline(*pipeline, profiles)) > 0 {
 		return nil, domain.AgentProfile{}, ErrWorkflowUnusable
 	}
-	for _, member := range pipeline.Roster {
+	for _, member := range pipeline.Members() {
 		if err = s.profilePolicy(ctx, ws, profiles[member.ProfileID]); err != nil {
 			return nil, domain.AgentProfile{}, err
 		}

@@ -2990,13 +2990,16 @@ on save and again when a task starts:
   is addressed by name; a role that is not on call also takes a turn for
   what a person or another role says to everyone. Neither is a new field, so
   a pipeline saved before keeps its meaning.
-- `lead` (a `profile_id`, optional), `autonomy` (`approve`, and `waive` per
-  check ID: `human`, or `lead` when there is a lead) and `budget`
+- `lead` (a `profile_id`, optional: any profile of the workspace that is not
+  archived, which the pipeline plays as the role that manages; no role of the
+  roster is called `lead`, so a pipeline has at most one), `autonomy`
+  (`approve`, and `waive` per check ID: `human`, or `lead` when there is a
+  lead) and `budget`
   (`max_turns` up to 200, `max_minutes` up to 30 days, zero for no limit;
   `on_exhausted` `ask`, or `fail`, the default).
 
-When a task starts, every role's profile goes through the workspace policy as
-a graph step's does, the first turn is the writer's with the writer's profile
+When a task starts, every role's profile and the lead's go through the
+workspace policy as a graph step's does, the first turn is the writer's with the writer's profile
 and the first phase's prompt, and the task is marked `pipeline` (also in its
 JSON, so every view knows). A pipeline's roster and lead keep their profiles
 in use, as graph steps do. The `team` template: phases implement
@@ -3122,6 +3125,22 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   archived, is a `turn` fact, and the task pauses for a person. When the
   root task ends (merged, failed, stopped or cancelled) its members' turns
   still under way are cancelled, as a graph's reviews are.
+- **The lead** (KUA-300; `domain/task_lead.go`). A pipeline's `lead` is a
+  member like the roles that do not write: role `lead`, the lead's profile
+  pinned at its first turn, one review task reused across turns (its session
+  resumes), read-only where its harness can, no push credential and never
+  published (security invariant 3). Its behaviour is `manages`
+  (`domain.AgentBehaviourManages`, `Pipeline.Behaviour`): no profile stores
+  it, so the profile editor never offers it, and a pipeline gives it to the
+  profile it names as its lead. It is never asked for a verdict. Its prompt
+  (`domain.LeadTurnPrompt`) says it manages, writes no code and gives no
+  verdict, and lists the team, the phases with their checks (required or
+  advisory) and the current phase, how to post (questions, requests,
+  `summary` to `@human`) and its room. The room refuses its `verdict`,
+  `fact`, `grant`, and a `waiver` of a check nobody granted it, each with a
+  reason it can act on (for example "the lead may not post verdict: the lead
+  gives no verdict; ask a role that reviews with --request review"), shown at
+  its next turn.
 - **What a turn reads.** `domain.RoomInbox` is what a role reads from posts
   newer than its cursor: posts for everyone or for the role, not its own,
   plus its own refused posts with their reasons (a member reads a page of 200
@@ -3277,8 +3296,9 @@ person decides. One pass:
    again, and otherwise the task pauses for a person (Continue, or a new
    approval, tries again). A pipeline without a guarded phase completes once
    every check holds;
-8. starts a turn for every idle role other than the writer whose unread posts
-   call for one, owing a verdict when the phase requires its verdict;
+8. starts a turn for every idle role other than the writer, and for the
+   lead, whose unread posts call for one, owing a verdict when the phase
+   requires its verdict;
 9. when nobody works, nothing is under way and nothing is awaited, posts the
    current phase's unmet checks with their reasons as a `summary` to the
    phase's owner (the writer for a phase Kuayle owns), and to the writer as
@@ -3386,9 +3406,10 @@ approve, continue and stop.
 
 **Limits of this first version.**
 
-- No lead runs. A pipeline's `lead` is validated and keeps its profile in
-  use, but nothing starts it; Kuayle names the phase (with a `lead` set it
-  still derives the phase but posts no `phase` move). `autonomy` is not read:
+- The lead takes a turn only when its unread posts call for one, as a role
+  that is not on call does, and Kuayle still derives the phase (with a
+  `lead` set it posts no `phase` move, and the lead's own moves change
+  nothing yet). `autonomy` is not read:
   approving is a person's decision and waiving the creator's, and a `grant`
   is stored but grants nothing until there is a lead.
 - Writers write one at a time, on the root task; the other roles never
