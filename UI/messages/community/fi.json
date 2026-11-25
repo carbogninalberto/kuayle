@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Tehtäviä konetta kohden",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Agenttitehtävät jakavat luojansa käynnissä olevan koneen, kukin omassa työpuussaan, enintään näin monta kerrallaan (1–10). Niiden agentit jakavat yllä olevan agentin muistin, ja kukin saa vähintään 1 Gt, joten kiireiset koneet hidastuvat sen sijaan, että agentit pysähtyisivät. Uusi tehtäväkone luodaan vasta, kun jokainen sopiva kone on täynnä.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Enintään {count} kerrallaan",
+	"settings.dev_machines.task_files_max": "Tiedostoja tehtävää kohden",
+	"settings.dev_machines.task_files_max_desc": "Enimmäismäärä tiedostoja, jotka tehtävän tiedostopuu luettelee commitissa, 100–30 000. Suuremmasta repositoriosta luetellaan ensimmäiset tiedostot polun mukaan.",
 	"settings.dev_machines.monitored_quota_description": "Tämä isäntä ei pakota kiinteitä levykiintiöitä. Koneet saavat varoituksen 90 %:ssa rajastaan ja pysäytetään 100 %:ssa. Kaikki koneet pysäytetään, kun isännän vapaa tila laskee alle määritetyn alarajan.",
 	"settings.dev_machines.monitored_quota_title": "Levyrajoja seurataan",
 	"settings.dev_machines.new_env": "Uusi ympäristörakentaja",

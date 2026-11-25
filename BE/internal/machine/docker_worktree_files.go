@@ -49,10 +49,15 @@ printf '@kuayle content\n'
 g cat-file blob "$blob"
 `
 
-// worktreeFilesBytes bounds what a tree or show result keeps of its files or
-// content, as JSON encodes them, so the stored result stays within its 64 KiB
-// without being trimmed.
-const worktreeFilesBytes = 60 << 10
+// worktreeFilesBytes bounds the content a show result keeps, as JSON encodes
+// it, so the stored result stays within its 64 KiB without being trimmed.
+// worktreeTreeBytes bounds a tree result's paths the same way within its
+// 4 MiB (migration 210), each counted with 4 bytes of quotes and separator as
+// jsonb stores it.
+const (
+	worktreeFilesBytes = 60 << 10
+	worktreeTreeBytes  = domain.WorktreeTreeResultMax - 8<<10
+)
 
 // worktreeFilesCommand checks the ref and path again, as the scripts' git
 // commands take them: an option-like or evaluated ref never reaches git.
@@ -80,9 +85,10 @@ func parseWorktreeCommit(output string) (string, string, error) {
 }
 
 // parseWorktreeTree keeps the regular files (modes 100644 and 100755) whose
-// paths a task file can have, sorted, up to TaskFilesMax and the stored bound.
-// When the exec cut its output, the last entry may be partial and is dropped.
-func parseWorktreeTree(output string, truncated bool) (*domain.WorktreeScanResult, error) {
+// paths a task file can have, sorted, up to limit (TaskFilesMax when 0) and
+// the stored bound. When the exec cut its output, the last entry may be
+// partial and is dropped.
+func parseWorktreeTree(output string, limit int, truncated bool) (*domain.WorktreeScanResult, error) {
 	commit, body, err := parseWorktreeCommit(output)
 	if err != nil {
 		return nil, err
@@ -101,10 +107,13 @@ func parseWorktreeTree(output string, truncated bool) (*domain.WorktreeScanResul
 		files = append(files, name)
 	}
 	sort.Strings(files)
+	if limit <= 0 || limit > domain.TaskFilesMax {
+		limit = domain.TaskFilesMax
+	}
 	used := 0
 	for i, name := range files {
-		used += domain.JSONTextLen([]byte(name)) + 3 // quotes and comma
-		if i >= domain.TaskFilesMax || used > worktreeFilesBytes {
+		used += domain.JSONTextLen([]byte(name)) + 4 // quotes, comma and space
+		if i >= limit || used > worktreeTreeBytes {
 			files, truncated = files[:i], true
 			break
 		}

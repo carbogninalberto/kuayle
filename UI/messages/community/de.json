@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Aufgaben pro Maschine",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Agent-Aufgaben teilen sich eine laufende Maschine ihres Erstellers, jede in einem eigenen Worktree, bis zu dieser Anzahl gleichzeitig (1 bis 10). Ihre Agents teilen sich den obigen Agent-Speicher, jeder behält mindestens 1 GB, sodass ausgelastete Maschinen langsamer werden, statt Agents zu stoppen. Eine neue Aufgabenmaschine wird nur erstellt, wenn jede passende Maschine voll ist.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Bis zu {count} gleichzeitig",
+	"settings.dev_machines.task_files_max": "Aufgelistete Dateien pro Aufgabe",
+	"settings.dev_machines.task_files_max_desc": "Die maximale Anzahl Dateien, die der Dateibaum einer Aufgabe bei einem Commit auflistet, von 100 bis 30.000. Ein größeres Repository listet die ersten Dateien nach Pfad.",
 	"settings.dev_machines.monitored_quota_description": "Dieser Host erzwingt keine harten Festplattenkontingente. Maschinen erhalten bei 90 % ihres Limits eine Warnung und werden bei 100 % gestoppt. Alle Maschinen werden gestoppt, wenn der freie Speicherplatz des Hosts unter die konfigurierte Untergrenze fällt.",
 	"settings.dev_machines.monitored_quota_title": "Festplattenlimits werden überwacht",
 	"settings.dev_machines.new_env": "Neuer Umgebungs-Builder",

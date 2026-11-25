@@ -218,7 +218,8 @@ func normalizeWorktreeScanResult(scan *domain.WorktreeScan) {
 // CompleteWorktreeScan records a finished scan once. A later write for the same
 // scan does not replace its result.
 func (r *DevMachineRepository) CompleteWorktreeScan(ctx context.Context, id uuid.UUID, result json.RawMessage, errMsg *string) error {
-	if len(result) > 65536 {
+	// The schema bounds each kind: a tree result 4 MiB, the others 64 KiB.
+	if len(result) > domain.WorktreeTreeResultMax {
 		return errors.New("worktree scan result is too large")
 	}
 	var resultValue any
@@ -267,7 +268,7 @@ func ValidateWorktreeScanRequest(req domain.WorktreeScanRequest) error {
 			return ErrConversationInvalid
 		}
 	case domain.WorktreeScanTree:
-		if !validWorktreeScanRef(req.Ref) || req.Limit != 0 {
+		if !validWorktreeScanRef(req.Ref) || req.Limit > domain.TaskFilesMax {
 			return ErrConversationInvalid
 		}
 	case domain.WorktreeScanShow:

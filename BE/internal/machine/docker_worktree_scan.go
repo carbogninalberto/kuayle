@@ -302,7 +302,7 @@ func parseWorktreeScan(job WorktreeScanJob, output string, truncated bool) (*dom
 	}
 	switch job.Request.Kind {
 	case domain.WorktreeScanTree:
-		return parseWorktreeTree(output, truncated)
+		return parseWorktreeTree(output, job.Request.Limit, truncated)
 	case domain.WorktreeScanShow:
 		return parseWorktreeShow(job.Request, output, truncated)
 	}

@@ -34,6 +34,18 @@ func (f *scriptFixture) tree(ref string) *domain.WorktreeScanResult {
 	return result
 }
 
+func (f *scriptFixture) treeWithin(ref string, limit int) *domain.WorktreeScanResult {
+	f.t.Helper()
+	job := WorktreeScanJob{Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: ref, Limit: limit}, Path: f.checkout, Branch: "kuayle/rec-1"}
+	command, err := worktreeScanCommand(job)
+	require.NoError(f.t, err)
+	output, err := f.stdout(command[2], command[4:]...)
+	require.NoError(f.t, err, output)
+	result, err := parseWorktreeScan(job, output, false)
+	require.NoError(f.t, err)
+	return result
+}
+
 func (f *scriptFixture) show(ref, name string, start, end int) *domain.WorktreeScanResult {
 	f.t.Helper()
 	job := WorktreeScanJob{Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanShow, Ref: ref, Path: name, StartLine: start, EndLine: end}, Path: f.checkout, Branch: "kuayle/rec-1"}
@@ -126,26 +138,72 @@ func TestWorktreeShowPagesTextAndWithholdsBinaryAndLargeFiles(t *testing.T) {
 	require.Empty(t, large.Content)
 }
 
-// A stored scan result is at most 64 KiB: a listing is cut to fit and says
-// it was, a page holds what fits, and both stay within the bound.
+// A listing larger than the 64 KiB every scan result had is kept whole up to
+// the workspace's limit (migration 210): a commit of 2,000 files lists them
+// all, and a limit of 500 stops there and says so.
+func TestWorktreeTreeListsMoreThanTheFormerBoundUpToTheLimit(t *testing.T) {
+	f := newScriptFixture(t)
+	dir := filepath.Join(f.checkout, "src", "a-fairly-long-directory-name")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	for i := range 2000 {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "file-"+strconv.Itoa(i)+".go"), []byte("package x\n"), 0o644))
+	}
+	f.run(f.checkout, nil, "add", "src")
+	f.run(f.checkout, nil, "commit", "-q", "-m", "many")
+
+	listed := f.treeWithin("HEAD", domain.TaskFilesMax)
+	require.Len(t, listed.Files, 2001, "every file and the README")
+	require.False(t, listed.Truncated)
+	payload, err := json.Marshal(listed)
+	require.NoError(t, err)
+	require.Greater(t, len(payload), worktreeScanResultMax, "more than a scan result held before")
+	stored, err := marshalWorktreeScanResult(listed, worktreeScanResultBound(domain.WorktreeScanTree))
+	require.NoError(t, err)
+	require.Equal(t, payload, []byte(stored), "stored whole, not trimmed")
+
+	limited := f.treeWithin("HEAD", 500)
+	require.Len(t, limited.Files, 500)
+	require.True(t, limited.Truncated)
+	require.Equal(t, listed.Files[:500], limited.Files)
+}
+
+// Every result fits its stored bound: a tree result stops at its limit
+// (30,000 by default) or at 4 MiB, whichever comes first, and a page of a
+// file stays within the 64 KiB the other kinds keep.
 func TestWorktreeTreeAndShowResultsFitTheStoredBound(t *testing.T) {
 	commit := strings.Repeat("a", 40)
-	var output strings.Builder
-	output.WriteString(commit + "\n")
-	for i := range 5000 {
-		output.WriteString("100644 blob " + strings.Repeat("b", 40) + "\tsrc/a-fairly-long-directory-name/file-" + strconv.Itoa(i) + ".go\x00")
+	tree := func(count int, name func(int) string) string {
+		var output strings.Builder
+		output.WriteString(commit + "\n")
+		for i := range count {
+			output.WriteString("100644 blob " + strings.Repeat("b", 40) + "\t" + name(i) + "\x00")
+		}
+		output.WriteString("120000 blob " + strings.Repeat("c", 40) + "\tlink\x00")
+		output.WriteString("160000 commit " + strings.Repeat("d", 40) + "\tvendor/nested\x00")
+		return output.String()
 	}
-	output.WriteString("120000 blob " + strings.Repeat("c", 40) + "\tlink\x00")
-	output.WriteString("160000 commit " + strings.Repeat("d", 40) + "\tvendor/nested\x00")
-	result, err := parseWorktreeScan(WorktreeScanJob{Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: "HEAD"}}, output.String(), false)
-	require.NoError(t, err)
+	parse := func(output string, limit int) *domain.WorktreeScanResult {
+		t.Helper()
+		result, err := parseWorktreeScan(WorktreeScanJob{Request: domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: "HEAD", Limit: limit}}, output, false)
+		require.NoError(t, err)
+		payload, err := json.Marshal(result)
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(payload), domain.WorktreeTreeResultMax)
+		return result
+	}
+	short := func(i int) string { return "src/file-" + strconv.Itoa(i) + ".go" }
+	result := parse(tree(domain.TaskFilesMax+10, short), 0)
+	require.Len(t, result.Files, domain.TaskFilesMax, "no limit is the most a listing holds")
 	require.True(t, result.Truncated)
-	require.NotEmpty(t, result.Files)
-	require.Less(t, len(result.Files), 5000)
 	require.NotContains(t, result.Files, "link")
-	payload, err := json.Marshal(result)
-	require.NoError(t, err)
-	require.LessOrEqual(t, len(payload), worktreeScanResultMax)
+	require.NotContains(t, result.Files, "vendor/nested")
+	result = parse(tree(100, short), 0)
+	require.Len(t, result.Files, 100)
+	require.False(t, result.Truncated)
+	long := func(i int) string { return "src/" + strings.Repeat("deep/", 40) + "file-" + strconv.Itoa(i) + ".go" }
+	result = parse(tree(domain.TaskFilesMax, long), 0)
+	require.True(t, result.Truncated, "paths over 200 bytes long fill 4 MiB before 30,000")
+	require.Greater(t, len(result.Files), 15000)
 
 	text := strings.Repeat("\"quoted\" <markup> line\n", 20000)
 	show := commit + "\n@kuayle size " + strconv.Itoa(len(text)) + "\n@kuayle content\n" + text
@@ -153,10 +211,11 @@ func TestWorktreeTreeAndShowResultsFitTheStoredBound(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, page.Truncated)
 	require.Positive(t, page.EndLine)
-	payload, err = json.Marshal(page)
+	payload, err := json.Marshal(page)
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(payload), worktreeScanResultMax)
-	stored, err := marshalWorktreeScanResult(page)
+	require.Equal(t, worktreeScanResultMax, worktreeScanResultBound(domain.WorktreeScanShow))
+	stored, err := marshalWorktreeScanResult(page, worktreeScanResultBound(domain.WorktreeScanShow))
 	require.NoError(t, err)
 	require.Equal(t, payload, []byte(stored), "the page needs no trimming that would cut a line")
 

@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Taken per machine",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Agenttaken delen een draaiende machine van hun maker, elk in een eigen worktree, tot dit aantal tegelijk (1 tot 10). Hun agents verdelen het agentgeheugen hierboven en houden elk minstens 1 GB, zodat drukke machines vertragen in plaats van agents te stoppen. Een nieuwe taakmachine wordt alleen gemaakt als elke geschikte machine vol is.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Maximaal {count} tegelijk",
+	"settings.dev_machines.task_files_max": "Bestanden per taak",
+	"settings.dev_machines.task_files_max_desc": "Het maximale aantal bestanden dat de bestandsboom van een taak bij een commit toont, van 100 tot 30.000. Een grotere repository toont de eerste bestanden op pad.",
 	"settings.dev_machines.monitored_quota_description": "Deze host dwingt geen harde schijfquota af. Machines krijgen een waarschuwing bij 90% van hun limiet en worden gestopt bij 100%. Alle machines worden gestopt als de vrije ruimte van de host onder de geconfigureerde ondergrens komt.",
 	"settings.dev_machines.monitored_quota_title": "Schijflimieten worden bewaakt",
 	"settings.dev_machines.new_env": "Nieuwe omgevingsbouwer",

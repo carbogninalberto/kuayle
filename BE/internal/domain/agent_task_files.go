@@ -13,8 +13,15 @@ import (
 // tree, never the worktree, so untracked and ignored files (a .env) are
 // never listed or served.
 const (
-	// TaskFilesMax bounds a listing, as the repository scans do.
-	TaskFilesMax = 30000
+	// TaskFilesMax bounds a listing, as the repository scans do; it is the
+	// default and the largest value of a workspace's setting (its Dev Machine
+	// policy's task_files_max, migration 210), and MinTaskFilesMax the
+	// smallest.
+	TaskFilesMax    = 30000
+	MinTaskFilesMax = 100
+	// WorktreeTreeResultMax bounds a stored tree scan result (migration 210):
+	// 30,000 paths averaging about 135 bytes. Other scan results keep 64 KiB.
+	WorktreeTreeResultMax = 4 << 20
 	// TaskFileLinesMax and TaskFileBytesMax bound one page of a file; bytes
 	// are counted as the JSON answer encodes them.
 	TaskFileLinesMax = 5000
@@ -59,13 +66,15 @@ type TaskFileContent struct {
 // TaskFileSource is what Kuayle recorded about where a task's files are:
 // the repository and head it published ("" when nothing is), whether a
 // requested commit is one it published or one of the task's attempts
-// recorded, and the files the task changed.
+// recorded, the files the task changed and the workspace's listing limit.
 type TaskFileSource struct {
 	Repository   string
 	Head         string
 	RefPublished bool
 	RefRecorded  bool
 	Changed      []string
+	// FilesMax is how many files the workspace lets a listing hold.
+	FilesMax int
 }
 
 var commitID = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)

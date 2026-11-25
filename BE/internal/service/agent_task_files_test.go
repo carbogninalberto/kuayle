@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -181,7 +182,7 @@ func TestTaskFilesReadOnlyTheHeadOrACommitOfTheTask(t *testing.T) {
 	listed, err := files.list(ctx, ws, task, other)
 	require.NoError(t, err)
 	require.Equal(t, other, listed.Commit, "an attempt's own commit is read on the machine")
-	require.Equal(t, []domain.WorktreeScanRequest{{Kind: domain.WorktreeScanTree, Ref: other}}, scans.requests)
+	require.Equal(t, []domain.WorktreeScanRequest{{Kind: domain.WorktreeScanTree, Ref: other, Limit: domain.TaskFilesMax}}, scans.requests)
 	require.Equal(t, task, *scans.targets[0].TaskID)
 	require.Zero(t, snapshots.calls.Load())
 
@@ -231,7 +232,7 @@ func TestUnpublishedTaskFilesAreReadOnTheMachine(t *testing.T) {
 	listed, err := files.list(ctx, ws, task, "")
 	require.NoError(t, err)
 	require.Equal(t, &domain.TaskFiles{Commit: head, Files: []domain.TaskFile{{Path: "README.md"}, {Path: "src/app.go", Changed: true}}, Truncated: true}, listed)
-	require.Equal(t, domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: "HEAD"}, scans.requests[0])
+	require.Equal(t, domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: "HEAD", Limit: domain.TaskFilesMax}, scans.requests[0])
 
 	page, err := files.content(ctx, ws, task, "src/app.go", head, 0, 0)
 	require.NoError(t, err)
@@ -281,4 +282,45 @@ func TestTaskFilesCheckoutFailureNeverLogsTheErrorText(t *testing.T) {
 	require.Equal(t, "GitHub answered 404", checkoutFailure(&gh.APIError{Status: 404, Message: "Not Found"}))
 	require.Equal(t, "the repository is too large", checkoutFailure(toolFailure("the repository is too large")))
 	require.NotContains(t, checkoutFailure(context.DeadlineExceeded), "codeload")
+}
+
+// A listing holds as many files as the workspace allows (its Dev Machine
+// policy, 30,000 by default): the GitHub checkout's listing is cut there, and
+// the machine is asked for that many, beyond what a scan result held before.
+func TestTaskFilesListAsManyFilesAsTheWorkspaceAllows(t *testing.T) {
+	files, source, _ := publishedTaskFiles(t, testScanLimits(),
+		tarEntry{name: "repo-sha/a.txt", body: "a\n"}, tarEntry{name: "repo-sha/b.txt", body: "b\n"},
+		tarEntry{name: "repo-sha/c.txt", body: "c\n"}, tarEntry{name: "repo-sha/d.txt", body: "d\n"},
+	)
+	ctx := taskFilesContext()
+	source.source.FilesMax = 3
+	listed, err := files.list(ctx, uuid.New(), uuid.New(), "")
+	require.NoError(t, err)
+	require.Equal(t, []domain.TaskFile{{Path: "a.txt"}, {Path: "b.txt"}, {Path: "c.txt"}}, listed.Files)
+	require.True(t, listed.Truncated)
+	source.source.FilesMax = 4
+	listed, err = files.list(ctx, uuid.New(), uuid.New(), "")
+	require.NoError(t, err)
+	require.Len(t, listed.Files, 4)
+	require.False(t, listed.Truncated)
+
+	many := make([]string, 2500)
+	for i := range many {
+		many[i] = fmt.Sprintf("src/a-typical-directory/file-%04d.go", i)
+	}
+	scans := &fileScans{t: t, answer: func(req domain.WorktreeScanRequest) domain.WorktreeScanResult {
+		return domain.WorktreeScanResult{Commit: strings.Repeat("c", 40), Files: many[:min(len(many), req.Limit)], Truncated: req.Limit < len(many)}
+	}}
+	machine := &taskFiles{sources: &taskFileSourceFake{source: &domain.TaskFileSource{Repository: "acme/app", FilesMax: 2500}}, scans: scans}
+	listed, err = machine.list(ctx, uuid.New(), uuid.New(), "")
+	require.NoError(t, err)
+	require.Equal(t, 2500, scans.requests[0].Limit)
+	require.Len(t, listed.Files, 2500, "more paths than a 64 KiB scan result held")
+	require.False(t, listed.Truncated)
+	machine.sources.(*taskFileSourceFake).source.FilesMax = 1000
+	listed, err = machine.list(ctx, uuid.New(), uuid.New(), "")
+	require.NoError(t, err)
+	require.Equal(t, 1000, scans.requests[1].Limit)
+	require.Len(t, listed.Files, 1000)
+	require.True(t, listed.Truncated)
 }

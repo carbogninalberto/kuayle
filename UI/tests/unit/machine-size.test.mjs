@@ -12,7 +12,10 @@ import {
 	minimumMemoryIndexForCpu,
 	normalizeMachineResources,
 	resolveMachineSizeOptions,
-	snapDiskGb
+	snapDiskGb,
+	taskFilesMax,
+	MIN_TASK_FILES_MAX,
+	MAX_TASK_FILES_MAX
 } from '../../src/lib/features/dev-machines/machine-size.ts';
 
 test('uses the shared snap lists and filters disk to the workspace policy', () => {
@@ -130,4 +133,12 @@ test('snaps a typed disk size to a 2 GB step within the allowed range', () => {
 	const legacy = [20, 30, 40, 50, 75];
 	assert.equal(snapDiskGb(74, legacy, 75), 50);
 	assert.equal(snapDiskGb(76, legacy, 75), 75);
+});
+
+test('a task file listing limit is saved as the server accepts it', () => {
+	assert.equal(taskFilesMax(2500), 2500);
+	assert.equal(taskFilesMax('1234.6'), 1235);
+	assert.equal(taskFilesMax(50), MIN_TASK_FILES_MAX);
+	assert.equal(taskFilesMax(99999), MAX_TASK_FILES_MAX);
+	for (const empty of ['', null, undefined, 'abc']) assert.equal(taskFilesMax(empty), MAX_TASK_FILES_MAX);
 });

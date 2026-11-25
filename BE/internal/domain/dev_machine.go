@@ -714,11 +714,14 @@ type DevMachineWorkspacePolicy struct {
 	TaskMachineMaxTasks int `json:"task_machine_max_tasks" db:"task_machine_max_tasks"`
 	// MaxTemporaryMachines is how many assistant temporary machines may be
 	// live in the workspace at once; 0 turns them off.
-	MaxTemporaryMachines int                   `json:"max_temporary_machines" db:"max_temporary_machines"`
-	DiskQuotaMode        string                `json:"disk_quota_mode" db:"-"`
-	SizeOptions          DevMachineSizeOptions `json:"size_options" db:"-"`
-	CreatedAt            time.Time             `json:"created_at" db:"created_at"`
-	UpdatedAt            time.Time             `json:"updated_at" db:"updated_at"`
+	MaxTemporaryMachines int `json:"max_temporary_machines" db:"max_temporary_machines"`
+	// TaskFilesMax is how many files a task's file listing holds, from
+	// MinTaskFilesMax to TaskFilesMax (the default).
+	TaskFilesMax  int                   `json:"task_files_max" db:"task_files_max"`
+	DiskQuotaMode string                `json:"disk_quota_mode" db:"-"`
+	SizeOptions   DevMachineSizeOptions `json:"size_options" db:"-"`
+	CreatedAt     time.Time             `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time             `json:"updated_at" db:"updated_at"`
 }
 
 type DevMachineSizeOptions struct {

@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "משימות למכונה",
 	"settings.dev_machines.task_machine_max_tasks_desc": "משימות סוכן חולקות מכונה פעילה של יוצרן, כל אחת ב-worktree משלה, עד המספר הזה בו-זמנית (1 עד 10). הסוכנים שלהן מתחלקים בזיכרון הסוכן שלמעלה, וכל אחד שומר לפחות 1 GB, כך שמכונות עמוסות מואטות במקום לעצור סוכנים. מכונת משימות חדשה נוצרת רק כשכל המכונות המתאימות מלאות.",
 	"settings.dev_machines.task_machine_max_tasks_value": "עד {count} בו-זמנית",
+	"settings.dev_machines.task_files_max": "קבצים המוצגים לכל משימה",
+	"settings.dev_machines.task_files_max_desc": "המספר המרבי של קבצים שעץ הקבצים של משימה מציג בקומיט, מ-100 עד 30,000. מאגר גדול יותר מציג את הקבצים הראשונים לפי נתיב.",
 	"settings.dev_machines.monitored_quota_description": "המארח הזה אינו אוכף מכסות דיסק קשיחות. מכונות מקבלות אזהרה ב-90% מהמגבלה ונעצרות ב-100%. כל המכונות נעצרות כשהשטח הפנוי במארח יורד מתחת לרף שהוגדר.",
 	"settings.dev_machines.monitored_quota_title": "מגבלות הדיסק במעקב",
 	"settings.dev_machines.new_env": "בונה סביבות חדש",

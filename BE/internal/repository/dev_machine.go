@@ -749,11 +749,14 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 	if policy.TaskMachineMaxTasks == 0 {
 		policy.TaskMachineMaxTasks = domain.DefaultTaskMachineMaxTasks
 	}
+	if policy.TaskFilesMax == 0 {
+		policy.TaskFilesMax = domain.TaskFilesMax
+	}
 	return r.db.QueryRowContext(ctx, `INSERT INTO dev_machine_workspace_policies
 		(workspace_id, enabled, max_concurrent_machines, max_machines_per_user, max_daily_agent_runs,
 		 max_disk_gb, allowed_providers, allowed_repositories, allow_custom_providers, allow_unattended_automations, agent_git_name, agent_git_email, allow_docker, allow_sudo,
-		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb, task_machine_max_tasks, max_temporary_machines)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+		 task_machine_cpu_millis, task_machine_memory_mb, task_machine_disk_gb, task_machine_max_tasks, max_temporary_machines, task_files_max)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		ON CONFLICT (workspace_id) DO UPDATE SET enabled=EXCLUDED.enabled,
 		max_concurrent_machines=EXCLUDED.max_concurrent_machines, max_machines_per_user=EXCLUDED.max_machines_per_user,
 		max_daily_agent_runs=EXCLUDED.max_daily_agent_runs,
@@ -763,11 +766,13 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 		agent_git_name=EXCLUDED.agent_git_name, agent_git_email=EXCLUDED.agent_git_email, allow_docker=EXCLUDED.allow_docker,
 		allow_sudo=EXCLUDED.allow_sudo,
 		task_machine_cpu_millis=EXCLUDED.task_machine_cpu_millis, task_machine_memory_mb=EXCLUDED.task_machine_memory_mb,
-		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb, task_machine_max_tasks=EXCLUDED.task_machine_max_tasks, max_temporary_machines=EXCLUDED.max_temporary_machines
+		task_machine_disk_gb=EXCLUDED.task_machine_disk_gb, task_machine_max_tasks=EXCLUDED.task_machine_max_tasks, max_temporary_machines=EXCLUDED.max_temporary_machines,
+		task_files_max=EXCLUDED.task_files_max
 		RETURNING created_at, updated_at`, policy.WorkspaceID, policy.Enabled, policy.MaxConcurrentMachines,
 		policy.MaxMachinesPerUser, policy.MaxDailyAgentRuns, policy.MaxDiskGB,
 		policy.AllowedProviders, policy.AllowedRepositories, policy.AllowCustomProviders, policy.AllowUnattendedAutomations, policy.AgentGitName, policy.AgentGitEmail, policy.AllowDocker,
 		policy.AllowSudo, policy.TaskMachineCPUMillis, policy.TaskMachineMemoryMB, policy.TaskMachineDiskGB, policy.TaskMachineMaxTasks, policy.MaxTemporaryMachines,
+		policy.TaskFilesMax,
 	).Scan(&policy.CreatedAt, &policy.UpdatedAt)
 }
 

@@ -12,8 +12,18 @@ import (
 // task; a list scan reads the directories below it.
 const worktreeScanRoot = "/workspace/tasks"
 
-// worktreeScanResultMax is the schema's bound on a stored result.
+// worktreeScanResultMax is the schema's bound on a stored result; a tree
+// result has a larger one (worktreeScanResultBound).
 const worktreeScanResultMax = 65536
+
+// worktreeScanResultBound is the schema's bound on a stored result of a kind
+// (migration 210).
+func worktreeScanResultBound(kind domain.WorktreeScanKind) int {
+	if kind == domain.WorktreeScanTree {
+		return domain.WorktreeTreeResultMax
+	}
+	return worktreeScanResultMax
+}
 
 // WorktreeScanJob is what one runtime scan reads.
 type WorktreeScanJob struct {
@@ -71,7 +81,7 @@ func (m *Manager) runWorktreeScan(ctx context.Context, machine *domain.DevMachin
 		safe := domain.MachineLogOutput(result.Content, request.Limit, values, result.Truncated)
 		result = &domain.WorktreeScanResult{Content: safe.Content, Truncated: safe.Truncated}
 	}
-	payload, err := marshalWorktreeScanResult(result)
+	payload, err := marshalWorktreeScanResult(result, worktreeScanResultBound(request.Kind))
 	if err != nil {
 		return fail(worktreeScanFailure(err))
 	}
@@ -100,7 +110,7 @@ func worktreeScanFailure(err error) string {
 
 // marshalWorktreeScanResult keeps the stored JSON within the schema's bound by
 // dropping the arrays a scan fills, from the end. It reports Truncated.
-func marshalWorktreeScanResult(result *domain.WorktreeScanResult) (json.RawMessage, error) {
+func marshalWorktreeScanResult(result *domain.WorktreeScanResult, bound int) (json.RawMessage, error) {
 	if result == nil {
 		return nil, errors.New("worktree scan returned no result")
 	}
@@ -108,12 +118,12 @@ func marshalWorktreeScanResult(result *domain.WorktreeScanResult) (json.RawMessa
 	if err != nil {
 		return nil, err
 	}
-	if len(payload) <= worktreeScanResultMax {
+	if len(payload) <= bound {
 		return payload, nil
 	}
 	trimmed := *result
 	trimmed.Truncated = true
-	for len(payload) > worktreeScanResultMax {
+	for len(payload) > bound {
 		switch {
 		case len(trimmed.Matches) > 0:
 			trimmed.Matches = trimmed.Matches[:len(trimmed.Matches)/2]

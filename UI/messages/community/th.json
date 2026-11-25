@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "งานต่อเครื่อง",
 	"settings.dev_machines.task_machine_max_tasks_desc": "งานของ Agent ใช้เครื่องที่กำลังทำงานของผู้สร้างร่วมกัน แต่ละงานมี worktree ของตัวเอง ได้พร้อมกันไม่เกินจำนวนนี้ (1 ถึง 10) Agent ของงานเหล่านั้นแบ่งหน่วยความจำของ Agent ข้างต้น โดยแต่ละตัวได้อย่างน้อย 1 GB เครื่องที่ยุ่งจึงช้าลงแทนที่จะหยุด Agent เครื่องสำหรับงานใหม่จะถูกสร้างเมื่อทุกเครื่องที่เหมาะสมเต็มเท่านั้น",
 	"settings.dev_machines.task_machine_max_tasks_value": "สูงสุด {count} งานพร้อมกัน",
+	"settings.dev_machines.task_files_max": "จำนวนไฟล์ที่แสดงต่องาน",
+	"settings.dev_machines.task_files_max_desc": "จำนวนไฟล์สูงสุดที่แผนผังไฟล์ของงานแสดงในคอมมิต ตั้งแต่ 100 ถึง 30,000 รีโพสิทอรีที่ใหญ่กว่าจะแสดงไฟล์แรกๆ ตามพาธ",
 	"settings.dev_machines.monitored_quota_description": "โฮสต์นี้ไม่บังคับโควตาดิสก์แบบตายตัว เครื่องจะได้รับคำเตือนเมื่อใช้ถึง 90% ของขีดจำกัด และจะหยุดเมื่อถึง 100% ทุกเครื่องจะหยุดเมื่อพื้นที่ว่างของโฮสต์ต่ำกว่าเกณฑ์ที่ตั้งไว้",
 	"settings.dev_machines.monitored_quota_title": "ขีดจำกัดดิสก์ถูกเฝ้าติดตาม",
 	"settings.dev_machines.new_env": "Environment Builder ใหม่",

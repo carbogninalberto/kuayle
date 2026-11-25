@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -110,4 +112,85 @@ func TestTaskFileSourceOfAnUnpublishedTaskHasNoHead(t *testing.T) {
 	require.Equal(t, "fixture/repo", source.Repository)
 	require.Empty(t, source.Head)
 	require.Empty(t, source.Changed)
+}
+
+// A tree scan's result may take up to 4 MiB (migration 210), enough for a
+// listing of 30,000 paths; every other kind keeps 64 KiB.
+func TestWorktreeScanResultsFitTheirKindsBound(t *testing.T) {
+	db, _, ctx, task, _ := publishingTask(t)
+	store := NewDevMachineRepository(db)
+	scan := func(req domain.WorktreeScanRequest) uuid.UUID {
+		t.Helper()
+		created, err := store.CreateWorktreeScan(ctx, task.WorkspaceID, task.CreatorID, domain.WorktreeScanTarget{TaskID: &task.ID}, req)
+		require.NoError(t, err)
+		return created.ID
+	}
+	files := make([]string, domain.TaskFilesMax)
+	for i := range files {
+		files[i] = "src/a-typical-directory/and-a-typical-file-name-" + strings.Repeat("x", 60) + "-" + strconv.Itoa(i) + ".go"
+	}
+	listing, err := json.Marshal(domain.WorktreeScanResult{Commit: strings.Repeat("a", 40), Files: files})
+	require.NoError(t, err)
+	require.Greater(t, len(listing), 3<<20, "30,000 paths of about 120 bytes")
+	tree := scan(domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: "HEAD", Limit: domain.TaskFilesMax})
+	require.NoError(t, store.CompleteWorktreeScan(ctx, tree, listing, nil))
+	stored, err := store.GetWorktreeScan(ctx, task.WorkspaceID, tree)
+	require.NoError(t, err)
+	var result domain.WorktreeScanResult
+	require.NoError(t, json.Unmarshal(stored.Result, &result))
+	require.Len(t, result.Files, domain.TaskFilesMax)
+
+	tooLarge, err := json.Marshal(domain.WorktreeScanResult{Content: strings.Repeat("x", domain.WorktreeTreeResultMax)})
+	require.NoError(t, err)
+	require.Error(t, store.CompleteWorktreeScan(ctx, scan(domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: "HEAD"}), tooLarge, nil))
+	page, err := json.Marshal(domain.WorktreeScanResult{Content: strings.Repeat("x", 100<<10)})
+	require.NoError(t, err)
+	show := scan(domain.WorktreeScanRequest{Kind: domain.WorktreeScanShow, Ref: "HEAD", Path: "a.txt", StartLine: 1, EndLine: 10})
+	require.Error(t, store.CompleteWorktreeScan(ctx, show, page, nil), "a page keeps the 64 KiB bound")
+	small, err := json.Marshal(domain.WorktreeScanResult{Content: "a"})
+	require.NoError(t, err)
+	require.NoError(t, store.CompleteWorktreeScan(ctx, show, small, nil))
+}
+
+// The number of files a task's listing holds is the workspace's Dev Machine
+// policy setting: 30,000 unless an admin set another, from 100 to 30,000,
+// and another workspace's setting never applies.
+func TestTaskFileSourceCarriesItsWorkspacesFileLimit(t *testing.T) {
+	db, repo, ctx, task, _ := publishingTask(t)
+	source, err := repo.TaskFileSource(ctx, task.WorkspaceID, task.ID, "")
+	require.NoError(t, err)
+	require.Equal(t, domain.TaskFilesMax, source.FilesMax, "no policy row: the default")
+
+	machines := NewDevMachineRepository(db)
+	policy := func(ws uuid.UUID, limit int) *domain.DevMachineWorkspacePolicy {
+		return &domain.DevMachineWorkspacePolicy{WorkspaceID: ws, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2, MaxDailyAgentRuns: 25, MaxDiskGB: 100,
+			AllowedProviders: json.RawMessage(`["codex"]`), AllowedRepositories: json.RawMessage(`[]`), TaskFilesMax: limit}
+	}
+	other := uuid.New()
+	_, err = db.Exec(`INSERT INTO workspaces(id,name,slug,owner_id) VALUES($1,'Other files',$2,$3)`, other, other.String(), task.CreatorID)
+	require.NoError(t, err)
+	require.NoError(t, machines.UpsertPolicy(ctx, policy(other, 100)))
+	source, err = repo.TaskFileSource(ctx, task.WorkspaceID, task.ID, "")
+	require.NoError(t, err)
+	require.Equal(t, domain.TaskFilesMax, source.FilesMax, "another workspace's setting does not apply")
+
+	require.NoError(t, machines.UpsertPolicy(ctx, policy(task.WorkspaceID, 0)))
+	stored, err := machines.GetPolicy(ctx, task.WorkspaceID)
+	require.NoError(t, err)
+	require.Equal(t, domain.TaskFilesMax, stored.TaskFilesMax, "a policy built without it stores the default")
+	require.NoError(t, machines.UpsertPolicy(ctx, policy(task.WorkspaceID, 2500)))
+	stored, err = machines.GetPolicy(ctx, task.WorkspaceID)
+	require.NoError(t, err)
+	require.Equal(t, 2500, stored.TaskFilesMax)
+	source, err = repo.TaskFileSource(ctx, task.WorkspaceID, task.ID, "")
+	require.NoError(t, err)
+	require.Equal(t, 2500, source.FilesMax)
+	other100, err := machines.GetPolicy(ctx, other)
+	require.NoError(t, err)
+	require.Equal(t, 100, other100.TaskFilesMax)
+
+	for _, invalid := range []int{99, domain.TaskFilesMax + 1} {
+		_, err = db.Exec(`UPDATE dev_machine_workspace_policies SET task_files_max=$2 WHERE workspace_id=$1`, task.WorkspaceID, invalid)
+		require.Error(t, err, invalid)
+	}
 }

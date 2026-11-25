@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "المهام لكل جهاز",
 	"settings.dev_machines.task_machine_max_tasks_desc": "تتشارك مهام الوكلاء جهازاً قيد التشغيل لمنشئها، كل منها في شجرة عمل خاصة، حتى هذا العدد في الوقت نفسه (من 1 إلى 10). يقسّم وكلاؤها ذاكرة الوكيل أعلاه، ويحتفظ كل منهم بـ 1 GB على الأقل، فتبطؤ الأجهزة المشغولة بدلاً من إيقاف الوكلاء. لا يُنشأ جهاز مهام جديد إلا عندما تمتلئ كل الأجهزة المناسبة.",
 	"settings.dev_machines.task_machine_max_tasks_value": "حتى {count} في الوقت نفسه",
+	"settings.dev_machines.task_files_max": "الملفات المدرجة لكل مهمة",
+	"settings.dev_machines.task_files_max_desc": "أقصى عدد من الملفات تعرضه شجرة ملفات المهمة عند إيداع، من 100 إلى 30,000. يعرض المستودع الأكبر ملفاته الأولى حسب المسار.",
 	"settings.dev_machines.monitored_quota_description": "لا يفرض هذا المضيف حصصاً صارمة للقرص. تتلقى الأجهزة تحذيراً عند 90% من حدها وتتوقف عند 100%. تتوقف كل الأجهزة عندما تنخفض المساحة الحرة للمضيف عن الحد الأدنى المضبوط.",
 	"settings.dev_machines.monitored_quota_title": "حدود القرص مراقَبة",
 	"settings.dev_machines.new_env": "منشئ بيئة جديد",

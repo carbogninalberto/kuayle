@@ -81,6 +81,8 @@ type taskFileTarget struct {
 	machineRef, expect string
 	changed            map[string]bool
 	github             bool
+	// filesMax is how many files the workspace lets a listing hold.
+	filesMax int
 }
 
 func (f *taskFiles) target(ctx context.Context, ws, id uuid.UUID, ref string) (*taskFileTarget, error) {
@@ -94,7 +96,10 @@ func (f *taskFiles) target(ctx context.Context, ws, id uuid.UUID, ref string) (*
 	if err != nil {
 		return nil, err
 	}
-	target := &taskFileTarget{changed: map[string]bool{}}
+	target := &taskFileTarget{changed: map[string]bool{}, filesMax: source.FilesMax}
+	if target.filesMax <= 0 || target.filesMax > domain.TaskFilesMax {
+		target.filesMax = domain.TaskFilesMax
+	}
 	for _, name := range source.Changed {
 		target.changed[name] = true
 	}
@@ -131,13 +136,18 @@ func (f *taskFiles) list(ctx context.Context, ws, id uuid.UUID, ref string) (*do
 		defer release()
 		result.Commit, result.Truncated = checkout.commit, checkout.truncated
 		for _, file := range checkout.files {
-			if domain.ValidTaskFilePath(file.Path) {
-				result.Files = append(result.Files, domain.TaskFile{Path: file.Path, Changed: target.changed[file.Path]})
+			if !domain.ValidTaskFilePath(file.Path) {
+				continue
 			}
+			if len(result.Files) == target.filesMax {
+				result.Truncated = true
+				break
+			}
+			result.Files = append(result.Files, domain.TaskFile{Path: file.Path, Changed: target.changed[file.Path]})
 		}
 		return result, nil
 	}
-	scanned, err := f.scan(ctx, ws, id, target, domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: target.machineRef})
+	scanned, err := f.scan(ctx, ws, id, target, domain.WorktreeScanRequest{Kind: domain.WorktreeScanTree, Ref: target.machineRef, Limit: target.filesMax})
 	if err != nil {
 		return nil, err
 	}

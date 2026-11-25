@@ -2241,6 +2241,7 @@ func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID
 		TaskMachineDiskGB:    domain.DefaultTaskMachineResources.DiskGB,
 		TaskMachineMaxTasks:  domain.DefaultTaskMachineMaxTasks,
 		MaxTemporaryMachines: domain.DefaultMaxTemporaryMachines,
+		TaskFilesMax:         domain.TaskFilesMax,
 		AllowedProviders:     json.RawMessage(`["claude-code","opencode","codex","pi","qwen-code","crush","kimi","goose"]`),
 		AllowedRepositories:  json.RawMessage(`[]`),
 	}, nil
@@ -2287,9 +2288,13 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 	taskMachine := domain.DefaultTaskMachineResources
 	policy.TaskMachineMaxTasks = domain.DefaultTaskMachineMaxTasks
 	policy.MaxTemporaryMachines = domain.DefaultMaxTemporaryMachines
+	policy.TaskFilesMax = domain.TaskFilesMax
 	if current != nil {
 		policy.AllowDocker, policy.AllowSudo = current.AllowDocker, current.AllowSudo
 		policy.MaxTemporaryMachines = current.MaxTemporaryMachines
+		if current.TaskFilesMax > 0 {
+			policy.TaskFilesMax = current.TaskFilesMax
+		}
 		taskMachine = current.TaskMachine()
 		if current.TaskMachineMaxTasks > 0 {
 			policy.TaskMachineMaxTasks = current.TaskMachineMaxTasks
@@ -2306,6 +2311,12 @@ func (s *DevMachineService) UpdatePolicy(ctx context.Context, workspaceID uuid.U
 			return nil, fmt.Errorf("%w: max_temporary_machines must be from 0 to %d", ErrInvalidMachineInput, domain.MaxTemporaryMachinesLimit)
 		}
 		policy.MaxTemporaryMachines = *req.MaxTemporaryMachines
+	}
+	if req.TaskFilesMax != nil {
+		if *req.TaskFilesMax < domain.MinTaskFilesMax || *req.TaskFilesMax > domain.TaskFilesMax {
+			return nil, fmt.Errorf("%w: task_files_max must be from %d to %d", ErrInvalidMachineInput, domain.MinTaskFilesMax, domain.TaskFilesMax)
+		}
+		policy.TaskFilesMax = *req.TaskFilesMax
 	}
 	if req.AllowDocker != nil {
 		policy.AllowDocker = *req.AllowDocker

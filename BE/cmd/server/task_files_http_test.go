@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -117,18 +118,22 @@ func TestTaskFilesHTTP(t *testing.T) {
 	var demoDenied atomic.Bool
 	middleware.devMachineDemoGuard = mw.DevMachineDemoGuard(func(uuid.UUID) bool { return !demoDenied.Load() })
 	machineSvc := service.NewDevMachineService(machines, agent.NewRegistry(agent.NewCodexProvider("test")), true, "machines.test.invalid", make([]byte, 32), time.Minute, service.DevMachineImages{})
-	snapshots := &filesSnapshot{commit: head, archive: filesArchive(t, map[string]string{
+	archived := map[string]string{
 		".gitignore": ".env\n",
 		".env":       "LOCAL_ONLY=1\n",
 		"src/app.go": "package app\n\nfunc App() {}\n",
 		"logo.png":   "PNG\x00\x01",
-	})}
+	}
+	for i := range 150 {
+		archived[fmt.Sprintf("gen/file-%03d.txt", i)] = "generated\n"
+	}
+	snapshots := &filesSnapshot{commit: head, archive: filesArchive(t, archived)}
 	checkouts := service.NewRepositoryCheckouts(snapshots)
 	defer checkouts.Close()
 	tasks := service.NewAgentTaskService(taskRepo, machineSvc, nil)
 	tasks.SetTaskFiles(checkouts, machines)
 	e := echo.New()
-	registerRoutes(e, &appHandlers{agentTask: handler.NewAgentTaskHandler(tasks)}, middleware)
+	registerRoutes(e, &appHandlers{agentTask: handler.NewAgentTaskHandler(tasks), devMachine: handler.NewDevMachineHandler(machineSvc)}, middleware)
 	server := httptest.NewServer(e)
 	defer server.Close()
 	tokenFor := func(id uuid.UUID) string {
@@ -139,19 +144,24 @@ func TestTaskFilesHTTP(t *testing.T) {
 	type errorBody struct {
 		Error struct{ Code, Message string }
 	}
-	get := func(path, auth string, status int, target any) http.Header {
+	send := func(method, path, body, auth string, status int, target any) http.Header {
 		t.Helper()
-		req, err := http.NewRequest(http.MethodGet, server.URL+"/api/workspaces/"+path, nil)
+		req, err := http.NewRequest(method, server.URL+"/api/workspaces/"+path, strings.NewReader(body))
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer "+auth)
+		req.Header.Set("Content-Type", "application/json")
 		res, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer res.Body.Close()
-		require.Equal(t, status, res.StatusCode, path)
+		require.Equal(t, status, res.StatusCode, "%s %s", method, path)
 		if target != nil {
 			require.NoError(t, json.NewDecoder(res.Body).Decode(target))
 		}
 		return res.Header
+	}
+	get := func(path, auth string, status int, target any) http.Header {
+		t.Helper()
+		return send(http.MethodGet, path, "", auth, status, target)
 	}
 	root := ws.String() + "/agent-tasks/" + task.ID.String() + "/files"
 	content := root + "/content?path=src/app.go&ref=" + head
@@ -161,7 +171,10 @@ func TestTaskFilesHTTP(t *testing.T) {
 	headers := get(root, token, 200, &listed)
 	require.Equal(t, "private, no-store", headers.Get("Cache-Control"))
 	require.Equal(t, head, listed.Commit)
-	require.Equal(t, []domain.TaskFile{{Path: ".gitignore"}, {Path: "logo.png"}, {Path: "src/app.go", Changed: true}}, listed.Files, "the ignored .env is not listed")
+	require.Len(t, listed.Files, 153)
+	require.False(t, listed.Truncated)
+	require.Equal(t, domain.TaskFile{Path: ".gitignore"}, listed.Files[0], "the ignored .env is not listed")
+	require.Equal(t, []domain.TaskFile{{Path: "logo.png"}, {Path: "src/app.go", Changed: true}}, listed.Files[151:])
 	var page domain.TaskFileContent
 	headers = get(content+"&start=3&end=3", token, 200, &page)
 	require.Equal(t, "private, no-store", headers.Get("Cache-Control"))
@@ -210,5 +223,28 @@ func TestTaskFilesHTTP(t *testing.T) {
 	get(root, token, 403, nil)
 	get(content, token, 403, nil)
 	demoDenied.Store(false)
+
+	// The listing holds as many files as the workspace's Dev Machine policy
+	// allows. Only admins change it, from 100 to 30,000, and another
+	// workspace's setting never applies.
+	policy := func(limit string) string {
+		return `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,"max_disk_gb":100,
+			"allowed_providers":["codex"],"allowed_repositories":[],"task_files_max":` + limit + `}`
+	}
+	send(http.MethodPatch, otherWS.String()+"/dev-machine-policy", policy("100"), tokenFor(outsider), 200, nil)
+	get(root, token, 200, &listed)
+	require.Len(t, listed.Files, 153, "another workspace's limit does not apply")
+	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("100"), tokenFor(member), 403, nil)
+	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("100"), token, 403, nil)
+	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("99"), tokenFor(owner), 400, nil)
+	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("30001"), tokenFor(owner), 400, nil)
+	get(root, token, 200, &listed)
+	require.Len(t, listed.Files, 153, "refused updates change nothing")
+	var saved domain.DevMachineWorkspacePolicy
+	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("100"), tokenFor(owner), 200, &saved)
+	require.Equal(t, 100, saved.TaskFilesMax)
+	get(root, token, 200, &listed)
+	require.Len(t, listed.Files, 100)
+	require.True(t, listed.Truncated)
 	require.Equal(t, int32(1), snapshots.calls.Load(), "one download, shared by the creator's reads; none for anyone else")
 }

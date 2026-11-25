@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "머신당 작업 수",
 	"settings.dev_machines.task_machine_max_tasks_desc": "에이전트 작업은 생성자의 실행 중인 머신을 공유하며, 각각 별도의 워크트리에서 한 번에 이 수만큼(1~10) 실행됩니다. 에이전트들은 위의 에이전트 메모리를 나눠 쓰고 각각 최소 1GB를 유지하므로, 바쁜 머신은 에이전트를 중단하는 대신 느려집니다. 적합한 머신이 모두 가득 찼을 때만 새 작업 머신이 만들어집니다.",
 	"settings.dev_machines.task_machine_max_tasks_value": "한 번에 최대 {count}개",
+	"settings.dev_machines.task_files_max": "작업당 나열할 파일 수",
+	"settings.dev_machines.task_files_max_desc": "작업의 파일 트리가 커밋 시점에 나열하는 최대 파일 수로, 100에서 30,000까지입니다. 더 큰 저장소는 경로 순으로 앞쪽 파일을 나열합니다.",
 	"settings.dev_machines.monitored_quota_description": "이 호스트는 하드 디스크 쿼터를 적용하지 않습니다. 머신은 한도의 90%에서 경고를 받고 100%에서 중지됩니다. 호스트의 여유 공간이 설정된 최소값 아래로 내려가면 모든 머신이 중지됩니다.",
 	"settings.dev_machines.monitored_quota_title": "디스크 한도를 모니터링합니다",
 	"settings.dev_machines.new_env": "새 환경 빌더",

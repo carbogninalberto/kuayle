@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Tâches par machine",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Les tâches d'agent partagent une machine en cours d'exécution de leur créateur, chacune dans son propre worktree, jusqu'à ce nombre simultanément (1 à 10). Leurs agents se répartissent la mémoire d'agent ci-dessus, chacun gardant au moins 1 Go, de sorte que les machines chargées ralentissent au lieu d'arrêter des agents. Une nouvelle machine de tâches n'est créée que si toutes les machines adaptées sont pleines.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Jusqu'à {count} à la fois",
+	"settings.dev_machines.task_files_max": "Fichiers listés par tâche",
+	"settings.dev_machines.task_files_max_desc": "Le nombre maximal de fichiers que l'arborescence d'une tâche liste à un commit, de 100 à 30 000. Un dépôt plus grand liste ses premiers fichiers par chemin.",
 	"settings.dev_machines.monitored_quota_description": "Cet hôte n'applique pas de quotas de disque stricts. Les machines reçoivent un avertissement à 90 % de leur limite et sont arrêtées à 100 %. Toutes les machines sont arrêtées lorsque l'espace libre de l'hôte passe sous le seuil configuré.",
 	"settings.dev_machines.monitored_quota_title": "Les limites de disque sont surveillées",
 	"settings.dev_machines.new_env": "Nouveau générateur d'environnement",

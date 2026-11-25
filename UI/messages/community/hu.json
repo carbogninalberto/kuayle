@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Taszkok gépenként",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Az agent taszkok megosztoznak a létrehozójuk egy futó gépén, mindegyik a saját worktree-jében, egyszerre legfeljebb ennyien (1–10). Az agentjeik elosztják a fenti agent memóriát, és mindegyik legalább 1 GB-ot megtart, így a terhelt gépek lelassulnak ahelyett, hogy leállítanák az agenteket. Új taszkgép csak akkor jön létre, ha minden megfelelő gép tele van.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Egyszerre legfeljebb {count}",
+	"settings.dev_machines.task_files_max": "Feladatonként listázott fájlok",
+	"settings.dev_machines.task_files_max_desc": "Egy feladat fájlfája egy commitnál legfeljebb ennyi fájlt listáz, 100 és 30 000 között. Egy nagyobb tároló útvonal szerint az első fájlokat listázza.",
 	"settings.dev_machines.monitored_quota_description": "Ez a gazdagép nem érvényesít szigorú lemezkvótákat. A gépek a korlát 90%-ánál figyelmeztetést kapnak, 100%-nál leállnak. Minden gép leáll, ha a gazdagép szabad helye a beállított küszöb alá esik.",
 	"settings.dev_machines.monitored_quota_title": "A lemezkorlátok figyelve vannak",
 	"settings.dev_machines.new_env": "Új környezetépítő",

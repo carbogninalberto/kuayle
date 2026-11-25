@@ -61,7 +61,7 @@ async function mockPolicyApi(page: Page, taskMachine: Record<string, number>, ro
 				json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: role }
 			});
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
-		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`))
+		if (['teams', 'projects', 'labels', 'members', 'views', 'workflows'].some((part) => path === `/api/workspaces/test/${part}`))
 			return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machine-policy') {
 			if (request.method() === 'PATCH') {
@@ -241,3 +241,83 @@ test('the task machine section fits a phone screen', async ({ page }) => {
 	if (process.env.KUAYLE_SCREENSHOT_DIR)
 		await section.screenshot({ path: `${process.env.KUAYLE_SCREENSHOT_DIR}/task-machines-390.png` });
 });
+
+test('admins set how many files a task file listing holds', async ({ page }) => {
+	const state = await mockPolicyApi(page, { ...eightGiB, task_files_max: 30000 });
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const section = page.getByRole('region', { name: 'Task machines' });
+	const field = section.getByRole('spinbutton', { name: 'Files listed per task' });
+	await expect(field).toHaveValue('30000');
+	await expect(field).toHaveAttribute('min', '100');
+	await expect(field).toHaveAttribute('max', '30000');
+	await field.fill('2500');
+	await page.getByRole('button', { name: 'Save policy' }).click();
+	await expect.poll(() => state.saved.length).toBe(1);
+	expect(state.saved.at(-1)!.task_files_max).toBe(2500);
+	// The form refuses what the server would: below 100, above 30,000 or not
+	// a whole number. Nothing is sent until the value is valid.
+	for (const typed of ['50', '30001', '1234.5']) {
+		await field.fill(typed);
+		await page.getByRole('button', { name: 'Save policy' }).click();
+		expect(await field.evaluate((input: HTMLInputElement) => input.validity.valid), typed).toBe(false);
+	}
+	await field.fill('1234');
+	await page.getByRole('button', { name: 'Save policy' }).click();
+	await expect.poll(() => state.saved.length).toBe(2);
+	expect(state.saved[1].task_files_max).toBe(1234);
+});
+
+test('a server without the file listing limit shows and saves 30,000', async ({ page }) => {
+	const state = await mockPolicyApi(page, eightGiB);
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const field = page.getByRole('region', { name: 'Task machines' }).getByRole('spinbutton', { name: 'Files listed per task' });
+	await expect(field).toHaveValue('30000');
+	await page.getByRole('button', { name: 'Save policy' }).click();
+	await expect.poll(() => state.saved.length).toBe(1);
+	expect(state.saved[0]).toMatchObject({ task_files_max: 30000 });
+});
+
+test('members see the file listing limit read-only', async ({ page }) => {
+	await mockPolicyApi(page, { ...eightGiB, task_files_max: 5000 }, 'member');
+	await page.goto('/test/settings/dev-machines?tab=policy');
+	const field = page.getByRole('region', { name: 'Task machines' }).getByRole('spinbutton', { name: 'Files listed per task' });
+	await expect(field).toHaveValue('5000');
+	await expect(field).toBeDisabled();
+});
+
+// Screenshots of the setting for review, desktop and phone in both themes,
+// only when KUAYLE_SCREENSHOT_DIR names a folder; never committed.
+for (const theme of ['light', 'dark'] as const) {
+	for (const [label, viewport] of [
+		['desktop', { width: 1280, height: 900 }],
+		['phone', { width: 390, height: 844 }]
+	] as const) {
+		test(`the file listing limit fits ${label} in the ${theme} theme`, async ({ page }) => {
+			await page.setViewportSize(viewport);
+			await mockPolicyApi(page, { ...eightGiB, task_files_max: 30000 });
+			await page.route('**/api/preferences', (route) =>
+				route.fulfill({
+					json: {
+						font_size: 'default',
+						pointer_cursors: true,
+						theme_mode: theme,
+						light_theme: 'light',
+						dark_theme: 'dark',
+						workflow_sort_mode: 'default',
+						workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'],
+						team_workflow_sort_overrides: {},
+						issues_group_by: 'status'
+					}
+				})
+			);
+			await page.goto('/test/settings/dev-machines?tab=policy');
+			const field = page.getByRole('region', { name: 'Task machines' }).getByRole('spinbutton', { name: 'Files listed per task' });
+			await field.scrollIntoViewIfNeeded();
+			await expect(field).toBeVisible();
+			const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+			expect(overflow).toBeLessThanOrEqual(0);
+			if (process.env.KUAYLE_SCREENSHOT_DIR)
+				await page.screenshot({ path: `${process.env.KUAYLE_SCREENSHOT_DIR}/task-files-max-${label}-${theme}.png` });
+		});
+	}
+}

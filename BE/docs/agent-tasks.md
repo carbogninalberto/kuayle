@@ -177,7 +177,8 @@ glob, a line range of one file, or git status — or lists the worktrees under
 `/workspace/tasks`; it never changes the checkout and needs no credentials.
 Two kinds read a commit instead of the worktree, for
 [files at a commit](#files-at-a-commit): `tree` lists the regular files the
-commit tracks and `show` returns a page of one of them. A
+commit tracks (its result may take 4 MiB, migration 210) and `show` returns a
+page of one of them. A
 task scan is allowed while the agent works: it does not take
 `lockMachineForCheck`, and `LeaseOperations` lets it lease beside an agent
 attempt, publication, check or tool run while a running scan never
@@ -198,9 +199,9 @@ programs never run; every checkout scan reports its branch, HEAD commit and
 whether it is dirty, and status adds changed paths, ahead/behind the base
 branch's remote-tracking ref, and the last commit subject. Output, matches,
 files, lines, changed paths and worktrees are bounded (`Truncated`), and the
-result is trimmed to the table's 64 KiB limit. A scan that cannot run is a
-completed scan with a short error, not an operation retry. The table keeps a
-workspace's scans for an hour.
+result is trimmed to the table's limit for its kind (64 KiB; 4 MiB for
+`tree`). A scan that cannot run is a completed scan with a short error, not an
+operation retry. The table keeps a workspace's scans for an hour.
 
 ## Publication
 
@@ -3829,7 +3830,10 @@ person outside the workspace is refused by its membership check), and answer
 
 - `GET /agent-tasks/:taskId/files?ref=` returns `{commit, files: [{path,
   changed}], truncated}`, sorted by path. `changed` marks the files the newest
-  attempt that recorded any changed (the board's rule).
+  attempt that recorded any changed (the board's rule). The listing holds at
+  most the workspace's `task_files_max` files (its Dev Machine policy, set by
+  admins in Settings → Dev Machines: default 30,000, from 100 to 30,000;
+  migration 210), from either source; `truncated` says more were left out.
 - `GET /agent-tasks/:taskId/files/content?path=&ref=&start=&end=` returns
   `{path, commit, content, start, end, total_lines, truncated, binary,
   too_large}`: lines `start` to `end` (1-based; by default from line 1), at most
@@ -3860,9 +3864,12 @@ directory, keeping only regular files (modes `100644` and `100755`; links,
 directories and nested repositories are left out). The machine needs a ready
 checkout on a running machine (`409 FILES_UNAVAILABLE` otherwise), counts
 against the requester's four unfinished scans (`429 FILES_BUSY`) and answers
-within 20 s (`502 FILES_FAILED` otherwise, as for a GitHub failure). A scan's
-result is stored within its 64 KiB, so the machine's listing stops earlier than
-30,000 files (`truncated`) and its pages are about 60 KiB.
+within 20 s (`502 FILES_FAILED` otherwise, as for a GitHub failure). A `tree`
+result may take 4 MiB (migration 210: 30,000 paths averaging about 135 bytes;
+this repository's average 42), so the machine lists as many files as the
+GitHub checkout; a listing of longer paths stops at that bound (`truncated`).
+Every other scan result keeps 64 KiB, so the machine's pages are about 60 KiB.
+Scan rows, listings included, are kept for an hour.
 
 Neither source reads the worktree: untracked, ignored, staged and edited files
 (a `.env` beside the code) are never listed or served. The UI's file panel is
