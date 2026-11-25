@@ -5,7 +5,13 @@
 	import { Label } from '$lib/components/ui/label/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
-	import { agentProfiles, workflows, type WorkflowSaveInput, type WorkflowSummary } from '$lib/api/workflows';
+	import {
+		agentProfiles,
+		workflows,
+		type WorkflowSaveInput,
+		type WorkflowSummary,
+		type WorkflowTemplate
+	} from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
 	import { nodeTypeLabel } from './labels';
@@ -14,8 +20,10 @@
 
 	// Creates a workflow from a template. Blank starts with one agent step run
 	// by the built-in Implementer; the other templates are built by the server.
-	// While the server has pipelines on, a blank pipeline is offered too: one
-	// phase worked by the role that writes the code (the built-in Implementer).
+	// While the server has pipelines on, the pipeline versions of Review loop,
+	// Full cycle and Standard are offered too (the server drafts each from its
+	// graph template), and a blank pipeline: one phase worked by the role that
+	// writes the code (the built-in Implementer).
 	let {
 		slug,
 		pipelines = false,
@@ -29,7 +37,7 @@
 		onclose: () => void;
 	} = $props();
 
-	type Template = 'blank' | 'review_loop' | 'full_cycle' | 'standard' | 'pipeline';
+	type Template = WorkflowTemplate | 'blank' | 'pipeline';
 	let name = $state(''),
 		description = $state(''),
 		template = $state<Template>('review_loop'),
@@ -40,8 +48,25 @@
 		full_cycle: m['workflows.template_hint_full_cycle'],
 		standard: m['workflows.template_hint_standard'],
 		blank: m['workflows.template_hint_blank'],
+		review_loop_pipeline: m['workflows.pipeline_editor.template_hint_review_loop'],
+		full_cycle_pipeline: m['workflows.pipeline_editor.template_hint_full_cycle'],
+		standard_pipeline: m['workflows.pipeline_editor.template_hint_standard'],
 		pipeline: m['workflows.pipeline_editor.template_hint']
 	};
+	const options = $derived<{ value: Template; label: string }[]>([
+		{ value: 'review_loop', label: m['workflows.template_review_loop']() },
+		{ value: 'full_cycle', label: m['workflows.template_full_cycle']() },
+		{ value: 'standard', label: m['workflows.template_standard']() },
+		{ value: 'blank', label: m['workflows.template_blank']() },
+		...(pipelines
+			? [
+					{ value: 'review_loop_pipeline' as const, label: m['workflows.pipeline_editor.template_review_loop']() },
+					{ value: 'full_cycle_pipeline' as const, label: m['workflows.pipeline_editor.template_full_cycle']() },
+					{ value: 'standard_pipeline' as const, label: m['workflows.pipeline_editor.template_standard']() },
+					{ value: 'pipeline' as const, label: m['workflows.pipeline_editor.template']() }
+				]
+			: [])
+	]);
 
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
@@ -94,18 +119,8 @@
 			</div>
 			<div class="space-y-1.5">
 				<Label for="new-workflow-template">{m['workflows.template']()}</Label>
-				<SelectField
-					id="new-workflow-template"
-					bind:value={template}
-					options={[
-						{ value: 'review_loop', label: m['workflows.template_review_loop']() },
-						{ value: 'full_cycle', label: m['workflows.template_full_cycle']() },
-						{ value: 'standard', label: m['workflows.template_standard']() },
-						{ value: 'blank', label: m['workflows.template_blank']() },
-						...(pipelines ? [{ value: 'pipeline' as const, label: m['workflows.pipeline_editor.template']() }] : [])
-					]}
-				/>
-				<p class="text-xs text-muted-foreground">{hints[template]()}</p>
+				<SelectField id="new-workflow-template" bind:value={template} {options} />
+				<p class="text-xs text-muted-foreground" data-testid="new-workflow-template-hint">{hints[template]()}</p>
 			</div>
 			<Dialog.Footer>
 				<Button type="button" variant="outline" onclick={onclose}>{m['common.cancel']()}</Button>

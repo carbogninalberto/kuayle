@@ -357,8 +357,10 @@ func (s *WorkflowService) Get(ctx context.Context, ws uuid.UUID, id string) (*Wo
 }
 
 // WorkflowRequest creates or saves a workflow. Template names a built-in
-// starting point ("review_loop", "full_cycle", "standard", or the
-// experimental pipeline "team") instead of a graph.
+// starting point instead of a graph: "review_loop", "full_cycle" or
+// "standard", or, while pipelines are on, their pipeline versions
+// ("review_loop_pipeline", "full_cycle_pipeline", "standard_pipeline") or
+// the pipeline "team".
 type WorkflowRequest struct {
 	Name            string          `json:"name"`
 	Description     string          `json:"description"`
@@ -433,6 +435,41 @@ func standardCopy(implementer uuid.UUID) domain.WorkflowGraph {
 	return graph
 }
 
+// graphTemplate is a built-in graph template by name: "review_loop",
+// "full_cycle", or "standard" (an editable copy of Standard).
+func graphTemplate(name string, implementer, reviewer uuid.UUID) (domain.WorkflowGraph, bool) {
+	switch name {
+	case "review_loop":
+		return domain.ReviewLoopWorkflowGraph(implementer, reviewer), true
+	case "full_cycle":
+		return domain.FullCycleWorkflowGraph(implementer, reviewer), true
+	case domain.StandardWorkflowID:
+		return standardCopy(implementer), true
+	}
+	return domain.WorkflowGraph{}, false
+}
+
+// pipelineTemplateSuffix names a graph template's pipeline version:
+// "review_loop_pipeline" is Review loop's.
+const pipelineTemplateSuffix = "_pipeline"
+
+// pipelineTemplate is the pipeline version of a graph template (KUA-290):
+// the graph template drafted as a pipeline (domain.DraftPipeline), so the
+// two never drift apart. Its phases keep the steps' IDs and names. A draft
+// with reasons (a profile was archived meanwhile) is refused with them.
+func pipelineTemplate(name string, implementer, reviewer uuid.UUID, profiles map[uuid.UUID]domain.AgentProfile) (*domain.Pipeline, error) {
+	base, ok := strings.CutSuffix(name, pipelineTemplateSuffix)
+	g, known := graphTemplate(base, implementer, reviewer)
+	if !ok || !known {
+		return nil, &ErrInvalidWorkflowInput{"unknown template"}
+	}
+	pipeline, reasons := domain.DraftPipeline(g, profiles)
+	if len(reasons) > 0 {
+		return nil, &domain.WorkflowInvalidError{Issues: reasons}
+	}
+	return pipeline, nil
+}
+
 func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowRequest) (*WorkflowSummary, error) {
 	actor, canManage, err := s.access(ctx, ws)
 	if err != nil {
@@ -447,22 +484,32 @@ func (s *WorkflowService) Create(ctx context.Context, ws uuid.UUID, in WorkflowR
 	}
 	graph := in.Graph
 	if in.Template != "" {
+		pipeline := in.Template == "team" || strings.HasSuffix(in.Template, pipelineTemplateSuffix)
+		if pipeline && !s.tasks.PipelinesEnabled() {
+			return nil, ErrPipelinesDisabled
+		}
 		implementer, reviewer, err := s.builtinProfileIDs(ctx, ws)
 		if err != nil {
 			return nil, err
 		}
 		var template any
-		switch in.Template {
-		case "review_loop":
-			template = domain.ReviewLoopWorkflowGraph(implementer, reviewer)
-		case "full_cycle":
-			template = domain.FullCycleWorkflowGraph(implementer, reviewer)
-		case domain.StandardWorkflowID:
-			template = standardCopy(implementer)
-		case "team":
+		switch {
+		case in.Template == "team":
 			template = domain.TeamPipeline(implementer, reviewer)
+		case pipeline:
+			profiles, err := s.repo.ActiveProfiles(ctx, ws)
+			if err != nil {
+				return nil, err
+			}
+			if template, err = pipelineTemplate(in.Template, implementer, reviewer, profiles); err != nil {
+				return nil, err
+			}
 		default:
-			return nil, &ErrInvalidWorkflowInput{"unknown template"}
+			g, ok := graphTemplate(in.Template, implementer, reviewer)
+			if !ok {
+				return nil, &ErrInvalidWorkflowInput{"unknown template"}
+			}
+			template = g
 		}
 		if graph, err = json.Marshal(template); err != nil {
 			return nil, err

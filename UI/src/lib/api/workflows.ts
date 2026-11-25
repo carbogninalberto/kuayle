@@ -367,12 +367,25 @@ export interface TaskWorkflow {
 
 export type WorkflowDecision = 'approve' | 'deny' | 'continue' | 'stop';
 
+/**
+ * The server's built-in templates. A "_pipeline" one is the pipeline version
+ * of the graph template it names, drafted from it, and is offered only while
+ * the server has pipelines on (KUA-290).
+ */
+export type WorkflowTemplate =
+	| 'review_loop'
+	| 'full_cycle'
+	| 'standard'
+	| 'review_loop_pipeline'
+	| 'full_cycle_pipeline'
+	| 'standard_pipeline';
+
 export interface WorkflowSaveInput {
 	name: string;
 	description: string;
 	graph?: WorkflowGraph | PipelineDefinition;
 	/** A built-in starting point instead of a graph. */
-	template?: 'review_loop' | 'full_cycle' | 'standard';
+	template?: WorkflowTemplate;
 	expected_version?: number;
 }
 

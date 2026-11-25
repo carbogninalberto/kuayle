@@ -2981,8 +2981,9 @@ pipelines stay readable, and a task already on one keeps running: the tick
 does not read the switch. `GET /workflows` returns the switch as
 `pipelines_enabled`, and the task composer offers pipelines only while it is
 on. On, owners and admins save pipelines like graphs, including the built-in
-`template: "team"` of `POST /workflows`, and a task starts on a pipeline
-chosen in the task composer or set as a scope's default.
+pipeline templates of `POST /workflows` (`team`, `standard_pipeline`,
+`review_loop_pipeline` and `full_cycle_pipeline`), and a task starts on a
+pipeline chosen in the task composer or set as a scope's default.
 `POST /workflows/validate` checks a pipeline with `ValidatePipeline` either
 way.
 
@@ -3045,6 +3046,16 @@ reviewer's `verdict`), CI checks (implementer; `head_contains_base`,
 `ci_green`, `migration_collision`), approval (human; `approved`) and merge
 (Kuayle, guarded), every check required; the built-in Implementer as the
 writer and Reviewer; no lead; 40 turns and 2,880 minutes, then `ask`.
+The pipeline versions of the graph templates (KUA-290; `pipelineTemplate`,
+`service/workflow.go`), `standard_pipeline`, `review_loop_pipeline` and
+`full_cycle_pipeline`, are `standard` (the editable copy), `review_loop` and
+`full_cycle` with the built-in profiles, drafted by `DraftPipeline` (below)
+when they are created, so a change to a graph template reaches its pipeline.
+Standard's phases are implement, publish, human review and merge, with only
+the writer and no budget; Review loop and Full cycle have implement, open
+pull request, the reviewer's verdict, CI, ready to ship and merge, with 16
+turns in a day then `fail`, and 20 turns in two days then `ask`. A draft
+with reasons answers `422 INVALID_WORKFLOW` with them.
 With the switch on, Settings → Workflows edits a pipeline in
 `PipelineEditor.svelte` (KUA-284; state and the saved JSON in
 `pipeline-editor.ts`): the phases drawn on the workflow canvas, left to right
@@ -3055,9 +3066,10 @@ each required or advisory, with who may waive a required one), the roster
 the budget. It saves through `PUT /workflows/:workflowId` like a graph, shows
 `POST /workflows/validate`'s issues on the phase, the roles or the settings
 they concern; members see it read only. The page reads the switch from
-`GET /workflows` (`pipelines_enabled`). The new-workflow dialog offers a blank
-pipeline (one phase worked by the writer). With the switch off, a pipeline is
-shown read only, with a notice (`PipelineView.svelte`).
+`GET /workflows` (`pipelines_enabled`). The new-workflow dialog offers the
+three pipeline templates above and a blank pipeline (one phase worked by the
+writer). With the switch off, a pipeline is shown read only, with a notice
+(`PipelineView.svelte`).
 
 **Drafting a pipeline from a graph** (KUA-283; `domain/pipeline_draft.go`).
 `POST /workflows/:workflowId/draft-pipeline` (session only, any member who

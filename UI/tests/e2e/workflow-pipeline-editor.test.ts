@@ -3,9 +3,10 @@ import type { PipelineDefinition, WorkflowIssue } from '../../src/lib/api/workfl
 
 // The pipeline editor (KUA-284), with the server's pipelines on: a pipeline
 // is built and saved through the workflow save route with the validator's
-// issues shown where they are fixed, a blank pipeline is created from the
-// new-workflow dialog, and "Draft a pipeline" opens the server's draft of a
-// graph workflow unsaved, or lists why there is none.
+// issues shown where they are fixed, a blank pipeline and the pipeline
+// templates (KUA-290) are created from the new-workflow dialog, and "Draft a
+// pipeline" opens the server's draft of a graph workflow unsaved, or lists
+// why there is none.
 const time = '2026-11-25T00:00:00Z';
 
 const profile = (id: string, name: string, behaviour: string) => ({
@@ -133,7 +134,9 @@ async function fixture(page: Page, options: Options = {}) {
 		if (path === `${w}/workflows`) {
 			if (method === 'POST') {
 				const body = request.postDataJSON();
-				state.created = summary('new-1', body.name, body.graph, { description: body.description });
+				// The server builds a pipeline template's pipeline; any one shows here.
+				const graph = String(body.template ?? '').endsWith('_pipeline') ? team() : body.graph;
+				state.created = summary('new-1', body.name, graph, { description: body.description });
 				return route.fulfill({ status: 201, json: state.created });
 			}
 			return route.fulfill({
@@ -305,6 +308,31 @@ test('a blank pipeline is created from the new-workflow dialog', async ({ page }
 	});
 });
 
+// The pipeline versions of the graph templates (KUA-290) are built by the
+// server from the template's name; each opens in the pipeline editor.
+for (const [option, template] of [
+	['Review loop (pipeline)', 'review_loop_pipeline'],
+	['Full cycle (pipeline)', 'full_cycle_pipeline'],
+	['Standard (pipeline)', 'standard_pipeline']
+] as const) {
+	test(`a workflow is created from the ${option} template`, async ({ page }) => {
+		const state = await fixture(page);
+		await page.goto('/test/settings/workflows');
+		await page.getByTestId('workflow-new').click();
+		const dialog = page.getByTestId('new-workflow-form');
+		await dialog.getByLabel('Name').fill('Team flow');
+		await choose(dialog, 'Start from', option);
+		await expect(dialog.getByTestId('new-workflow-template-hint')).toContainText('Kuayle merges');
+		await dialog.getByRole('button', { name: 'Create' }).click();
+		await expect(page).toHaveURL(/\/test\/settings\/workflows\/new-1$/);
+		await expect(page.getByTestId('pipeline-editor')).toBeVisible();
+		expect(state.writes.map((write) => `${write.method} ${write.path}`)).toEqual([
+			'POST /api/workspaces/test/workflows'
+		]);
+		expect(state.writes[0].body).toEqual({ name: 'Team flow', description: '', template });
+	});
+}
+
 test('a graph workflow is drafted as a pipeline that opens unsaved and is saved as a new workflow', async ({
 	page
 }) => {
@@ -364,7 +392,8 @@ test('with pipelines off nothing offers to draft or create one, and a pipeline s
 	await expect(page.getByTestId('workflow-draft-pipeline')).toHaveCount(0);
 	await page.getByTestId('workflow-new').click();
 	await page.getByRole('combobox', { name: 'Start from' }).click();
-	await expect(page.getByRole('option', { name: 'Blank pipeline (experimental)' })).toHaveCount(0);
+	await expect(page.getByRole('option', { name: 'Review loop', exact: true })).toBeVisible();
+	await expect(page.getByRole('option', { name: /pipeline/i })).toHaveCount(0);
 	await page.keyboard.press('Escape');
 	await page.goto('/test/settings/workflows/team');
 	await expect(page.getByTestId('pipeline-view')).toBeVisible();
