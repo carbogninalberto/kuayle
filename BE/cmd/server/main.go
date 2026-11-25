@@ -460,9 +460,11 @@ func main() {
 	assistantTools.SetRepositoryScans(repositoryCheckouts, devMachineRepo)
 	// Live worktree scans queue a read-only operation on the task's machine.
 	assistantTools.SetWorktreeScans(devMachineRepo)
-	// A task's creator reads its files at a commit: published commits from
-	// the same checkouts, the rest with git on the task's machine.
+	// A task's creator reads its files at a commit: published commits are
+	// listed through GitHub's trees API (a directory at a time) and their
+	// files read from the same checkouts, the rest with git on the task's machine.
 	agentTaskSvc.SetTaskFiles(repositoryCheckouts, devMachineRepo)
+	agentTaskSvc.SetTaskFileTrees(service.NewGitHubTrees(githubSvc))
 	assistantApprovals.SetReleases(githubSvc)
 	githubSvc.SetPullRequestSettings(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetPullRequestHeads(githubSvc)

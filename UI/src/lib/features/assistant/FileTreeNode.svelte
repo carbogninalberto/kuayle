@@ -4,11 +4,12 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import FileTreeNode from './FileTreeNode.svelte';
 	import type { FileNode } from './agent-trace';
-	import { m } from '$lib/features/i18n/messages';
+	import { getLocale, m } from '$lib/features/i18n/messages';
 	// Without `select`, files are links (href) or plain labels and folders start
 	// open: an attempt's changed files. With it (a task's files panel), files
 	// are buttons, the selected one is the current file, and folders follow
-	// `open` and report toggles through `toggle`.
+	// `open` and report toggles through `toggle`; a folder read on demand says
+	// that it is loading, or failed and may be tried again through `retry`.
 	let {
 		node,
 		href,
@@ -16,6 +17,7 @@
 		selected,
 		select,
 		open,
+		retry,
 		toggle
 	}: {
 		node: FileNode;
@@ -24,6 +26,7 @@
 		selected?: string | null;
 		select?: (path: string) => void;
 		open?: (path: string, depth: number) => boolean;
+		retry?: (path: string) => void;
 		toggle?: (path: string, open: boolean) => void;
 	} = $props();
 	const link = $derived(node.type === 'file' && !select ? href?.(node.path) : undefined);
@@ -44,10 +47,7 @@
 
 <!-- Official AI Elements File Tree composition: Collapsible folders, Button files. -->
 {#if node.type === 'folder'}
-	<Collapsible.Root
-		open={open ? open(node.path, depth) : true}
-		onOpenChange={(value) => toggle?.(node.path, value)}
-	>
+	<Collapsible.Root open={open ? open(node.path, depth) : true} onOpenChange={(value) => toggle?.(node.path, value)}>
 		<Collapsible.Trigger>
 			{#snippet child({ props })}
 				<Button {...props} variant="plain" class={folderClass}
@@ -59,6 +59,17 @@
 		</Collapsible.Trigger>
 		<Collapsible.Content>
 			<div class="ml-4 flex flex-col">
+				{#if node.state === 'loading'}<p class="px-2.5 py-1 text-xs text-muted-foreground" role="status">
+						{m['assistant.loading']()}
+					</p>
+				{:else if node.state === 'error'}<div class="flex flex-col items-start gap-1 px-2.5 py-1" role="alert">
+						<p class="text-xs text-muted-foreground">{m['tasks.files_error']()}</p>
+						<Button variant="outline" size="sm" onclick={() => retry?.(node.path)}>{m['tasks.files_retry']()}</Button>
+					</div>
+				{/if}
+				{#if node.truncated}<p class="px-2.5 py-1 text-xs text-[var(--status-warning)]" role="note">
+						{m['tasks.files_truncated']({ count: node.truncated.toLocaleString(getLocale()) })}
+					</p>{/if}
 				{#each node.children as entry (entry.path)}<FileTreeNode
 						node={entry}
 						{href}
@@ -67,6 +78,7 @@
 						{select}
 						{open}
 						{toggle}
+						{retry}
 					/>{/each}
 			</div>
 		</Collapsible.Content>

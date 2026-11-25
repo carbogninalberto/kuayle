@@ -1004,7 +1004,7 @@ Workspace policy controls:
 - task machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB; older clients that omit them keep the current values);
 - how many active agent tasks share one task machine (`task_machine_max_tasks`, default 10, 1 to 10; migrations 113 and 117, which kept saved values; rolling 117 back caps limits above 4 at 4; older clients that omit it keep the current value);
 - an optional per-machine override of that limit (`dev_machines.max_tasks`, 1 to 10, migration 156; NULL follows the policy and it can be changed while the machine runs);
-- how many files a task's file listing holds (`task_files_max`, default 30,000, 100 to 30,000; migration 210; older clients that omit it keep the current value), for both [sources of a task's files](BE/docs/agent-tasks.md#files-at-a-commit);
+- how many entries one directory of a task's file listing holds (`task_files_max`, default 30,000, 100 to 30,000; migration 210; older clients that omit it keep the current value), for both [sources of a task's files](BE/docs/agent-tasks.md#files-at-a-commit);
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed;

@@ -68,8 +68,10 @@ func agentTaskError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusForbidden, "PIPELINES_DISABLED", "Pipeline workflows are turned off on this server")
 	case errors.Is(err, service.ErrTaskFileRef):
 		return response.Error(c, http.StatusBadRequest, "INVALID_REF", "ref must be the task's head or a full commit id one of its iterations recorded")
+	case errors.Is(err, service.ErrTaskFilePath):
+		return response.Error(c, http.StatusBadRequest, "INVALID_PATH", "path must be a clean directory of the repository, such as src/lib")
 	case errors.Is(err, service.ErrTaskFileNotFound):
-		return response.Error(c, http.StatusNotFound, "FILE_NOT_FOUND", "The commit tracks no file at that path")
+		return response.Error(c, http.StatusNotFound, "FILE_NOT_FOUND", "The commit tracks nothing at that path")
 	case errors.Is(err, service.ErrTaskFilesUnavailable):
 		return response.Error(c, http.StatusConflict, "FILES_UNAVAILABLE", "Nothing is published yet and the task's checkout is not on a running machine")
 	case errors.Is(err, service.ErrTaskFilesBusy):
@@ -547,16 +549,19 @@ func (h *AgentTaskHandler) Diff(c *echo.Context) error {
 	return response.Success(c, http.StatusOK, result)
 }
 
-// Files lists the files one commit of the task tracks (?ref=, a full commit
-// id; the task's head by default) for its creator. Untracked and ignored
-// files are never listed.
+// Files lists one directory of the files a commit of the task tracks
+// (?ref=, a full commit id, the task's head by default; ?path=, the
+// directory, the root by default) for its creator, or, with ?query=, the
+// files whose path contains that text. Untracked and ignored files are never
+// listed.
 func (h *AgentTaskHandler) Files(c *echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "private, no-store")
 	id, err := taskID(c, "taskId")
 	if err != nil {
 		return agentTaskError(c, err)
 	}
-	result, err := h.svc.TaskFiles(c.Request().Context(), middleware.GetWorkspace(c).ID, id, c.QueryParam("ref"))
+	result, err := h.svc.TaskFiles(c.Request().Context(), middleware.GetWorkspace(c).ID, id,
+		service.TaskFilesQuery{Ref: c.QueryParam("ref"), Path: c.QueryParam("path"), Query: c.QueryParam("query")})
 	if err != nil {
 		return agentTaskError(c, err)
 	}

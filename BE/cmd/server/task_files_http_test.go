@@ -24,6 +24,7 @@ import (
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
 	"github.com/kuayle/kuayle-backend/internal/repository"
 	"github.com/kuayle/kuayle-backend/internal/service"
+	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	jwtpkg "github.com/kuayle/kuayle-backend/pkg/jwt"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
@@ -39,6 +40,54 @@ type filesSnapshot struct {
 func (f *filesSnapshot) RepositorySnapshot(context.Context, uuid.UUID, string, string) (*service.RepositorySnapshot, error) {
 	f.calls.Add(1)
 	return &service.RepositorySnapshot{Commit: f.commit, Archive: io.NopCloser(bytes.NewReader(f.archive))}, nil
+}
+
+// filesTrees serves GitHub's trees API for one commit: a root with the
+// directories gen and src, and the same files flat for a search.
+type filesTrees struct {
+	commit string
+	reads  atomic.Int32
+}
+
+var filesTreeSHA = map[string]string{"root": strings.Repeat("1", 40), "gen": strings.Repeat("2", 40), "src": strings.Repeat("3", 40)}
+
+func (f *filesTrees) RepositoryCommitTree(_ context.Context, _ uuid.UUID, _, commit string) (string, error) {
+	f.reads.Add(1)
+	if commit != f.commit {
+		return "", &gh.APIError{Status: 404, Message: "Not Found"}
+	}
+	return filesTreeSHA["root"], nil
+}
+
+func (f *filesTrees) RepositoryTree(_ context.Context, _ uuid.UUID, _, tree string, recursive bool) (*gh.TreeListing, error) {
+	f.reads.Add(1)
+	size := int64(10)
+	blob := func(path, sha string) gh.TreeNode {
+		return gh.TreeNode{Path: path, Mode: "100644", Type: "blob", SHA: sha, Size: &size}
+	}
+	sha := strings.Repeat("a", 40)
+	var gen, genFlat []gh.TreeNode
+	for i := range 150 {
+		name := fmt.Sprintf("file-%03d.txt", i)
+		gen, genFlat = append(gen, blob(name, sha)), append(genFlat, blob("gen/"+name, sha))
+	}
+	switch {
+	case recursive && tree == filesTreeSHA["root"]:
+		nodes := append([]gh.TreeNode{blob(".gitignore", sha), blob("logo.png", sha)}, genFlat...)
+		return &gh.TreeListing{SHA: tree, Tree: append(nodes, blob("src/app.go", sha))}, nil
+	case tree == filesTreeSHA["root"]:
+		return &gh.TreeListing{SHA: tree, Tree: []gh.TreeNode{
+			blob(".gitignore", sha), blob("logo.png", sha),
+			{Path: "gen", Mode: "040000", Type: "tree", SHA: filesTreeSHA["gen"]},
+			{Path: "src", Mode: "040000", Type: "tree", SHA: filesTreeSHA["src"]},
+			{Path: "link", Mode: "120000", Type: "blob", SHA: sha},
+		}}, nil
+	case tree == filesTreeSHA["gen"]:
+		return &gh.TreeListing{SHA: tree, Tree: gen}, nil
+	case tree == filesTreeSHA["src"]:
+		return &gh.TreeListing{SHA: tree, Tree: []gh.TreeNode{blob("app.go", sha)}}, nil
+	}
+	return nil, &gh.APIError{Status: 404, Message: "Not Found"}
 }
 
 func filesArchive(t *testing.T, files map[string]string) []byte {
@@ -132,6 +181,8 @@ func TestTaskFilesHTTP(t *testing.T) {
 	defer checkouts.Close()
 	tasks := service.NewAgentTaskService(taskRepo, machineSvc, nil)
 	tasks.SetTaskFiles(checkouts, machines)
+	trees := &filesTrees{commit: head}
+	tasks.SetTaskFileTrees(trees)
 	e := echo.New()
 	registerRoutes(e, &appHandlers{agentTask: handler.NewAgentTaskHandler(tasks), devMachine: handler.NewDevMachineHandler(machineSvc)}, middleware)
 	server := httptest.NewServer(e)
@@ -171,10 +222,42 @@ func TestTaskFilesHTTP(t *testing.T) {
 	headers := get(root, token, 200, &listed)
 	require.Equal(t, "private, no-store", headers.Get("Cache-Control"))
 	require.Equal(t, head, listed.Commit)
-	require.Len(t, listed.Files, 153)
+	require.Equal(t, "", listed.Path)
+	require.Equal(t, filesTreeSHA["root"], listed.Tree)
 	require.False(t, listed.Truncated)
-	require.Equal(t, domain.TaskFile{Path: ".gitignore"}, listed.Files[0], "the ignored .env is not listed")
-	require.Equal(t, []domain.TaskFile{{Path: "logo.png"}, {Path: "src/app.go", Changed: true}}, listed.Files[151:])
+	// Only the root: its directories first, the task's changed file marking src,
+	// the link omitted, and no archive downloaded to list it.
+	require.Len(t, listed.Entries, 4)
+	require.Equal(t, []string{"gen", "src", ".gitignore", "logo.png"}, []string{listed.Entries[0].Name, listed.Entries[1].Name, listed.Entries[2].Name, listed.Entries[3].Name})
+	require.Equal(t, []bool{false, true, false, false}, []bool{listed.Entries[0].Changed, listed.Entries[1].Changed, listed.Entries[2].Changed, listed.Entries[3].Changed})
+	require.Equal(t, domain.TreeEntryTree, listed.Entries[1].Kind)
+	require.Equal(t, filesTreeSHA["src"], listed.Entries[1].SHA)
+	require.Zero(t, snapshots.calls.Load(), "listing never downloads the archive")
+	var nested domain.TaskFiles
+	get(root+"?path=src/", token, 200, &nested)
+	require.Equal(t, "src", nested.Path)
+	require.Len(t, nested.Entries, 1)
+	require.Equal(t, domain.TaskFileEntry{TreeEntry: nested.Entries[0].TreeEntry, Path: "src/app.go", Changed: true}, nested.Entries[0])
+	require.Equal(t, "app.go", nested.Entries[0].Name)
+	require.Equal(t, int64(10), *nested.Entries[0].Size)
+	get(root+"?query=APP", token, 200, &nested)
+	require.Equal(t, 1, nested.Matches)
+	require.Equal(t, "src/app.go", nested.Entries[0].Path)
+	reads := trees.reads.Load()
+	get(root+"?path=src", token, 200, &nested)
+	require.Equal(t, reads, trees.reads.Load(), "a directory read again comes from the cache")
+	refusal := errorBody{}
+	for _, path := range []string{"missing", "src/missing", "src/app.go", "SRC"} {
+		headers = get(root+"?path="+path, token, 404, &refusal)
+		require.Equal(t, "FILE_NOT_FOUND", refusal.Error.Code, path)
+		require.Equal(t, "private, no-store", headers.Get("Cache-Control"))
+	}
+	for _, path := range []string{"..", "../..", "src/../..", "%2E%2E", "/etc", ".git", "src//lib", "./src"} {
+		headers = get(root+"?path="+path, token, 400, &refusal)
+		require.Equal(t, "INVALID_PATH", refusal.Error.Code, path)
+		require.Equal(t, "private, no-store", headers.Get("Cache-Control"))
+	}
+	get(root+"?path=src&query=app", token, 400, nil)
 	var page domain.TaskFileContent
 	headers = get(content+"&start=3&end=3", token, 200, &page)
 	require.Equal(t, "private, no-store", headers.Get("Cache-Control"))
@@ -183,7 +266,6 @@ func TestTaskFilesHTTP(t *testing.T) {
 	require.True(t, page.Binary)
 	require.Empty(t, page.Content)
 
-	var refusal errorBody
 	for _, path := range []string{".env", "../../etc/passwd", "src/../.env", "%2E%2E/.env", ".git/config"} {
 		headers = get(root+"/content?path="+path, token, 404, &refusal)
 		require.Equal(t, "FILE_NOT_FOUND", refusal.Error.Code, path)
@@ -232,19 +314,19 @@ func TestTaskFilesHTTP(t *testing.T) {
 			"allowed_providers":["codex"],"allowed_repositories":[],"task_files_max":` + limit + `}`
 	}
 	send(http.MethodPatch, otherWS.String()+"/dev-machine-policy", policy("100"), tokenFor(outsider), 200, nil)
-	get(root, token, 200, &listed)
-	require.Len(t, listed.Files, 153, "another workspace's limit does not apply")
+	get(root+"?path=gen", token, 200, &listed)
+	require.Len(t, listed.Entries, 150, "another workspace's limit does not apply")
 	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("100"), tokenFor(member), 403, nil)
 	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("100"), token, 403, nil)
 	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("99"), tokenFor(owner), 400, nil)
 	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("30001"), tokenFor(owner), 400, nil)
-	get(root, token, 200, &listed)
-	require.Len(t, listed.Files, 153, "refused updates change nothing")
+	get(root+"?path=gen", token, 200, &listed)
+	require.Len(t, listed.Entries, 150, "refused updates change nothing")
 	var saved domain.DevMachineWorkspacePolicy
 	send(http.MethodPatch, ws.String()+"/dev-machine-policy", policy("100"), tokenFor(owner), 200, &saved)
 	require.Equal(t, 100, saved.TaskFilesMax)
-	get(root, token, 200, &listed)
-	require.Len(t, listed.Files, 100)
+	get(root+"?path=gen", token, 200, &listed)
+	require.Len(t, listed.Entries, 100)
 	require.True(t, listed.Truncated)
-	require.Equal(t, int32(1), snapshots.calls.Load(), "one download, shared by the creator's reads; none for anyone else")
+	require.Equal(t, int32(1), snapshots.calls.Load(), "listing downloads nothing; the creator's file reads share one download, and nobody else reads any")
 }
