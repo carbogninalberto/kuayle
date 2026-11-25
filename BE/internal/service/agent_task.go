@@ -824,7 +824,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	// A review starts cold, except the turns of a pipeline task's member:
 	// one review task reused across turns, which continues its session.
 	var member *domain.TaskMember
-	if review {
+	if review && r.tasks != nil {
 		if member, err = r.tasks.TaskMember(ctx, task); err != nil {
 			return nil, err
 		}
