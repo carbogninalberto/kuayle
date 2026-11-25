@@ -207,7 +207,9 @@ compact steps where they started) and a floating composer; the right side is a
 resizable [panel host](../../UI/src/lib/features/assistant/panels/panel-host.svelte.ts)
 (inline from 1280 px, a drawer below) with Details (environment, context
 usage of the 50-message model window, changes, background tasks), Agents (each
-coding task with the path it took) and Diff panels. New panels, such as a
+coding task with the path it took), Workflow, Files (a task's files at its
+head with a preview and its diff, see [files at a commit](agent-tasks.md#files-at-a-commit))
+and Diff panels. New panels, such as a
 future workflow editor, register as one more `PanelDefinition`. Unknown tool
 names render through the generic step chip; [tool-chips.ts](../../UI/src/lib/features/assistant/tool-chips.ts)
 registers per-tool labels, icons or renderers. The one composer sends to the

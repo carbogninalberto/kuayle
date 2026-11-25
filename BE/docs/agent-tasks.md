@@ -3900,8 +3900,25 @@ Every other scan result keeps 64 KiB, so the machine's pages are about 60 KiB.
 Scan rows, listings included, are kept for an hour.
 
 Neither source reads the worktree: untracked, ignored, staged and edited files
-(a `.env` beside the code) are never listed or served. The UI's file panel is
-P3.3 of the team workflows plan.
+(a `.env` beside the code) are never listed or served.
+
+**Files panel** (KUA-285; `panels/FilesPanel.svelte`, `TaskFiles.svelte`,
+`FilePreview.svelte`, rules in `task-files.ts` and `code-highlight.ts`). The
+issue chat's side panel lists the task open in the agent view (or the newest)
+at its head: a tree built by `fileTree` with first-level folders open and
+deeper ones closed, the changed files and the folders holding them marked, and
+a path filter (text, case-insensitive, at most 500 matches shown) that opens
+every folder until it is cleared. A file opens below the tree (a resizable
+split) at the listing's commit, so a moved head answers `FILE_NOT_FOUND` or
+`INVALID_REF` and the panel offers to reload the listing. Lines are numbered in
+Code Block and highlighted by lowlight, loaded on first use, with the language
+taken from the file name; a page over 100,000 characters is shown plain.
+Previous/next page by line range (`start = end + 1`, back to where the earlier
+page started). A changed file has a File/Diff toggle showing its part of the
+stored diff of the newest attempt that recorded changed files (the listing's
+rule), parsed once per listing. A `404`/`403` reads as "only the creator";
+`FILES_UNAVAILABLE`, `FILES_BUSY` and failures offer to try again. The panel
+reads once when opened and on reload; it does not follow the head live.
 
 ## Web task controls
 

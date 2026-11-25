@@ -20,7 +20,8 @@
 		ListChecks,
 		Workflow as WorkflowIcon,
 		NotebookText,
-		ClipboardCheck
+		ClipboardCheck,
+		FolderTree
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -60,6 +61,7 @@
 	import AgentPanel from './panels/AgentPanel.svelte';
 	import DiffSidePanel from './panels/DiffSidePanel.svelte';
 	import WorkflowPanel from './panels/WorkflowPanel.svelte';
+	import FilesPanel from './panels/FilesPanel.svelte';
 	import NotebookPanel from './panels/NotebookPanel.svelte';
 	import ChecksPanel from './panels/ChecksPanel.svelte';
 	import { PanelHost, type PanelContext, type PanelDefinition } from './panels/panel-host.svelte';
@@ -190,6 +192,8 @@
 		{ id: 'diff', label: m['assistant.panel_diff'], icon: FileDiff, component: DiffSidePanel, available: () => !!chat.diffView },
 		// The task's workflow (KUA-95): its graph, current step and path.
 		{ id: 'workflow', label: m['assistant.panel_workflow'], icon: WorkflowIcon, component: WorkflowPanel, available: () => !!chat.issue },
+		// The task's files at its head, with a preview and its diff (KUA-285).
+		{ id: 'files', label: m['tasks.files_panel'], icon: FolderTree, component: FilesPanel, available: () => !!chat.issue, scrolls: true },
 		// The open task's notebook, for its creator, and its pipeline's checks (KUA-286).
 		{
 			id: 'notebook',

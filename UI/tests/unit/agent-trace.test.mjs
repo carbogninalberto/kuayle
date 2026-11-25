@@ -82,3 +82,51 @@ test('nests changed files into folders without escaping the repository', () => {
 		{ type: 'file', name: 'README.md', path: 'README.md' }
 	]);
 });
+
+test('marks changed files and the folders that hold them', () => {
+	const tree = fileTree([
+		{ path: 'src/lib/a.ts', changed: true },
+		{ path: 'src/lib/b.ts', changed: false },
+		{ path: 'docs/guide.md', changed: false },
+		{ path: 'README.md', changed: true }
+	]);
+	assert.deepEqual(tree, [
+		{
+			type: 'folder',
+			name: 'docs',
+			path: 'docs',
+			children: [{ type: 'file', name: 'guide.md', path: 'docs/guide.md' }]
+		},
+		{
+			type: 'folder',
+			name: 'src',
+			path: 'src',
+			changed: true,
+			children: [
+				{
+					type: 'folder',
+					name: 'lib',
+					path: 'src/lib',
+					changed: true,
+					children: [
+						{ type: 'file', name: 'a.ts', path: 'src/lib/a.ts', changed: true },
+						{ type: 'file', name: 'b.ts', path: 'src/lib/b.ts' }
+					]
+				}
+			]
+		},
+		{ type: 'file', name: 'README.md', path: 'README.md', changed: true }
+	]);
+});
+
+test('keeps the first 500 paths unless asked for more, and builds a large listing', () => {
+	const paths = Array.from({ length: 30000 }, (_, i) => `pkg${i % 30}/file${String(i).padStart(5, '0')}.ts`);
+	const count = (nodes) => nodes.reduce((sum, node) => sum + (node.type === 'file' ? 1 : count(node.children)), 0);
+	assert.equal(count(fileTree(paths)), 500);
+	const started = performance.now();
+	const tree = fileTree(paths, paths.length);
+	assert.equal(count(tree), 30000);
+	assert.equal(tree.length, 30);
+	// A flat folder of a thousand files is not quadratic.
+	assert.ok(performance.now() - started < 2000, 'a 30,000-file listing builds in well under two seconds');
+});
