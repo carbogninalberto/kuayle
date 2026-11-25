@@ -754,6 +754,9 @@ keep separate member tasks and native sessions. The pinned
 pipeline and its creator’s session can grant the lead approval or waiver
 authority. The room stores each accepted decision with its workflow audit
 event (KUA-305).
+A lead can propose children in that room. The creator approves the stored
+proposal in a session action that creates and audits all children together.
+See [the team workflow contract](BE/docs/agent-tasks.md#team-workflows-experimental).
 
 A failed CI suite on a task's pull request carries what GitHub reported about
 its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),

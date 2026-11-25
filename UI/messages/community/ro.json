@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Încă nimic aici. Ce scrii ajunge la toți cei care lucrează la sarcină.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Trecut la {phase}",
+	"tasks.room_create_sub_issues": "Creează subprobleme",
 	"tasks.room_request": "Cere: {action}",
 	"tasks.room_waiver": "A renunțat la verificarea {check}",
 	"tasks.room_grant": "Îi permite liderului să renunțe la verificarea {check}",

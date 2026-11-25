@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Itt még nincs semmi. Amit írsz, mindenkihez eljut, aki a feladaton dolgozik.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Áttérve ide: {phase}",
+	"tasks.room_create_sub_issues": "Részfeladatok létrehozása",
 	"tasks.room_request": "Kéri: {action}",
 	"tasks.room_waiver": "Eltekintett a(z) {check} ellenőrzéstől",
 	"tasks.room_grant": "Engedi, hogy a vezető eltekintsen a(z) {check} ellenőrzéstől",

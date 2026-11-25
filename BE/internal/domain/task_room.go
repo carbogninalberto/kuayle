@@ -39,6 +39,7 @@ const (
 	RoomSummary = "summary"
 
 	RoomRequestReview = "review"
+	RoomRequestSplit  = "split"
 	RoomActionApprove = "approve"
 	RoomActionWaive   = "waive"
 )
@@ -54,7 +55,7 @@ const (
 )
 
 var (
-	roomRequests = []string{RoomRequestReview, "merge", "publish", "split"}
+	roomRequests = []string{RoomRequestReview, "merge", "publish", RoomRequestSplit}
 	roomVerdicts = []string{"approve", "request_changes", "comment"}
 	roomCommit   = regexp.MustCompile(`^[0-9a-f]{7,64}$`)
 )
@@ -83,15 +84,44 @@ type TaskMessage struct {
 // TaskRoomData is the structured part of a post; each kind reads its own
 // fields.
 type TaskRoomData struct {
-	Phase    string          `json:"phase,omitempty"`    // phase: the phase moved to
-	Verdict  string          `json:"verdict,omitempty"`  // verdict: approve, request_changes or comment
-	Commit   string          `json:"commit,omitempty"`   // reviewed, approved or waived head
-	Role     string          `json:"role,omitempty"`     // verdict: author's role; grant: recipient
-	Check    string          `json:"check,omitempty"`    // waiver, grant: a check of the pipeline
-	Standing bool            `json:"standing,omitempty"` // waiver: holds across heads
-	Action   string          `json:"action,omitempty"`   // requested or granted action
-	Fact     string          `json:"fact,omitempty"`     // fact: its name
-	Value    json.RawMessage `json:"value,omitempty"`    // fact: its value
+	Phase    string           `json:"phase,omitempty"`    // phase: the phase moved to
+	Verdict  string           `json:"verdict,omitempty"`  // verdict: approve, request_changes or comment
+	Commit   string           `json:"commit,omitempty"`   // reviewed, approved or waived head
+	Role     string           `json:"role,omitempty"`     // verdict: author's role; grant: recipient
+	Check    string           `json:"check,omitempty"`    // waiver, grant: a check of the pipeline
+	Standing bool             `json:"standing,omitempty"` // waiver: holds across heads
+	Action   string           `json:"action,omitempty"`   // requested or granted action
+	Issues   []TaskSplitIssue `json:"issues,omitempty"`   // split: the proposed children
+	Fact     string           `json:"fact,omitempty"`     // fact: its name
+	Value    json.RawMessage  `json:"value,omitempty"`    // fact: its value
+}
+
+// TaskSplitIssue describes one child proposed by the lead. The task supplies
+// its parent, team and workspace when the owner approves the request.
+type TaskSplitIssue struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+// SplitRequestRefusal validates proposed children, including stored requests
+// that predate structured split proposals.
+func SplitRequestRefusal(issues []TaskSplitIssue) string {
+	if len(issues) == 0 || len(issues) > 10 {
+		return "a split needs 1 to 10 sub-issues"
+	}
+	for i, issue := range issues {
+		if !validSplitText(issue.Title, 500) {
+			return fmt.Sprintf("sub-issue %d needs a title of 1 to 500 characters", i+1)
+		}
+		if !validSplitText(issue.Description, 1000) {
+			return fmt.Sprintf("sub-issue %d needs a description of 1 to 1000 characters", i+1)
+		}
+	}
+	return ""
+}
+
+func validSplitText(text string, maxRunes int) bool {
+	return strings.TrimSpace(text) != "" && utf8.ValidString(text) && !strings.ContainsRune(text, 0) && utf8.RuneCountInString(text) <= maxRunes
 }
 
 func (d *TaskRoomData) Scan(value any) error { return scanJSON(value, d) }
@@ -165,6 +195,9 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 		}
 		allowed = lead || kuayle
 	case RoomRequest:
+		if post.Data.Action == RoomRequestSplit && (!lead || post.AuthorMemberID == nil) {
+			return "only the lead member may request a split"
+		}
 		if post.Data.Action == RoomActionApprove && (!lead || (!leadGranted && p.Autonomy.Approve != PipelineLeadRole)) {
 			return "only the lead with an approval grant may approve here"
 		}
@@ -212,6 +245,9 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 		return fmt.Sprintf("the structured part is at most %d bytes", RoomMaxBodyBytes)
 	}
 	d := post.Data
+	if len(d.Issues) > 0 && (post.Kind != RoomRequest || d.Action != RoomRequestSplit) {
+		return "sub-issues belong to a split request"
+	}
 	switch post.Kind {
 	case RoomVerdict:
 		if !slices.Contains(roomVerdicts, d.Verdict) || !roomCommit.MatchString(d.Commit) {
@@ -230,11 +266,14 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 			return fmt.Sprintf("a phase move says why: kuayle-say --to @all --phase %s \"the reason\"", d.Phase)
 		}
 	case RoomRequest:
-		if d.Action == RoomActionApprove {
+		switch {
+		case d.Action == RoomRequestSplit:
+			return SplitRequestRefusal(d.Issues)
+		case d.Action == RoomActionApprove:
 			if (len(d.Commit) != 40 && len(d.Commit) != 64) || !roomCommit.MatchString(d.Commit) {
 				return "approval names the full head commit"
 			}
-		} else if !slices.Contains(roomRequests, d.Action) {
+		case !slices.Contains(roomRequests, d.Action):
 			return fmt.Sprintf("%q is not a request (%s)", d.Action, strings.Join(roomRequests, ", "))
 		}
 	case RoomGrant:

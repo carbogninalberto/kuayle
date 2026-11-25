@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Здесь пока ничего нет. То, что вы напишете, получат все, кто работает над задачей.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Переход к {phase}",
+	"tasks.room_create_sub_issues": "Создать подзадачи",
 	"tasks.room_request": "Просит: {action}",
 	"tasks.room_waiver": "Проверка {check} отменена",
 	"tasks.room_grant": "Позволяет ведущему отменить проверку {check}",

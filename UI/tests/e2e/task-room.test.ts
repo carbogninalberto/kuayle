@@ -365,3 +365,43 @@ test('the owner approves a pipeline task waiting for approval', async ({ page })
 	await decision.getByRole('button', { name: 'Approve' }).click();
 	await expect.poll(() => state.decisions).toEqual([{ sequence: 9, decision: 'approve' }]);
 });
+
+test('the creator reads the proposed sub-issues and approves the exact split from the room', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	const issues = [
+		{ title: 'Search issue titles', description: 'Match words in the issue title.' },
+		{ title: 'Search identifiers', description: 'Open an issue by its exact identifier.' }
+	];
+	state.room = [member(1, 'lead', '', 'request', 'Implement the two kinds of search separately.', { data: { action: 'split', issues } })];
+	const approvals: string[] = [];
+	await page.route('**/agent-tasks/task-1/room/1/approve-split', (route) => {
+		approvals.push(route.request().method());
+		state.room.push(post(2, 'kuayle', 'fact', 'Created the sub-issues.', { reply_to: 1, data: { fact: 'split_approved' } }));
+		return route.fulfill({ status: 204 });
+	});
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const proposal = page.getByRole('article', { name: 'lead' });
+	await expect(proposal).toBeVisible({ timeout: 20_000 });
+	const approve = proposal.getByRole('button', { name: 'Create sub-issues' });
+	for (const issue of issues) {
+		await expect(proposal).toContainText(issue.title);
+		await expect(proposal).toContainText(issue.description);
+	}
+	await expect(approve).toBeVisible();
+	for (const [device, width, height] of [['desktop', 1280, 900], ['phone', 375, 780]] as const) {
+		await page.setViewportSize({ width, height });
+		for (const theme of ['light', 'dark']) {
+			await page.evaluate((theme) => {
+				document.documentElement.classList.toggle('dark', theme === 'dark');
+				document.documentElement.setAttribute('data-theme', theme);
+			}, theme);
+			await approve.scrollIntoViewIfNeeded();
+			await page.screenshot({ path: testInfo.outputPath(`split-${device}-${theme}.png`) });
+		}
+	}
+	expect(approvals).toEqual([]);
+	await approve.click();
+	await expect(page.getByText('Created the sub-issues.')).toBeVisible();
+	await expect(approve).toHaveCount(0);
+	expect(approvals).toEqual(['POST']);
+});

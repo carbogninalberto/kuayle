@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Burada henüz bir şey yok. Yazdıklarınız görev üzerinde çalışan herkese ulaşır.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "{phase} aşamasına geçti",
+	"tasks.room_create_sub_issues": "Alt issue’lar oluştur",
 	"tasks.room_request": "İstiyor: {action}",
 	"tasks.room_waiver": "{check} denetiminden muaf tutuldu",
 	"tasks.room_grant": "Liderin {check} denetiminden muaf tutmasına izin verir",

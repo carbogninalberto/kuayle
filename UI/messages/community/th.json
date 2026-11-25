@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "ยังไม่มีอะไรที่นี่ สิ่งที่คุณเขียนจะถึงทุกคนที่ทำงานนี้",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "ย้ายไปที่ {phase}",
+	"tasks.room_create_sub_issues": "สร้าง Sub-issue",
 	"tasks.room_request": "ขอ: {action}",
 	"tasks.room_waiver": "ยกเว้นการตรวจ {check} แล้ว",
 	"tasks.room_grant": "ให้หัวหน้ายกเว้นการตรวจ {check} ได้",

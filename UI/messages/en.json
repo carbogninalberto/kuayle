@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Nothing here yet. What you write reaches everyone working on the task.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Moved to {phase}",
+	"tasks.room_create_sub_issues": "Create sub-issues",
 	"tasks.room_request": "Asks for: {action}",
 	"tasks.room_waiver": "Waived the check {check}",
 	"tasks.room_grant": "Lets the lead waive the check {check}",

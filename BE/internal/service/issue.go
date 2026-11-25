@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/dto"
 	"github.com/kuayle/kuayle-backend/internal/realtime"
@@ -104,7 +103,7 @@ func (s *IssueService) Create(ctx context.Context, workspaceID, creatorID uuid.U
 		return nil, err
 	}
 	defer tx.Rollback()
-	if err := s.insertIssue(ctx, tx, issue, team.Key); err != nil {
+	if err := repository.CreateNumberedIssue(ctx, s.issueRepo, tx, issue, team.Key); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -239,26 +238,6 @@ func (s *IssueService) newIssue(ctx context.Context, workspaceID, creatorID uuid
 	}
 
 	return issue, team, nil
-}
-
-func (s *IssueService) insertIssue(ctx context.Context, tx *sqlx.Tx, issue *domain.Issue, teamKey string) error {
-	number, err := s.issueRepo.NextNumber(ctx, tx, issue.TeamID)
-	if err != nil {
-		return err
-	}
-	// A rename of the team key waits for the lock NextNumber holds, so read the
-	// key again now: the one read before the transaction may be out of date.
-	if keyed, ok := s.issueRepo.(interface {
-		TeamKey(context.Context, *sqlx.Tx, uuid.UUID) (string, error)
-	}); ok {
-		if teamKey, err = keyed.TeamKey(ctx, tx, issue.TeamID); err != nil {
-			return err
-		}
-	}
-	issue.Number = number
-	issue.Identifier = fmt.Sprintf("%s-%d", teamKey, number)
-	issue.SortOrder = -float64(number) * 1000
-	return s.issueRepo.Create(ctx, tx, issue)
 }
 
 func (s *IssueService) publishCreatedIssue(ctx context.Context, issue *domain.Issue) {

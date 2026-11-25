@@ -88,7 +88,7 @@ section distinguishes implemented backend contracts from workflows not yet enabl
 For periodic delegation, follow the [automation worker and replay contract](../../../BE/docs/agent-tasks.md#automations).
 
 For workflow changes, preserve the [stage assistant routing contract](../../../BE/docs/agent-tasks.md#configurable-workflows) across delegation, retries and native stage execution.
-For experimental team workflows (pipelines), follow the [team workflow contract](../../../BE/docs/agent-tasks.md#team-workflows-experimental): the room's permission matrix and atomic grant/waiver audit, the creator-only repository board in lead turns, verdicts bound to published commits, the tick's fence, and a new situation as a fact rather than a branch in the tick.
+For experimental team workflows (pipelines), follow the [team workflow contract](../../../BE/docs/agent-tasks.md#team-workflows-experimental): the room's permission matrix and atomic grant/waiver audit, creator-session approval of split requests, the creator-only repository board in lead turns, verdicts bound to published commits, the tick's fence, and a new situation as a fact rather than a branch in the tick.
 
 For instance settings and notification delivery, follow the [Web Push contract](../../../BE/docs/web-push.md).
 A new environment variable needs an entry in the [config registry](../../../BE/internal/config/registry.go)

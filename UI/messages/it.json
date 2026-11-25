@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Ancora niente qui. Quello che scrivi arriva a tutti quelli che lavorano al task.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Passato a {phase}",
+	"tasks.room_create_sub_issues": "Crea sotto-attività",
 	"tasks.room_request": "Chiede: {action}",
 	"tasks.room_waiver": "Ha esonerato il controllo {check}",
 	"tasks.room_grant": "Consente al lead di esonerare il controllo {check}",

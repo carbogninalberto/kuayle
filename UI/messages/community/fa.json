@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "هنوز چیزی اینجا نیست. آنچه می‌نویسید به همه کسانی که روی کار هستند می‌رسد.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "به {phase} رفت",
+	"tasks.room_create_sub_issues": "ایجاد زیرمسئله‌ها",
 	"tasks.room_request": "درخواست: {action}",
 	"tasks.room_waiver": "از بررسی {check} صرف‌نظر شد",
 	"tasks.room_grant": "به سرپرست اجازه می‌دهد از بررسی {check} صرف‌نظر کند",

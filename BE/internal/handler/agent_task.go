@@ -720,6 +720,23 @@ func (h *AgentTaskHandler) PostRoom(c *echo.Context) error {
 	return response.Success(c, http.StatusCreated, message)
 }
 
+// ApproveSplit accepts the proposal already stored at seq. Only the room
+// request supplies the children to create.
+func (h *AgentTaskHandler) ApproveSplit(c *echo.Context) error {
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	seq, err := strconv.ParseInt(c.Param("seq"), 10, 64)
+	if err != nil || seq < 1 {
+		return agentTaskError(c, repository.ErrConversationInvalid)
+	}
+	if err := h.svc.ApproveTaskSplit(c.Request().Context(), middleware.GetWorkspace(c).ID, id, seq); err != nil {
+		return agentTaskError(c, err)
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
 // Queue lists the session user's recent agent tasks across projects.
 func (h *AgentTaskHandler) Queue(c *echo.Context) error {
 	result, err := h.svc.Repo.Queue(c.Request().Context(), middleware.GetWorkspace(c).ID)

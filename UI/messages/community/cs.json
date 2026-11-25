@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Zatím tu nic není. Co napíšete, dostanou všichni, kdo na úkolu pracují.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Přesunuto do {phase}",
+	"tasks.room_create_sub_issues": "Vytvořit podúkoly",
 	"tasks.room_request": "Žádá o: {action}",
 	"tasks.room_waiver": "Kontrola {check} prominuta",
 	"tasks.room_grant": "Dovoluje vedoucímu prominout kontrolu {check}",

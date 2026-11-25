@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Nog niets hier. Wat je schrijft, bereikt iedereen die aan de taak werkt.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Verder naar {phase}",
+	"tasks.room_create_sub_issues": "Subissues aanmaken",
 	"tasks.room_request": "Vraagt om: {action}",
 	"tasks.room_waiver": "Controle {check} kwijtgescholden",
 	"tasks.room_grant": "Laat de lead de controle {check} kwijtschelden",

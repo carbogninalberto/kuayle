@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Noch nichts hier. Was du schreibst, erreicht alle, die an der Aufgabe arbeiten.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Weiter zu {phase}",
+	"tasks.room_create_sub_issues": "Sub-Issues erstellen",
 	"tasks.room_request": "Bittet um: {action}",
 	"tasks.room_waiver": "Prüfung {check} erlassen",
 	"tasks.room_grant": "Lässt den Lead die Prüfung {check} erlassen",

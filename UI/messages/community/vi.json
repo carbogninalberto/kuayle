@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Chưa có gì ở đây. Những gì bạn viết sẽ đến với mọi người đang làm tác vụ.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Đã chuyển sang {phase}",
+	"tasks.room_create_sub_issues": "Tạo issue con",
 	"tasks.room_request": "Yêu cầu: {action}",
 	"tasks.room_waiver": "Đã miễn kiểm tra {check}",
 	"tasks.room_grant": "Cho phép trưởng nhóm miễn kiểm tra {check}",

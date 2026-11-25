@@ -232,3 +232,25 @@ export function roomRead(messages: readonly TaskMessage[]): number {
 	}
 	return seq;
 }
+
+/** Accepted lead proposals in room order. Only Kuayle's receipt confirms the request it replies to. */
+export function roomSplits(messages: readonly TaskMessage[]) {
+	const splits = new Map<number, { issues: NonNullable<TaskMessage['data']['issues']>; approved: boolean }>();
+	for (const post of messages) {
+		if (post.reject_reason) continue;
+		if (
+			post.author_kind === 'member' && post.author_role === 'lead' &&
+			post.kind === 'request' && post.data.action === 'split' && post.data.issues?.length
+		) {
+			splits.set(post.seq, { issues: post.data.issues, approved: false });
+		}
+		if (
+			post.author_kind === 'kuayle' && post.kind === 'fact' &&
+			post.data.fact === 'split_approved' && post.reply_to != null
+		) {
+			const proposal = splits.get(post.reply_to);
+			if (proposal) proposal.approved = true;
+		}
+	}
+	return splits;
+}

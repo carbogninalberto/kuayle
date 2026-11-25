@@ -7,6 +7,8 @@
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as MessageScroller from '$lib/components/ui/message-scroller/index.js';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import { appToast } from '$lib/features/toast/toast';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
 	import { agentTasks, type AgentTask, type TaskMessage } from '$lib/api/agent-tasks';
@@ -17,7 +19,7 @@
 	import AgentStepRun from './AgentStepRun.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import TurnLine from './TurnLine.svelte';
-	import { ROOM_PAGE, factLabel, foldText, roomRead, roomRows, rowRoles, type FactLabel, type RoomRow } from './task-room';
+	import { ROOM_PAGE, factLabel, foldText, roomRead, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow } from './task-room';
 	import { shownRows, turnSummary, workTokens, type ThreadFilter } from './thread-rows';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
@@ -56,6 +58,22 @@
 	const room = $derived(chat.taskRooms[task.id] ?? []);
 	const rows = $derived(roomRows(room));
 	const shown = $derived(shownRows(rows, filter, rowRoles, (row) => !!row.decision));
+	const splits = $derived(roomSplits(room));
+	let approving = $state<number | null>(null);
+
+	async function approveSplit(seq: number) {
+		if (approving !== null) return;
+		approving = seq;
+		try {
+			await agentTasks.approveSplit(chat.slug, task.id, seq);
+			await load();
+		} catch (error) {
+			appToast.apiError(error, m['issue.toast.failed_sub_issues']());
+		} finally {
+			approving = null;
+		}
+	}
+
 	let loaded = $state(false);
 	let failed = $state(false);
 	let loading = false,
@@ -195,7 +213,9 @@
 				if (data.action === 'approve' && data.commit) {
 					return m['tasks.room_merge_approved']({ commit: data.commit.slice(0, 7) });
 				}
-				return m['tasks.room_request']({ action: data.action ?? '' });
+				return m['tasks.room_request']({
+					action: data.action === 'split' ? m['sharedComponents.filter_builder.sub_issues']() : data.action ?? ''
+				});
 			case 'waiver': {
 				const check = data.check ?? '';
 				if (data.standing) return m['tasks.room_waiver_standing']({ check });
@@ -333,6 +353,7 @@
 {#snippet memberPost(message: TaskMessage)}
 	{@const head = headline(message)}
 	{@const refused = !!message.reject_reason}
+	{@const split = splits.get(message.seq)}
 	<div class="flex min-w-0 flex-col gap-1" data-seq={message.seq} data-refused={refused || undefined}>
 		{#if message.kind === 'verdict' && !refused && message.data?.verdict}<div class="flex flex-wrap items-center gap-1.5 px-1">
 				<Badge variant="outline">{verdictLabel[message.data.verdict]?.() ?? message.data.verdict}</Badge>
@@ -351,6 +372,20 @@
 				>
 				<CopyMessageButton text={message.body} />
 			</Bubble.Root>{/if}
+		{#if split}
+			<ol class="ms-5 list-decimal space-y-2 text-sm" data-selectable="text">
+				{#each split.issues as issue}
+					<li class="break-words">
+						<span class="font-medium">{issue.title}</span>
+						<p class="whitespace-pre-wrap text-muted-foreground">{issue.description}</p>
+					</li>
+				{/each}
+			</ol>
+			{#if !split.approved && task.creator_id === authState.user?.id}
+				<Button variant="outline" size="sm" class="w-fit" disabled={approving !== null}
+					onclick={() => void approveSplit(message.seq)}>{m['tasks.room_create_sub_issues']()}</Button>
+			{/if}
+		{/if}
 		{@render footer(message)}
 	</div>
 {/snippet}

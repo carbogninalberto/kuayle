@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "אין כאן עדיין כלום. מה שתכתבו יגיע לכל מי שעובד על המשימה.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "עבר אל {phase}",
+	"tasks.room_create_sub_issues": "יצירת תתי־משימות",
 	"tasks.room_request": "מבקש: {action}",
 	"tasks.room_waiver": "ויתר על הבדיקה {check}",
 	"tasks.room_grant": "מאפשר למוביל לוותר על הבדיקה {check}",

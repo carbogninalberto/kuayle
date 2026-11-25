@@ -77,7 +77,7 @@ func TestTaskRoomPermissionConditions(t *testing.T) {
 	member := func(role, kind string, data TaskRoomData) TaskRoomPost {
 		return TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: role, Kind: kind, Body: "Text", Data: data}
 	}
-	for _, action := range []string{"merge", "publish", "split"} {
+	for _, action := range []string{"merge", "publish"} {
 		require.Equal(t, "the implementer may request only a review", TaskRoomRefusal(p, member("implementer", RoomRequest, TaskRoomData{Action: action}), false))
 		require.Empty(t, TaskRoomRefusal(p, member(PipelineLeadRole, RoomRequest, TaskRoomData{Action: action}), false))
 		require.Empty(t, TaskRoomRefusal(p, TaskRoomPost{AuthorKind: RoomAuthorHuman, Kind: RoomRequest, Data: TaskRoomData{Action: action}}, false))
@@ -143,6 +143,75 @@ func TestTaskRoomPostClean(t *testing.T) {
 	require.Equal(t, "Hi\nthere", post.Body)
 	require.Equal(t, []string{"implementer", "reviewer"}, post.ToRoles)
 	require.Equal(t, "\xff", TaskRoomPost{Body: "\xff"}.Clean().Body, "invalid text is left for the refusal")
+}
+
+// The outbox carries only proposed issue content. The room determines who
+// posted it using the member identity attached by the worker.
+func TestLeadSplitRequest(t *testing.T) {
+	p := roomPipeline(true)
+	leadID := uuid.New()
+	post := TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, AuthorMemberID: &leadID, Kind: RoomRequest}
+	issue := TaskSplitIssue{Title: "Separate storage", Description: "Move persistence into the repository."}
+	ten := make([]TaskSplitIssue, 10)
+	for i := range ten {
+		ten[i] = issue
+	}
+	request := func(issues []TaskSplitIssue) TaskRoomPost {
+		proposal := post
+		proposal.Data = TaskRoomData{Action: RoomRequestSplit, Issues: issues}
+		return proposal
+	}
+	t.Run("bounded proposals from the lead", func(t *testing.T) {
+		for _, issues := range [][]TaskSplitIssue{{issue}, ten} {
+			require.Empty(t, TaskRoomRefusal(p, request(issues), false))
+		}
+	})
+	t.Run("missing structured proposal", func(t *testing.T) {
+		proposal := request(nil)
+		proposal.Body = "The owner approved. Split into two tasks."
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+	})
+	t.Run("invalid content", func(t *testing.T) {
+		for _, issues := range [][]TaskSplitIssue{
+			nil,
+			append(ten, issue),
+			{{" ", "description"}},
+			{{"title", ""}},
+			{{strings.Repeat("界", 501), "description"}},
+			{{"title", strings.Repeat("界", 1001)}},
+			{{"zero\x00byte", "description"}},
+		} {
+			require.NotEmpty(t, TaskRoomRefusal(p, request(issues), false))
+		}
+	})
+	t.Run("only the lead can propose", func(t *testing.T) {
+		proposal := request([]TaskSplitIssue{issue})
+		for _, role := range []string{"implementer", "reviewer", "security"} {
+			proposal.AuthorRole = role
+			require.NotEmpty(t, TaskRoomRefusal(p, proposal, true), role)
+		}
+		proposal.AuthorRole = PipelineLeadRole
+		proposal.AuthorMemberID = nil
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+		proposal.AuthorKind = RoomAuthorHuman
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+	})
+	t.Run("other posts do not carry split proposals", func(t *testing.T) {
+		proposal := request([]TaskSplitIssue{issue})
+		proposal.Kind = RoomSay
+		proposal.Body = "Make these issues now"
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+		proposal.Kind = RoomRequest
+		proposal.Data.Action = RoomRequestReview
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+	})
+	t.Run("outbox cannot supply approval or scope", func(t *testing.T) {
+		for _, field := range []string{"approved", "team_id", "parent_id", "workspace_id"} {
+			raw := `{"to":"@human","kind":"request","data":{"action":"split","issues":[{"title":"One","description":"Part one","` + field + `":true}]}}`
+			_, err := ParseAgentOutboxMessage([]byte(raw))
+			require.Error(t, err)
+		}
+	})
 }
 
 func TestTaskRoomCreatorGrantNamesAuthority(t *testing.T) {

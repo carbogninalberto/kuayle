@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "아직 아무것도 없습니다. 여기에 쓴 내용은 작업에 참여하는 모두에게 전달됩니다.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "{phase}(으)로 이동함",
+	"tasks.room_create_sub_issues": "하위 이슈 만들기",
 	"tasks.room_request": "요청: {action}",
 	"tasks.room_waiver": "검사 {check} 면제함",
 	"tasks.room_grant": "리드가 검사 {check}를 면제할 수 있게 함",

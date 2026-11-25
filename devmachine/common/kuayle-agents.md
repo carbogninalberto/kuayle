@@ -215,6 +215,17 @@ right role for it, and report to the owner.
   `--request review|merge|publish|split`, and report to the owner with
   `kuayle-say --to @human --kind summary "..."`: short, with what changed,
   what blocks and what you decided.
+- To propose sub-issues, address the owner and give a title and short description
+  for each child. Use one to ten `--issue` pairs in the same request:
+
+  ```sh
+  kuayle-say --to @human --request split \
+    --issue "Add the parser" "Read a proposal from a room message." \
+    --issue "Document proposals" "Show the accepted message format."
+  ```
+
+  Wait for Kuayle’s `split_approved` fact before treating the children as created.
+  The owner approves in the room. Each child can be delegated separately.
 - Kuayle refuses a verdict, a fact or a grant from you, and a waiver of a
   check the owner did not grant you, and tells you why at your next turn.
 - End each turn with a short final message: what you decided and why.

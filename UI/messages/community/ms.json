@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Belum ada apa-apa. Apa yang anda tulis sampai kepada semua yang mengerjakan tugasan ini.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Beralih ke {phase}",
+	"tasks.room_create_sub_issues": "Cipta sub-isu",
 	"tasks.room_request": "Meminta: {action}",
 	"tasks.room_waiver": "Mengecualikan semakan {check}",
 	"tasks.room_grant": "Membenarkan ketua mengecualikan semakan {check}",

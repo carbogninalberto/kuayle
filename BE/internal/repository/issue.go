@@ -36,6 +36,27 @@ func (r *IssueRepository) Create(ctx context.Context, tx *sqlx.Tx, issue *domain
 	).Scan(&issue.CreatedAt, &issue.UpdatedAt, &issue.StartedAt, &issue.CompletedAt, &issue.CancelledAt, &issue.TriagedAt)
 }
 
+// CreateNumberedIssue reserves the next identifier and inserts an issue in the caller's transaction.
+func CreateNumberedIssue(ctx context.Context, repo IssueRepo, tx *sqlx.Tx, issue *domain.Issue, teamKey string) error {
+	number, err := repo.NextNumber(ctx, tx, issue.TeamID)
+	if err != nil {
+		return err
+	}
+	// A rename of the team key waits for the lock NextNumber holds, so read the
+	// key again now: the one read before the transaction may be out of date.
+	if keyed, ok := repo.(interface {
+		TeamKey(context.Context, *sqlx.Tx, uuid.UUID) (string, error)
+	}); ok {
+		if teamKey, err = keyed.TeamKey(ctx, tx, issue.TeamID); err != nil {
+			return err
+		}
+	}
+	issue.Number = number
+	issue.Identifier = fmt.Sprintf("%s-%d", teamKey, number)
+	issue.SortOrder = -float64(number) * 1000
+	return repo.Create(ctx, tx, issue)
+}
+
 func (r *IssueRepository) NextNumber(ctx context.Context, tx *sqlx.Tx, teamID uuid.UUID) (int, error) {
 	var num int
 	if err := lockIssueNumber(ctx, tx, teamID); err != nil {

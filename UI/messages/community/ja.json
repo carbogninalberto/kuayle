@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "まだ何もありません。ここに書いた内容はタスクに取り組む全員に届きます。",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "{phase} に移動しました",
+	"tasks.room_create_sub_issues": "サブイシューを作成",
 	"tasks.room_request": "依頼: {action}",
 	"tasks.room_waiver": "チェック {check} を免除しました",
 	"tasks.room_grant": "リードがチェック {check} を免除できるようにします",

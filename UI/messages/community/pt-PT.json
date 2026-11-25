@@ -3042,6 +3042,7 @@
 	"tasks.room_empty": "Ainda não há nada aqui. O que escrever chega a todos os que trabalham na tarefa.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Passou para {phase}",
+	"tasks.room_create_sub_issues": "Criar subtarefas",
 	"tasks.room_request": "Pede: {action}",
 	"tasks.room_waiver": "Dispensou a verificação {check}",
 	"tasks.room_grant": "Permite que o líder dispense a verificação {check}",
