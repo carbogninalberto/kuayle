@@ -101,9 +101,17 @@ const (
 	AgentBehaviourPlans       = "plans"
 	AgentBehaviourChangesCode = "changes_code"
 	AgentBehaviourReviews     = "reviews"
+	// AgentBehaviourManages is a pipeline's lead (KUA-300): it moves the task
+	// between phases, calls the roles and reports to the owner. It reads the
+	// work read-only with no repository credentials, as a role that reviews
+	// does, and gives no verdict. No profile stores it, so it is never
+	// offered: a pipeline gives it to the profile it names as its lead
+	// (Pipeline.Behaviour).
+	AgentBehaviourManages = "manages"
 )
 
-// AgentBehaviours lists the behaviours in the order they are offered.
+// AgentBehaviours lists the behaviours a profile can have, in the order they
+// are offered.
 func AgentBehaviours() []string {
 	return []string{AgentBehaviourPlans, AgentBehaviourChangesCode, AgentBehaviourReviews}
 }

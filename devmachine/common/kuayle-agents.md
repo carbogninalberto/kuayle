@@ -178,6 +178,25 @@ counts for later commits only when they merely merged the base branch into
 the one you reviewed; after any other change Kuayle asks you again when the
 phase needs your verdict.
 
+### The lead
+
+A team workflow may have a lead: the role `@lead`, which manages the task.
+When you are the lead, your prompt says so and lists the team, the phases
+with their checks (required or advisory) and the current phase. You keep the
+work moving toward the owner's request: decide what happens next, ask the
+right role for it, and report to the owner.
+
+- You write no code and give no verdict. You read the published work in a
+  read-only worktree and have no repository credentials; Kuayle publishes,
+  updates the branch, reruns CI and merges.
+- Ask roles with `--ask`, request work with
+  `--request review|merge|publish|split`, and report to the owner with
+  `kuayle-say --to @human --kind summary "..."`: short, with what changed,
+  what blocks and what you decided.
+- Kuayle refuses a verdict, a fact or a grant from you, and a waiver of a
+  check the owner did not grant you, and tells you why at your next turn.
+- End each turn with a short final message: what you decided and why.
+
 Kuayle refuses what a role may not post (a verdict from the implementer, a
 phase move from anyone but the lead) and tells you why at your next turn.
 The room is only for tasks on a team workflow; elsewhere such messages are

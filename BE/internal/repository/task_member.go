@@ -180,13 +180,16 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		return nil, err
 	}
 	defer tx.Rollback()
-	roster, ok := pipeline.RosterRole(role)
+	roster, ok := pipeline.Member(role)
 	if !ok {
 		return nil, ErrTaskRoomUnavailable
 	}
 	if roster.Writer {
 		return nil, ErrMemberWrites
 	}
+	// The lead manages (KUA-300): it reads as the roles that review do, and
+	// is never asked for a verdict.
+	manages := pipeline.Behaviour(role) == domain.AgentBehaviourManages
 	if err = ensureWriterMember(ctx, tx, *root, *pipeline); err != nil {
 		return nil, err
 	}
@@ -248,18 +251,28 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 			return nil, err
 		}
 	}
-	if target != nil {
-		turn.VerdictAsked = askVerdict || domain.RoomReviewRequested(roster, domain.RoomInbox(role, posts))
+	asked := func() bool {
+		return target != nil && !manages && (askVerdict || domain.RoomReviewRequested(roster, domain.RoomInbox(role, posts)))
+	}
+	if turn.VerdictAsked = asked(); target != nil && !manages {
 		if turn.CI, err = recordedReviewCI(ctx, tx, published, target.CommitSHA); err != nil {
 			return nil, err
 		}
+	}
+	phase := ""
+	if root.WorkflowNode != nil {
+		phase = *root.WorkflowNode
 	}
 	// What does not fit this turn's prompt waits for the next turn; a first
 	// turn keeps the newest posts instead.
 	var prompt string
 	for {
 		turn.Posts = posts
-		prompt = domain.MemberTurnPrompt(turn)
+		if manages {
+			prompt = domain.LeadTurnPrompt(domain.LeadTurn{Pipeline: *pipeline, Phase: phase, Target: target, Instructions: profile.Instructions, Posts: posts})
+		} else {
+			prompt = domain.MemberTurnPrompt(turn)
+		}
 		if len(prompt) <= memberPromptBytes || len(posts) <= 1 {
 			break
 		}
@@ -268,7 +281,7 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		} else {
 			posts = posts[:len(posts)-1]
 		}
-		turn.VerdictAsked = target != nil && (askVerdict || domain.RoomReviewRequested(roster, domain.RoomInbox(role, posts)))
+		turn.VerdictAsked = asked()
 	}
 	if len(prompt) > memberPromptBytes {
 		return nil, ErrConversationInvalid

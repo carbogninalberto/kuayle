@@ -139,12 +139,11 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 		who = "kuayle"
 	case RoomAuthorMember:
 		who = "the " + post.AuthorRole
-		member, ok := p.role(post.AuthorRole)
-		lead = post.AuthorRole == PipelineLeadRole && p.Lead != nil
-		if !ok && !lead {
+		behaviour := p.Behaviour(post.AuthorRole)
+		if behaviour == "" {
 			return fmt.Sprintf("%q is not a role of this pipeline", post.AuthorRole)
 		}
-		writer, expert = member.Writer, ok && !member.Writer
+		writer, expert, lead = behaviour == AgentBehaviourChangesCode, behaviour == AgentBehaviourReviews, behaviour == AgentBehaviourManages
 	default:
 		return "unknown author"
 	}
@@ -182,6 +181,9 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 		return fmt.Sprintf("unknown kind %q", post.Kind)
 	}
 	if !allowed {
+		if why := leadRefusals[post.Kind]; lead && why != "" {
+			return fmt.Sprintf("%s may not post %s: %s", who, post.Kind, why)
+		}
 		return fmt.Sprintf("%s may not post %s", who, post.Kind)
 	}
 

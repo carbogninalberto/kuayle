@@ -271,8 +271,9 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	}
 	index, unmet := t.phase()
 	phase := p.Phases[index]
-	// Without a lead Kuayle names the phase; this version runs no lead, and
-	// the room takes a lead's phase moves only from the lead.
+	// Without a lead Kuayle names the phase; the room takes a lead's phase
+	// moves only from the lead, and this version still derives the phase
+	// when there is one.
 	if phase.ID != deref(task.WorkflowNode) && p.Lead == nil {
 		if err = s.kuaylePost(ctx, task, domain.TaskRoomPost{Kind: domain.RoomPhase, Body: phase.Label, Data: domain.TaskRoomData{Phase: phase.ID},
 			DedupeKey: fmt.Sprintf("phase:%d:%s", t.st.Pass, phase.ID)}); err != nil {
@@ -812,9 +813,10 @@ func (t *tickPass) writerDue(ctx context.Context) (bool, error) {
 }
 
 // deliver starts a turn of every idle member, other than the writers, whose
-// unread posts call for one; it owes a verdict when the phase requires it.
+// unread posts call for one, the lead's too; it owes a verdict when the
+// phase requires it.
 func (t *tickPass) deliver(ctx context.Context, index int) error {
-	for _, member := range t.p.Roster {
+	for _, member := range t.p.Members() {
 		if member.Writer {
 			continue
 		}
