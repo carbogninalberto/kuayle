@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -44,17 +45,18 @@ func TestTickTheLeadTakesATurnWhenAddressed(t *testing.T) {
 	require.NoError(t, err)
 	w.drain()
 
-	require.Equal(t, 2, w.runtime.turns[domain.PipelineLeadRole])
+	require.GreaterOrEqual(t, w.runtime.turns[domain.PipelineLeadRole], 2, "and again for the writer's turn that answered it (KUA-302)")
 	lead := w.member(domain.PipelineLeadRole)
 	require.NotNil(t, lead.MemberTaskID)
 	require.False(t, lead.VerdictAsked)
-	require.Equal(t, sha(1), *lead.PinnedCommit)
+	require.NotNil(t, lead.PinnedCommit)
 	var kind string
 	require.NoError(t, w.f.db.Get(&kind, `SELECT kind FROM agent_tasks WHERE id=$1`, *lead.MemberTaskID))
 	require.Equal(t, domain.AgentTaskKindReview, kind)
 	prompt := w.prompt(domain.PipelineLeadRole, 2)
 	require.Contains(t, prompt, "You are the @lead")
 	require.Contains(t, prompt, "Make sure the toggle is persisted.")
+	require.Contains(t, prompt, "git checkout --detach "+sha(1), "it reads the published work")
 	require.GreaterOrEqual(t, w.runtime.turns["implementer"], 2, "the lead's question reached the writer")
 	require.Contains(t, w.prompt("implementer", 2), "Is the toggle persisted?")
 }
@@ -102,11 +104,11 @@ func (w *tickWorld) leadPhases() []string {
 }
 
 // leadSummaries are the texts Kuayle sent the lead about what the current
-// phase waits on.
+// phase waits on when nobody works (its stall summaries).
 func (w *tickWorld) leadSummaries() []string {
 	var out []string
 	for _, m := range w.posts(domain.RoomSummary) {
-		if m.AuthorKind == domain.RoomAuthorKuayle && slices.Contains(m.ToRoles, domain.PipelineLeadRole) {
+		if m.AuthorKind == domain.RoomAuthorKuayle && slices.Contains(m.ToRoles, domain.PipelineLeadRole) && strings.HasPrefix(m.Body, "Nobody is working") {
 			out = append(out, m.Body)
 		}
 	}
@@ -280,4 +282,199 @@ func TestTickALeadMoveReadWhileGitHubIsDownIsKept(t *testing.T) {
 	w.later()
 	require.Equal(t, "review", w.phase(), "the lead's move was kept")
 	require.Equal(t, 1, w.runtime.turns["reviewer"])
+}
+
+// When the lead wakes (KUA-302).
+
+// leadAtReview is a team with a lead that moves the task to review at its
+// first turn and is quiet after; the reviewer's turns are held until the
+// test ends them, so a role works and nothing stalls.
+func leadAtReview(t *testing.T, edit func(*domain.Pipeline)) *tickWorld {
+	t.Helper()
+	w := newTickWorld(t, func(p *domain.Pipeline) {
+		withLead(p)
+		if edit != nil {
+			edit(p)
+		}
+	})
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		switch {
+		case role == "reviewer":
+			return tickTurn{hold: true}
+		case role != domain.PipelineLeadRole:
+			return w.writesAndApproves(role, turn, task)
+		case turn == 1:
+			return leadMove("review", "The toggle is published.")
+		}
+		return tickTurn{final: "Noted."}
+	}
+	w.drain()
+	require.Equal(t, "review", w.phase())
+	require.Equal(t, 1, w.runtime.turns["reviewer"])
+	require.Equal(t, 1, w.runtime.turns[domain.PipelineLeadRole])
+	return w
+}
+
+// holdTheLead keeps every later turn of the lead working, so what happens
+// after the turn under test cannot start another.
+func holdTheLead(w *tickWorld) func(string, int, domain.AgentTask) tickTurn {
+	return func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == domain.PipelineLeadRole {
+			return tickTurn{hold: true}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+}
+
+// A member's turn that ends reaches the lead as a digest (its outcome, its
+// verdict and the first lines of its final message, not the transcript),
+// which wakes it.
+func TestTickATurnThatEndsWakesTheLeadWithADigest(t *testing.T) {
+	w := leadAtReview(t, nil)
+	first := w.prompt(domain.PipelineLeadRole, 1)
+	require.Contains(t, first, "The @implementer's turn ended.", "the writer's first turn")
+	require.Contains(t, first, "Added the toggle.")
+
+	w.finish("reviewer", tickTurn{final: "Verdict: request_changes\nPersist the setting.\n- a\n- b\n- c\n- d\n- the eighth line"})
+	w.drain()
+	require.GreaterOrEqual(t, w.runtime.turns[domain.PipelineLeadRole], 2)
+	second := w.prompt(domain.PipelineLeadRole, 2)
+	require.Contains(t, second, "The @reviewer's turn ended: request_changes on "+shortSHA(sha(1))+".")
+	require.Contains(t, second, "Persist the setting.")
+	var digests []string
+	require.NoError(t, w.f.db.Select(&digests, `SELECT body FROM task_messages WHERE task_id=$1 AND kind='summary' AND author_kind='kuayle' AND body LIKE 'The @reviewer''s turn ended%'`, w.root))
+	require.Len(t, digests, 1, "once per turn")
+	require.NotContains(t, digests[0], "the eighth line", "a digest, not the transcript")
+}
+
+// A change in a required check wakes the lead; a change in an advisory one
+// reaches it at its next turn.
+func TestTickARequiredCheckWakesTheLeadAndAnAdvisoryOneWaits(t *testing.T) {
+	w := leadAtReview(t, func(p *domain.Pipeline) {
+		p.Phases[2].Checks = append(p.Phases[2].Checks, domain.PipelineCheck{ID: "ready", Fact: domain.PipelineFactPRDraft})
+	})
+	w.github.status.Draft = true
+	w.later()
+	require.Equal(t, 1, w.runtime.turns[domain.PipelineLeadRole], "an advisory check changed: the lead is not woken")
+	require.NotEmpty(t, w.facts(domain.LeadFactAdvisory))
+
+	w.github.ci("passed", "")
+	w.later()
+	require.Equal(t, 2, w.runtime.turns[domain.PipelineLeadRole], "ci, a required check, holds now")
+	prompt := w.prompt(domain.PipelineLeadRole, 2)
+	require.Contains(t, prompt, "): checks = {")
+	require.Contains(t, prompt, "- ready (Review): unmet.", "the advisory change, read at the next turn")
+	require.Empty(t, w.leadSummaries(), "the reviewer works: nothing stalled")
+}
+
+// A question addressed to the lead wakes it; a message to it waits for its
+// next turn (a question to everyone waits too: TestTheLeadWakesForItsSources).
+func TestTickAQuestionToTheLeadWakesIt(t *testing.T) {
+	w := leadAtReview(t, nil)
+	post := func(role, body string) {
+		_, err := w.f.tasks.Repo.RecordRoomMessage(w.f.ctx, w.root, domain.TaskRoomPost{AuthorKind: domain.RoomAuthorMember, AuthorRole: role, Kind: domain.RoomSay, Body: body, ToRoles: []string{domain.PipelineLeadRole}})
+		require.NoError(t, err)
+	}
+	post("reviewer", "FYI: the settings page is next.")
+	w.later()
+	require.Equal(t, 1, w.runtime.turns[domain.PipelineLeadRole], "a message, not a question")
+
+	_, err := w.f.tasks.Repo.RecordRoomMessage(w.f.ctx, w.root, domain.TaskRoomPost{AuthorKind: domain.RoomAuthorMember, AuthorRole: "reviewer", Kind: domain.RoomAsk, Body: "Shall I review the settings page too?", ToRoles: []string{domain.PipelineLeadRole}})
+	require.NoError(t, err)
+	w.later()
+	require.Equal(t, 2, w.runtime.turns[domain.PipelineLeadRole])
+	prompt := w.prompt(domain.PipelineLeadRole, 2)
+	require.Contains(t, prompt, "Shall I review the settings page too?")
+	require.Contains(t, prompt, "FYI: the settings page is next.", "what waited is read with it")
+}
+
+// A post from the owner wakes the lead; one the owner addressed to another
+// role is not the lead's.
+func TestTickTheOwnerWakesTheLead(t *testing.T) {
+	w := leadAtReview(t, nil)
+	w.agent = holdTheLead(w)
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomAsk, ToRoles: []string{"reviewer"}, Body: "Check the contrast too."})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, 1, w.runtime.turns[domain.PipelineLeadRole])
+	_, err = w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Keep the change small."})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, 2, w.runtime.turns[domain.PipelineLeadRole])
+	require.Contains(t, w.prompt(domain.PipelineLeadRole, 2), "Keep the change small.")
+}
+
+// The budget passing 50, 80 and 100 percent wakes the lead, once each; at
+// 100 percent the task pauses for the owner and the lead reads it when it
+// continues.
+func TestTickTheBudgetWakesTheLeadAtEachMark(t *testing.T) {
+	w := leadAtReview(t, func(p *domain.Pipeline) { p.Budget.MaxMinutes = 100 })
+	spend := func(minutes int) {
+		w.exec(`UPDATE agent_tasks SET workflow_started_at=workflow_started_at-$2::interval,workflow_budget_from=workflow_budget_from-$2::interval WHERE id=$1`, w.root, fmt.Sprintf("%d minutes", minutes))
+		w.later()
+	}
+	marks := func() []int {
+		var out []int
+		for _, m := range w.facts(domain.LeadFactBudget) {
+			require.Equal(t, []string{domain.PipelineLeadRole}, []string(m.ToRoles))
+			var value struct {
+				Percent int `json:"percent"`
+			}
+			require.NoError(t, json.Unmarshal(m.Data.Value, &value))
+			out = append(out, value.Percent)
+		}
+		return out
+	}
+	spend(55)
+	require.Equal(t, []int{50}, marks())
+	require.Equal(t, 2, w.runtime.turns[domain.PipelineLeadRole])
+	require.Contains(t, w.prompt(domain.PipelineLeadRole, 2), "used 50% of its budget")
+	spend(1)
+	require.Equal(t, []int{50}, marks(), "once per mark")
+	spend(26)
+	require.Equal(t, []int{50, 80}, marks())
+	require.Equal(t, 3, w.runtime.turns[domain.PipelineLeadRole])
+	spend(25)
+	require.Equal(t, []int{50, 80, 100}, marks())
+	paused := w.task()
+	require.Equal(t, domain.WorkflowStatusPaused, *paused.WorkflowStatus, "the time budget is used up: the owner decides")
+	require.Equal(t, 3, w.runtime.turns[domain.PipelineLeadRole], "no turn starts past the budget")
+	require.NoError(t, w.decide(WorkflowDecisionContinue))
+	w.drain()
+	require.Equal(t, 4, w.runtime.turns[domain.PipelineLeadRole])
+	require.Contains(t, w.prompt(domain.PipelineLeadRole, 4), "used its whole budget")
+}
+
+// Events are batched: whatever reaches the lead while it works is read in
+// its next turn, one turn however many sources call it, and a pass starts
+// at most one turn of the lead.
+func TestTickTheLeadReadsWhatCameTogetherInOneTurn(t *testing.T) {
+	w := leadAtReview(t, nil)
+	w.agent = holdTheLead(w)
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomAsk, ToRoles: []string{domain.PipelineLeadRole}, Body: "Where are we?"})
+	require.NoError(t, err)
+	w.drain()
+	require.Equal(t, 2, w.runtime.turns[domain.PipelineLeadRole], "the lead works on the owner's question")
+
+	// While it works: the owner writes, a role asks it, CI passes and the
+	// reviewer's turn ends.
+	_, err = w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, ToRoles: []string{domain.PipelineLeadRole}, Body: "Ship it this week."})
+	require.NoError(t, err)
+	_, err = w.f.tasks.Repo.RecordRoomMessage(w.f.ctx, w.root, domain.TaskRoomPost{AuthorKind: domain.RoomAuthorMember, AuthorRole: "reviewer", Kind: domain.RoomAsk, Body: "Is dark mode the default?", ToRoles: []string{domain.PipelineLeadRole}})
+	require.NoError(t, err)
+	w.github.ci("passed", "")
+	w.finish("reviewer", tickTurn{final: "Verdict: approve\nThe toggle works."})
+	w.later()
+	require.Equal(t, 2, w.runtime.turns[domain.PipelineLeadRole], "a lead that works is not started again")
+
+	w.finish(domain.PipelineLeadRole, tickTurn{final: "Answered the owner."})
+	w.drain()
+	require.Equal(t, 3, w.runtime.turns[domain.PipelineLeadRole], "one turn for all of it")
+	prompt := w.prompt(domain.PipelineLeadRole, 3)
+	for _, want := range []string{"Ship it this week.", "Is dark mode the default?", "The @reviewer's turn ended: approve", "): checks = {"} {
+		require.Contains(t, prompt, want)
+	}
+	var started int
+	require.NoError(t, w.f.db.Get(&started, `SELECT count(*) FROM agent_task_transitions tr JOIN task_members m ON m.member_task_id=tr.task_id WHERE m.task_id=$1 AND m.role=$2 AND tr.to_state='queued'`, w.root, domain.PipelineLeadRole))
+	require.Equal(t, 3, started, "each of its turns was started once")
 }

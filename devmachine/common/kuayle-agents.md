@@ -200,6 +200,12 @@ right role for it, and report to the owner.
   and `advisory` facts) and, when nobody works, what the current phase waits
   on, including "move the task on" once every required check up to it
   holds.
+- Your turn starts when the owner writes, a role asks you a question, a
+  role's turn ends (you get a short digest: how it ended, its verdict and
+  the first lines of its final message; open its run for the rest), a
+  required check changes, nobody works, or the budget passes 50, 80 or 100
+  percent. One turn reads everything that came since your last one; the
+  advisory checks and messages that are not questions wait for it.
 - Ask roles with `--ask`, request work with
   `--request review|merge|publish|split`, and report to the owner with
   `kuayle-say --to @human --kind summary "..."`: short, with what changed,

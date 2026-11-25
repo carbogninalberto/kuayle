@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -119,7 +120,7 @@ func LeadTurnPrompt(turn LeadTurn) string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString("\nYou choose the phase (KUA-301): move the task with kuayle-say --to @all --phase <id> \"why\", forward, back or past a phase. Kuayle runs what the phase you choose needs (it asks a role for a verdict a required check is missing, waits for the owner's approval, merges at the guarded phase), and every required check of the phases up to the merge must hold, or be waived by the owner, before it merges, whatever you move. Kuayle tells you when the checks change, and what the current phase waits on when nobody works.\n")
+	b.WriteString("\nYou choose the phase (KUA-301): move the task with kuayle-say --to @all --phase <id> \"why\", forward, back or past a phase. Kuayle runs what the phase you choose needs (it asks a role for a verdict a required check is missing, waits for the owner's approval, merges at the guarded phase), and every required check of the phases up to the merge must hold, or be waived by the owner, before it merges, whatever you move. Kuayle tells you when the required checks change, how each role's turn ended (a digest), when the budget passes 50, 80 and 100 percent, and what the current phase waits on when nobody works; each of these, the owner's posts and a question asked of you start your next turn.\n")
 	b.WriteString("\nPost in the room with kuayle-say (see \"The task room\" in kuayle-agents):\n")
 	b.WriteString("- kuayle-say --to @implementer --ask \"...\": a question or a message to a role, @human or @all;\n")
 	b.WriteString("- kuayle-say --to @reviewer --request review: a request (review, merge, publish or split);\n")
@@ -148,4 +149,74 @@ func leadCheck(check PipelineCheck) string {
 		return "a command in the worktree exits 0"
 	}
 	return check.Fact
+}
+
+// Kuayle's facts for the lead (KUA-301, KUA-302): the required checks'
+// states, the advisory ones', and the budget used.
+const (
+	LeadFactChecks   = "checks"
+	LeadFactAdvisory = "advisory"
+	LeadFactBudget   = "budget"
+)
+
+// LeadWakes reports whether the lead's inbox (RoomInbox) calls for its turn
+// (KUA-302): a post from the owner; a question addressed to it; or what
+// Kuayle sends it, a summary (a member's turn that ended, a stall), a change
+// in the required checks or the budget passing a mark. Everything else (talk
+// between roles, the advisory checks, facts to everyone, its own refused
+// posts) waits for its next turn, so the lead is not woken for what it only
+// needs to know.
+func LeadWakes(inbox []TaskMessage) bool {
+	return slices.ContainsFunc(inbox, func(m TaskMessage) bool {
+		toLead := slices.Contains(m.ToRoles, PipelineLeadRole)
+		switch {
+		case m.RejectReason != nil:
+			return false
+		case m.AuthorKind == RoomAuthorHuman:
+			return true
+		case m.AuthorKind == RoomAuthorKuayle:
+			return toLead && (m.Kind == RoomSummary || m.Kind == RoomFact && (m.Data.Fact == LeadFactChecks || m.Data.Fact == LeadFactBudget))
+		}
+		return toLead && m.Kind == RoomAsk
+	})
+}
+
+// Bounds of a turn's digest for the lead: the first lines of the final
+// message, never the transcript.
+const (
+	digestLines = 5
+	digestRunes = 800
+)
+
+// TurnDigest is what the lead hears of a member's turn that ended: how it
+// ended (status: succeeded, failed or cancelled), the verdict it gave on
+// commit, if any, and the first lines of its final message (for a turn that
+// failed, why).
+func TurnDigest(role, status, final, verdict, commit string) string {
+	if status == "failed" || status == "cancelled" {
+		why := strings.TrimRight(oneLineText(final, digestRunes), ".")
+		if why == "" {
+			return fmt.Sprintf("The @%s's turn %s.", role, status)
+		}
+		return fmt.Sprintf("The @%s's turn %s: %s.", role, status, why)
+	}
+	head := fmt.Sprintf("The @%s's turn ended", role)
+	if verdict != "" {
+		head += fmt.Sprintf(": %s on %s", verdict, commit[:min(len(commit), 8)])
+	}
+	head += "."
+	var lines []string
+	for _, line := range strings.Split(final, "\n") {
+		if line = strings.TrimSpace(line); line != "" && len(lines) < digestLines {
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return head
+	}
+	text := strings.Join(lines, "\n")
+	if runes := []rune(text); len(runes) > digestRunes {
+		text = string(runes[:digestRunes]) + "…"
+	}
+	return head + "\n" + text
 }

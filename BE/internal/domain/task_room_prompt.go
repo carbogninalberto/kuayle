@@ -33,10 +33,14 @@ func RoomInbox(role string, posts []TaskMessage) []TaskMessage {
 const RoomFactBoard = "board"
 
 // RoomWakes reports whether a member's inbox (RoomInbox) calls for a turn
-// (roomCalls). What only records a state (a fact, a phase, a verdict, a
-// summary) to everyone waits for the next turn, and so does the board: it
-// moves with other tasks, which no turn of this one can change.
+// (roomCalls; LeadWakes for the lead). What only records a state (a fact, a
+// phase, a verdict, a summary) to everyone waits for the next turn, and so
+// does the board: it moves with other tasks, which no turn of this one can
+// change.
 func RoomWakes(member PipelineMember, inbox []TaskMessage) bool {
+	if member.Role == PipelineLeadRole {
+		return LeadWakes(inbox)
+	}
 	return slices.ContainsFunc(inbox, func(m TaskMessage) bool { return roomCalls(member, m) })
 }
 

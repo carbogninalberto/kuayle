@@ -744,7 +744,11 @@ succeeded on the same machine, and otherwise starts with the handoff. Such a
 turn reads its worktree read-only at the commit it reviews where the harness
 can run that way. Other reviews still start cold. The roles and Kuayle talk in the task's room
 (migrations 206 and 207), and a tick on the task worker, not the graph
-runner, moves the task from the facts it reads (migration 208).
+runner, moves the task from the facts it reads (migration 208). A pipeline's
+optional lead (KUA-300 to KUA-302) runs the same way, read-only and without
+credentials: it moves the task between phases, whose required checks still
+guard the merge, and wakes for the owner, a question, a digest of a role's
+turn, a change in a required check, a stall or the budget.
 
 A failed CI suite on a task's pull request carries what GitHub reported about
 its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),
