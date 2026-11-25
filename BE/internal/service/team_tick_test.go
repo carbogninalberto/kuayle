@@ -532,7 +532,7 @@ func TestTickScenario02ChangesRequestedThenReviewedAgain(t *testing.T) {
 	var generation int64
 	require.NoError(t, w.f.db.Get(&generation, `SELECT generation FROM agent_tasks WHERE id=$1`, *reviewer.MemberTaskID))
 	require.EqualValues(t, 2, generation, "the reviewer's task is reused, so its session resumes")
-	require.Contains(t, w.prompt("reviewer", 2), fmt.Sprintf("git diff %s %s", sha(1), sha(2)))
+	require.Contains(t, w.prompt("reviewer", 2), fmt.Sprintf("git diff %s..%s", sha(1), sha(2)))
 	require.Equal(t, sha(2), *reviewer.PinnedCommit)
 	require.Equal(t, "integrate", w.phase())
 }
