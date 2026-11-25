@@ -195,6 +195,11 @@ func TestTickTheLeadCannotMergePastAnUnmetRequiredCheck(t *testing.T) {
 			}
 			return tickTurn{final: "Waiting for the checks."}
 		}
+		if role == "implementer" && turn > 1 {
+			// Only the writer can move failed CI, so it is told too
+			// (KUA-309); here the failure was a flake.
+			return tickTurn{final: "The failure is a flake; nothing to change."}
+		}
 		return w.writesAndApproves(role, turn, task)
 	}
 	w.github.ci("failed", "TestDarkMode failed")
@@ -209,6 +214,7 @@ func TestTickTheLeadCannotMergePastAnUnmetRequiredCheck(t *testing.T) {
 	summaries := w.leadSummaries()
 	require.NotEmpty(t, summaries)
 	require.Contains(t, summaries[len(summaries)-1], "- ci: 1 check(s) failed")
+	require.GreaterOrEqual(t, w.runtime.turns["implementer"], 2, "the writer hears of the failed CI too")
 
 	w.github.ci("passed", "")
 	w.later()

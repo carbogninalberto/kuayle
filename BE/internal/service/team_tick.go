@@ -934,8 +934,8 @@ func (t *tickPass) noProgress(phase domain.PipelinePhase, unmet []UnmetCheck) (r
 }
 
 // stall sends the current phase's unmet checks to its owner when nobody
-// works, nothing is under way and nothing is awaited, and to the writer too
-// when only the writer can move one (writerActs); after tickStallLimit
+// works, nothing is under way and nothing is awaited, and to the writer too,
+// lead or not, when only the writer can move one (writerActs); after tickStallLimit
 // rounds in a row without progress on the same head and checks (such
 // passes, and the writer's turns that changed nothing) it pauses for a
 // person.
@@ -963,7 +963,9 @@ func (t *tickPass) stall(ctx context.Context, phase domain.PipelinePhase, unmet 
 	owner := t.owner(phase)
 	t.person = owner == domain.PipelineOwnerHuman
 	to := []string{owner}
-	if owner != t.writer.Role && slices.ContainsFunc(unmet, t.writerActs) {
+	// A phase a person owns stays the person's, except for a verdict only
+	// the writer can move.
+	if owner != t.writer.Role && slices.ContainsFunc(unmet, func(c UnmetCheck) bool { return t.writerActs(c) && (c.Fact == factVerdict || !t.person) }) {
 		to = append(to, t.writer.Role)
 	}
 	body := fmt.Sprintf("Nobody is working, and the phase %s waits on:\n%s", phase.Label, strings.Join(reasons, "\n"))
@@ -971,15 +973,30 @@ func (t *tickPass) stall(ctx context.Context, phase domain.PipelinePhase, unmet 
 		Body: truncateUTF8Bytes(body, domain.RoomMaxBodyBytes), DedupeKey: fmt.Sprintf("stall:%d", t.st.Pass)})
 }
 
-// writerActs reports whether only the writer can move an unmet verdict
-// check: the role's verdict on the head did not approve it, or the role
-// reviewed the newest commit Kuayle published and the head is another one
-// (someone else pushed it), which no role can review.
+// writerActs reports whether only the writer can move an unmet check, so
+// the stall tells the writer too, lead or not (a phase a person owns stays
+// the person's but for a verdict, as before). A
+// verdict check: the role's verdict on the head did not approve it, or the
+// role reviewed the newest commit Kuayle published and the head is another
+// one (someone else pushed it), which no role can review. Any other check a
+// commit of the writer changes and Kuayle no longer acts on (the stall runs
+// only when nothing is under way): no pull request yet, the branch behind
+// or conflicting with its base, a migration collision, CI or a script check
+// that failed or cannot read the head.
 func (t *tickPass) writerActs(check UnmetCheck) bool {
-	verdict, given := t.facts.Verdicts[check.Role]
-	head := t.facts.HeadSHA
-	return check.Fact == factVerdict && given && (verdict.Commit == head && verdict.Verdict != "approve" ||
-		verdict.Commit != head && t.target != nil && verdict.Commit == t.target.CommitSHA)
+	if check.State != CheckUnmet {
+		return false
+	}
+	switch check.Fact {
+	case factVerdict:
+		verdict, given := t.facts.Verdicts[check.Role]
+		head := t.facts.HeadSHA
+		return given && (verdict.Commit == head && verdict.Verdict != "approve" ||
+			verdict.Commit != head && t.target != nil && verdict.Commit == t.target.CommitSHA)
+	case factPRExists, factHeadContainsBase, factConflict, factMigrationCollision, factCIGreen, factScript:
+		return true
+	}
+	return false
 }
 
 // writerTurn starts the writer's next turn on the task: the original
