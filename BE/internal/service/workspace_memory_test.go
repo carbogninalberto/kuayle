@@ -12,15 +12,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fakeMemoryStore holds roles and the approved texts per team; it records
-// which decisions reached it.
+// fakeMemoryStore holds roles, the approved texts per team and per role of
+// a pipeline, and the role each task plays; it records which decisions
+// reached it.
 type fakeMemoryStore struct {
 	workspaceMemoryStore
 	roles      map[uuid.UUID]string
 	approved   map[uuid.UUID][]string
+	forRole    map[string][]string
+	taskRoles  map[uuid.UUID]string
 	repository string
 	decisions  []string
 	asked      []string
+	askedRoles []string
 }
 
 func (f *fakeMemoryStore) MemberRole(_ context.Context, _, actor uuid.UUID) (string, error) {
@@ -67,9 +71,18 @@ func (f *fakeMemoryStore) Events(context.Context, uuid.UUID, uuid.UUID, uuid.UUI
 	return nil, nil
 }
 
-func (f *fakeMemoryStore) ApprovedTexts(_ context.Context, _, team uuid.UUID, repo string) ([]string, error) {
+func (f *fakeMemoryStore) ApprovedTexts(_ context.Context, _, team uuid.UUID, repo, role string) ([]string, error) {
 	f.asked = append(f.asked, repo)
-	return append([]string(nil), f.approved[team]...), nil
+	f.askedRoles = append(f.askedRoles, role)
+	texts := append([]string(nil), f.approved[team]...)
+	if role != "" {
+		texts = append(texts, f.forRole[role]...)
+	}
+	return texts, nil
+}
+
+func (f *fakeMemoryStore) TaskRole(_ context.Context, task domain.AgentTask) (string, error) {
+	return f.taskRoles[task.ID], nil
 }
 
 func (f *fakeMemoryStore) TaskRepository(context.Context, domain.AgentTask) (string, error) {
@@ -201,4 +214,27 @@ func TestApprovedLessonsAreAPlainBoundedRedactedBlock(t *testing.T) {
 	block, err = failing.ApprovedLessons(context.Background(), task)
 	require.Error(t, err)
 	require.Equal(t, "", block)
+}
+
+// A task that plays a role of a pipeline reads the lessons for every task
+// and those for its role; another role does not read them, and a task that
+// plays none is asked for the lessons without a role, as before.
+func TestARoleReadsItsOwnLessonsAndOtherTasksReadAsBefore(t *testing.T) {
+	ws, team := uuid.New(), uuid.New()
+	reviewer, security, plain := uuid.New(), uuid.New(), uuid.New()
+	store := &fakeMemoryStore{repository: "acme/app",
+		approved:  map[uuid.UUID][]string{team: {"Run `make check` before pushing."}},
+		forRole:   map[string][]string{"reviewer": {"Check that every migration has a down file."}},
+		taskRoles: map[uuid.UUID]string{reviewer: "reviewer", security: "security"}}
+	svc := NewWorkspaceMemoryService(store, nil)
+	block := func(id uuid.UUID) string {
+		t.Helper()
+		lessons, err := svc.ApprovedLessons(context.Background(), domain.AgentTask{ID: id, WorkspaceID: ws, TeamID: team})
+		require.NoError(t, err)
+		return lessons
+	}
+	require.Equal(t, domain.FormatLessons([]string{"Run `make check` before pushing.", "Check that every migration has a down file."}), block(reviewer))
+	require.Equal(t, domain.FormatLessons([]string{"Run `make check` before pushing."}), block(security))
+	require.Equal(t, domain.FormatLessons([]string{"Run `make check` before pushing."}), block(plain))
+	require.Equal(t, []string{"reviewer", "security", ""}, store.askedRoles)
 }

@@ -216,7 +216,9 @@ characters, with only those two fields, in your own words; never put
 credentials, anything about this one task or a person's message in it. It is a proposal: a workspace admin approves,
 edits or drops it, and only approved lessons appear in later agents' prompts.
 The same lesson is proposed once, and a task may propose 3; more are refused
-and shown as refused in Kuayle. Review tasks cannot propose lessons.
+and shown as refused in Kuayle. Review tasks cannot propose lessons, except a
+role of a team workflow: its lessons are for that role only, so make them
+about how that role works on this repository.
 
 ## kuayle-notebook: update the task notebook before you finish
 
