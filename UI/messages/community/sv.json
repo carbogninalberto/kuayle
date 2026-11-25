@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "Efterskänkte kontrollen {check}",
 	"tasks.room_grant": "Låter ledaren efterskänka kontrollen {check}",
 	"tasks.room_grant_approval": "Låter ledaren godkänna sammanslagningar",
+	"tasks.room_grant_split": "Låter ledaren skapa underärenden utan att fråga",
 	"tasks.room_waiver_standing": "Har undantagit alla committar från kontrollen {check}",
 	"tasks.room_merge_approved": "Godkände sammanslagningen av {commit}",
 	"tasks.room_to": "Till {roles}",

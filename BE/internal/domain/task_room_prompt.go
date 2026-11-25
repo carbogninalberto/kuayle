@@ -137,8 +137,11 @@ func roomDataLine(m TaskMessage) string {
 		}
 		return d.Action
 	case RoomGrant:
-		if d.Action == RoomActionApprove && d.Check == "" {
+		switch {
+		case d.Action == RoomActionApprove && d.Check == "":
 			return "lead may approve the merge"
+		case d.Action == RoomRequestSplit:
+			return "lead may split the issue without approval"
 		}
 		return "lead may waive check " + d.Check
 	case RoomWaiver:

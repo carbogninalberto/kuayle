@@ -57,8 +57,26 @@ func (s *AgentTaskService) ApproveTaskSplit(ctx context.Context, ws, id uuid.UUI
 		return err
 	}
 	issues, err := s.Repo.ApproveTaskSplit(ctx, ws, id, seq)
-	if err != nil || len(issues) == 0 {
+	if err != nil {
 		return err
+	}
+	s.announceSplit(ctx, ws, issues)
+	return nil
+}
+
+// carryOutGrantedSplits creates the sub-issues of the lead's split requests
+// that the task's creator granted (KUA-313), without the approval step, and
+// announces them as an approved split's are.
+func (s *AgentTaskService) carryOutGrantedSplits(ctx context.Context, task domain.AgentTask) error {
+	issues, err := s.Repo.CarryOutGrantedSplits(ctx, task.WorkspaceID, task.ID)
+	s.announceSplit(ctx, task.WorkspaceID, issues)
+	return err
+}
+
+// announceSplit tells the workspace and its webhooks of a split's children.
+func (s *AgentTaskService) announceSplit(ctx context.Context, ws uuid.UUID, issues []domain.Issue) {
+	if len(issues) == 0 {
+		return
 	}
 	if s.events != nil {
 		for i := range issues {
@@ -68,5 +86,4 @@ func (s *AgentTaskService) ApproveTaskSplit(ctx context.Context, ws, id uuid.UUI
 	if s.webhooks != nil {
 		s.webhooks.IssueEvents(ctx, ws, WebhookEventIssueCreated, issues, issues[0].CreatorID)
 	}
-	return nil
 }

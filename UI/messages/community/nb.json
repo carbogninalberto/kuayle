@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "Fritok kontrollen {check}",
 	"tasks.room_grant": "Lar lederen frafalle kontrollen {check}",
 	"tasks.room_grant_approval": "Lar lederen godkjenne sammenslåinger",
+	"tasks.room_grant_split": "Lar lederen opprette undersaker uten å spørre",
 	"tasks.room_waiver_standing": "Har gitt fritak fra kontrollen {check} for alle commits",
 	"tasks.room_merge_approved": "Godkjente sammenslåing av {commit}",
 	"tasks.room_to": "Til {roles}",

@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "ยกเว้นการตรวจ {check} แล้ว",
 	"tasks.room_grant": "ให้หัวหน้ายกเว้นการตรวจ {check} ได้",
 	"tasks.room_grant_approval": "อนุญาตให้หัวหน้าอนุมัติการรวมโค้ด",
+	"tasks.room_grant_split": "อนุญาตให้หัวหน้าสร้าง Sub-issue ได้โดยไม่ต้องถาม",
 	"tasks.room_waiver_standing": "ยกเว้นการตรวจสอบ {check} สำหรับทุกคอมมิต",
 	"tasks.room_merge_approved": "อนุมัติการรวม {commit}",
 	"tasks.room_to": "ถึง {roles}",

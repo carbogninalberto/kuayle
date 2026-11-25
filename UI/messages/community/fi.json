@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "Ohitti tarkistuksen {check}",
 	"tasks.room_grant": "Antaa vetäjän ohittaa tarkistuksen {check}",
 	"tasks.room_grant_approval": "Antaa vetäjän hyväksyä yhdistämisiä",
+	"tasks.room_grant_split": "Antaa vetäjän luoda aliissueita kysymättä",
 	"tasks.room_waiver_standing": "Myönsi poikkeuksen tarkistuksesta {check} kaikille commiteille",
 	"tasks.room_merge_approved": "Hyväksyi commitin {commit} yhdistämisen",
 	"tasks.room_to": "Vastaanottajat: {roles}",

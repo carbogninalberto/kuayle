@@ -310,7 +310,8 @@ test('the room shows who may approve a merge and which commits a waiver covers',
 		post(1, 'human', 'grant', '', { data: { action: 'approve', role: 'lead' } }),
 		post(2, 'human', 'waiver', 'The retired check has no runner.', { data: { check: 'legacy-ci', standing: true } }),
 		post(3, 'human', 'waiver', 'Verified this build locally.', { data: { check: 'ci', commit } }),
-		post(4, 'member', 'request', '', { author_role: 'lead', data: { action: 'approve', commit } })
+		post(4, 'member', 'request', '', { author_role: 'lead', data: { action: 'approve', commit } }),
+		post(5, 'human', 'grant', '', { data: { action: 'split', role: 'lead' } })
 	];
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
@@ -320,6 +321,7 @@ test('the room shows who may approve a merge and which commits a waiver covers',
 	await expect(room.locator('[data-seq="3"]')).toContainText('Waived the check ci');
 	await expect(room.locator('[data-seq="3"]')).toContainText('Commit abc1234');
 	await expect(room.locator('[data-seq="4"]')).toContainText('Approved merging abc1234');
+	await expect(room.locator('[data-seq="5"]')).toContainText('Lets the lead create sub-issues without asking');
 
 	for (const [device, width] of [
 		['desktop', 1280],

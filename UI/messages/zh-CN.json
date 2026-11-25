@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "已豁免检查 {check}",
 	"tasks.room_grant": "允许负责人豁免检查 {check}",
 	"tasks.room_grant_approval": "允许负责人批准合并",
+	"tasks.room_grant_split": "允许负责人无需询问即可创建子任务",
 	"tasks.room_waiver_standing": "已对所有提交豁免检查 {check}",
 	"tasks.room_merge_approved": "已批准合并 {commit}",
 	"tasks.room_to": "发给 {roles}",

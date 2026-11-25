@@ -755,7 +755,9 @@ pipeline and its creator’s session can grant the lead approval or waiver
 authority. The room stores each accepted decision with its workflow audit
 event (KUA-305).
 A lead can propose children in that room. The creator approves the stored
-proposal in a session action that creates and audits all children together.
+proposal in a session action that creates and audits all children together,
+or grants the lead the split, and the tick then creates them unasked
+(KUA-313).
 An accepted lead summary records the creator’s inbox notification and queues
 linked Telegram delivery in the room transaction. The lead maintains the root task’s notebook
 across turns. In pipelines without a lead, the writer keeps that duty.

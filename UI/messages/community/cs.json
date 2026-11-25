@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "Kontrola {check} prominuta",
 	"tasks.room_grant": "Dovoluje vedoucímu prominout kontrolu {check}",
 	"tasks.room_grant_approval": "Umožňuje vedoucímu schvalovat sloučení",
+	"tasks.room_grant_split": "Umožňuje vedoucímu vytvářet podúkoly bez ptaní",
 	"tasks.room_waiver_standing": "Promíjí kontrolu {check} pro všechny commity",
 	"tasks.room_merge_approved": "Schválil sloučení commitu {commit}",
 	"tasks.room_to": "Pro {roles}",

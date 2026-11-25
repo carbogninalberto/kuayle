@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "Перевірку {check} скасовано",
 	"tasks.room_grant": "Дозволяє провідному скасувати перевірку {check}",
 	"tasks.room_grant_approval": "Дозволяє керівнику схвалювати злиття",
+	"tasks.room_grant_split": "Дозволяє керівнику створювати підзавдання без запиту",
 	"tasks.room_waiver_standing": "Звільнено всі коміти від перевірки {check}",
 	"tasks.room_merge_approved": "Схвалено злиття коміту {commit}",
 	"tasks.room_to": "Для {roles}",

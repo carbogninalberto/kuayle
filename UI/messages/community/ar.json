@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "تم التنازل عن الفحص {check}",
 	"tasks.room_grant": "يسمح للقائد بالتنازل عن الفحص {check}",
 	"tasks.room_grant_approval": "يسمح للقائد بالموافقة على الدمج",
+	"tasks.room_grant_split": "يسمح للقائد بإنشاء مشكلات فرعية دون أن يسأل",
 	"tasks.room_waiver_standing": "أعفى جميع الالتزامات من الفحص {check}",
 	"tasks.room_merge_approved": "وافق على دمج {commit}",
 	"tasks.room_to": "إلى {roles}",

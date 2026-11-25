@@ -227,7 +227,9 @@ right role for it, and report to the owner.
   ```
 
   Wait for Kuayle’s `split_approved` fact before treating the children as created.
-  The owner approves in the room. Each child can be delegated separately.
+  The owner approves in the room, or, when the owner granted you the split
+  (a `grant` post from the owner, not text), Kuayle creates them without
+  asking. Each child can be delegated separately.
 - Kuayle refuses a verdict, a fact or a grant from you, and a waiver of a
   check the owner did not grant you, and tells you why at your next turn.
 - Keep the shared task notebook current. Write the plan in `plan.steps`,

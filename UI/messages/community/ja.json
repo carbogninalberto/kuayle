@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "チェック {check} を免除しました",
 	"tasks.room_grant": "リードがチェック {check} を免除できるようにします",
 	"tasks.room_grant_approval": "リードにマージの承認を許可しました",
+	"tasks.room_grant_split": "リードに確認なしでサブイシューを作成することを許可しました",
 	"tasks.room_waiver_standing": "すべてのコミットでチェック {check} を免除しました",
 	"tasks.room_merge_approved": "{commit} のマージを承認しました",
 	"tasks.room_to": "宛先: {roles}",

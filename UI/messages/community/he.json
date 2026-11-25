@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "ויתר על הבדיקה {check}",
 	"tasks.room_grant": "מאפשר למוביל לוותר על הבדיקה {check}",
 	"tasks.room_grant_approval": "מאפשר למוביל לאשר מיזוגים",
+	"tasks.room_grant_split": "מאפשר למוביל ליצור תתי־משימות בלי לשאול",
 	"tasks.room_waiver_standing": "ויתר על הבדיקה {check} לכל הקומיטים",
 	"tasks.room_merge_approved": "אישר את המיזוג של {commit}",
 	"tasks.room_to": "אל {roles}",

@@ -254,6 +254,11 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	if err != nil {
 		return err
 	}
+	// A split the creator granted the lead needs no approval and nothing
+	// from GitHub: Kuayle creates the sub-issues first (KUA-313).
+	if err = s.carryOutGrantedSplits(ctx, task); err != nil {
+		return err
+	}
 	t := &tickPass{s: s, w: w, task: task, p: *p, profiles: profiles, st: readTickState(task), now: w.now(), current: deref(task.WorkflowNode)}
 	t.writer = p.Holder(t.st.Writer)
 	t.st.Queue = nil

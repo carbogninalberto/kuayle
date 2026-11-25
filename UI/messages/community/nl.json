@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "Controle {check} kwijtgescholden",
 	"tasks.room_grant": "Laat de lead de controle {check} kwijtschelden",
 	"tasks.room_grant_approval": "Laat de lead samenvoegingen goedkeuren",
+	"tasks.room_grant_split": "Laat de lead subissues aanmaken zonder te vragen",
 	"tasks.room_waiver_standing": "Heeft alle commits vrijgesteld van de controle {check}",
 	"tasks.room_merge_approved": "Heeft het samenvoegen van {commit} goedgekeurd",
 	"tasks.room_to": "Aan {roles}",

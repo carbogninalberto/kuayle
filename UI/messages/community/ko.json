@@ -3059,6 +3059,7 @@
 	"tasks.room_waiver": "검사 {check} 면제함",
 	"tasks.room_grant": "리드가 검사 {check}를 면제할 수 있게 함",
 	"tasks.room_grant_approval": "리드에게 병합 승인 권한을 부여했습니다",
+	"tasks.room_grant_split": "리드에게 묻지 않고 하위 이슈를 만들 권한을 부여했습니다",
 	"tasks.room_waiver_standing": "모든 커밋에서 {check} 검사를 면제했습니다",
 	"tasks.room_merge_approved": "{commit} 병합을 승인했습니다",
 	"tasks.room_to": "받는 사람: {roles}",
