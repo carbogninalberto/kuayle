@@ -165,7 +165,14 @@ const lessonReadable = `(l.state='approved' OR (l.source_event='manual' AND l.pr
 // of the workspace, of that team, and of any team that is not private now.
 const lessonReachesTeam = `(l.team_id IS NULL OR l.team_id=$3 OR NOT EXISTS(SELECT 1 FROM teams lt WHERE lt.id=l.team_id AND lt.is_private))`
 
-const lessonColumns = `l.id,l.workspace_id,l.repository_full_name,l.team_id,l.state,l.text,l.proposed_text,l.source_event,l.proposer,l.source_task_id,l.proposed_by,l.decided_by,l.decided_at,l.position,l.created_at,l.updated_at`
+// lessonReachesRole is whether a lesson reaches a task playing the role of
+// a pipeline in the parameter param ("" for a task that plays none): the
+// lessons without a role, and those for that role.
+func lessonReachesRole(param string) string {
+	return `(l.role IS NULL OR l.role=NULLIF(` + param + `::text,''))`
+}
+
+const lessonColumns = `l.id,l.workspace_id,l.repository_full_name,l.team_id,l.role,l.state,l.text,l.proposed_text,l.source_event,l.proposer,l.source_task_id,l.proposed_by,l.decided_by,l.decided_at,l.position,l.created_at,l.updated_at`
 
 func lessonRepositoryKey(repository string) string {
 	return strings.ToLower(strings.TrimSpace(repository))
@@ -274,7 +281,7 @@ func lockLesson(ctx context.Context, tx *sqlx.Tx, ws, actor, id uuid.UUID) (*dom
 	return &lesson, err
 }
 
-const lessonReturning = ` RETURNING id,workspace_id,repository_full_name,team_id,state,text,proposed_text,source_event,proposer,source_task_id,proposed_by,decided_by,decided_at,position,created_at,updated_at`
+const lessonReturning = ` RETURNING id,workspace_id,repository_full_name,team_id,role,state,text,proposed_text,source_event,proposer,source_task_id,proposed_by,decided_by,decided_at,position,created_at,updated_at`
 
 // nextLessonPosition places a newly approved lesson last, within the
 // repository's maximum of approved lessons. The caller holds the repository lock.
@@ -559,14 +566,33 @@ func (r *WorkspaceMemoryRepository) Events(ctx context.Context, ws, actor, id uu
 }
 
 // ApprovedTexts returns the approved lessons of a repository that a task of
-// the team may receive, in prompt order: lessons of the workspace, of the
-// task's own team, and of teams that are not private now. Nothing that is
+// the team playing role ("" for none, see TaskRole) may receive, in prompt
+// order: lessons of the workspace, of the task's own team, and of teams that
+// are not private now; without a role, or for that role. Nothing that is
 // proposed, retired or dropped is ever returned.
-func (r *WorkspaceMemoryRepository) ApprovedTexts(ctx context.Context, ws, team uuid.UUID, repository string) ([]string, error) {
+func (r *WorkspaceMemoryRepository) ApprovedTexts(ctx context.Context, ws, team uuid.UUID, repository, role string) ([]string, error) {
 	texts := []string{}
 	err := r.db.SelectContext(ctx, &texts, `SELECT l.text FROM workspace_lessons l WHERE l.workspace_id=$1 AND l.repository_key=$2 AND l.state='approved'
- AND `+lessonReachesTeam+` ORDER BY l.position,l.created_at,l.id LIMIT $4`, ws, lessonRepositoryKey(repository), team, domain.LessonsApprovedPerRepository)
+ AND `+lessonReachesTeam+` AND `+lessonReachesRole("$5")+` ORDER BY l.position,l.created_at,l.id LIMIT $4`,
+		ws, lessonRepositoryKey(repository), team, domain.LessonsApprovedPerRepository, role)
 	return texts, err
+}
+
+// taskRole is the role task $1 plays on its pipeline, in workspace $2: the
+// writer's for a pipeline's root task (its member has no task of its own),
+// a member's for that member's task; no row for any other task.
+const taskRole = `SELECT m.role FROM task_members m WHERE m.workspace_id=$2 AND (m.member_task_id=$1 OR (m.task_id=$1 AND m.member_task_id IS NULL))`
+
+// TaskRole is the role a task plays on its pipeline, which decides the
+// lessons for a role it receives; "" for a task that plays none (a task
+// without a pipeline, a review the assistant or a graph step requested).
+func (r *WorkspaceMemoryRepository) TaskRole(ctx context.Context, task domain.AgentTask) (string, error) {
+	var role string
+	err := r.db.GetContext(ctx, &role, taskRole, task.ID, task.WorkspaceID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return role, err
 }
 
 // TaskRepository names the repository a task's checkout works on, or "" when
@@ -580,12 +606,14 @@ func (r *WorkspaceMemoryRepository) TaskRepository(ctx context.Context, task dom
 	return name, err
 }
 
-// lessonProposal is what a task event proposes.
+// lessonProposal is what a task event proposes. Role is the role of a
+// pipeline the lesson is for ("" for every task).
 type lessonProposal struct {
 	TaskID   uuid.UUID
 	Event    string
 	Proposer string
 	Text     string
+	Role     string
 }
 
 // Outcomes of a proposal that was not recorded.
@@ -637,12 +665,12 @@ func proposeLesson(ctx context.Context, db *sqlx.DB, tx *sqlx.Tx, in lessonPropo
 		Task    int  `db:"proposed_by_task"`
 		Pending int  `db:"pending"`
 	}
-	// A lesson that already reaches this team's tasks is known.
+	// A lesson that already reaches this team's tasks playing the role is known.
 	if err = tx.GetContext(ctx, &counts, `SELECT
- EXISTS(SELECT 1 FROM workspace_lessons l WHERE l.workspace_id=$1 AND l.repository_key=$2 AND l.dedupe_key=$4 AND `+lessonReachesTeam+`) AS known,
+ EXISTS(SELECT 1 FROM workspace_lessons l WHERE l.workspace_id=$1 AND l.repository_key=$2 AND l.dedupe_key=$4 AND `+lessonReachesTeam+` AND `+lessonReachesRole("$7")+`) AS known,
  (SELECT count(*) FROM workspace_lessons WHERE source_task_id=$5 AND source_event=$6) AS proposed_by_task,
  (SELECT count(*) FROM workspace_lessons WHERE workspace_id=$1 AND repository_key=$2 AND state='proposed') AS pending`,
-		source.WorkspaceID, key, source.TeamID, dedupe, in.TaskID, in.Event); err != nil {
+		source.WorkspaceID, key, source.TeamID, dedupe, in.TaskID, in.Event, in.Role); err != nil {
 		return "", err
 	}
 	// A discarded proposal is logged by repository and kind, never by content.
@@ -659,16 +687,20 @@ func proposeLesson(ctx context.Context, db *sqlx.DB, tx *sqlx.Tx, in lessonPropo
 		return discarded(lessonPendingLimit)
 	}
 	var id uuid.UUID
-	err = tx.GetContext(ctx, &id, `INSERT INTO workspace_lessons(workspace_id,repository_full_name,repository_key,team_id,state,text,proposed_text,source_event,proposer,source_task_id,dedupe_key)
- VALUES($1,$2,$3,$4,'proposed',$5,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING id`,
-		source.WorkspaceID, source.Repository, key, source.TeamID, text, in.Event, in.Proposer, in.TaskID, dedupe)
+	err = tx.GetContext(ctx, &id, `INSERT INTO workspace_lessons(workspace_id,repository_full_name,repository_key,team_id,role,state,text,proposed_text,source_event,proposer,source_task_id,dedupe_key)
+ VALUES($1,$2,$3,$4,NULLIF($10::text,''),'proposed',$5,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING id`,
+		source.WorkspaceID, source.Repository, key, source.TeamID, text, in.Event, in.Proposer, in.TaskID, dedupe, in.Role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return lessonDuplicate, nil
 	}
 	if err != nil {
 		return "", err
 	}
-	return lessonRecorded, lessonAudit(ctx, tx, source.WorkspaceID, id, nil, "proposed", map[string]any{"event": in.Event, "proposer": in.Proposer, "task_id": in.TaskID, "text": text})
+	detail := map[string]any{"event": in.Event, "proposer": in.Proposer, "task_id": in.TaskID, "text": text}
+	if in.Role != "" {
+		detail["role"] = in.Role
+	}
+	return lessonRecorded, lessonAudit(ctx, tx, source.WorkspaceID, id, nil, "proposed", detail)
 }
 
 // suggestLesson proposes a lesson from a task event (an agent's outbox, a
@@ -696,21 +728,29 @@ func suggestLesson(ctx context.Context, db *sqlx.DB, tx *sqlx.Tx, in lessonPropo
 
 // recordMemoryOutbox handles an outbox file addressed to the workspace memory
 // ({"to":"memory","lesson":"..."}) inside RecordTaskOutbox's transaction. A
-// valid lesson from an implementing task that can still send becomes a
-// proposal marked as written by an agent; the same lesson is proposed once.
-// Anything refused, or a proposal that failed, is recorded in the message
-// registry with the reason, within the sender's hourly budget; a failing
-// proposal never fails the outbox. It reports whether a record was added.
+// valid lesson from an implementing task, or from a pipeline member's task,
+// that can still send becomes a proposal marked as written by an agent; the
+// same lesson is proposed once. A member's lesson is for the role it plays
+// (TaskRole), never for one the agent names. Anything refused, or a proposal
+// that failed, is recorded in the message registry with the reason, within
+// the sender's hourly budget; a failing proposal never fails the outbox. It
+// reports whether a record was added.
 func recordMemoryOutbox(ctx context.Context, db *sqlx.DB, tx *sqlx.Tx, sender messageSender, dedupe string, data []byte, ended bool) (bool, error) {
 	lesson, parseErr := domain.ParseAgentMemoryLesson(data)
+	var role string
+	if parseErr == nil && !ended {
+		if err := tx.GetContext(ctx, &role, taskRole, sender.ID, sender.WorkspaceID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return false, err
+		}
+	}
 	reason := ""
 	switch {
 	case parseErr != nil:
 		reason = parseErr.Error()
-	case sender.Kind != domain.AgentTaskKindImplement || ended:
+	case ended || sender.Kind != domain.AgentTaskKindImplement && role == "":
 		reason = "the sending task can no longer send messages"
 	default:
-		reason = suggestLesson(ctx, db, tx, lessonProposal{TaskID: sender.ID, Event: domain.LessonEventTask, Proposer: domain.LessonProposerAgent, Text: lesson})
+		reason = suggestLesson(ctx, db, tx, lessonProposal{TaskID: sender.ID, Event: domain.LessonEventTask, Proposer: domain.LessonProposerAgent, Text: lesson, Role: role})
 		if reason == lessonRecorded {
 			return true, nil
 		}

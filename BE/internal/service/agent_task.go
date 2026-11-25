@@ -824,14 +824,15 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	// take more than an hour.
 	const timeout = 3 * 60 * 60
 	review := task.Kind == domain.AgentTaskKindReview
-	// A review starts cold, except the turns of a pipeline task's member:
-	// one review task reused across turns, which continues its session.
+	// The pipeline member whose turns a review task runs, if any.
 	var member *domain.TaskMember
 	if review && r.tasks != nil {
 		if member, err = r.tasks.TaskMember(ctx, task); err != nil {
 			return nil, err
 		}
 	}
+	// A review starts cold, except the turns of a pipeline task's member:
+	// one review task reused across turns, which continues its session.
 	resumes := !review || member != nil
 	var previous *domain.AgentHandoff
 	if task.Generation > 1 && resumes {
@@ -917,20 +918,9 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 				planning = task.RunsWorkflow() && bundle.Behaviour == domain.AgentBehaviourPlans
 			}
 		}
-		// Workspace memory: the lessons the workspace's admins approved for
-		// the task's repository. They are the workspace's own configuration,
-		// already bounded and redacted by the memory service. Lessons that
-		// cannot be loaded never fail the attempt: it runs without them.
-		lessons := ""
-		if r.memory != nil {
-			if lessons, err = r.memory.ApprovedLessons(ctx, task); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return nil, err
-				}
-				log.WithField("task_id", task.ID).WithError(err).Warn("Approved lessons could not be loaded; the attempt runs without them")
-				lessons = ""
-			}
-			lessons = truncateUTF8Bytes(strings.TrimSpace(lessons), memoryPromptBytes)
+		lessons, err := r.attemptLessons(ctx, task)
+		if err != nil {
+			return nil, err
 		}
 		// The notebook and the lessons reach the agent as instructions: in
 		// the harness's instructions file, after its profile, or ahead of the
@@ -984,6 +974,16 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		}
 	} else {
 		prompt = assembly.applyInstructions(withInstructions(prompt, task.AgentInstructions))
+		// A pipeline member's turn reads the lessons for every task and for
+		// its role, ahead of its prompt, which carries its role's
+		// instructions too. Any other review reads none.
+		if member != nil {
+			lessons, err := r.attemptLessons(ctx, task)
+			if err != nil {
+				return nil, err
+			}
+			prompt = assembly.apply(domain.PromptSourceMemory, withLessons(prompt, lessons))
+		}
 	}
 	// No attempt pushes: Kuayle publishes implementations itself, and a
 	// review is never published. Without push the manager adds no GitHub token.
@@ -995,6 +995,27 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		// while the writer holding the write lock writes (KUA-289): their
 		// worktree is read-only where the harness can run that way.
 		WorktreeReadOnly: (planning || member != nil) && domain.ReadOnlyWorktreeSupported(task.Provider)}, task.RunID)
+}
+
+// attemptLessons is the workspace memory an attempt of the task reads: the
+// lessons the workspace's admins approved for the task's repository (and for
+// the role the task plays on a pipeline, which the memory service decides).
+// They are the workspace's own configuration, already bounded and redacted
+// by the memory service. Lessons that cannot be loaded never fail the
+// attempt: it runs without them.
+func (r *devMachineTaskRuntime) attemptLessons(ctx context.Context, task domain.AgentTask) (string, error) {
+	if r.memory == nil {
+		return "", nil
+	}
+	lessons, err := r.memory.ApprovedLessons(ctx, task)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return "", err
+		}
+		log.WithField("task_id", task.ID).WithError(err).Warn("Approved lessons could not be loaded; the attempt runs without them")
+		return "", nil
+	}
+	return truncateUTF8Bytes(strings.TrimSpace(lessons), memoryPromptBytes), nil
 }
 
 // taskNotebookSource supplies the notebook an attempt receives.

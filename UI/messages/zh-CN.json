@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "来自 GitHub 评审",
 	"lessons.by_person": "由 {name} 提议",
 	"lessons.edited": "已编辑",
+	"lessons.for_role": "仅限 {role} 角色",
 	"lessons.lesson": "经验",
 	"lessons.empty": "暂无经验",
 	"lessons.drop_confirm": "丢弃此提议？",

@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Fra en GitHub-gjennomgang",
 	"lessons.by_person": "Foreslått av {name}",
 	"lessons.edited": "Redigert",
+	"lessons.for_role": "Bare for rollen {role}",
 	"lessons.lesson": "Lærdom",
 	"lessons.empty": "Ingen lærdommer ennå",
 	"lessons.drop_confirm": "Forkaste dette forslaget?",

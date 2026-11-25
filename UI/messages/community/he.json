@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "מסקירת GitHub",
 	"lessons.by_person": "הוצע על ידי {name}",
 	"lessons.edited": "נערך",
+	"lessons.for_role": "רק לתפקיד {role}",
 	"lessons.lesson": "לקח",
 	"lessons.empty": "אין לקחים עדיין",
 	"lessons.drop_confirm": "להשליך את ההצעה הזו?",

@@ -825,7 +825,10 @@ session only, audited in `workspace_lesson_events`); until then a task's
 proposal is read only by them and the task's creator. Only approved lessons
 are returned by `WorkspaceMemoryService.ApprovedLessons`, bounded and
 redacted again, for a task's prompt. A private team's lesson stays with that
-team.
+team. A lesson may be for one role of a team workflow (migration 209,
+`role`): a pipeline member's outbox lesson is proposed for the role it plays,
+and once approved it reaches only the tasks that play that role, alongside the
+lessons for every task; any other task reads only the lessons without a role.
 
 [Configurable workflows](BE/docs/agent-tasks.md#configurable-workflows)
 (migration 118) replace the fixed implement → validate → publish → review flow

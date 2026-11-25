@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Dari tinjauan GitHub",
 	"lessons.by_person": "Diusulkan oleh {name}",
 	"lessons.edited": "Diedit",
+	"lessons.for_role": "Hanya untuk peran {role}",
 	"lessons.lesson": "Pelajaran",
 	"lessons.empty": "Belum ada pelajaran",
 	"lessons.drop_confirm": "Buang usulan ini?",

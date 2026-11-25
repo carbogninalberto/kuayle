@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "From a GitHub review",
 	"lessons.by_person": "Proposed by {name}",
 	"lessons.edited": "Edited",
+	"lessons.for_role": "Only for the {role} role",
 	"lessons.lesson": "Lesson",
 	"lessons.empty": "No lessons yet",
 	"lessons.drop_confirm": "Drop this proposal?",

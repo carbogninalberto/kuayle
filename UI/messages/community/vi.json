@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Từ một đánh giá GitHub",
 	"lessons.by_person": "Được đề xuất bởi {name}",
 	"lessons.edited": "Đã chỉnh sửa",
+	"lessons.for_role": "Chỉ dành cho vai trò {role}",
 	"lessons.lesson": "Bài học",
 	"lessons.empty": "Chưa có bài học",
 	"lessons.drop_confirm": "Bỏ đề xuất này?",

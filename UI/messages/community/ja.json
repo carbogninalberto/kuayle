@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "GitHub のレビューから",
 	"lessons.by_person": "{name} による提案",
 	"lessons.edited": "編集済み",
+	"lessons.for_role": "{role} ロールのみ",
 	"lessons.lesson": "学び",
 	"lessons.empty": "まだ学びはありません",
 	"lessons.drop_confirm": "この提案を破棄しますか？",

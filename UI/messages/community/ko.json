@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "GitHub 리뷰에서",
 	"lessons.by_person": "{name}님이 제안",
 	"lessons.edited": "편집됨",
+	"lessons.for_role": "{role} 역할 전용",
 	"lessons.lesson": "학습",
 	"lessons.empty": "아직 학습이 없습니다",
 	"lessons.drop_confirm": "이 제안을 삭제할까요?",

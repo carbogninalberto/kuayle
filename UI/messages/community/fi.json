@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "GitHub-katselmoinnista",
 	"lessons.by_person": "Ehdottanut {name}",
 	"lessons.edited": "Muokattu",
+	"lessons.for_role": "Vain roolille {role}",
 	"lessons.lesson": "Opetus",
 	"lessons.empty": "Ei vielä opetuksia",
 	"lessons.drop_confirm": "Hylätäänkö tämä ehdotus?",

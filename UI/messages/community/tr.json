@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Bir GitHub incelemesinden",
 	"lessons.by_person": "{name} tarafından önerildi",
 	"lessons.edited": "Düzenlendi",
+	"lessons.for_role": "Yalnızca {role} rolü için",
 	"lessons.lesson": "Ders",
 	"lessons.empty": "Henüz ders yok",
 	"lessons.drop_confirm": "Bu öneri atılsın mı?",

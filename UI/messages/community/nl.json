@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Uit een GitHub-review",
 	"lessons.by_person": "Voorgesteld door {name}",
 	"lessons.edited": "Bewerkt",
+	"lessons.for_role": "Alleen voor de rol {role}",
 	"lessons.lesson": "Les",
 	"lessons.empty": "Nog geen lessen",
 	"lessons.drop_confirm": "Dit voorstel weggooien?",

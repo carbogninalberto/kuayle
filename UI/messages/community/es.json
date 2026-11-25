@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "De una revisión de GitHub",
 	"lessons.by_person": "Propuesto por {name}",
 	"lessons.edited": "Editado",
+	"lessons.for_role": "Solo para el rol {role}",
 	"lessons.lesson": "Lección",
 	"lessons.empty": "Aún no hay lecciones",
 	"lessons.drop_confirm": "¿Descartar esta propuesta?",

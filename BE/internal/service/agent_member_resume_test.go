@@ -19,11 +19,18 @@ import (
 // Kuayle created and the store it asked.
 func reviewTurn(t *testing.T, provider, session string, member bool) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
 	t.Helper()
-	return reviewTurnAt(t, provider, session, member, 2)
+	return reviewAttempt(t, provider, session, member, 2, nil)
 }
 
 // reviewTurnAt is reviewTurn for the attempt of that generation.
 func reviewTurnAt(t *testing.T, provider, session string, member bool, generation int64) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
+	t.Helper()
+	return reviewAttempt(t, provider, session, member, generation, nil)
+}
+
+// reviewAttempt is reviewTurn for the attempt of the given generation, with
+// the workspace memory given (nil: none).
+func reviewAttempt(t *testing.T, provider, session string, member bool, generation int64, memory taskMemorySource) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
 	t.Helper()
 	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
@@ -45,7 +52,7 @@ func reviewTurnAt(t *testing.T, provider, session string, member bool, generatio
 	if member {
 		tasks.member = &domain.TaskMember{ID: uuid.New(), WorkspaceID: ws, TaskID: root, Role: "reviewer", MemberTaskID: &task.ID, State: domain.MemberQueued}
 	}
-	runtime := &devMachineTaskRuntime{machines: machines, tasks: tasks}
+	runtime := &devMachineTaskRuntime{machines: machines, tasks: tasks, memory: memory}
 	_, err := runtime.Attempt(context.Background(), task)
 	require.NoError(t, err)
 	require.Len(t, store.agentRuns, 1)
@@ -183,4 +190,36 @@ func TestOnlyAMembersNextTurnRefreshesItsWorktree(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, c.want, refresh, name)
 	}
+}
+
+// A member's turn, its first and every later one, reads the approved lessons
+// the memory service gives the member's task (those for every task and for
+// its role) ahead of its prompt, recorded as the "memory" source. A review
+// that is no member's still reads none, and the memory is not even asked.
+func TestAMembersTurnReadsTheLessonsForItsRole(t *testing.T) {
+	block := lessonsLabel + "\n- Check that every migration has a down file."
+	for _, provider := range []string{"claude-code", "codex", "opencode"} {
+		for _, generation := range []int64{1, 2} {
+			memory := &memorySourceFake{approved: map[uuid.UUID][]string{uuid.Nil: {"Check that every migration has a down file."}}}
+			run, _ := reviewAttempt(t, provider, "0c9a6c1e-0000-4000-8000-000000000001", true, generation, memory)
+			require.Len(t, memory.tasks, 1, provider)
+			require.Equal(t, domain.AgentTaskKindReview, memory.tasks[0].Kind, "asked for the member's own task")
+			require.True(t, strings.HasPrefix(run.Prompt, block), provider)
+			require.Contains(t, run.Prompt, "You are the @reviewer")
+			var sources []domain.PromptSource
+			require.NoError(t, json.Unmarshal(run.PromptSources, &sources))
+			recorded := ""
+			for _, source := range sources {
+				if source.Source == domain.PromptSourceMemory {
+					require.Equal(t, domain.PromptChannelPrompt, source.Channel)
+					recorded += source.Text
+				}
+			}
+			require.Contains(t, recorded, block, provider)
+		}
+	}
+	memory := &memorySourceFake{approved: map[uuid.UUID][]string{uuid.Nil: {"Check that every migration has a down file."}}}
+	run, _ := reviewAttempt(t, "codex", "", false, 1, memory)
+	require.NotContains(t, run.Prompt, "Lessons for this repository")
+	require.Empty(t, memory.tasks)
 }

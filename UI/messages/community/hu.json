@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "GitHub-felülvizsgálatból",
 	"lessons.by_person": "{name} javasolta",
 	"lessons.edited": "Szerkesztve",
+	"lessons.for_role": "Csak a(z) {role} szerepkörnek",
 	"lessons.lesson": "Tanulság",
 	"lessons.empty": "Még nincsenek tanulságok",
 	"lessons.drop_confirm": "Elveti ezt a javaslatot?",

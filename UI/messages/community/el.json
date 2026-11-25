@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "Από ανασκόπηση στο GitHub",
 	"lessons.by_person": "Προτάθηκε από {name}",
 	"lessons.edited": "Επεξεργασμένο",
+	"lessons.for_role": "Μόνο για τον ρόλο {role}",
 	"lessons.lesson": "Δίδαγμα",
 	"lessons.empty": "Δεν υπάρχουν διδάγματα ακόμη",
 	"lessons.drop_confirm": "Απόρριψη αυτής της πρότασης;",

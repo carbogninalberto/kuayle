@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "از یک بازبینی GitHub",
 	"lessons.by_person": "پیشنهادشده توسط {name}",
 	"lessons.edited": "ویرایش‌شده",
+	"lessons.for_role": "فقط برای نقش {role}",
 	"lessons.lesson": "درس",
 	"lessons.empty": "هنوز درسی وجود ندارد",
 	"lessons.drop_confirm": "این پیشنهاد کنار گذاشته شود؟",

@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "จากรีวิว GitHub",
 	"lessons.by_person": "เสนอโดย {name}",
 	"lessons.edited": "แก้ไขแล้ว",
+	"lessons.for_role": "เฉพาะบทบาท {role}",
 	"lessons.lesson": "บทเรียน",
 	"lessons.empty": "ยังไม่มีบทเรียน",
 	"lessons.drop_confirm": "ทิ้งข้อเสนอนี้หรือไม่",

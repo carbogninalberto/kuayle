@@ -4283,6 +4283,7 @@
 	"lessons.from_github": "من مراجعة GitHub",
 	"lessons.by_person": "اقترحه {name}",
 	"lessons.edited": "محرَّر",
+	"lessons.for_role": "لدور {role} فقط",
 	"lessons.lesson": "درس",
 	"lessons.empty": "لا دروس بعد",
 	"lessons.drop_confirm": "هل تريد تجاهل هذا المقترح؟",

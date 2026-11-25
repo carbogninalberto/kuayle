@@ -2339,7 +2339,8 @@ checks, conventions, known traps. Agents, reviews and members only
 proposal, and only approved lessons, as that person left them, are ever
 handed to an agent. Putting them in a task's prompt is one call,
 `service.WorkspaceMemoryService.ApprovedLessons(ctx, task)`, which the prompt
-assembly makes for every attempt that plans or changes code (see
+assembly makes for every attempt that plans or changes code and for every
+turn of a team workflow's role (see
 [Lessons in the prompt](#lessons-in-the-prompt)). The task notebook's
 migration is 150, so that it sorts after this one.
 
@@ -2350,8 +2351,9 @@ repository (`repository_full_name`, matched case-insensitively through
 `dropped`), `text` (what agents see once approved) and `proposed_text` (what
 was proposed, never changed), the source (`source_event`: `task`, `review` or
 `manual`; `proposer`: `agent`, `external` or `person`; `source_task_id`;
-`proposed_by`), the source task's `team_id`, who decided and when, the prompt
-`position` and a `dedupe_key`. `workspace_lesson_events` records every
+`proposed_by`), the source task's `team_id`, the `role` of a team workflow it
+is for (migration 209; `NULL` for every task, see **Roles** below), who
+decided and when, the prompt `position` and a `dedupe_key`. `workspace_lesson_events` records every
 proposal and decision (`proposed`, `added`, `approved`, `edited`, `shared`,
 `retired`, `dropped`, `reordered`) with the actor and a detail.
 
@@ -2390,9 +2392,10 @@ without a checkout proposes nothing. The same text (without regard to case
 and spacing) is proposed once per repository and kind of event, whatever
 became of the first proposal, so a dropped proposal does not come back. An
 outbox lesson that is malformed, too long, over the task's limit, from a
-review task or from a task that ended is refused and recorded as a refused
-message to `MEMORY` in the [message registry](#agent-messaging), within the
-task's hourly message budget; an accepted lesson is a proposal, never a
+review task that is no pipeline member's or from a task that ended is
+refused and recorded as a refused message to `MEMORY` in the
+[message registry](#agent-messaging), within the task's hourly message
+budget; an accepted lesson is a proposal, never a
 message.
 
 **Redaction.** Text is redacted before it is stored, so `text`,
@@ -2429,6 +2432,26 @@ audited. Today a workspace with private teams cannot have development
 machines, so such lessons cannot yet arise from tasks; the rule is enforced
 in the queries all the same.
 
+**Roles** (KUA-282, migration 209). A lesson may be for one role of a
+[team workflow](#team-workflows-experimental)'s roster (`role`, the roster's role name; `NULL` is every task). An outbox
+lesson from a pipeline task's member is proposed for the role that task plays
+(`WorkspaceMemoryRepository.TaskRole`, read from `task_members` in the task's
+workspace): the root task's for the writer's role, a member's review task for
+its own role, which is how a role that does not write code proposes at all.
+The agent never names the role. Every other task proposes for every task, as
+before. A role's proposal is decided like any other; the API returns `role`
+on each lesson and takes none (`POST /memory/lessons` refuses the field), and
+Settings → Lessons says "Only for the <role> role" under such a lesson and in
+a proposal's line. The same subject is proposed once per repository, team
+scope and role (the unique index includes `role`), and a role's proposal is a
+duplicate when a lesson for every task or for that role already reaches it.
+An approved lesson for a role reaches only the tasks that play it, alongside
+the lessons for every task, in the one prompt order; another role, a review
+that is no member's and any task without a pipeline read only the lessons
+without a role, exactly as before. The bounds (30 approved, 50 waiting per
+repository) count every role's lessons together. Rolling migration 209 back
+deletes the lessons for a role, which would otherwise reach every task.
+
 **API** (session only, under `/api/workspaces/:slug`). Non-guest members read
 and propose by hand; only current owners and admins decide, re-checked inside
 each writing transaction.
@@ -2444,18 +2467,19 @@ each writing transaction.
 | `PUT /memory/lessons/order` `{repository, ids}` | owners, admins | Prompt order; `ids` names every approved lesson once |
 | `GET /memory/lessons/:lessonId/audit` | owners, admins | The lesson's audit trail, newest first |
 
-Refusals: `403` for guests and non-members (and members on decisions), `404`
-for a lesson of another workspace or of a team the caller cannot see, `400`
+Every lesson carries `role` (`null`: every task). Refusals: `403` for guests
+and non-members (and members on decisions), `404` for a lesson of another workspace or of a team the caller cannot see, `400`
 `INVALID_LESSON`, `LESSON_REPOSITORY`, `LESSON_ORDER`, and `409`
 `LESSON_STATE`, `LESSON_LIMIT`, `LESSON_PENDING_LIMIT`, `LESSON_DUPLICATE`.
 
 **In a prompt.** `ApprovedLessons(ctx, task)` resolves the repository of the
-task's checkout and returns a heading and one `- ` line per approved lesson,
-or `""` when there is none or no checkout yet.
+task's checkout and the role the task plays on a pipeline, and returns a
+heading and one `- ` line per approved lesson it may read, or `""` when there
+is none or no checkout yet.
 `ApprovedLessonsForRepository(ctx, workspaceID, teamID, repository, machineID)`
-does the same for a known repository. Both redact the machine's secret values
-and well-known credential formats again, and fail rather than return
-unredacted text when the secrets cannot be read.
+does the same for a known repository and a task that plays no role. Both
+redact the machine's secret values and well-known credential formats again,
+and fail rather than return unredacted text when the secrets cannot be read.
 
 **In Settings.** Settings → Lessons
 ([+page.svelte](../../UI/src/routes/%5BworkspaceSlug%5D/settings/lessons/+page.svelte),
@@ -3155,6 +3179,11 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   first pass, and a turn that only answers the room, are unchanged. Whether
   a verdict holds for a newer head is not changed by this: across merges of
   the base Kuayle verified it still holds, and the role is not asked again.
+- **Role memory** (KUA-282). Every turn, the writer's and any other role's,
+  reads the approved lessons for every task and those for its role; a
+  `MEMORY` outbox line from a member proposes a lesson for its role, which a
+  workspace owner or admin decides as any other
+  ([workspace memory](#workspace-memory), **Roles**).
 - **When a turn starts** (`domain.RoomWakes`): when the role's unread posts
   hold one addressed to it, or, for a role that is not `on_call`, a `say`,
   `ask` or `request` that a person or another role wrote to everyone. A
@@ -3756,7 +3785,11 @@ cannot be loaded are logged and the attempt runs without them.
   then the lessons. The profile's and the project's instructions do not give
   way to either (they have their own bound of 32,000 bytes, above).
 
-Review tasks are not given the lessons.
+Review tasks are not given the lessons, except a pipeline member's turns:
+its review task reads the lessons for every task and for its role
+([workspace memory](#workspace-memory), **Roles**) ahead of its prompt, on
+every harness, as the `memory` source (the turn's prompt already carries the
+role's instructions).
 
 ### The prompt a step received
 
