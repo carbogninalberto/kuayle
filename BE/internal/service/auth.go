@@ -64,7 +64,13 @@ func WithPublicDemoMode(enabled bool) AuthServiceOption {
 
 // WithRegistrationDisabled gates public registration behind a valid invite token.
 func WithRegistrationDisabled(disabled bool) AuthServiceOption {
-	return func(s *AuthService) { s.disableRegistration = disabled }
+	return WithRegistrationSwitch(func() bool { return disabled })
+}
+
+// WithRegistrationSwitch reads whether registration needs an invite on every
+// request, so DISABLE_REGISTRATION can change without a restart.
+func WithRegistrationSwitch(disabled func() bool) AuthServiceOption {
+	return func(s *AuthService) { s.registrationDisabled = disabled }
 }
 
 // WithInviteRedeemer enables invite-token redemption on registration.
@@ -73,19 +79,19 @@ func WithInviteRedeemer(redeemer InviteRedeemer) AuthServiceOption {
 }
 
 type AuthService struct {
-	userRepo            repository.UserRepo
-	refreshRepo         repository.RefreshTokenRepo
-	jwtSecret           string
-	publicDemoMode      bool
-	disableRegistration bool
-	inviteRedeemer      InviteRedeemer
-	resetRepo           repository.PasswordResetRepo
-	mailer              mail.Sender
-	frontendURL         string
-	logResetLinks       bool
-	async               func(func()) // test hook; nil runs in a goroutine
-	sso                 SSOEnforcer
-	signInTokens        *repository.SignInTokenRepository
+	userRepo             repository.UserRepo
+	refreshRepo          repository.RefreshTokenRepo
+	jwtSecret            string
+	publicDemoMode       bool
+	registrationDisabled func() bool
+	inviteRedeemer       InviteRedeemer
+	resetRepo            repository.PasswordResetRepo
+	mailer               mail.Sender
+	frontendURL          string
+	logResetLinks        bool
+	async                func(func()) // test hook; nil runs in a goroutine
+	sso                  SSOEnforcer
+	signInTokens         *repository.SignInTokenRepository
 }
 
 // SetSSOEnforcer enables the per-workspace require-SSO sign-in check.
@@ -101,7 +107,12 @@ func NewAuthService(userRepo repository.UserRepo, refreshRepo repository.Refresh
 
 // PublicRegistrationEnabled reports whether signup is available without an invitation.
 func (s *AuthService) PublicRegistrationEnabled() bool {
-	return !s.publicDemoMode && !s.disableRegistration
+	return !s.publicDemoMode && !s.registrationClosed()
+}
+
+// registrationClosed reports whether sign-up needs an invite link.
+func (s *AuthService) registrationClosed() bool {
+	return s.registrationDisabled != nil && s.registrationDisabled()
 }
 
 func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*domain.User, string, string, error) {
@@ -113,7 +124,7 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 	}
 
 	inviteToken := strings.TrimSpace(req.InviteToken)
-	if s.disableRegistration && inviteToken == "" {
+	if inviteToken == "" && s.registrationClosed() {
 		return nil, "", "", ErrRegistrationDisabled
 	}
 	if inviteToken != "" {

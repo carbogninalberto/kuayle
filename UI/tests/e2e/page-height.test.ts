@@ -966,6 +966,7 @@ const routes: Route[] = [
 		'assistant',
 		'backups',
 		'push',
+		'instance-config',
 		'dev-machines',
 		'forges',
 		'github',

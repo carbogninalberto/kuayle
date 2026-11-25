@@ -731,7 +731,8 @@ each check's state on the reviewed commit when Kuayle knows it, and otherwise
 says CI is unknown.
 
 A task on an experimental [team workflow](BE/docs/agent-tasks.md#team-workflows-experimental)
-(a pipeline, KUA-252; off unless `WORKFLOW_PIPELINES_ENABLED` is set) runs
+(a pipeline, KUA-252; on unless `WORKFLOW_PIPELINES_ENABLED=false` or a
+sysadmin switches it off in [instance configuration](#instance-configuration)) runs
 its roles as members. The writers' turns are the task's own attempts, one at a
 time: the writer holding the task's write lock runs on its worktree, and the
 lock moves only between turns (KUA-289). Every
@@ -1728,6 +1729,50 @@ Outside `ENVIRONMENT=development`, `config.Load` and `config.LoadMachineGateway`
 The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime (pulling digest-pinned API, UI and, when active, Dev Machines control-plane/runtime images published by the release workflow; a Dev Machines image missing from GHCR is built locally from the release source), stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema. After migrations it records the dump in `backup_runs` (kind `pre_upgrade`).
 
 Instance backups (migration `000164_backups`, `BE/internal/service/backup*.go`) are configured by sysadmins in Settings → Backups. `backup_settings` is a singleton row holding the schedule, retention, AES-GCM encrypted S3 credentials and passphrase (key derived from `JWT_SECRET+":backup"`) and a lease (`lease_token`, `lease_expires_at`) that allows one run at a time across replicas; each replica's scheduler claims `next_run_at` with compare-and-set every minute. `backup_runs` is the history; each run records the S3 endpoint and bucket its copy went to, and retention and Verify act only on copies in the bucket configured now. The S3 endpoint dials public addresses only unless `BACKUP_S3_ALLOW_PRIVATE_NETWORK=true`. See [Backups](docs/backups.md) for the archive and encryption format and the restore procedure.
+
+### Instance configuration
+
+Settings → Instance configuration (sysadmins listed in `SYSADMINS` only) lists
+every variable the API process reads: each `Config` field and the backup
+command's `KUAYLE_BACKUP_PASSPHRASE`, from the registry in
+[`BE/internal/config/registry.go`](BE/internal/config/registry.go) (name,
+group, one-line description, secret flag, runtime rule).
+[`registry_test.go`](BE/internal/config/registry_test.go) fails when a `Config`
+field has no entry or a credential-looking name or field is not marked secret.
+`GET /api/system/config` returns each variable's effective value and source
+(`environment`, `default` or `override`). A secret comes back only as set or
+not set, never a part of it; a plain value that carries credentials (a URL
+with a user, password, query or fragment) is withheld as a whole. The relay
+webhook URLs count as secrets.
+
+Precedence, highest first: a sysadmin override stored in
+`instance_config_overrides` (migration 211), the environment, the default in
+`config.go`. Only variables whose every reader reads them per use are
+editable:
+
+| Variable | Readers | Accepted values |
+| --- | --- | --- |
+| `WORKFLOW_PIPELINES_ENABLED` | `AgentTaskService.PipelinesEnabled`: saving, duplicating, defaulting and starting pipelines, `pipelines_enabled` of `GET /workflows`, assistant delegation (the tick never reads it) | `true`, `false` |
+| `DISABLE_REGISTRATION` | `AuthService.Register` and `registration_enabled` of `GET /api/config` | `true`, `false` |
+| `BACKUP_TIMEOUT` | each backup run and Verify when it starts | duration, 5m to 72h |
+
+`PUT /api/system/config/:name` with `{"value": "..."}` validates type and range
+(400 `INVALID_CONFIG_VALUE`) and refuses any other variable (409
+`CONFIG_READ_ONLY`); `DELETE` returns the variable to its environment value or
+default. Each writes `system.config_updated` or `system.config_reset` to the
+audit log (`pkg/audit`) with the actor and the values before and after. The
+routes are session only, refuse tokens and SSO-scoped sessions, and answer
+`Cache-Control: private, no-store`. `InstanceConfigService` reads the
+overrides at most every five seconds, so other replicas and the automation
+worker see a change within that window; when the database cannot be read it
+keeps the last values read, or the environment before the first read.
+Everything else (secrets, database, Redis, JWT, listen addresses, URLs and
+switches read at startup, Dev Machine settings the manager also reads, and
+`ISSUE_DELETE_GRACE_PERIOD`, whose lowering would purge restorable content at
+the next hourly purge) is shown as set in `.env`, needing a restart. Variables
+of the other services (machine manager, gateway, updater, voice, frontend
+build) are not listed: Compose passes the backend an explicit list, so the API
+cannot see them. Rolling back migration 211 drops the overrides.
 
 The optional `searxng` Compose profile runs a pinned SearXNG image for the
 assistant's `web_search` (see [self-hosted web search](docs/self-hosting.md#self-hosted-web-search-optional)).

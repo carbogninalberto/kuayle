@@ -71,9 +71,10 @@ type AgentTaskService struct {
 	// SetWorkflows wires it, and tasks then keep the Standard flow.
 	workflow    *WorkflowRunner
 	definitions *repository.WorkflowRepository
-	// pipelines is the server's switch for the experimental pipeline
-	// workflows (SetPipelines); off, none is saved or started.
-	pipelines bool
+	// pipelines is the server's switch for the pipeline workflows
+	// (SetPipelines, SetPipelineSwitch), read on every use; off, none is
+	// saved or started.
+	pipelines func() bool
 	// registry logs published pull requests in the wiki registry of the
 	// issue's project or team when that registry is on; nil until SetRegistry.
 	registry taskRegistry

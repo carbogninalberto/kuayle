@@ -39,3 +39,20 @@ func TestPublicConfigReportsSSOAvailability(t *testing.T) {
 		})
 	}
 }
+
+// The sign-in page learns whether sign-up is open on every load, so a change
+// to DISABLE_REGISTRATION at runtime reaches it without a restart.
+func TestPublicConfigReadsRegistrationOnEveryRequest(t *testing.T) {
+	open := false
+	h := NewConfigHandler(true).WithRegistration(func() bool { return open })
+	read := func() bool {
+		rec := httptest.NewRecorder()
+		require.NoError(t, h.Get(echo.New().NewContext(httptest.NewRequest(http.MethodGet, "/api/config", nil), rec)))
+		var body map[string]bool
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		return body["registration_enabled"]
+	}
+	require.False(t, read())
+	open = true
+	require.True(t, read())
+}

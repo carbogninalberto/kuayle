@@ -718,3 +718,20 @@ func TestLoadRejectsPlaceholderInstanceSSOSecret(t *testing.T) {
 	require.ErrorContains(t, err, "SSO_OIDC_CLIENT_SECRET")
 	require.NotContains(t, err.Error(), "CHANGE_ME")
 }
+
+// Pipeline workflows are on unless WORKFLOW_PIPELINES_ENABLED turns them off.
+func TestWorkflowPipelinesDefaultToOn(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://db/kuayle?sslmode=disable")
+	t.Setenv("REDIS_URL", "redis://redis:6379")
+	t.Setenv("JWT_SECRET", strings.Repeat("s", 40))
+	t.Setenv("WORKFLOW_PIPELINES_ENABLED", "")
+	require.NoError(t, os.Unsetenv("WORKFLOW_PIPELINES_ENABLED"))
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.WorkflowPipelines)
+
+	t.Setenv("WORKFLOW_PIPELINES_ENABLED", "false")
+	cfg, err = Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.WorkflowPipelines)
+}

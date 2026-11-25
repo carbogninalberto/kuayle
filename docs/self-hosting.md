@@ -119,6 +119,29 @@ The updater sidecar is internal-only and runs the same `selfhosting/update.sh` f
 
 For a deployment pinned to published release images or a detached Git checkout, use the opt-in [release updater](../selfhosting/RELEASE_UPDATER.md) instead. It targets an explicit production Compose project, backs up PostgreSQL and updates application and active Dev Machines components together.
 
+## Instance configuration
+
+Sysadmins (the user IDs in `SYSADMINS`) see every variable the API reads in
+**Settings → Instance configuration**, grouped and searchable, with its
+effective value and where it comes from: `.env`, the built-in default, or a
+change made on that page. Secrets (passwords, keys, tokens, database and Redis
+URLs) show only whether they are set; a URL carrying credentials is hidden.
+
+A few variables can change without a restart: `WORKFLOW_PIPELINES_ENABLED`,
+`DISABLE_REGISTRATION` and `BACKUP_TIMEOUT` (5m to 72h). A value saved on the
+page wins over `.env` until you reset it, which returns to `.env` or the
+default; other API replicas pick it up within five seconds. Every change and
+reset is written to the backend's audit log. Everything else is marked "Set in
+.env; needs a restart": edit `selfhosting/.env` and recreate the containers.
+Variables of the other services (machine manager, gateway, updater, voice,
+frontend build) are not listed, because the backend does not receive them. See
+[instance configuration](../TECHNICAL.md#instance-configuration) for the
+details.
+
+Team workflows (pipelines) are on by default since this release; set
+`WORKFLOW_PIPELINES_ENABLED=false` in `.env`, or switch them off on the page,
+to keep them off.
+
 ## Backups
 
 Sysadmins schedule database and upload backups from **Settings → Backups**, with optional copies to an S3-compatible bucket and client-side encryption. Archives go to the `backups` volume (`/app/backups`). See [Backups](backups.md) for configuration, the archive format, verification and the restore procedure.

@@ -1127,3 +1127,27 @@ func readArchiveEntries(t *testing.T, path, passphrase string) map[string][]byte
 	}
 	return entries
 }
+
+// blockingDumper waits until its run is cancelled.
+type blockingDumper struct{}
+
+func (blockingDumper) Dump(ctx context.Context, _ io.Writer) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// BACKUP_TIMEOUT is read when a run starts, so a value changed in Settings ->
+// Instance configuration bounds the next run without a restart.
+func TestBackupRunUsesTheTimeoutInEffectWhenItStarts(t *testing.T) {
+	h := newBackupHarness(t)
+	h.svc.dumper = blockingDumper{}
+	timeout := 30 * time.Millisecond
+	h.svc.SetTimeoutSource(func() time.Duration { return timeout })
+	h.enableSchedule()
+
+	require.True(t, h.svc.runDue(context.Background()))
+	run := h.repo.onlyRun(t)
+	require.Equal(t, domain.BackupStatusFailed, run.Status)
+	require.NotNil(t, run.Error)
+	require.Contains(t, *run.Error, "timed out after 30ms")
+}
