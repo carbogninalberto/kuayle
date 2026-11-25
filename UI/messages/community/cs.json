@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Úloh na stroj",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Úlohy agentů sdílejí běžící stroj svého autora, každá ve vlastním worktree, nejvýše do tohoto počtu najednou (1 až 10). Jejich agenti si rozdělí výše uvedenou paměť agenta, každý nejméně 1 GB, takže vytížené stroje zpomalí, místo aby agenty zastavily. Nový stroj pro úlohy se vytvoří, jen když jsou všechny vhodné stroje plné.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Najednou nejvýše: {count}",
+	"settings.dev_machines.task_files_max": "Počet souborů na úlohu",
+	"settings.dev_machines.task_files_max_desc": "Nejvyšší počet souborů, které strom souborů úlohy vypíše v commitu, od 100 do 30 000. Větší repozitář vypíše první soubory podle cesty.",
 	"settings.dev_machines.monitored_quota_description": "Tento hostitel nevynucuje pevné diskové kvóty. Stroje dostanou varování při 90 % limitu a při 100 % se zastaví. Všechny stroje se zastaví, když volné místo hostitele klesne pod nastavenou hranici.",
 	"settings.dev_machines.monitored_quota_title": "Limity disku jsou sledovány",
 	"settings.dev_machines.new_env": "Nový tvůrce prostředí",

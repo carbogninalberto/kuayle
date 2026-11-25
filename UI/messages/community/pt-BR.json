@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Tarefas por máquina",
 	"settings.dev_machines.task_machine_max_tasks_desc": "As tarefas de agente compartilham uma máquina em execução de quem as criou, cada uma em seu próprio worktree, até este número ao mesmo tempo (1 a 10). Os agentes dividem a memória de agente acima, cada um mantendo pelo menos 1 GB, então máquinas ocupadas ficam mais lentas em vez de interromper agentes. Uma nova máquina de tarefas só é criada quando todas as máquinas adequadas estão cheias.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Até {count} ao mesmo tempo",
+	"settings.dev_machines.task_files_max": "Arquivos listados por tarefa",
+	"settings.dev_machines.task_files_max_desc": "O número máximo de arquivos que a árvore de arquivos de uma tarefa lista em um commit, de 100 a 30.000. Um repositório maior lista os primeiros arquivos por caminho.",
 	"settings.dev_machines.monitored_quota_description": "Este host não impõe cotas de disco rígidas. As máquinas recebem um aviso aos 90% do limite e são paradas aos 100%. Todas as máquinas são paradas quando o espaço livre do host fica abaixo do mínimo configurado.",
 	"settings.dev_machines.monitored_quota_title": "Os limites de disco são monitorados",
 	"settings.dev_machines.new_env": "Novo construtor de ambiente",

@@ -174,7 +174,11 @@ finished run's container is removed. Runs in a conversation emit
 Migration 157 adds the read-only `scan_worktree` machine operation and
 `dev_machine_worktree_scans`. A scan reads one task checkout — grep with rg,
 glob, a line range of one file, or git status — or lists the worktrees under
-`/workspace/tasks`; it never changes the checkout and needs no credentials. A
+`/workspace/tasks`; it never changes the checkout and needs no credentials.
+Two kinds read a commit instead of the worktree, for
+[files at a commit](#files-at-a-commit): `tree` lists the regular files the
+commit tracks (its result may take 4 MiB, migration 210) and `show` returns a
+page of one of them. A
 task scan is allowed while the agent works: it does not take
 `lockMachineForCheck`, and `LeaseOperations` lets it lease beside an agent
 attempt, publication, check or tool run while a running scan never
@@ -195,9 +199,9 @@ programs never run; every checkout scan reports its branch, HEAD commit and
 whether it is dirty, and status adds changed paths, ahead/behind the base
 branch's remote-tracking ref, and the last commit subject. Output, matches,
 files, lines, changed paths and worktrees are bounded (`Truncated`), and the
-result is trimmed to the table's 64 KiB limit. A scan that cannot run is a
-completed scan with a short error, not an operation retry. The table keeps a
-workspace's scans for an hour.
+result is trimmed to the table's limit for its kind (64 KiB; 4 MiB for
+`tree`). A scan that cannot run is a completed scan with a short error, not an
+operation retry. The table keeps a workspace's scans for an hour.
 
 ## Publication
 
@@ -3929,6 +3933,10 @@ and cancellation remain available to authorized users.
   task in Claude Code ([open in Claude Code](#native-session-resume-and-handoff)).
 - `GET /agent-tasks/:taskId/sessions` returns the task's agent sessions and the
   review sessions of its published work ([agent sessions](#agent-sessions)).
+- `GET /agent-tasks/:taskId/files` and `GET /agent-tasks/:taskId/files/content`
+  list the files a commit of the task tracks and return a page of one of them
+  ([files at a commit](#files-at-a-commit)); creator only,
+  `Cache-Control: private, no-store`.
 
 Paths are workspace-relative. Task/attempt pages contain 25 entries and an
 optional `next_before` UUID; history/log pages contain 100 entries and an optional
@@ -3958,6 +3966,63 @@ and every model field stays free text. Sources, caching, the refresh rate
 limit and the behaviour with blocked egress are in
 [agent model catalog](../../TECHNICAL.md#agent-model-catalog).
 
+
+## Files at a commit
+
+The task's creator reads the files one commit of the task's branch tracks
+(KUA-280; `service/agent_task_files.go`, `repository/agent_task_files.go`,
+`domain/agent_task_files.go`). Both routes are session-only on the Dev Machine
+group (demo guard), authorize through `lockAgentTask` like every task read
+(another member, an admin and a request through another workspace get `404`; a
+person outside the workspace is refused by its membership check), and answer
+`Cache-Control: private, no-store`.
+
+- `GET /agent-tasks/:taskId/files?ref=` returns `{commit, files: [{path,
+  changed}], truncated}`, sorted by path. `changed` marks the files the newest
+  attempt that recorded any changed (the board's rule). The listing holds at
+  most the workspace's `task_files_max` files (its Dev Machine policy, set by
+  admins in Settings → Dev Machines: default 30,000, from 100 to 30,000;
+  migration 210), from either source; `truncated` says more were left out.
+- `GET /agent-tasks/:taskId/files/content?path=&ref=&start=&end=` returns
+  `{path, commit, content, start, end, total_lines, truncated, binary,
+  too_large}`: lines `start` to `end` (1-based; by default from line 1), at most
+  5,000 lines and 512 KiB as JSON encodes them; a first line longer than that
+  is cut. `truncated` says the file goes on after `end` (read on from
+  `end + 1`) or a line was cut. A binary file (a NUL among its first 8,000
+  bytes) and a file over 2 MiB are listed but carry no content (`binary`,
+  `too_large`). `path` must be exactly a listed path (clean, relative, no `.`,
+  `..` or `.git` segment); anything else is `404 FILE_NOT_FOUND`.
+
+**Which commit.** `ref` is a full commit id; empty means the task's head. Only
+the head or a commit one of the task's attempts recorded is read; anything else
+is `400 INVALID_REF`. The head of a published task is the board's: GitHub's
+head of its pull request when observed after the publication, otherwise the
+commit Kuayle published. Before anything
+is published, the head is the task branch's tip on the machine, and a `ref` the
+attempts did not record is read only while it is still that tip.
+
+**Where it is read.** The head and commits Kuayle published are read from a
+temporary GitHub checkout of that commit (`RepositoryCheckouts`, shared with
+the assistant's repository scans: 30,000 files, 2 MiB per file, 15 minutes);
+the listing leaves out links and the files the commit's `.gitignore` names,
+and a read goes through the checkout's index and `os.Root`. The head before a
+publication, and an attempt's own commits, are read on the task's machine by
+the `tree` and `show` [worktree scans](#worktree-scans): `git ls-tree` and
+`git cat-file` of that commit in the publication preamble's throwaway git
+directory, keeping only regular files (modes `100644` and `100755`; links,
+directories and nested repositories are left out). The machine needs a ready
+checkout on a running machine (`409 FILES_UNAVAILABLE` otherwise), counts
+against the requester's four unfinished scans (`429 FILES_BUSY`) and answers
+within 20 s (`502 FILES_FAILED` otherwise, as for a GitHub failure). A `tree`
+result may take 4 MiB (migration 210: 30,000 paths averaging about 135 bytes;
+this repository's average 42), so the machine lists as many files as the
+GitHub checkout; a listing of longer paths stops at that bound (`truncated`).
+Every other scan result keeps 64 KiB, so the machine's pages are about 60 KiB.
+Scan rows, listings included, are kept for an hour.
+
+Neither source reads the worktree: untracked, ignored, staged and edited files
+(a `.env` beside the code) are never listed or served. The UI's file panel is
+P3.3 of the team workflows plan.
 
 ## Web task controls
 

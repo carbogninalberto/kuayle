@@ -627,6 +627,49 @@ func TestDevMachinePolicyTaskMachineMaxTasks(t *testing.T) {
 	}
 }
 
+// The most files a task's file listing holds defaults to 30,000, is kept
+// when an older client omits it and is refused outside 100 to 30,000.
+func TestDevMachinePolicyTaskFilesMax(t *testing.T) {
+	workspaceID := uuid.New()
+	store := &handlerDevMachineStoreFake{}
+	h := NewDevMachineHandler(service.NewDevMachineService(
+		store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, service.DevMachineImages{},
+	), config.DiskQuotaModeHard)
+	recorder := httptest.NewRecorder()
+	require.NoError(t, h.GetPolicy(devMachineHandlerContext(httptest.NewRequest(http.MethodGet, "/dev-machine-policy", nil), recorder, workspaceID, uuid.New())))
+	var current domain.DevMachineWorkspacePolicy
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &current))
+	require.Equal(t, 30000, current.TaskFilesMax, "a workspace without a policy lists up to 30,000 files")
+	update := func(extra string) *httptest.ResponseRecorder {
+		t.Helper()
+		body := `{"enabled":true,"max_concurrent_machines":5,"max_machines_per_user":2,"max_daily_agent_runs":25,
+			"max_disk_gb":100,"allowed_providers":["opencode"],"allowed_repositories":[]` + extra + `}`
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPatch, "/dev-machine-policy", strings.NewReader(body))
+		request.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+		require.NoError(t, h.UpdatePolicy(devMachineHandlerContext(request, recorder, workspaceID, uuid.New())))
+		return recorder
+	}
+	limit := func(recorder *httptest.ResponseRecorder) int {
+		t.Helper()
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		var updated domain.DevMachineWorkspacePolicy
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &updated))
+		return updated.TaskFilesMax
+	}
+	require.Equal(t, 30000, limit(update("")), "a new policy lists up to 30,000 files")
+	require.Equal(t, 2500, limit(update(`,"task_files_max":2500`)))
+	require.Equal(t, 2500, limit(update("")), "omitting the limit keeps it")
+	require.Equal(t, 100, limit(update(`,"task_files_max":100`)))
+	require.Equal(t, 30000, limit(update(`,"task_files_max":30000`)))
+	for _, invalid := range []string{"99", "30001", "0", "-5"} {
+		recorder := update(`,"task_files_max":` + invalid)
+		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+		require.Contains(t, recorder.Body.String(), "task_files_max must be from 100 to 30000")
+		require.Equal(t, 30000, store.policy.TaskFilesMax, "a rejected update keeps the policy")
+	}
+}
+
 func TestDevMachineCreateRejectsInvalidCustomResources(t *testing.T) {
 	workspaceID, userID := uuid.New(), uuid.New()
 	for _, test := range []struct {

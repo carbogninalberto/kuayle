@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -65,6 +66,16 @@ func agentTaskError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
 	case errors.Is(err, service.ErrPipelinesDisabled):
 		return response.Error(c, http.StatusForbidden, "PIPELINES_DISABLED", "Pipeline workflows are turned off on this server")
+	case errors.Is(err, service.ErrTaskFileRef):
+		return response.Error(c, http.StatusBadRequest, "INVALID_REF", "ref must be the task's head or a full commit id one of its iterations recorded")
+	case errors.Is(err, service.ErrTaskFileNotFound):
+		return response.Error(c, http.StatusNotFound, "FILE_NOT_FOUND", "The commit tracks no file at that path")
+	case errors.Is(err, service.ErrTaskFilesUnavailable):
+		return response.Error(c, http.StatusConflict, "FILES_UNAVAILABLE", "Nothing is published yet and the task's checkout is not on a running machine")
+	case errors.Is(err, service.ErrTaskFilesBusy):
+		return response.Error(c, http.StatusTooManyRequests, "FILES_BUSY", "Too many reads are running on the task's machine; try again shortly")
+	case errors.Is(err, service.ErrTaskFilesFailed):
+		return response.Error(c, http.StatusBadGateway, "FILES_FAILED", "The files could not be read at this commit; try again")
 	default:
 		return machineError(c, err)
 	}
@@ -534,6 +545,56 @@ func (h *AgentTaskHandler) Diff(c *echo.Context) error {
 	}
 	c.Response().Header().Set("Cache-Control", "private, no-store")
 	return response.Success(c, http.StatusOK, result)
+}
+
+// Files lists the files one commit of the task tracks (?ref=, a full commit
+// id; the task's head by default) for its creator. Untracked and ignored
+// files are never listed.
+func (h *AgentTaskHandler) Files(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	result, err := h.svc.TaskFiles(c.Request().Context(), middleware.GetWorkspace(c).ID, id, c.QueryParam("ref"))
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}
+
+// FileContent returns lines start to end of one file of that listing
+// (?path=&ref=&start=&end=), a page at a time; a binary or too large file
+// carries no content.
+func (h *AgentTaskHandler) FileContent(c *echo.Context) error {
+	c.Response().Header().Set("Cache-Control", "private, no-store")
+	id, err := taskID(c, "taskId")
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	name := c.QueryParam("path")
+	start, startErr := optionalLine(c.QueryParam("start"))
+	end, endErr := optionalLine(c.QueryParam("end"))
+	if name == "" || startErr != nil || endErr != nil {
+		return agentTaskError(c, repository.ErrConversationInvalid)
+	}
+	result, err := h.svc.TaskFileContent(c.Request().Context(), middleware.GetWorkspace(c).ID, id, name, c.QueryParam("ref"), start, end)
+	if err != nil {
+		return agentTaskError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}
+
+// optionalLine reads a 1-based line number; empty is 0 (unset).
+func optionalLine(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	line, err := strconv.Atoi(raw)
+	if err != nil || line < 1 {
+		return 0, repository.ErrConversationInvalid
+	}
+	return line, nil
 }
 
 func (h *AgentTaskHandler) Publication(c *echo.Context) error {

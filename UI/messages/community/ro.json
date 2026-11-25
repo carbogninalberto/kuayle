@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Sarcini per mașină",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Sarcinile agenților împart o mașină pornită a creatorului lor, fiecare în propriul worktree, până la această limită simultană (1 până la 10). Agenții lor împart memoria agentului de mai sus, fiecare păstrând cel puțin 1 GB, astfel că mașinile ocupate încetinesc în loc să oprească agenții. O mașină nouă pentru sarcini se creează doar când toate mașinile potrivite sunt pline.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Până la {count} simultan",
+	"settings.dev_machines.task_files_max": "Fișiere listate per sarcină",
+	"settings.dev_machines.task_files_max_desc": "Numărul maxim de fișiere pe care arborele de fișiere al unei sarcini îl listează la un commit, de la 100 la 30.000. Un depozit mai mare listează primele fișiere după cale.",
 	"settings.dev_machines.monitored_quota_description": "Această gazdă nu impune cote stricte de disc. Mașinile primesc un avertisment la 90% din limită și sunt oprite la 100%. Toate mașinile sunt oprite când spațiul liber al gazdei scade sub pragul configurat.",
 	"settings.dev_machines.monitored_quota_title": "Limitele de disc sunt monitorizate",
 	"settings.dev_machines.new_env": "Constructor de medii nou",

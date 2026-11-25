@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "每台机器的任务数",
 	"settings.dev_machines.task_machine_max_tasks_desc": "智能体任务共享其创建者正在运行的机器，每个任务使用自己的工作树，同时最多这么多个（1 到 10）。这些智能体平分上方的智能体内存，每个至少 1 GB，因此繁忙的机器会变慢，而不会终止智能体。只有当所有合适的机器都已满时，才会创建新的任务机器。",
 	"settings.dev_machines.task_machine_max_tasks_value": "同时最多 {count} 个",
+	"settings.dev_machines.task_files_max": "每个任务列出的文件数",
+	"settings.dev_machines.task_files_max_desc": "任务文件树在某个提交中最多列出的文件数，范围为 100 到 30,000。更大的仓库按路径列出前面的文件。",
 	"settings.dev_machines.monitored_quota_description": "此主机不强制执行硬性磁盘配额。机器在达到限制的 90% 时会收到警告，并在达到 100% 时停止。主机可用空间低于配置的下限时，所有机器都会停止。",
 	"settings.dev_machines.monitored_quota_title": "磁盘限制受到监控",
 	"settings.dev_machines.new_env": "新建环境构建器",

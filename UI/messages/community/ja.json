@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "マシンあたりのタスク数",
 	"settings.dev_machines.task_machine_max_tasks_desc": "エージェントタスクは作成者の稼働中マシンを共有し、それぞれ専用のワークツリーで、この数まで同時に実行されます(1〜10)。各エージェントは上記のエージェント用メモリを分け合い、それぞれ最低1 GBを確保するため、混雑したマシンではエージェントが停止せず、動作が遅くなります。適したマシンがすべて満杯の場合にのみ、新しいタスクマシンが作成されます。",
 	"settings.dev_machines.task_machine_max_tasks_value": "最大 {count} 件を同時実行",
+	"settings.dev_machines.task_files_max": "タスクごとに一覧表示するファイル数",
+	"settings.dev_machines.task_files_max_desc": "タスクのファイルツリーがコミット時点で一覧表示するファイルの最大数（100〜30,000）。大きなリポジトリではパス順で先頭のファイルを表示します。",
 	"settings.dev_machines.monitored_quota_description": "このホストはハードディスククォータを適用しません。マシンは上限の90%で警告され、100%で停止します。ホストの空き容量が設定した下限を下回ると、すべてのマシンが停止します。",
 	"settings.dev_machines.monitored_quota_title": "ディスク上限は監視されます",
 	"settings.dev_machines.new_env": "新規環境ビルダー",

@@ -1095,6 +1095,8 @@
 	"settings.dev_machines.task_machine_max_tasks": "Số tác vụ mỗi máy",
 	"settings.dev_machines.task_machine_max_tasks_desc": "Các tác vụ agent dùng chung một máy đang chạy của người tạo, mỗi tác vụ trong worktree riêng, tối đa bằng số này cùng lúc (1 đến 10). Các agent chia nhau bộ nhớ agent ở trên, mỗi agent giữ ít nhất 1 GB, nên máy bận sẽ chậm lại thay vì làm agent dừng. Chỉ tạo máy tác vụ mới khi mọi máy phù hợp đều đã đầy.",
 	"settings.dev_machines.task_machine_max_tasks_value": "Tối đa {count} cùng lúc",
+	"settings.dev_machines.task_files_max": "Số tệp liệt kê mỗi tác vụ",
+	"settings.dev_machines.task_files_max_desc": "Số tệp tối đa mà cây tệp của một tác vụ liệt kê tại một commit, từ 100 đến 30.000. Kho lớn hơn liệt kê các tệp đầu tiên theo đường dẫn.",
 	"settings.dev_machines.monitored_quota_description": "Máy chủ này không áp dụng hạn ngạch đĩa cứng. Máy sẽ nhận cảnh báo ở mức 90% giới hạn và bị dừng ở mức 100%. Tất cả máy sẽ bị dừng khi dung lượng trống của máy chủ xuống dưới ngưỡng đã cấu hình.",
 	"settings.dev_machines.monitored_quota_title": "Giới hạn đĩa được theo dõi",
 	"settings.dev_machines.new_env": "Trình tạo môi trường mới",
