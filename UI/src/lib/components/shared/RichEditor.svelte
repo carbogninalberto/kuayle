@@ -633,7 +633,8 @@
 	let uploadInput = $state<HTMLInputElement | null>(null);
 	let imagesOnly = $state(false);
 
-	async function chooseFiles(onlyImages = false) {
+	/** Opens the file picker; lets a host render the attach buttons next to its own send button. */
+	export async function chooseFiles(onlyImages = false) {
 		if (!uploadUrl) return;
 		imagesOnly = onlyImages;
 		await tick();
@@ -1211,12 +1212,12 @@
 	{/if}
 
 	{#if uploadUrl && (showStaticToolbar || (editable && bubbleMenu && !hideUploadButtons))}
-		<div class="sticky bottom-0 z-1 py-1 backdrop-blur-md">
+		<div class="sticky bottom-0 z-1 flex justify-end py-1">
 			<div class="attachment-actions text-[var(--color-text-secondary)]">
-				<Button variant="ghost" size="icon-sm" onclick={() => chooseFiles(true)} title={m['sharedComponents.rich_editor.upload_image']()} aria-label={m['sharedComponents.rich_editor.upload_image']()}>
+				<Button variant="ghost" size="icon-sm" class="attachment-button" onclick={() => chooseFiles(true)} title={m['sharedComponents.rich_editor.upload_image']()} aria-label={m['sharedComponents.rich_editor.upload_image']()}>
 					<ImagePlus class="size-3.5" />
 				</Button>
-				<Button variant="ghost" size="icon-sm" onclick={() => chooseFiles()} title={m['sharedComponents.rich_editor.attach_files']()} aria-label={m['sharedComponents.rich_editor.attach_files']()}>
+				<Button variant="ghost" size="icon-sm" class="attachment-button" onclick={() => chooseFiles()} title={m['sharedComponents.rich_editor.attach_files']()} aria-label={m['sharedComponents.rich_editor.attach_files']()}>
 					<Paperclip class="size-3.5" />
 				</Button>
 			</div>

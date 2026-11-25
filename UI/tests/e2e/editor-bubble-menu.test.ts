@@ -137,7 +137,7 @@ async function selectText(target: Locator) {
 }
 
 for (const width of [1280, 390]) {
-	test(`attachment actions stay at the editor's bottom left above the dock (${width}px)`, async ({ page }) => {
+	test(`attachment actions stay at the editor's bottom right above the dock (${width}px)`, async ({ page }) => {
 		await page.setViewportSize({ width, height: 720 });
 		await page.addInitScript(() => localStorage.setItem('kuayle.agents.test', '1'));
 		await openIssue(page);
@@ -146,15 +146,16 @@ for (const width of [1280, 390]) {
 		const image = page.getByRole('button', { name: 'Upload image', exact: true });
 		const files = page.getByRole('button', { name: 'Attach files', exact: true });
 		const dockTop = (await dock.boundingBox())!.y;
-		const editorLeft = (await editor(page).boundingBox())!.x;
+		const editorBox = (await editor(page).boundingBox())!;
+		const editorRight = editorBox.x + editorBox.width;
 
 		for (const top of [0, 300]) {
 			expect(await scrollDescription(page, top)).toBe(top);
 			for (const button of [image.first(), files.first()]) {
 				await expect(button).toBeInViewport({ ratio: 1 });
 				const box = (await button.boundingBox())!;
-				expect(box.x).toBeGreaterThanOrEqual(editorLeft);
-				expect(box.x).toBeLessThan(editorLeft + 64);
+				expect(box.x + box.width).toBeLessThanOrEqual(editorRight);
+				expect(box.x + box.width).toBeGreaterThan(editorRight - 96);
 				expect(box.y + box.height).toBeLessThanOrEqual(dockTop);
 				expect(box.y + box.height).toBeGreaterThan(dockTop - 24);
 			}
@@ -170,10 +171,18 @@ for (const width of [1280, 390]) {
 		expect((await image.first().boundingBox())!.y).toBeGreaterThanOrEqual(descriptionBox.y + descriptionBox.height);
 		await page.keyboard.press('Tab');
 		await expect(image.last()).toBeFocused();
+		// The comment composer is one line tall with the attach buttons beside it, on the right.
 		const field = (await comment.boundingBox())!;
 		const button = (await image.last().boundingBox())!;
-		expect(button.y).toBeGreaterThanOrEqual(field.y + field.height);
-		expect(Math.abs(button.x - field.x)).toBeLessThan(12);
+		const other = (await files.last().boundingBox())!;
+		const send = (await page.getByRole('button', { name: 'Send (Ctrl+Enter)', exact: true }).last().boundingBox())!;
+		expect(field.height).toBeLessThan(32);
+		expect(button.x).toBeGreaterThanOrEqual(field.x + field.width - 1);
+		expect(other.x).toBeGreaterThan(button.x);
+		expect(send.x).toBeGreaterThan(other.x);
+		expect(other.width).toBeCloseTo(button.width, 0);
+		expect(other.height).toBeCloseTo(button.height, 0);
+		expect(Math.abs(button.y + button.height / 2 - (field.y + field.height / 2))).toBeLessThan(8);
 		await page.keyboard.press('Tab');
 		await expect(files.last()).toBeFocused();
 		const [chooser] = await Promise.all([page.waitForEvent('filechooser'), files.last().press('Enter')]);

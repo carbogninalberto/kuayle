@@ -36,7 +36,7 @@
 		ChevronUp, ChevronDown, ChevronRight, Plus, CalendarDays,
 		Copy, Link as LinkIcon, GitBranch, SquareMousePointer,
 		CircleDot, ArrowUpCircle, UserCircle, FolderKanban, Pencil, Layers,
-		Tag, RefreshCw, ArrowUp, MoreHorizontal, Check, Bell,
+		Tag, RefreshCw, ArrowUp, ImagePlus, Paperclip, MoreHorizontal, Check, Bell,
 		Trash2, CornerDownRight, Ban, ArrowRight, Bot, BookOpen, X
 	} from '@lucide/svelte';
 	import { listCycles } from '$lib/api/cycles';
@@ -131,6 +131,8 @@
 	let commentVersion = $state(0);
 	let replyContents = $state<Record<string, string>>({});
 	let replyVersions = $state<Record<string, number>>({});
+	let commentEditor = $state<RichEditor | null>(null);
+	let replyEditors: Record<string, RichEditor | null> = {};
 	let editingTitle = $state(false);
 	let titleValue = $state('');
 	let statusOpen = $state(false);
@@ -859,6 +861,16 @@
 	let currentIndex = $derived(issuesState.issues.findIndex(i => i.identifier === issue.identifier));
 </script>
 
+<!-- Image and file buttons that open the picker of the given RichEditor. -->
+{#snippet attachButtons(editor: () => RichEditor | null | undefined)}
+	<Button variant="ghost" size="icon-sm" class="attachment-button text-[var(--color-text-secondary)]" onclick={() => editor()?.chooseFiles(true)} title={m['sharedComponents.rich_editor.upload_image']()} aria-label={m['sharedComponents.rich_editor.upload_image']()}>
+		<ImagePlus class="size-3.5" />
+	</Button>
+	<Button variant="ghost" size="icon-sm" class="attachment-button text-[var(--color-text-secondary)]" onclick={() => editor()?.chooseFiles()} title={m['sharedComponents.rich_editor.attach_files']()} aria-label={m['sharedComponents.rich_editor.attach_files']()}>
+		<Paperclip class="size-3.5" />
+	</Button>
+{/snippet}
+
 <!-- A comment's body, or its in-place editor while its author edits it. -->
 {#snippet commentBody(c: Comment)}
 	{#if editingComment?.id === c.id}
@@ -1381,6 +1393,8 @@
 										<div class="min-w-0 flex-1 my-auto">
 											{#key replyVersions[comment.id] ?? 0}
 												<RichEditor
+													bind:this={replyEditors[comment.id]}
+													hideUploadButtons={true}
 													content=""
 													workspaceSlug={slug}
 													placeholder={m['issue.leave_reply']()}
@@ -1401,13 +1415,15 @@
 												/>
 											{/key}
 										</div>
-										<div class="flex shrink-0 items-center gap-1.5">
+										<div class="attachment-actions">
+											{@render attachButtons(() => replyEditors[comment.id])}
 											<Button variant="plain" onclick={() => handleReply(comment.id)}
 												disabled={!(replyContents[comment.id]?.trim()) || replyContents[comment.id] === '<p></p>'}
-												class="rounded-full bg-[var(--app-accent)] p-1.5 text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
+												class="flex size-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
 												title={m['issue.send']()}
+								aria-label={m['issue.send']()}
 											>
-												<ArrowUp size={12} />
+												<ArrowUp size={14} />
 											</Button>
 										</div>
 									</div>
@@ -1430,6 +1446,8 @@
 						<div class="min-w-0 flex-1 my-auto">
 							{#key commentVersion}
 							<RichEditor
+								bind:this={commentEditor}
+								hideUploadButtons={true}
 								content=""
 								workspaceSlug={slug}
 								placeholder={m['issue.leave_comment']()}
@@ -1450,11 +1468,13 @@
 							/>
 							{/key}
 						</div>
-						<div class="flex shrink-0 items-center gap-1.5">
+						<div class="attachment-actions">
+							{@render attachButtons(() => commentEditor)}
 							<Button variant="plain" onclick={handleAddComment}
 								disabled={!newComment.trim() || newComment === '<p></p>'}
-								class="rounded-full bg-[var(--app-accent)] p-1.5 text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
+								class="flex size-7 items-center justify-center rounded-full bg-[var(--app-accent)] text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:opacity-30 transition-colors"
 								title={m['issue.send']()}
+								aria-label={m['issue.send']()}
 							>
 								<ArrowUp size={14} />
 							</Button>
