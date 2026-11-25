@@ -3626,10 +3626,15 @@ person decides. One pass:
    current phase's unmet checks with their reasons as a `summary` to the
    lead, or without a lead to the phase's owner (the writer for a phase
    Kuayle owns), and to the writer as
-   well when only the writer can move a verdict check, whoever owns the
-   phase: the role's verdict on the head did not approve it, or the role
-   reviewed the newest commit Kuayle published and the head is another one
-   (someone else pushed it, and roles review only what Kuayle published).
+   well, lead or not, when only the writer can move an unmet check
+   (`writerActs`): a verdict check, whoever owns the phase, when the role's
+   verdict on the head did not approve it, or the role reviewed the newest
+   commit Kuayle published and the head is another one (someone else pushed
+   it, and roles review only what Kuayle published); and, unless a person
+   owns the phase, any check a commit of the writer moves that Kuayle no
+   longer acts on: no pull request yet, the branch behind or conflicting with
+   its base, a migration collision, failed CI, a script check that failed or
+   that cannot run on a head Kuayle did not publish (KUA-309).
    A role's turn starts on it in the same pass; for a phase a person owns,
    the task waits for the person (unless the writer was sent it too), the
    budget clock held, and is announced once. What changes by
