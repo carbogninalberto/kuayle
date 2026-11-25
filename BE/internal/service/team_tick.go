@@ -590,13 +590,19 @@ func (t *tickPass) phase() (int, []UnmetCheck) {
 }
 
 // required are a phase's required checks that were not waived for the head
-// or by a standing waiver.
+// or by a standing waiver. A guarded phase also needs a head that does not
+// conflict with its base while GitHub says it does: no merge happens then,
+// whatever was waived, and the conflict is the writer's to resolve
+// (KUA-309, liveness seed 49), not a refused merge for a person.
 func (t *tickPass) required(phase domain.PipelinePhase) []FactCheck {
 	var checks []FactCheck
 	for _, check := range phase.Checks {
 		if waived := t.st.Waivers[check.ID]; check.Required && waived != standingWaiver && (waived == "" || waived != t.facts.HeadSHA) {
 			checks = append(checks, FactCheck{ID: check.ID, Fact: check.Fact, Role: check.Role})
 		}
+	}
+	if phase.Guarded && t.facts.Conflict == FactYes && !slices.ContainsFunc(checks, func(c FactCheck) bool { return c.Fact == factConflict }) {
+		checks = append(checks, FactCheck{ID: factConflict, Fact: factConflict})
 	}
 	return checks
 }

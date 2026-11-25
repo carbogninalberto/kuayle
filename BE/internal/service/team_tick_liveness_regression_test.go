@@ -19,6 +19,44 @@ func (w *tickWorld) conflicted(behind int) {
 	w.github.onStatus = nil
 }
 
+// Seed 49: the owner waived the branch being up to date for the head, the
+// base then moved into a conflict, and the owner approved. The merge cannot
+// happen while the head conflicts; that is the writer's to resolve (the
+// conflict reaches the writer, scenario 05), not a person's to retry.
+func TestTickRegressionSeed49AConflictAtTheMergeGoesToTheWriter(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "implementer" && turn > 1 {
+			// It merges main in and resolves the conflict.
+			yes := true
+			w.github.status.Behind, w.github.status.Mergeable, w.github.status.MergeableState = 0, &yes, "clean"
+			return tickTurn{commit: sha(turn), final: "Merged main and resolved the conflict."}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.throughReview()
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomWaiver, Body: "The base only moved docs.", Data: domain.TaskRoomData{Check: "up-to-date"}})
+	require.NoError(t, err)
+	w.conflicted(2)
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	w.drain()
+	w.later()
+	w.later()
+
+	task := w.task()
+	require.NotEqual(t, domain.WorkflowStatusPaused, deref(task.WorkflowStatus), "a conflict is not a person's decision: %s", task.Reason)
+	require.Empty(t, w.github.merged)
+	require.GreaterOrEqual(t, w.runtime.turns["implementer"], 2, "the writer resolves the conflict: %s", task.Reason)
+	require.Contains(t, w.prompt("implementer", 2), "conflicts with main")
+
+	// The new head is reviewed and approved again, and merges.
+	w.later()
+	require.Equal(t, "approval", w.phase())
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	w.drain()
+	require.Equal(t, []string{sha(2)}, w.github.merged)
+}
+
 // Seed 4: with a lead, the stall summary went to the lead only. When only
 // the writer can move the unmet check (here the branch is behind a base it
 // conflicts with, so Kuayle cannot update it), the writer hears it too, lead

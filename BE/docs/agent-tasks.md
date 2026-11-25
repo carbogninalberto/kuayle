@@ -3613,8 +3613,11 @@ person decides. One pass:
    refused. A refused merge is a `merge` fact; when the facts read next send
    the work back to an earlier phase, the merge starts afresh once they hold
    again, and otherwise the task pauses for a person (Continue, or a new
-   approval, tries again). A pipeline without a guarded phase completes once
-   every check holds;
+   approval, tries again). The guarded phase also needs a head that does not
+   conflict with its base while GitHub says it does, whatever was waived: no
+   merge can happen then, and the conflict is an unmet `conflict` check the
+   writer resolves (KUA-309), not a refused merge for a person. A pipeline
+   without a guarded phase completes once every check holds;
 8. starts a turn for every idle role other than the writer, and for the
    lead, whose unread posts call for one, owing a verdict when the phase
    requires its verdict, while its machine has a free task slot (capacity,
