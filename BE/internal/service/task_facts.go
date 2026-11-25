@@ -93,7 +93,8 @@ type TaskVerdict struct {
 
 // ScriptFact is a script check's run for the head: "pending" (not run
 // yet), "running", "passed", "failed" (its exit code and the end of its
-// output), or "unavailable" (it could not run, and why).
+// output), "unavailable" (it could not run, and why), or "unpublished" (the
+// head is a commit Kuayle did not publish, which the check cannot read).
 type ScriptFact struct {
 	State  string `json:"state"`
 	Exit   int    `json:"exit,omitempty"`
@@ -438,6 +439,8 @@ func (f TaskFacts) judgeScript(id, head string) (string, string) {
 		return CheckWaiting, fmt.Sprintf("Kuayle runs check %s on %s in the task's worktree and waits for it.", id, head)
 	case result.State == "unavailable":
 		return CheckUnknown, fmt.Sprintf("Kuayle could not run check %s on %s: %s. It tries again shortly.", id, head, lowerFirst(strings.TrimSuffix(result.Why, ".")))
+	case result.State == "unpublished":
+		return CheckUnmet, fmt.Sprintf("Check %s cannot run on %s: %s. Next step: commit, so that Kuayle publishes a head of its own and runs the check on it.", id, head, lowerFirst(strings.TrimSuffix(result.Why, ".")))
 	case result.State == "failed":
 		return CheckUnmet, fmt.Sprintf("Check %s exited %d on %s. The end of its output:\n~~~text\n%s\n~~~\nNext step: fix what it reports and push.", id, result.Exit, head, strings.ReplaceAll(strings.TrimSpace(result.Output), "~~~", "~ ~ ~"))
 	}
@@ -643,9 +646,11 @@ func (s *AgentTaskService) readScriptFacts(ctx context.Context, task domain.Agen
 // commit. A check that cannot start now (actionFact) is unavailable and
 // tried again at the next pass. One that already ran on commit is not run
 // again: the head is then a commit someone else pushed, which the writer's
-// worktree does not hold, so the check is unavailable until Kuayle publishes
-// the head (a run queued at every pass kept the writer, who publishes it,
-// from starting; TestTickLiveness seed 9). It reports whether it changed any
+// worktree does not hold, so the check is unmet ("unpublished") until the
+// writer's turn has Kuayle publish a head of its own (a run queued at every
+// pass kept the writer, who publishes it, from starting; TestTickLiveness
+// seed 9; and a check left "unavailable" kept the tick polling instead of
+// telling the writer, seeds 40 and 47 of KUA-309). It reports whether it changed any
 // run.
 func (s *AgentTaskService) runScriptChecks(ctx context.Context, task domain.AgentTask, checks []domain.PipelineCheck, facts map[string]ScriptFact, runs map[string]*scriptRun, commit string) (bool, error) {
 	changed := false
@@ -654,7 +659,10 @@ func (s *AgentTaskService) runScriptChecks(ctx context.Context, task domain.Agen
 			continue
 		}
 		if ran := runs[check.ID]; ran != nil && ran.Commit == commit && ran.Step == nil && ran.Exit != nil {
-			facts[check.ID] = ScriptFact{State: "unavailable", Why: fmt.Sprintf("it ran on %s, the newest commit Kuayle published, and the head is another commit; it runs once the head is published", shortSHA(commit))}
+			// The head is a commit Kuayle did not publish: nothing changes
+			// that by itself, so it is unmet, for the writer (KUA-309).
+			facts[check.ID] = ScriptFact{State: "unpublished", Why: fmt.Sprintf("it ran on %s, the newest commit Kuayle published, and the head is a commit Kuayle did not publish", shortSHA(commit))}
+			changed = true // the pass judges the check again
 			continue
 		}
 		run := &scriptRun{Commit: commit}

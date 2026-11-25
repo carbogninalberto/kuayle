@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	gh "github.com/kuayle/kuayle-backend/pkg/github"
 	"github.com/stretchr/testify/require"
 )
 
@@ -49,6 +50,35 @@ func TestTickRegressionSeed4WhatOnlyTheWriterCanMoveReachesTheWriter(t *testing.
 		}
 	}
 	require.True(t, told, "one summary to the lead and the writer")
+}
+
+// Seeds 40 and 47: someone else pushed the head. The script check ran on
+// the commit Kuayle published, and the reviewer reviewed that one; neither
+// can read the pushed head, which nothing changes by itself. Only the
+// writer can move it (its turn publishes a head of its own), so the tick
+// sends it there rather than polling for the merge wait's two hours.
+func TestTickRegressionSeed40AHeadKuayleDidNotPublishReachesTheWriter(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) {
+		withLead(p)
+		p.Phases[3].Checks = append(p.Phases[3].Checks, domain.PipelineCheck{ID: "tests", Fact: domain.PipelineFactScript, Script: "make test", Required: true})
+	})
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == domain.PipelineLeadRole {
+			return leadMove("integrate", "Kuayle checks the rest.")
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	require.Equal(t, 1, w.runtime.turns["implementer"])
+	// Someone pushes while the check runs on the published commit.
+	w.github.parents, w.github.onBase, w.github.changes = map[string][]string{}, map[string]bool{}, map[string][]gh.CompareFile{}
+	w.head(sha(0xf00))
+	w.runCheck(0, "ok\n")
+	w.github.ci("passed", "")
+	for range 3 {
+		w.later()
+	}
+	require.GreaterOrEqual(t, w.runtime.turns["implementer"], 2, "the writer publishes a head the checks can read: %s", w.task().Reason)
 }
 
 func sliceHas(values []string, want string) bool {
