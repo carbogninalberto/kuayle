@@ -202,7 +202,7 @@ func TestTickAFullMachineNeverWedgesTheTask(t *testing.T) {
 		require.Equal(t, domain.WorkflowStatusWaiting, *waiting.WorkflowStatus, "nothing pauses for a person")
 		require.Nil(t, waiting.WorkflowHeldSince)
 		require.NotNil(t, waiting.WorkflowWakeAt)
-		require.NotEmpty(t, waiting.Reason)
+		require.Contains(t, waiting.Reason, "Waiting to start: @reviewer (a free task slot", "the task says what it waits on")
 		require.Zero(t, w.runtime.turns["reviewer"], "no slot, no turn")
 		require.Equal(t, []string{"reviewer"}, w.queued(w.root))
 		w.later()

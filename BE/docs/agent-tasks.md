@@ -3127,8 +3127,9 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   as for any task. `StartMemberTurn` checks the slot under the workspace lock
   that placement and attempts take, so two ticks never both take the last
   one. A turn that finds no free slot is `ErrNoTaskSlot`, a waiting fact
-  (`actionFact`): nothing starts, the role stays in the tick's `queue`, and
-  the tick polls, so it never stalls or pauses over it. The turns waiting for
+  (`actionFact`): nothing starts, the role stays in the tick's `queue`, the
+  task's reason ends with "Waiting to start: @role", and the tick polls, so
+  it never stalls or pauses over it. The turns waiting for
   one machine start oldest unread first, across tasks: a turn also waits
   while another task's queue holds a role waiting for the same machine whose
   oldest unread post (`domain.RoomInbox` after its cursor) is older (ties by

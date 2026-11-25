@@ -53,7 +53,7 @@ func memberSlot(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask, role st
 		Limit int       `db:"slots"`
 	}
 	err := tx.GetContext(ctx, &slot, `SELECT m.id,(SELECT count(*) FROM agent_tasks t WHERE t.machine_id=m.id AND t.id IS DISTINCT FROM $4::uuid
-  AND t.state NOT IN ('completed','cancelled','failed','blocked','awaiting_review') AND `+taskHoldsMachine("t")+`) AS tasks,
+  AND `+holdsTaskSlot("t")+`) AS tasks,
  COALESCE(`+taskSlotLimit+`,$5) AS slots
  FROM dev_machines m LEFT JOIN dev_machine_workspace_policies policy ON policy.workspace_id=m.workspace_id
  WHERE m.workspace_id=$1 AND m.id IN ($2,$3) AND m.status<>'destroyed' AND m.delete_requested_at IS NULL

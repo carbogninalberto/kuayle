@@ -899,15 +899,19 @@ func (t *tickPass) wait(why string, poll bool) repository.WorkflowEntry {
 
 // reason says what the current phase waits on, for the task's card.
 func (t *tickPass) reason(phase domain.PipelinePhase, unmet []UnmetCheck) string {
+	why := phase.Label
 	switch {
 	case len(unmet) > 0:
-		return phase.Label + ": " + oneLine(unmet[0].Reason, 600)
+		why += ": " + oneLine(unmet[0].Reason, 600)
 	case t.st.Merge != nil && t.st.Merge.Failure != "":
-		return phase.Label + ": " + oneLine(t.st.Merge.Failure, 600)
+		why += ": " + oneLine(t.st.Merge.Failure, 600)
 	case t.st.Merge != nil && t.st.Merge.Waiting != "":
-		return phase.Label + ": " + oneLine(t.st.Merge.Waiting, 600)
+		why += ": " + oneLine(t.st.Merge.Waiting, 600)
 	}
-	return phase.Label
+	if len(t.st.Queue) > 0 {
+		why = strings.TrimSuffix(why, ".") + ". Waiting to start: @" + strings.Join(t.st.Queue, ", @") + " (a free task slot, or the last turn to stop)."
+	}
+	return why
 }
 
 // save stores the pass: the phase, the tick's memory, the turns charged and
