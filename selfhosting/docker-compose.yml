@@ -106,6 +106,9 @@ services:
       SYSTEM_UPDATER_URL: ${SYSTEM_UPDATER_URL:-http://updater:8081}
       SYSTEM_UPDATER_TOKEN: ${SYSTEM_UPDATER_TOKEN:-}
       PORT: 8080
+      # Compose restarts the backend (restart: unless-stopped), so Settings ->
+      # Instance configuration may offer "Apply and restart".
+      RESTART_SUPERVISED: "true"
       STORAGE_TYPE: ${STORAGE_TYPE:-local}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_BUCKET: ${S3_BUCKET:-}

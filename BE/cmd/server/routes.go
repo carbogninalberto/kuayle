@@ -255,6 +255,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	// set or not set) and changes the runtime ones: an interactive sysadmin
 	// session that no workspace's SSO minted.
 	sessionOnly(api, http.MethodGet, "/system/config", h.instanceConfig.List, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/config/restart/validate", h.instanceConfig.ValidateRestart, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPost, "/system/config/restart/apply", h.instanceConfig.ApplyRestart, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodPut, "/system/config/:name", h.instanceConfig.Update, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodDelete, "/system/config/:name", h.instanceConfig.Reset, mw.RejectSSOScopedSession())
 

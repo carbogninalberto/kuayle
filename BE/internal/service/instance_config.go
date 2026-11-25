@@ -57,6 +57,10 @@ type InstanceConfigEntry struct {
 	BaseSource config.Source
 	// UpdatedAt is when the override in effect was saved.
 	UpdatedAt *time.Time
+	// EditableOnRestart marks a variable a sysadmin can change with "Apply and
+	// restart"; BaseValue and BaseSource are then what removing the override
+	// returns to.
+	EditableOnRestart bool
 }
 
 type InstanceConfigService struct {
@@ -65,6 +69,9 @@ type InstanceConfigService struct {
 	lookup func(string) (string, bool)
 	now    func() time.Time
 	logger log.FieldLogger
+
+	// restart is set when restart-only settings can be edited.
+	restart *InstanceRestart
 
 	mu        sync.Mutex
 	overrides map[string]domain.InstanceConfigOverride
@@ -152,11 +159,65 @@ func (s *InstanceConfigService) List(ctx context.Context) ([]InstanceConfigEntry
 	overrides := overridesByName(rows)
 	s.remember(overrides)
 	states := config.Describe(s.cfg, s.lookup)
+	var base map[string]config.VariableState
+	if s.restart != nil {
+		base = map[string]config.VariableState{}
+		for _, state := range config.Describe(s.restart.startup.Base, s.lookup) {
+			base[state.Name] = state
+		}
+	}
 	entries := make([]InstanceConfigEntry, 0, len(states))
 	for _, state := range states {
-		entries = append(entries, entryWith(state, overrides))
+		entry := entryWith(state, overrides)
+		if s.restart != nil && state.RestartEditable() {
+			s.layerRestart(&entry, base[state.Name], overrides)
+		}
+		entries = append(entries, entry)
 	}
 	return entries, nil
+}
+
+// layerRestart marks a restart-only variable editable and says where its
+// effective value comes from: the stored override when this process started
+// with it, the environment or default otherwise.
+func (s *InstanceConfigService) layerRestart(entry *InstanceConfigEntry, base config.VariableState, overrides map[string]domain.InstanceConfigOverride) {
+	entry.EditableOnRestart = true
+	entry.BaseValue, entry.BaseSource = base.Value, base.Source
+	if _, applied := s.restart.startup.Applied[entry.Name]; applied {
+		entry.Source = config.SourceOverride
+		if row, ok := overrides[entry.Name]; ok {
+			updated := row.UpdatedAt
+			entry.UpdatedAt = &updated
+		}
+	}
+}
+
+// SetRestart enables editing of the restart-only settings.
+func (s *InstanceConfigService) SetRestart(restart *InstanceRestart) { s.restart = restart }
+
+// RestartStatus reports whether "Apply and restart" is possible and the
+// latest run.
+func (s *InstanceConfigService) RestartStatus(ctx context.Context) (RestartStatus, error) {
+	if s.restart == nil {
+		return RestartStatus{}, nil
+	}
+	return s.restart.Status(ctx)
+}
+
+// PlanRestart is the dry run of a set of restart-only values.
+func (s *InstanceConfigService) PlanRestart(ctx context.Context, proposed map[string]*string) (*RestartPlan, error) {
+	if s.restart == nil {
+		return nil, ErrInstanceRestartUnsupported
+	}
+	return s.restart.Plan(ctx, proposed)
+}
+
+// ApplyRestart stores restart-only values and restarts the API.
+func (s *InstanceConfigService) ApplyRestart(ctx context.Context, actor uuid.UUID, proposed map[string]*string) (*domain.InstanceRestartRun, error) {
+	if s.restart == nil {
+		return nil, ErrInstanceRestartUnsupported
+	}
+	return s.restart.Apply(ctx, actor, proposed)
 }
 
 // entryWith lays a runtime variable's override over its environment value.

@@ -131,8 +131,37 @@ A few variables can change without a restart: `WORKFLOW_PIPELINES_ENABLED`,
 `DISABLE_REGISTRATION` and `BACKUP_TIMEOUT` (5m to 72h). A value saved on the
 page wins over `.env` until you reset it, which returns to `.env` or the
 default; other API replicas pick it up within five seconds. Every change and
-reset is written to the backend's audit log. Everything else is marked "Set in
-.env; needs a restart": edit `selfhosting/.env` and recreate the containers.
+reset is written to the backend's audit log.
+
+Some variables the API reads once, at startup, can be edited on the page too
+and applied together with **Apply and restart**. They are marked "Needs
+restart": `ISSUE_DELETE_GRACE_PERIOD`, `PASSKEYS_ENABLED`,
+`PASSKEY_RP_DISPLAY_NAME`, `SSO_OIDC_DEFAULT_ROLE`, `S3_PUBLIC`,
+`S3_CDN_BASE_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` and
+`FORGE_WEBHOOK_BASE_URL`. Draft the values on the page, use **Check changes**
+(a dry run of type, range, choice, URL and whole-configuration rules that stores
+nothing), then **Apply and restart**. The values are stored in the database
+as overrides that the API merges over `.env` each time it starts, so `.env`
+and the other services' files are never rewritten. The API exits and its
+supervisor starts it again; it has 90 seconds to report healthy. If it does
+not (or keeps crashing, or the new values make an invalid configuration) the
+previous values are restored automatically and the page says so. "Return to
+.env value" removes an override.
+
+Apply and restart needs something that starts the API again after it exits, such as
+the `restart: unless-stopped` policy of the reference Compose file. Set
+`RESTART_SUPERVISED=true` on the backend only where that is so (the reference
+Compose file does); otherwise the button stays off. A deployment with several API
+replicas restarts the replica that served the request; the others read the stored
+overrides at their next start. The automation worker reads them at its start and
+leaves the state of an apply to the API.
+
+Never editable from the page: secrets, tokens and keys, the database and Redis
+URLs, `JWT_SECRET`, `SYSADMINS`, `ENVIRONMENT`, the private-network switches
+and allow or deny lists that guard outgoing requests, internal service
+addresses, and every variable another service also reads (`FRONTEND_URL`,
+`PUBLIC_DEMO_MODE` and all `DEV_MACHINE_*`). Those, and every other variable
+marked "Read-only", are set in `selfhosting/.env`; recreate the containers.
 Variables of the other services (machine manager, gateway, updater, voice,
 frontend build) are not listed, because the backend does not receive them. See
 [instance configuration](../TECHNICAL.md#instance-configuration) for the
