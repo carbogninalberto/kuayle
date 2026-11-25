@@ -198,6 +198,36 @@ func TestApprovalRefusesAForbiddenWorkflow(t *testing.T) {
 	})
 }
 
+// The approver picks a pipeline on the card only while the server has
+// pipelines on (KUA-291): off, the choice is refused with the reason and the
+// approval stays pending; on, the approved task runs it.
+func TestApprovalChoosesAPipelineOnlyWhilePipelinesAreOn(t *testing.T) {
+	w := newApprovalWorkflows(t)
+	team := uuid.New()
+	raw, err := json.Marshal(domain.TeamPipeline(uuid.New(), uuid.New()))
+	require.NoError(t, err)
+	w.service.approvals.SetWorkflows(delegationWorkflows{w.ws: {{Workflow: domain.Workflow{ID: team, WorkspaceID: w.ws, Name: "Team"}, Graph: raw}}})
+
+	_, err = w.approve("Team")
+	var invalid *ApprovalEditError
+	require.True(t, errors.As(err, &invalid), "got %v", err)
+	require.Equal(t, "Team is a pipeline, and pipeline workflows are turned off on this server; omit workflow to use the issue's default, or name another workflow", invalid.Message)
+	status, payload := w.stored(t)
+	require.Equal(t, "pending", status)
+	require.Empty(t, payload.WorkflowID)
+	require.Zero(t, w.tasks.creates)
+
+	w.tasks.pipelines = true
+	done, err := w.approve(team.String())
+	require.NoError(t, err)
+	require.Equal(t, "approved", done.Status, "error: %v", done.Error)
+	_, payload = w.stored(t)
+	require.Equal(t, team.String(), payload.WorkflowID)
+	require.Equal(t, "Team", payload.Workflow)
+	require.NotNil(t, w.tasks.requests[0].WorkflowID)
+	require.Equal(t, team.String(), *w.tasks.requests[0].WorkflowID)
+}
+
 // Only a delegation has a workflow to choose; any other approval refuses it.
 func TestApprovalWorkflowIsRefusedOnOtherActions(t *testing.T) {
 	w := newApprovalWorkflows(t)

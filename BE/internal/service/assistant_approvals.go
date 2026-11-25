@@ -18,6 +18,8 @@ import (
 type approvalTasks interface {
 	Options(ctx context.Context, ws, conversation uuid.UUID) (*AgentTaskOptions, error)
 	Create(ctx context.Context, ws, conversation uuid.UUID, input domain.AgentTaskRequest) (*domain.AgentTask, error)
+	// PipelinesEnabled is the server's switch for pipeline workflows.
+	PipelinesEnabled() bool
 }
 
 // AssistantApprovals resolves approvals requested by assistant tools. The
@@ -291,7 +293,7 @@ func (s *AssistantApprovals) checkWorkflowChoice(ctx context.Context, ws uuid.UU
 			return "", "", &ApprovalEditError{Message: upperFirst(noWorkspaceAccess)}
 		}
 	}
-	id, name, err := resolveDelegationWorkflow(ctx, s.workflows, ws, chosen)
+	id, name, err := resolveDelegationWorkflow(ctx, s.workflows, s.tasks != nil && s.tasks.PipelinesEnabled(), ws, chosen)
 	var refusal *errAssistantTool
 	if errors.As(err, &refusal) {
 		return "", "", &ApprovalEditError{Message: upperFirst(refusal.message)}

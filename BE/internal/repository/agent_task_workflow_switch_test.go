@@ -214,3 +214,45 @@ func TestWorkflowSwitchRefusesAnotherKind(t *testing.T) {
 	require.Nil(t, moved)
 	require.Equal(t, pinned, *f.current().WorkflowVersionID)
 }
+
+// A task on a pipeline is never moved (KUA-291): not to a newer version of
+// its pipeline nor to another pipeline, whose roster and phases its members
+// and room were not built for, and not to a graph, another engine. Each is
+// a refusal the person is shown, never an error.
+func TestWorkflowSwitchKeepsAPipelineTaskWhereItIs(t *testing.T) {
+	f := newPauseFixture(t)
+	workflows := NewWorkflowRepository(f.db)
+	implementer, reviewer := builtinIDs(t, workflows, f.ws)
+	raw, err := json.Marshal(domain.TeamPipeline(implementer, reviewer))
+	require.NoError(t, err)
+	team, err := workflows.CreateWorkflow(f.ctx, f.ws, f.task.CreatorID, "Team", "", raw, "created")
+	require.NoError(t, err)
+	other, err := workflows.CreateWorkflow(f.ctx, f.ws, f.task.CreatorID, "Other team", "", raw, "created")
+	require.NoError(t, err)
+	var graph domain.Workflow
+	require.NoError(t, f.db.Get(&graph, `SELECT w.* FROM workflows w JOIN workflow_versions v ON v.workflow_id=w.id WHERE v.id=$1`, f.task.WorkflowVersionID))
+	f.rest()
+	f.exec(`UPDATE agent_tasks SET workflow_version_id=$2,pipeline=true,workflow_node='implement' WHERE id=$1`, f.task.ID, team.VersionID)
+
+	plan, moved, err := f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{}, false)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorkflowSwitchNoNewer, plan.Refused, "nothing newer: nothing to offer")
+	require.Nil(t, moved)
+
+	_, err = workflows.SaveVersion(f.ctx, f.ws, team.ID, f.task.CreatorID, 1, "Team", "Revised", raw)
+	require.NoError(t, err)
+	for name, target := range map[string]domain.WorkflowSwitchTarget{
+		"newer version":    {},
+		"another pipeline": {WorkflowID: other.ID.String(), Node: "implement"},
+	} {
+		plan, moved, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, target, true)
+		require.NoError(t, err, name)
+		require.Equal(t, domain.WorkflowSwitchPipeline, plan.Refused, name)
+		require.Nil(t, moved, name)
+	}
+	plan, moved, err = f.repo.SwitchWorkflow(f.ctx, f.ws, f.task.ID, domain.WorkflowSwitchTarget{WorkflowID: graph.ID.String(), Node: "implement"}, true)
+	require.NoError(t, err)
+	require.Equal(t, domain.WorkflowSwitchKind, plan.Refused, "a graph is another engine")
+	require.Nil(t, moved)
+	require.Equal(t, *team.VersionID, *f.current().WorkflowVersionID)
+}

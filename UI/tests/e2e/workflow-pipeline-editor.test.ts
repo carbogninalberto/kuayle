@@ -98,13 +98,29 @@ function validate(graph: PipelineDefinition): WorkflowIssue[] {
 	return issues;
 }
 
-type Options = { pipelines?: boolean; draft?: { pipeline: PipelineDefinition | null; reasons: WorkflowIssue[] } };
+type Default = { scope: string; scope_id: string; workflow_id: string | null };
+type Options = {
+	pipelines?: boolean;
+	draft?: { pipeline: PipelineDefinition | null; reasons: WorkflowIssue[] };
+	defaults?: Default[];
+};
 
 async function fixture(page: Page, options: Options = {}) {
 	const state = {
 		writes: [] as { method: string; path: string; body: Record<string, unknown> }[],
-		created: null as Record<string, unknown> | null
+		created: null as Record<string, unknown> | null,
+		defaults: options.defaults ?? ([] as Default[])
 	};
+	const list = () => ({
+		workflows: [
+			summary('standard', 'Standard', loopGraph, { builtin: true, latest_version: 0 }),
+			summary('loop', 'Review loop', loopGraph),
+			summary('team', 'Team', team())
+		],
+		defaults: state.defaults,
+		can_manage: true,
+		pipelines_enabled: options.pipelines ?? true
+	});
 	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.route('**/api/**', async (route) => {
@@ -139,18 +155,13 @@ async function fixture(page: Page, options: Options = {}) {
 				state.created = summary('new-1', body.name, graph, { description: body.description });
 				return route.fulfill({ status: 201, json: state.created });
 			}
-			return route.fulfill({
-				json: {
-					workflows: [
-						summary('standard', 'Standard', loopGraph, { builtin: true, latest_version: 0 }),
-						summary('loop', 'Review loop', loopGraph),
-						summary('team', 'Team', team())
-					],
-					defaults: [],
-					can_manage: true,
-					pipelines_enabled: options.pipelines ?? true
-				}
-			});
+			return route.fulfill({ json: list() });
+		}
+		if (path === `${w}/workflow-defaults` && method === 'PUT') {
+			const body = request.postDataJSON();
+			state.writes.push({ method, path, body });
+			state.defaults = [...state.defaults.filter((d) => d.scope !== body.scope || d.scope_id !== body.scope_id), body];
+			return route.fulfill({ json: list() });
 		}
 		if (path === `${w}/workflows/team`) {
 			if (method === 'PUT')
@@ -398,4 +409,42 @@ test('with pipelines off nothing offers to draft or create one, and a pipeline s
 	await page.goto('/test/settings/workflows/team');
 	await expect(page.getByTestId('pipeline-view')).toBeVisible();
 	await expect(page.getByTestId('pipeline-editor')).toHaveCount(0);
+});
+
+// KUA-291: a pipeline becomes a scope's default like any workflow while the
+// server has pipelines on; off, it is not offered, and a scope whose default
+// already is one still shows it.
+test('a pipeline is chosen as the workspace default only while pipelines are on', async ({ page }) => {
+	const state = await fixture(page);
+	await page.goto('/test/settings/workflows');
+	const defaults = page.getByTestId('workflow-defaults');
+	const workspace = defaults.getByRole('combobox', { name: 'Workspace' });
+	await expect(workspace).toHaveText('Standard');
+	await workspace.click();
+	await expect(page.getByRole('option')).toHaveText(['Standard', 'Review loop', 'Team']);
+	await page.getByRole('option', { name: 'Team' }).click();
+	await expect(workspace).toHaveText('Team');
+	expect(state.writes).toEqual([
+		{
+			method: 'PUT',
+			path: '/api/workspaces/test/workflow-defaults',
+			body: { scope: 'workspace', scope_id: 'workspace-1', workflow_id: 'team' }
+		}
+	]);
+});
+
+test('with pipelines off a default offers no pipeline but still shows the one it has', async ({ page }) => {
+	await fixture(page, { pipelines: false });
+	await page.goto('/test/settings/workflows');
+	const workspace = page.getByTestId('workflow-defaults').getByRole('combobox', { name: 'Workspace' });
+	await workspace.click();
+	await expect(page.getByRole('option')).toHaveText(['Standard', 'Review loop']);
+	await page.keyboard.press('Escape');
+
+	await fixture(page, {
+		pipelines: false,
+		defaults: [{ scope: 'workspace', scope_id: 'workspace-1', workflow_id: 'team' }]
+	});
+	await page.reload();
+	await expect(workspace).toHaveText('Team');
 });

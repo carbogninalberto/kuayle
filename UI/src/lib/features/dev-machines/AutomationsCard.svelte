@@ -8,7 +8,8 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { automations as api, type AgentAutomation, type AgentAutomationRun } from '$lib/api/automations';
-	import { workflows, type WorkflowSummary } from '$lib/api/workflows';
+	import { workflows, type WorkflowList, type WorkflowSummary } from '$lib/api/workflows';
+	import { startable } from '$lib/features/assistant/workflow-choice';
 	import { listTeams } from '$lib/api/teams';
 	import { listLabels } from '$lib/api/labels';
 	import { listTeamStatuses } from '$lib/api/team-statuses';
@@ -40,6 +41,8 @@
 	let workflowId = $state('default');
 	let pinned = $state(false);
 	let available = $state<WorkflowSummary[]>([]);
+	// A rule chooses a pipeline only while the server has pipelines on.
+	let workflowList = $state<WorkflowList | null>(null);
 	let maxActive = $state('1');
 	let unattended = $state(false);
 
@@ -73,7 +76,7 @@
 		const workspace = slug;
 		let active = true;
 		workflows.list(workspace).then(result => {
-			if (active) available = result.workflows;
+			if (active) [available, workflowList] = [result.workflows, result];
 		}).catch(error => {
 			if (active) appToast.apiError(error, m['workflows.choose_label']());
 		});
@@ -295,7 +298,7 @@
 				<Label>{m['workflows.choose_label']()}</Label>
 				<SelectField bind:value={workflowId} aria-label={m['workflows.choose_label']()}
 					options={[{ value: 'default', label: m['workflows.choose_default']() },
-						...available.filter(w => !w.archived && w.id !== 'standard' && w.latest_version > 0)
+						...available.filter(w => startable(workflowList, w) && w.id !== 'standard' && w.latest_version > 0)
 							.map(w => ({ value: w.id, label: w.name }))]} />
 			</div>
 			{#if workflowId !== 'default'}

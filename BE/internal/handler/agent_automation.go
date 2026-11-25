@@ -28,6 +28,8 @@ func automationError(c *echo.Context, err error) error {
 		return response.NotFound(c, "Automation")
 	case errors.Is(err, service.ErrInvalidAutomation), errors.Is(err, repository.ErrConversationInvalid):
 		return response.Error(c, http.StatusBadRequest, "INVALID_AUTOMATION", "Invalid automation")
+	case errors.Is(err, service.ErrPipelinesDisabled):
+		return response.Error(c, http.StatusForbidden, "PIPELINES_DISABLED", "Pipeline workflows are turned off on this server")
 	default:
 		return machineError(c, err)
 	}

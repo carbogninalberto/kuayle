@@ -95,3 +95,44 @@ func codesOf(issues []domain.WorkflowIssue) []string {
 	}
 	return codes
 }
+
+// A pipeline is a scope's default like any workflow while pipelines are on
+// (KUA-291): a task started without a choice runs it, on its tick. Off, it
+// cannot become one, and a task that would start on the default it already
+// is is refused with the reason, not run on another workflow.
+func TestPipelineAsAScopesDefault(t *testing.T) {
+	f := newProfileFixture(t)
+	f.tasks.SetPipelines(true)
+	created, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Review loop", Template: "review_loop_pipeline"})
+	require.NoError(t, err)
+	var team uuid.UUID
+	require.NoError(t, f.db.Get(&team, `SELECT team_id FROM issues WHERE id=$1`, f.issue))
+	chat, err := repository.NewConversationRepository(f.db).OpenIssue(f.ctx, f.ws, f.issue)
+	require.NoError(t, err)
+	start := func() (*domain.AgentTask, error) {
+		return f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Implement it", Provider: "codex"})
+	}
+
+	f.tasks.SetPipelines(false)
+	_, err = f.workflows.SetDefault(f.ctx, f.ws, WorkflowDefaultRequest{Scope: domain.WorkflowScopeTeam, ScopeID: team, WorkflowID: &created.ID})
+	require.ErrorIs(t, err, ErrPipelinesDisabled)
+	f.tasks.SetPipelines(true)
+	list, err := f.workflows.SetDefault(f.ctx, f.ws, WorkflowDefaultRequest{Scope: domain.WorkflowScopeTeam, ScopeID: team, WorkflowID: &created.ID})
+	require.NoError(t, err)
+	require.Len(t, list.Defaults, 1)
+	require.Equal(t, created.ID, list.Defaults[0].WorkflowID.String())
+
+	task, err := start()
+	require.NoError(t, err)
+	require.True(t, task.Pipeline, "the team's default runs")
+	require.Equal(t, *created.VersionID, *task.WorkflowVersionID)
+	_, err = f.db.Exec(`UPDATE agent_tasks SET state='completed' WHERE id=$1`, task.ID)
+	require.NoError(t, err)
+
+	f.tasks.SetPipelines(false)
+	_, err = start()
+	require.ErrorIs(t, err, ErrPipelinesDisabled)
+	var tasks int
+	require.NoError(t, f.db.Get(&tasks, `SELECT count(*) FROM agent_tasks WHERE workspace_id=$1`, f.ws))
+	require.Equal(t, 1, tasks)
+}

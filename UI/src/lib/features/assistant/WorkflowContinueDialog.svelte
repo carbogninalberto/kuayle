@@ -53,6 +53,10 @@
 				return m['tasks.workflow_continue_step_missing']();
 			case 'target_version_changed':
 				return m['tasks.workflow_continue_stale']();
+			case 'workflow_kind':
+				return m['tasks.workflow_continue_kind']();
+			case 'pipeline_pinned':
+				return m['tasks.workflow_continue_pipeline']();
 			default:
 				return m['tasks.workflow_update_error']();
 		}

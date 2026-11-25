@@ -25,6 +25,9 @@ const (
 	// The destination is another kind of workflow (a graph or a pipeline):
 	// a task never changes engine.
 	WorkflowSwitchKind = "workflow_kind"
+	// The task is on a pipeline, which keeps the version it started on: its
+	// members and room were built for that roster and those phases.
+	WorkflowSwitchPipeline = "pipeline_pinned"
 )
 
 // WorkflowSwitchAction is the audit action of a task moved to another
