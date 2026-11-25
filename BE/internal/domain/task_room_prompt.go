@@ -27,14 +27,22 @@ func RoomInbox(role string, posts []TaskMessage) []TaskMessage {
 	return inbox
 }
 
+// RoomFactBoard is the fact Kuayle posts with the task's place on its
+// repository's board (P4.6): the other active tasks that change the same
+// files, in merge order. It goes to whoever plans the merge order.
+const RoomFactBoard = "board"
+
 // RoomWakes reports whether a role's inbox (RoomInbox) calls for a turn: a
 // post addressed to the role, or one a person or another role wrote to
 // everyone to talk (say, ask, request). What only records a state (a fact,
-// a phase, a verdict, a summary) to everyone waits for the next turn.
+// a phase, a verdict, a summary) to everyone waits for the next turn, and so
+// does the board: it moves with other tasks, which no turn of this one can
+// change.
 func RoomWakes(role string, inbox []TaskMessage) bool {
 	for _, m := range inbox {
 		switch {
 		case m.RejectReason != nil:
+		case m.AuthorKind == RoomAuthorKuayle && m.Kind == RoomFact && m.Data.Fact == RoomFactBoard:
 		case slices.Contains(m.ToRoles, role):
 			return true
 		case len(m.ToRoles) == 0 && m.AuthorKind != RoomAuthorKuayle && (m.Kind == RoomSay || m.Kind == RoomAsk || m.Kind == RoomRequest):

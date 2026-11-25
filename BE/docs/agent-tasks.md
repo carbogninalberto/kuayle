@@ -3123,7 +3123,8 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
 - **When a turn starts** (`domain.RoomWakes`): when the role's unread posts
   hold one addressed to it, or a `say`, `ask` or `request` that a person or
   another role wrote to everyone. A fact, phase move, verdict or summary to
-  everyone waits for the role's next turn. The tick also starts a role's turn
+  everyone waits for the role's next turn, and so does the `board` fact
+  addressed to it (it moves with other tasks). The tick also starts a role's turn
   to ask it for a verdict, and a stall summary addressed to it starts one
   (below). A member whose turn is queued or running, or whose task waits on
   a usage limit, is not started again. Any member turn's end, failed or
@@ -3164,13 +3165,27 @@ changed since it last posted it, in this order: `pr_exists`, `head_sha`,
 `base_ref`, `pr_draft`, `head_contains_base`, `conflict`,
 `migration_collision`, `ci_green` (state, head and failing checks, with the
 checks' details when it fails), `approved`, `overlap` (the tasks ahead that
-change the same files), `merged`, `closed`. A fact that blocks a check
+change the same files), `board`, `merged`, `closed`. A fact that blocks a check
 carries its reason and next step (`unmetChecks`). A value Kuayle could not
 read is not posted, and a check on it is `unknown`, never unmet: it is read
 again. Kuayle also posts facts of its own: `turn` (a role's turn failed or
 cannot start, and why), `publication` (publishing the writer's turn failed
 or was skipped), `merge` (the merge gate refused, and why), `script`
 (below) and the `verdict` with `none` above.
+
+**The board in the room** (KUA-293). The `board` fact is the task's place
+on its repository's [board](#merging-only-up-to-date-heads): the other
+active tasks that change some of the same files, in merge order, each
+`ahead` of this task or not, with the shared files (`{"overlap":[{"issue",
+"pull_request","ahead","files","file_count"}],"more"}`, at most 10 tasks and
+5 files each, the text naming them). It is posted to whoever plans the merge
+order: the `lead` when the pipeline has one, otherwise the writer. It is
+posted only when it changes, from nothing overlapping on: tasks that share
+no file are left out, so their moves post nothing; a change of the overlap
+or of the order among the overlapping tasks posts it again, and the board
+emptying posts "No other active task … changes the same files". It never
+starts a turn by itself: the writer (or the lead) reads it at its next
+turn. The board stays the creator's (below), in the task's workspace.
 
 The facts reader (`service/task_facts.go`, KUA-279) also says what came of
 each action the tick runs, so the tick acts on fact states and handles no
@@ -3289,7 +3304,8 @@ with a reason, sent to whoever owns the phase.
 happens around a pipeline task (pushes, CI results, base moves and conflicts,
 verdicts, the owner's approvals, decisions and posts, member turns that
 finish, fail or are cancelled, GitHub failing or answering too slowly, script
-check results, merges refused, the budget running out) through the scenario
+check results, merges refused, the budget running out, another task on the
+repository's board moving) through the scenario
 tests' worker, tick, repository and room. After every worker step the task
 must be working (a turn under way), waiting on a fact that changes by itself
 with a wake at most one poll away, waiting on a person (paused, or the clock
@@ -3378,7 +3394,10 @@ approve, continue and stop.
 - A member has no task card of its own: its turns are rows of the root's
   room and runs of the root's workflow view, with their role.
 - The board the tick reads is the creator's (the board's visibility), so
-  `overlap` sees only the creator's own active tasks on the repository.
+  `overlap` and `board` see only the creator's own active tasks on the
+  repository. A `board` fact addressed to the `lead` waits until a lead
+  runs. A pipeline task's own approval is in its tick's memory, not where
+  the board reads approvals, so the board ranks it as not approved.
 
 ### Moving a task to a newer workflow version
 
