@@ -148,6 +148,8 @@ type tickWorld struct {
 	// agent plays each turn of a role ("implementer" writes); turn counts
 	// that role's turns from 1.
 	agent func(role string, turn int, task domain.AgentTask) tickTurn
+	// afterStep, when set, runs after each step the worker takes.
+	afterStep func(task domain.AgentTask)
 }
 
 func newTickWorld(t *testing.T, edit func(*domain.Pipeline)) *tickWorld {
@@ -247,6 +249,9 @@ func (w *tickWorld) drain() {
 		}
 		_ = w.f.tasks.store.Release(ctx, *task)
 		cancel()
+		if w.afterStep != nil {
+			w.afterStep(*task)
+		}
 	}
 	w.t.Fatal("the tasks did not settle")
 }
