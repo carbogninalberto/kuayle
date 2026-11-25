@@ -50,6 +50,11 @@ const want: Record<string, boolean> = {
 	closed: false
 };
 
+// A standing waiver covers every head of the task.
+const STANDING = '*';
+
+const lead = (message: TaskMessage) => message.author_kind === 'member' && message.author_role === 'lead';
+
 // A commit names the head when one is a prefix of the other (verdicts may
 // name a short SHA).
 const sameCommit = (head: string, commit: string | undefined) =>
@@ -86,9 +91,13 @@ export function pipelineChecks(
 			if (data.fact === 'head_sha' && typeof data.value === 'string') head = data.value;
 		} else if (message.author_kind === 'member' && message.kind === 'verdict' && data.verdict && message.author_role) {
 			verdicts.set(message.author_role, { verdict: data.verdict, commit: data.commit ?? '', at: message.created_at, seq: message.seq });
-		} else if (message.author_kind === 'human' && message.kind === 'waiver' && data.check) {
-			// It holds for the head the room last named (the tick's readRoom).
-			waivers.set(data.check, { head, at: message.created_at });
+		} else if (message.kind === 'waiver' && data.check && (message.author_kind === 'human' || (lead(message) && message.body))) {
+			// It holds for the head the room last named, or for every head
+			// when standing (the tick's applyRoomMessage). A lead's waiver
+			// counts once the room took it under the creator's grant, with
+			// its reason (KUA-305).
+			if (data.standing) waivers.set(data.check, { head: STANDING, at: message.created_at });
+			else if (waivers.get(data.check)?.head !== STANDING) waivers.set(data.check, { head, at: message.created_at });
 		}
 	}
 
@@ -150,7 +159,7 @@ export function pipelineChecks(
 		for (const check of p.checks ?? []) {
 			const row: CheckRow = { check, phase: { id: p.id, label: p.label || p.id, index }, ...judge(check) };
 			const waiver = check.required ? waivers.get(check.id) : undefined;
-			if (row.state !== 'met' && waiver && waiver.head === head)
+			if (row.state !== 'met' && waiver && (waiver.head === STANDING || waiver.head === head))
 				Object.assign(row, { state: 'waived', note: { kind: 'waived', commit: short }, since: waiver.at });
 			else if (passed && check.required && row.state !== 'met') Object.assign(row, { state: 'met', reason: '', note: undefined });
 			rows.push(row);

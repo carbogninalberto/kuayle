@@ -217,3 +217,21 @@ test('a head without CI is met when Kuayle reported no blocking reason, and wait
 	assert.deepEqual(brief(byId(pipelineChecks(pipeline, [...start, later], 'integrate', false)).ci),
 		['met', '', null, at(4)]);
 });
+
+test('a standing waiver holds on every head, and a granted lead waives with a reason (KUA-305)', () => {
+	const lead = (seq, check, body, extra = {}) => post(seq, 'member', 'waiver', body, { author_role: 'lead', data: { check, ...extra } });
+	const room = [
+		fact(1, 'pr_exists', true),
+		fact(2, 'head_sha', OLD),
+		waiver(3, 'ci', { data: { check: 'ci', standing: true } }),
+		lead(4, 'reviewer', 'Reviewed by hand.'),
+		lead(5, 'security', '')
+	];
+	let checks = byId(pipelineChecks(pipeline, room, 'integrate', false));
+	assert.equal(checks.ci.state, 'waived');
+	assert.equal(checks.reviewer.state, 'waived', 'the room took it under the creator\'s grant');
+	assert.notEqual(checks.security.state, 'waived', 'a lead waiver without a reason stays inert, as the tick reads it');
+	checks = byId(pipelineChecks(pipeline, [...room, fact(6, 'head_sha', HEAD)], 'integrate', false));
+	assert.equal(checks.ci.state, 'waived', 'standing: the new head is covered too');
+	assert.notEqual(checks.reviewer.state, 'waived', 'a head-bound waiver needs the check again');
+});
