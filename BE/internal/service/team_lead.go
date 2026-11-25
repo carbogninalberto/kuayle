@@ -92,8 +92,12 @@ func (t *tickPass) postChecks(ctx context.Context) error {
 					continue
 				}
 				state, reason := t.facts.judge(FactCheck{ID: check.ID, Fact: check.Fact, Role: check.Role})
-				if waived, ok := t.st.Waivers[check.ID]; ok && waived == t.facts.HeadSHA && state != "" {
-					state, reason = "waived", "The owner waived it for this head."
+				switch waived, ok := t.st.Waivers[check.ID]; {
+				case !ok || state == "":
+				case waived == standingWaiver:
+					state, reason = "waived", "Waived for every head of this task."
+				case waived == t.facts.HeadSHA:
+					state, reason = "waived", "Waived for this head."
 				}
 				switch state {
 				case CheckUnknown:
