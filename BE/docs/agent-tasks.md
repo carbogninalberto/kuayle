@@ -945,7 +945,7 @@ they can still see (the repository shares `ownTaskRows`/`ownTaskVisible` with
   them); its time is the room's latest `approved` fact saying so, read in the
   task's workspace. An approval of an older head is not counted.
 
-`arrangeBoard` (`service/task_board.go`) derives the merge order: approved and
+`ArrangeBoard` (`domain/agent_board.go`) derives the merge order: approved and
 `passing` by approval time, then the other approved tasks by approval time, then
 the other pull requests by number; a task without a pull request has no
 `merge_position`. Each task's `overlap` lists the other tasks sharing changed
@@ -3331,6 +3331,16 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   `advisory` fact, facts to everyone and its own refused posts wait for its
   next turn. A pass starts at most one turn of the lead, and that turn
   reads everything that came since its last one, so events are batched.
+- **Across issues** (KUA-312). Issues on the same roster share its lead
+  profile. Each issue's lead has its own member task. A later turn resumes
+  that task's native session under the usual harness and machine rules.
+  Each wake includes a fresh, fenced snapshot of the creator's board for
+  the published repository, or the checkout's repository before publication.
+  It lists other active issues in merge order, with their phase (task state
+  for work without a workflow step), merge position and recorded file overlap
+  with this issue. The board uses the same workspace, creator and team
+  visibility as `GET /agent-tasks/board`. The prompt shows when entries are
+  omitted to fit the 4 KiB fence. Changing the board alone leaves the lead asleep.
 - **A role becomes a member at its first turn.** Before that it has no
   `task_members` row, no task and no runs: an on-call role that nobody
   addresses costs nothing. Its first turn reads the newest page of the room

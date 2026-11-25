@@ -761,14 +761,16 @@ func TestTickScenario07QuestionAndAnswerResumeSessions(t *testing.T) {
 }
 
 // relaunch builds, on provider, the launch of the task's current turn as
-// Kuayle starts it on its machine, with session as the session of the
-// task's turn before: the real launch path (devMachineTaskRuntime.Attempt)
+// Kuayle starts it on its machine, optionally recording the previous
+// session when the fixture supplies one: the real launch path (devMachineTaskRuntime.Attempt)
 // over the scenario's own records.
 func (w *tickWorld) relaunch(id uuid.UUID, provider, session string) domain.DevMachineAgentRun {
 	w.t.Helper()
 	var task domain.AgentTask
 	require.NoError(w.t, w.f.db.Get(&task, `SELECT * FROM agent_tasks WHERE id=$1`, id))
-	w.exec(`UPDATE dev_machine_agent_runs SET native_session_id=$3,provider_id=$4 WHERE id=(SELECT id FROM dev_machine_agent_runs WHERE task_id=$1 AND id<>$2 ORDER BY created_at DESC,id LIMIT 1)`, id, task.RunID, session, provider)
+	if session != "" {
+		w.exec(`UPDATE dev_machine_agent_runs SET native_session_id=$3,provider_id=$4 WHERE id=(SELECT id FROM dev_machine_agent_runs WHERE task_id=$1 AND id<>$2 ORDER BY created_at DESC,id LIMIT 1)`, id, task.RunID, session, provider)
+	}
 	task.State, task.Provider = "preparing", provider
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
 		policy:        testPolicy(task.WorkspaceID),

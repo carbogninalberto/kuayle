@@ -150,6 +150,9 @@ type MemberReview struct {
 	LastMessage string `db:"last_message"`
 }
 
+// MemberPromptBytes is the storage limit for a member task's prompt.
+const MemberPromptBytes = 32768
+
 // MemberInstructionsBytes bounds the profile's instructions in a turn
 // prompt, as a graph workflow bounds a reviewer step's focus;
 // MemberFindingsBytes bounds each earlier text a delta review quotes.
