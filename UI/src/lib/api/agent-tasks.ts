@@ -399,6 +399,7 @@ export type WorkflowSwitchRefusal =
 	| 'step_not_runnable'
 	| 'target_version_changed'
 	| 'workflow_kind'
+	| 'pipeline_pinned'
 	| 'not_creator'
 	| 'session_required';
 export interface WorkflowSwitchTarget {

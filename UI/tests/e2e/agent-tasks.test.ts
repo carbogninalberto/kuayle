@@ -914,6 +914,34 @@ test('a task whose step the newest version lost stays on its version and says wh
 	expect(state.switches).toBe(0);
 });
 
+// KUA-291: a task on a pipeline stays on the version it started on, so it is
+// offered no move and the server is not even asked about one.
+test('a task on a pipeline is offered no move to another version or workflow', async ({ page }) => {
+	const { state } = await fixture(page);
+	state.workflowSwitch = { from_version: 1, to_version: 3, node: 'implement', node_label: 'Implement' };
+	const asked: string[] = [];
+	page.on('request', (request) => {
+		if (request.url().includes('/workflow/switch')) asked.push(request.url());
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await delegate(page);
+	state.task = {
+		...state.task,
+		state: 'awaiting_review',
+		reason: 'Workflow · waiting for approval',
+		workflow_version_id: 'version-1',
+		workflow_node: 'approval',
+		workflow_status: 'waiting',
+		pipeline: true
+	};
+	await page.reload();
+	await openTaskMenu(page);
+	await expect(page.getByRole('menuitem').first()).toBeVisible();
+	await expect(page.getByRole('menuitem', { name: /Move to workflow version/ })).toHaveCount(0);
+	await expect(page.getByRole('menuitem', { name: 'Continue on another workflow…' })).toHaveCount(0);
+	expect(asked).toEqual([]);
+});
+
 test('continues a paused task on a chosen workflow step after reviewing the plan', async ({ page }) => {
 	const { state } = await fixture(page);
 	const at = new Date().toISOString();
@@ -942,7 +970,7 @@ test('continues a paused task on a chosen workflow step after reviewing the plan
 		]
 	} }));
 	const switches: unknown[] = [];
-	let refused = true;
+	let refusal: string | null = 'step_missing';
 	await page.route('**/agent-tasks/task-1/workflow/switch*', async (route) => {
 		const request = route.request();
 		const query = new URL(request.url()).searchParams;
@@ -955,7 +983,7 @@ test('continues a paused task on a chosen workflow step after reviewing the plan
 		if (request.method() === 'GET') {
 			if (!query.has('workflow_id')) return route.fulfill({ json: state.workflowSwitch });
 			expect(Object.fromEntries(query)).toEqual({ workflow_id: 'target', node: 'repair' });
-			return route.fulfill({ json: refused ? { refused: 'step_missing' } : plan });
+			return route.fulfill({ json: refusal ? { refused: refusal } : plan });
 		}
 		switches.push(request.postDataJSON());
 		state.task = { ...state.task, state: 'awaiting_review', workflow_status: 'entering', reason: 'Workflow · Continue on Repair checks',
@@ -996,7 +1024,14 @@ test('continues a paused task on a chosen workflow step after reviewing the plan
 	await expect(confirm).toBeDisabled();
 	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'More actions', exact: true })).toBeFocused();
-	refused = false;
+	// A destination of the other kind (a pipeline saved meanwhile) says so (KUA-291).
+	refusal = 'workflow_kind';
+	await open();
+	await select();
+	await expect(dialog.getByRole('alert')).toContainText('A task never moves between a graph workflow and a pipeline.');
+	await expect(confirm).toBeDisabled();
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+	refusal = null;
 	await open();
 	await select();
 	await expect(dialog).toContainText('Release repair');

@@ -5,7 +5,7 @@ const teamId = '00000000-0000-0000-0000-000000000010';
 const workflowId = '00000000-0000-0000-0000-000000000030';
 const labelId = '00000000-0000-0000-0000-000000000020';
 
-async function mockAutomationsApi(page: Page) {
+async function mockAutomationsApi(page: Page, options: { pipelines?: boolean } = {}) {
 	const state = {
 		rules: [] as any[],
 		created: [] as any[],
@@ -82,7 +82,15 @@ async function mockAutomationsApi(page: Page) {
 			return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		}
 		if (path === '/api/workspaces/test/workflows')
-			return route.fulfill({ json: { workflows: [{ id: workflowId, name: 'Review loop', latest_version: 3 }] } });
+			return route.fulfill({
+				json: {
+					workflows: [
+						{ id: workflowId, name: 'Review loop', latest_version: 3 },
+						{ id: 'pipeline-1', name: 'Team', latest_version: 1, graph: { kind: 'pipeline', phases: [], roster: [] } }
+					],
+					pipelines_enabled: options.pipelines ?? false
+				}
+			});
 		if (path === '/api/workspaces/test/teams')
 			return route.fulfill({ json: [{ id: teamId, name: 'Engineering', key: 'ENG' }] });
 		if (path === '/api/workspaces/test/labels')
@@ -215,3 +223,14 @@ test('admins create, pause and approve agent automations', async ({ page }) => {
 	await expect(section.getByText('ENG-7 · Nightly fixer · Started')).toBeVisible();
 	await expect(pending).toHaveCount(0);
 });
+
+// KUA-291: a rule chooses a pipeline only while the server has pipelines on.
+for (const pipelines of [false, true])
+	test(`an automation is offered pipelines only while they are on (${pipelines ? 'on' : 'off'})`, async ({ page }) => {
+		await mockAutomationsApi(page, { pipelines });
+		await page.goto('/test/settings/dev-machines?tab=automations');
+		const section = page.getByRole('region', { name: 'Automations' });
+		await section.getByRole('button', { name: 'New automation' }).click();
+		await section.getByRole('combobox', { name: 'Workflow', exact: true }).click();
+		await expect(page.getByRole('option')).toHaveText(['Issue default', 'Review loop', ...(pipelines ? ['Team'] : [])]);
+	});

@@ -2930,7 +2930,10 @@ CI, merge) and guards the merge. Absent or `"graph"` is the graph engine
 above. `ParseWorkflowGraph` refuses a pipeline, so the graph runner never runs
 one, and a task never changes engine: a move between kinds is refused as
 `workflow_kind`, and **Continue on another workflow…** does not offer
-pipelines. Standard stays a graph.
+pipelines. A task on a pipeline also stays on the version it started on: a
+move to a newer version or to another pipeline is refused as
+`pipeline_pinned` (its members and room were built for that roster and
+those phases), and its card offers neither move. Standard stays a graph.
 
 **The switch.** `WORKFLOW_PIPELINES_ENABLED` (`config.WorkflowPipelines`,
 default `false`) is read by the API process; both Compose files pass it
@@ -2947,6 +2950,25 @@ pipeline templates of `POST /workflows` (`team`, `standard_pipeline`,
 pipeline chosen in the task composer or set as a scope's default.
 `POST /workflows/validate` checks a pipeline with `ValidatePipeline` either
 way.
+
+**Where a pipeline is chosen** (KUA-291). Everywhere a workflow is chosen
+offers a pipeline only while the switch is on (`startable` in
+`workflow-choice.ts`), and the server refuses one otherwise:
+
+- The task composer and a delegation's approval card (`WorkflowChoice.svelte`):
+  with a pipeline chosen, the note says its writer role's profile decides the
+  agent and model. `delegate_issue`, and the approver's choice on the card,
+  refuse a pipeline while the switch is off with "… is a pipeline, and
+  pipeline workflows are turned off on this server" (a tool failure, or
+  `422 INVALID_APPROVAL_EDIT`), so nothing is proposed that cannot start.
+- A scope's default (`PUT /workflow-defaults`, `WorkflowDefaultsCard.svelte`):
+  off, a pipeline is not offered and is refused, but a scope whose default
+  already is one keeps showing it, and a task that would start on it is
+  refused rather than run on another workflow.
+- An automation (`POST /agent-automations`, `AutomationsCard.svelte`): a rule
+  may follow or pin a pipeline, whose writer's profile must be active as a
+  graph's first agent step's must; off, `403 PIPELINES_DISABLED`.
+- The switch route: as above, never across kinds or off a pipeline's version.
 
 **The definition** (`domain/pipeline.go`). `ParsePipeline` refuses unknown
 fields, and `ValidatePipeline`, separate from the graph's validator, checks it

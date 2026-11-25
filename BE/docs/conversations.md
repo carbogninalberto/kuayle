@@ -1075,7 +1075,9 @@ accepts an optional `workflow_id` next to `decision`: absent keeps the
 proposal, `""` selects the issue's default, `"standard"` the built-in workflow,
 otherwise a workflow ID. It is a separate field, not part of the model choice.
 With a custom workflow the card hides the harness, model and server pickers,
-because its first agent step decides them. The service checks the choice like
+because its first agent step decides them (a pipeline's writer role). A
+pipeline is a choice only while the server has pipelines on; otherwise the
+tool and the card refuse it with that reason. The service checks the choice like
 the assistant's own (the workflow of this workspace, not archived, no guest;
 `AssistantApprovals.SetWorkflows` wires the list) before claiming the approval;
 a refusal is `422 INVALID_APPROVAL_EDIT` with its reason, the approval stays

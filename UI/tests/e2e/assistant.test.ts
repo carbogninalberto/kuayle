@@ -1091,6 +1091,66 @@ test('the approval card runs the workflow the approver picked, without a model c
 	await expect(page.getByTestId('task-workflow')).toHaveCount(0);
 });
 
+// KUA-291: a pipeline is chosen on the card like any workflow while the
+// server has pipelines on; its writer role then decides the agent.
+test('the approval card offers a pipeline only while pipelines are on', async ({ page }) => {
+	const state = await pendingDelegation(page);
+	let pipelines = false;
+	const bodies: unknown[] = [];
+	await page.route('**/api/workspaces/test/workflows', (route) =>
+		route.fulfill({
+			json: {
+				...workflowList,
+				workflows: [
+					...workflowList.workflows,
+					{
+						id: 'workflow-team',
+						name: 'Team',
+						builtin: false,
+						archived: false,
+						graph: { kind: 'pipeline', phases: [], roster: [] }
+					}
+				],
+				pipelines_enabled: pipelines
+			}
+		})
+	);
+	await page.route('**/conversations/chat-1/approvals/approval-1', (route) => {
+		bodies.push(route.request().postDataJSON());
+		const resolved = {
+			...state.approvals[0],
+			payload: { ...state.approvals[0].payload, workflow_id: 'workflow-team', workflow: 'Team' },
+			status: 'approved',
+			task_id: 'task-9',
+			resolved_at: '2026-10-26T10:05:00Z',
+			updated_at: '2026-10-26T10:05:00Z'
+		};
+		state.approvals = [resolved];
+		return route.fulfill({ json: resolved });
+	});
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
+	await page.getByTestId('task-workflow').click();
+	await expect(page.getByRole('option')).toHaveText(['Issue default', 'Standard', 'Review loop']);
+	await page.keyboard.press('Escape');
+
+	pipelines = true;
+	await page.reload();
+	await page.getByTestId('approval-card').getByRole('button', { expanded: false }).click();
+	const workflow = page.getByTestId('task-workflow');
+	await workflow.click();
+	await expect(page.getByRole('option')).toHaveText(['Issue default', 'Standard', 'Review loop', 'Team']);
+	await page.getByRole('option', { name: 'Team' }).click();
+	await expect(
+		page.getByText("A pipeline's writer role decides the coding agent and model.", { exact: true })
+	).toBeVisible();
+	await expect(page.getByText("A custom workflow's first agent step decides", { exact: false })).toHaveCount(0);
+	await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Approve', exact: true }).click();
+	await expect(page.getByText('Workflow: Team', { exact: true })).toBeVisible();
+	expect(bodies).toEqual([{ decision: 'approve', workflow_id: 'workflow-team' }]);
+});
+
 test('a model picked before choosing a custom workflow is not sent with it', async ({ page }) => {
 	const state = await pendingDelegation(page);
 	const bodies: unknown[] = [];
