@@ -140,6 +140,9 @@ type tickTurn struct {
 	// pass of the worker, before it ends; unpublished makes it end failed.
 	publishing  []domain.DevMachineAgentRunStepStatus
 	unpublished bool
+	// published is the publication's outcome, reported again when the
+	// worker reads it again (as EnsurePublication does).
+	published *domain.DevMachineAgentRunStep
 }
 
 type tickWorld struct {
@@ -467,6 +470,7 @@ func (r *tickRuntime) Publish(ctx context.Context, task domain.AgentTask) (*doma
 	turn := r.played[task.RunID]
 	if turn == nil {
 		turn = &tickTurn{}
+		r.played[task.RunID] = turn
 	}
 	if len(turn.publishing) > 0 {
 		status := turn.publishing[0]
@@ -474,15 +478,20 @@ func (r *tickRuntime) Publish(ctx context.Context, task domain.AgentTask) (*doma
 		r.underway++
 		return &domain.DevMachineAgentRunStep{Status: status}, nil
 	}
+	if turn.published != nil {
+		return turn.published, nil
+	}
 	switch {
 	case turn.unpublished:
-		return &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusFailed}, nil
+		turn.published = &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusFailed}
 	case turn.commit == "":
 		summary := domain.NoChangesReason("main")
-		return &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped, Summary: &summary}, nil
+		turn.published = &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped, Summary: &summary}
+	default:
+		r.w.publish(task.RunID, turn.commit)
+		turn.published = &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSucceeded}
 	}
-	r.w.publish(task.RunID, turn.commit)
-	return &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSucceeded}, nil
+	return turn.published, nil
 }
 
 // Cancel stops the task's run, as the machine confirms it.
@@ -1482,6 +1491,48 @@ func TestTickWaitsForItsPublicationToEnd(t *testing.T) {
 			require.Equal(t, 2, w.runtime.turns["implementer"])
 			require.Contains(t, w.prompt("implementer", 2), "Publishing failed; check the repository connection")
 			require.Equal(t, sha(2), *w.member("reviewer").PinnedCommit)
+		})
+	}
+}
+
+// A pause asked for while the writer's turn is being published takes effect
+// once the publication ended, as a graph's does: the tick does not act on it
+// and nobody's turn starts. Resuming reads the publication's outcome again.
+func TestTickAPauseDuringThePublicationTakesEffectWhenItEnds(t *testing.T) {
+	for _, mode := range []string{domain.WorkflowPauseNow, domain.WorkflowPauseAfterStep} {
+		t.Run(mode, func(t *testing.T) {
+			w := newTickWorld(t, nil)
+			w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+				played := w.writesAndApproves(role, turn, task)
+				if role == "implementer" && turn == 1 {
+					played.publishing = []domain.DevMachineAgentRunStepStatus{domain.DevMachineAgentRunStepStatusQueued}
+				}
+				return played
+			}
+			w.afterStep = func(domain.AgentTask) {
+				if w.runtime.underway == 1 && w.task().WorkflowPauseRequest == nil && w.task().WorkflowPausedAt == nil {
+					_, err := w.f.tasks.PauseWorkflow(w.f.ctx, w.f.ws, w.root, mode)
+					require.NoError(t, err)
+					require.NotNil(t, w.task().WorkflowPauseRequest, "a pause while publishing waits for the publication")
+				}
+			}
+			w.drain()
+			paused := w.task()
+			require.Equal(t, "publishing", paused.State)
+			require.NotNil(t, paused.WorkflowPausedAt, "the pause took effect once the publication ended")
+			require.Nil(t, paused.WorkflowPauseRequest)
+			require.Equal(t, 1, w.runtime.turns["implementer"], "no turn of the writer starts")
+			require.Zero(t, w.runtime.turns["reviewer"], "nor anyone else's")
+			require.Empty(t, w.posts(domain.RoomFact), "the tick did not run")
+
+			w.afterStep = nil
+			_, err := w.f.tasks.Resume(w.f.ctx, w.f.ws, w.root)
+			require.NoError(t, err)
+			w.drain()
+			require.Equal(t, "integrate", w.phase())
+			require.Equal(t, []string{"review", "integrate"}, w.phases(), "the publication's outcome was read again")
+			require.Equal(t, 1, w.runtime.turns["implementer"])
+			require.Equal(t, sha(1), *w.member("reviewer").PinnedCommit)
 		})
 	}
 }

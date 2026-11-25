@@ -177,8 +177,12 @@ func (s *AgentTaskService) pipelineTurnEnded(ctx context.Context, task domain.Ag
 
 // pipelinePublished is the worker's report of the publication of the
 // writer's turn once it ended: anything but a pull request at a commit is a
-// fact.
+// fact. A pause asked for meanwhile takes effect first; once resumed, the
+// worker reads the publication again and reports it.
 func (s *AgentTaskService) pipelinePublished(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
+	if task.WorkflowPauseRequest != nil {
+		return s.Repo.ParkWorkflow(ctx, task)
+	}
 	if why := publicationFact(result); why != "" {
 		value, _ := json.Marshal(map[string]string{"status": string(result.Status), "run": task.RunID.String()})
 		if err := s.kuaylePost(ctx, task, domain.TaskRoomPost{Kind: domain.RoomFact, Body: why,

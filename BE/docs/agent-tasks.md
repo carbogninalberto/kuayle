@@ -3318,7 +3318,9 @@ Anything else, `deny` included, answers `409 WORKFLOW_CONFLICT`. The
 decision reads the task as it is locked for it, so a pass that ran meanwhile
 is neither lost nor overwritten. Each decision is recorded in
 `workflow_audit_events`. The creator's
-[pause and resume](#pause-and-resume) apply as to a graph workflow, and a
+[pause and resume](#pause-and-resume) apply as to a graph workflow (a pause
+asked for while the writer's turn is being published takes effect once the
+publication ended, and resuming reads its outcome again), and a
 retried pipeline task starts again with its writer's turn, on another budget
 of the same size, asking every role again.
 
