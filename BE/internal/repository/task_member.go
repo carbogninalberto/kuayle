@@ -29,13 +29,8 @@ var (
 	ErrMemberUnavailable = errors.New("the agent profile that plays the role was archived")
 )
 
-// memberTurnPosts bounds the posts one turn reads (a page of the room);
-// memberPromptBytes is what a task's prompt may hold. What does not fit
-// waits for the next turn.
-const (
-	memberTurnPosts   = 200
-	memberPromptBytes = 32768
-)
+// memberTurnPosts bounds the posts one turn reads (a page of the room).
+const memberTurnPosts = 200
 
 // memberRoot opens the transaction of a pipeline task's room for its
 // creator: the task locked in the usual order, the room serialized by the
@@ -248,17 +243,23 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 	if root.WorkflowNode != nil {
 		phase = *root.WorkflowNode
 	}
+	var board string
+	if manages {
+		if board, err = leadBoard(ctx, tx, *root, target); err != nil {
+			return nil, err
+		}
+	}
 	// What does not fit this turn's prompt waits for the next turn; a first
 	// turn keeps the newest posts instead.
 	var prompt string
 	for {
 		turn.Posts = posts
 		if manages {
-			prompt = domain.LeadTurnPrompt(domain.LeadTurn{Pipeline: *pipeline, Phase: phase, Target: target, Instructions: profile.Instructions, Posts: posts})
+			prompt = domain.LeadTurnPrompt(domain.LeadTurn{Pipeline: *pipeline, Phase: phase, Target: target, Instructions: profile.Instructions, Posts: posts, Board: board})
 		} else {
 			prompt = domain.MemberTurnPrompt(turn)
 		}
-		if len(prompt) <= memberPromptBytes || len(posts) <= 1 {
+		if len(prompt) <= domain.MemberPromptBytes || len(posts) <= 1 {
 			break
 		}
 		if member == nil {
@@ -268,7 +269,7 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		}
 		turn.VerdictAsked = asked()
 	}
-	if len(prompt) > memberPromptBytes {
+	if len(prompt) > domain.MemberPromptBytes {
 		return nil, ErrConversationInvalid
 	}
 	read := int64(0)

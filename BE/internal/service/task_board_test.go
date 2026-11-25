@@ -20,7 +20,7 @@ func TestBoardMergeOrderPutsApprovedGreenTasksFirst(t *testing.T) {
 		return &when
 	}
 	// Listed in the database's order (most recently updated first).
-	board := arrangeBoard([]domain.AgentBoardTask{
+	board := domain.ArrangeBoard([]domain.AgentBoardTask{
 		boardTask("KUA-6", 0, "", nil),
 		boardTask("KUA-5", 2, "", nil),
 		boardTask("KUA-4", 1, "passing", nil),
@@ -47,7 +47,7 @@ func TestBoardOverlapNamesSharedFilesAndWhoIsAhead(t *testing.T) {
 	second := boardTask("KUA-2", 7, "", nil, "BE/internal/service/a.go", migration, "UI/x.ts")
 	alone := boardTask("KUA-3", 9, "", nil, "WEB/y.svelte")
 	draft := boardTask("KUA-4", 0, "", nil, migration)
-	board := arrangeBoard([]domain.AgentBoardTask{draft, alone, second, first})
+	board := domain.ArrangeBoard([]domain.AgentBoardTask{draft, alone, second, first})
 
 	overlap := func(issue string) []domain.AgentBoardOverlap {
 		for _, task := range board {
@@ -84,7 +84,7 @@ func TestBoardCutsLongFileLists(t *testing.T) {
 	}
 	big := boardTask("KUA-1", 1, "", nil, many...)
 	same := boardTask("KUA-2", 2, "", nil, many...)
-	board := arrangeBoard([]domain.AgentBoardTask{big, same})
+	board := domain.ArrangeBoard([]domain.AgentBoardTask{big, same})
 	require.Len(t, board[0].ChangedFiles, domain.MaxAgentBoardFiles)
 	require.Equal(t, len(many), board[0].ChangedFileCount)
 	require.Len(t, board[0].Overlap[0].Files, domain.MaxAgentBoardOverlapFiles)

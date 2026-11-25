@@ -137,6 +137,9 @@ type MemberTurn struct {
 	Posts []TaskMessage
 }
 
+// MemberPromptBytes is the storage limit for a member task's prompt.
+const MemberPromptBytes = 32768
+
 // MemberInstructionsBytes bounds the profile's instructions in a turn
 // prompt, as a graph workflow bounds a reviewer step's focus.
 const MemberInstructionsBytes = 4000
