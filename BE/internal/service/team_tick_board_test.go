@@ -167,3 +167,64 @@ func TestTickTheBoardStaysInTheTasksWorkspace(t *testing.T) {
 	require.Len(t, board, 1)
 	require.JSONEq(t, `{"overlap":[{"issue":"ENG-2","pull_request":13,"ahead":false,"files":["ui/toggle.ts"],"file_count":1}]}`, string(board[0].Data.Value))
 }
+
+// boardOrder is the scenario's board of acme/app as the creator reads it
+// (GET /agent-tasks/board): the issues in merge order, the approved ones
+// marked.
+func (w *tickWorld) boardOrder() []string {
+	w.t.Helper()
+	board, err := w.f.tasks.Board(w.f.ctx, w.f.ws, tickRepository)
+	require.NoError(w.t, err)
+	order := []string{}
+	for _, task := range board {
+		name := task.IssueIdentifier
+		if task.ApprovedAt != nil {
+			name += " approved"
+		}
+		order = append(order, name)
+	}
+	return order
+}
+
+// The board ranks a pipeline task whose owner approved its head as approved,
+// as it does a graph task whose merge was approved, and only while the head
+// is the one the tick holds the approval for.
+func TestTheBoardRanksAnApprovedPipelineTask(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	// The repository allows no merge method: the approved task stays on the
+	// board.
+	w.github.methodErr = ErrMergeMethodNotAllowed
+	w.throughReview()
+	b := w.board(`["ui/toggle.ts"]`)
+	w.boardTask(b, 2, 11, `["api/a.go"]`)
+	graph := w.boardTask(b, 3, 13, `["api/b.go"]`)
+	require.Equal(t, []string{"ENG-2", "ENG-1", "ENG-3"}, w.boardOrder(), "nobody approved: by pull request number")
+
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	w.drain()
+	require.NotEqual(t, "completed", w.task().State)
+	require.Empty(t, w.github.merged)
+	require.Equal(t, []string{"ENG-1 approved", "ENG-2", "ENG-3"}, w.boardOrder())
+	w.boardApprove(graph)
+	require.Equal(t, []string{"ENG-1 approved", "ENG-3 approved", "ENG-2"}, w.boardOrder(), "approved tasks first, by approval time")
+
+	// Another workspace is not read: neither the same user's approved
+	// pipeline task there, nor a stray post naming this task there.
+	other := w.otherSpace()
+	away := w.boardTask(other, 7, 3, `["ui/toggle.ts"]`)
+	w.exec(`UPDATE agent_tasks SET pipeline=true,pipeline_state=$2 WHERE id=$1`, away, fmt.Sprintf(`{"approved":{"head":%q,"by":%q},"facts":{"head_sha":%q,"approved":true}}`, sha(0x507), w.f.user, sha(0x507)))
+	w.exec(`INSERT INTO task_messages(workspace_id,task_id,seq,author_kind,kind,body,data,created_at) VALUES($1,$2,1,'kuayle','fact','','{"fact":"approved","value":true}',now()-interval '1 hour'),
+ ($1,$3,100000,'kuayle','fact','','{"fact":"approved","value":true}',now()+interval '1 hour')`, other.ws, away, w.root)
+	require.Equal(t, []string{"ENG-1 approved", "ENG-3 approved", "ENG-2"}, w.boardOrder())
+
+	// Someone pushes another head: the approval was of the one before.
+	w.head(sha(0x77))
+	w.exec(`INSERT INTO pull_request_heads(workspace_id,repository_full_name,pull_request_number,head_sha,observed_at) VALUES($1,$2,12,$3,now())`, w.f.ws, tickRepository, sha(0x77))
+	require.Equal(t, []string{"ENG-3 approved", "ENG-2", "ENG-1"}, w.boardOrder())
+	// Read by the tick too, it stays an approval of the older head.
+	w.pass()
+	approved := w.facts("approved")
+	require.JSONEq(t, `false`, string(approved[len(approved)-1].Data.Value))
+	require.Equal(t, []string{"ENG-3 approved", "ENG-2", "ENG-1"}, w.boardOrder())
+}

@@ -933,7 +933,13 @@ they can still see (the repository shares `ownTaskRows`/`ownTaskVisible` with
   finish, so `passing` can hide one still running.
 - `approved_at`: when a person approved the merge Kuayle is carrying out now (an
   unfailed merge wait on the current workflow step, or an assistant
-  `merge_pull_request` waiting for checks).
+  `merge_pull_request` waiting for checks). For a task on a
+  [pipeline](#team-workflows-experimental) it is the owner's approval the tick
+  holds for the board's head (KUA-293): `pipeline_state` has an approval, and
+  the `approved` and `head_sha` facts the tick last posted say it holds for
+  that head (across Kuayle's verified merges of the base, as the tick counts
+  them); its time is the room's latest `approved` fact saying so, read in the
+  task's workspace. An approval of an older head is not counted.
 
 `arrangeBoard` (`service/task_board.go`) derives the merge order: approved and
 `passing` by approval time, then the other approved tasks by approval time, then
@@ -3396,8 +3402,10 @@ approve, continue and stop.
 - The board the tick reads is the creator's (the board's visibility), so
   `overlap` and `board` see only the creator's own active tasks on the
   repository. A `board` fact addressed to the `lead` waits until a lead
-  runs. A pipeline task's own approval is in its tick's memory, not where
-  the board reads approvals, so the board ranks it as not approved.
+  runs. The board reads a pipeline task's approval from what the tick last
+  posted: a new head GitHub reported before the tick read it is not
+  approved, and while GitHub cannot say whether the approval still holds
+  for a new head, the board keeps the tick's last answer.
 
 ### Moving a task to a newer workflow version
 
