@@ -36,7 +36,11 @@ const pipelineDraftWriter = "implementer"
 //     verdict from the role its profile plays ("reviewer", then
 //     "reviewer-2" for another profile);
 //   - publishing: a phase Kuayle owns that requires pr_exists;
-//   - a CI check: a phase the writer owns that requires ci_green;
+//   - a CI check: a phase the writer owns that requires the branch up to
+//     date with its base (head_contains_base, which Kuayle brings about by
+//     updating the branch, so it never strands a task) and ci_green, and
+//     reports a migration number the base took (migration_collision) as an
+//     advisory check, which informs and never blocks;
 //   - an approval: a phase a person owns that requires approved;
 //   - a merge step, or the end after a ship approval that merges on
 //     approval: the last phase, guarded, the merge Kuayle carries out;
@@ -131,8 +135,8 @@ func (d *pipelineDraft) step(node WorkflowNode) {
 		d.reason("stage_assistant", node.ID, "", "%s: a stage assistant chooses the next step, and a pipeline has no choice to make; remove the assistant first", node.Label)
 	}
 	phase := PipelinePhase{ID: node.ID, Label: node.Label, Owner: pipelineDraftWriter}
-	required := func(base, fact, role string) {
-		phase.Checks = append(phase.Checks, PipelineCheck{ID: freeID(d.checkIDs, base), Fact: fact, Role: role, Required: true})
+	check := func(base, fact, role string, required bool) {
+		phase.Checks = append(phase.Checks, PipelineCheck{ID: freeID(d.checkIDs, base), Fact: fact, Role: role, Required: required})
 	}
 	switch node.Type {
 	case WorkflowNodeStart:
@@ -145,7 +149,7 @@ func (d *pipelineDraft) step(node WorkflowNode) {
 			return
 		case profile.Reviews():
 			role := d.role(profile.ID, "reviewer", false)
-			required(role, PipelineFactVerdict, role)
+			check(role, PipelineFactVerdict, role, true)
 		default:
 			switch {
 			case d.writer != nil && *d.writer.ProfileID != profile.ID:
@@ -163,11 +167,14 @@ func (d *pipelineDraft) step(node WorkflowNode) {
 		if node.Check != WorkflowCheckCI {
 			return
 		}
-		required("ci", PipelineFactCIGreen, "")
+		// The team template's checks and IDs; the migrations check only informs.
+		check("up-to-date", PipelineFactHeadContainsBase, "", true)
+		check("ci", PipelineFactCIGreen, "", true)
+		check("migrations", PipelineFactMigrationCollision, "", false)
 	case WorkflowNodePublish:
 		d.published = true
 		phase.Owner = PipelineOwnerKuayle
-		required("pr-exists", PipelineFactPRExists, "")
+		check("pr-exists", PipelineFactPRExists, "", true)
 	case WorkflowNodeApproval:
 		if !d.published {
 			d.reason("early_approval", node.ID, "", "%s: nothing is published yet, and a pipeline's approval is of the published head", node.Label)
@@ -175,7 +182,7 @@ func (d *pipelineDraft) step(node WorkflowNode) {
 		}
 		d.approval, d.mergeOnApproval = node.Label, d.g.ShipApproval(node, d.profiles) == ShipMergesOnApproval
 		phase.Owner = PipelineOwnerHuman
-		required("owner", PipelineFactApproved, "")
+		check("owner", PipelineFactApproved, "", true)
 	case WorkflowNodeMerge:
 		phase.Owner, phase.Guarded = PipelineOwnerKuayle, true
 	}

@@ -15,7 +15,14 @@ func TestDraftPipelineFromTheTemplates(t *testing.T) {
 	writer := PipelineMember{Role: "implementer", ProfileID: implementer, Writer: true}
 	verdict := PipelineCheck{ID: "reviewer", Fact: PipelineFactVerdict, Role: "reviewer", Required: true}
 	pr := PipelineCheck{ID: "pr-exists", Fact: PipelineFactPRExists, Required: true}
-	ci := PipelineCheck{ID: "ci", Fact: PipelineFactCIGreen, Required: true}
+	// A CI step also needs the branch up to date, which Kuayle brings about
+	// itself, and reports a migration number the base took without blocking,
+	// with the team template's check IDs.
+	ci := []PipelineCheck{
+		{ID: "up-to-date", Fact: PipelineFactHeadContainsBase, Required: true},
+		{ID: "ci", Fact: PipelineFactCIGreen, Required: true},
+		{ID: "migrations", Fact: PipelineFactMigrationCollision},
+	}
 	approved := PipelineCheck{ID: "owner", Fact: PipelineFactApproved, Required: true}
 
 	// Standard as the editor's copy has it: the implementer on its step and
@@ -53,7 +60,7 @@ func TestDraftPipelineFromTheTemplates(t *testing.T) {
 				{ID: "implement", Label: "Implementer", Owner: "implementer", Prompt: "Address the feedback below, then make sure the change is complete."},
 				{ID: "publish", Label: "Open pull request", Owner: PipelineOwnerKuayle, Checks: []PipelineCheck{pr}},
 				{ID: "review", Label: "Reviewer", Owner: "implementer", Checks: []PipelineCheck{verdict}},
-				{ID: "ci", Label: "CI", Owner: "implementer", Checks: []PipelineCheck{ci}},
+				{ID: "ci", Label: "CI", Owner: "implementer", Checks: ci},
 				{ID: "ship", Label: "Ready to ship", Owner: PipelineOwnerHuman, Checks: []PipelineCheck{approved}},
 				{ID: "merge", Label: "Merge", Owner: PipelineOwnerKuayle, Guarded: true},
 			},
@@ -67,7 +74,7 @@ func TestDraftPipelineFromTheTemplates(t *testing.T) {
 				{ID: "implement", Label: "Implement", Owner: "implementer", Prompt: "Address what sent the work back, then make sure the change is complete."},
 				{ID: "publish", Label: "Open pull request", Owner: PipelineOwnerKuayle, Checks: []PipelineCheck{pr}},
 				{ID: "review", Label: "Review", Owner: "implementer", Checks: []PipelineCheck{verdict}},
-				{ID: "ci", Label: "CI", Owner: "implementer", Checks: []PipelineCheck{ci}},
+				{ID: "ci", Label: "CI", Owner: "implementer", Checks: ci},
 				{ID: "ship", Label: "Ready to ship", Owner: PipelineOwnerHuman, Checks: []PipelineCheck{approved}},
 				{ID: "merge", Label: "Merge", Owner: PipelineOwnerKuayle, Guarded: true},
 			},

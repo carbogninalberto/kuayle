@@ -3023,12 +3023,12 @@ ID and name:
 | agent that changes code | owned by the writer, `implementer` (its profile), with the step's prompt less the graph's `{{…}}` variables |
 | agent that reviews | owned by the writer; requires a `verdict` from the role its profile plays (`reviewer`, then `reviewer-2`, …) |
 | publish | owned by Kuayle; requires `pr_exists` |
-| CI check | owned by the writer; requires `ci_green` |
+| CI check | owned by the writer; requires `head_contains_base` (`up-to-date`; Kuayle updates a branch that is behind, so it never strands a task) and `ci_green` (`ci`), and reports `migration_collision` (`migrations`) as advisory: it informs, never blocks |
 | approval | owned by a person; requires `approved` |
 | merge, or the done end after a ship approval that merges on approval | the last phase, guarded |
 | retired local check | none (it does nothing today) |
 
-Every check is required. Visit limits, timeouts and the prompts of review and
+Every other check is required, and check IDs follow the `team` template. Visit limits, timeouts and the prompts of review and
 approval steps are dropped; the budget keeps its minutes and policy, and its
 iterations become `max_turns` of iterations × roles (at most 200), since a
 pipeline charges every role's turn. No lead. The reasons, by code: the
