@@ -258,7 +258,7 @@ var assistantToolCatalog = []assistantTool{
 	{name: "list_teams", description: "List the teams the user can access, with the key used to create issues.", parameters: `{"type":"object","properties":{},"additionalProperties":false}`},
 	{name: "search_issues", description: "Search issues the user can access by text in the title or identifier.", parameters: `{"type":"object","properties":{"query":{"type":"string","maxLength":200},"limit":{"type":"integer","minimum":1,"maximum":20}},"required":["query"],"additionalProperties":false}`},
 	{name: "get_issue", description: "Read one issue by identifier, such as ENG-12, including the development repository coding agents use for it when one is configured on the issue, its project, team or workspace.", parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32}},"required":["identifier"],"additionalProperties":false}`},
-	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent works in the development repository configured for the issue, its project, team or workspace, so do not ask for a repository unless this tool reports that none is configured. The agent only starts after the user approves in Kuayle; never claim work has started. Set harness, model and effort only when the user named them; omitted settings use their configured defaults. Pass the model ID when known (for example claude-opus-5-5 for Opus 5.5); OpenCode models are written provider/model (for example opencode-go/deepseek-v4.1-flash). The user can still change them on the approval card. Set workflow (a workflow name or ID of the workspace, or \"standard\") only when the user named one; otherwise the issue's default workflow is used, and a custom workflow's first agent step decides the harness and model.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"model":{"type":"string","maxLength":200},"effort":{"type":"string","enum":["low","medium","high","xhigh","max"]},"workflow":{"type":"string","maxLength":100}},"required":["identifier","instructions"],"additionalProperties":false}`},
+	{name: "delegate_issue", description: "Ask the user to approve starting a coding agent on an existing issue. The agent works in the development repository configured for the issue, its project, team or workspace, so do not ask for a repository unless this tool reports that none is configured. The agent only starts after the user approves in Kuayle; never claim work has started. Set harness, model and effort only when the user named them; omitted settings use their configured defaults. Pass the model ID when known (for example claude-opus-5-5 for Opus 5.5); OpenCode models are written provider/model (for example opencode-go/deepseek-v4.1-flash). The user can still change them on the approval card. Set workflow (a workflow name or ID of the workspace, or \"standard\") only when the user named one; otherwise the issue's default workflow is used, and a custom workflow's first agent step (a pipeline's writer role) decides the harness and model.", approval: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"instructions":{"type":"string","minLength":1,"maxLength":16000},"harness":{"type":"string","enum":["claude-code","codex","opencode"]},"model":{"type":"string","maxLength":200},"effort":{"type":"string","enum":["low","medium","high","xhigh","max"]},"workflow":{"type":"string","maxLength":100}},"required":["identifier","instructions"],"additionalProperties":false}`},
 	bulkUpdateTool,
 	{name: "update_issue", description: "Change an existing issue's title, description, status, priority, assignees, due date, cycle, project or labels. Only call this when the user explicitly asked for that change.", write: true, parameters: `{"type":"object","properties":{"identifier":{"type":"string","maxLength":32},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"status":{"type":"string","enum":["backlog","todo","in_progress","in_review","done","cancelled"]},"priority":{"type":"integer","minimum":0,"maximum":4},` + assistantIssueFieldParams + `},"required":["identifier"],"additionalProperties":false}`},
 	{name: "create_issue", description: "Create an issue with optional assignees, due date, cycle, project and labels. Use parent_identifier to create a sub-issue. Only call this when the user explicitly asked to create or file an issue.", write: true, parameters: `{"type":"object","properties":{"team_key":{"type":"string","maxLength":16},"title":{"type":"string","minLength":1,"maxLength":500},"description":{"type":"string","maxLength":8000},"priority":{"type":"integer","minimum":0,"maximum":4},"parent_identifier":{"type":"string","maxLength":32},` + assistantIssueFieldParams + `},"required":["team_key","title"],"additionalProperties":false}`},
@@ -790,14 +790,15 @@ func (t *AssistantTools) SetWorkflows(workflows assistantWorkflows) { t.workflow
 // case-insensitive name, to a non-archived workflow of the workspace.
 // Empty keeps the issue's default; "standard" is the built-in workflow.
 func (t *AssistantTools) delegationWorkflow(ctx context.Context, ws uuid.UUID, chosen string) (string, string, error) {
-	return resolveDelegationWorkflow(ctx, t.workflows, ws, chosen)
+	return resolveDelegationWorkflow(ctx, t.workflows, t.agentTasks.PipelinesEnabled(), ws, chosen)
 }
 
 // resolveDelegationWorkflow is the one check of a delegation's workflow, made
 // when the assistant proposes it and again when the approver changes it on the
-// card. A choice that is not allowed is a user-safe tool failure; a failure to
-// list the workflows is returned as it is.
-func resolveDelegationWorkflow(ctx context.Context, workflows assistantWorkflows, ws uuid.UUID, chosen string) (string, string, error) {
+// card. A pipeline is chosen only while the server has pipelines on, as in the
+// task composer. A choice that is not allowed is a user-safe tool failure; a
+// failure to list the workflows is returned as it is.
+func resolveDelegationWorkflow(ctx context.Context, workflows assistantWorkflows, pipelines bool, ws uuid.UUID, chosen string) (string, string, error) {
 	chosen = strings.TrimSpace(chosen)
 	switch {
 	case chosen == "":
@@ -813,6 +814,9 @@ func resolveDelegationWorkflow(ctx context.Context, workflows assistantWorkflows
 	}
 	for _, w := range list {
 		if w.WorkspaceID == ws && w.ArchivedAt == nil && (w.ID.String() == strings.ToLower(chosen) || strings.EqualFold(w.Name, chosen)) {
+			if !pipelines && domain.WorkflowKind(w.Graph) == domain.WorkflowKindPipeline {
+				return "", "", toolFailure("%s is a pipeline, and pipeline workflows are turned off on this server; omit workflow to use the issue's default, or name another workflow", w.Name)
+			}
 			return w.ID.String(), w.Name, nil
 		}
 	}

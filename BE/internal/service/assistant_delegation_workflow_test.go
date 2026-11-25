@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -60,6 +61,35 @@ func TestDelegationResolvesTheChosenWorkflow(t *testing.T) {
 	unwired := NewAssistantTools(prIssues{issue: issue}, nil, prMembers{user: domain.RoleMember}, nil)
 	_, _, err = unwired.prepareDelegation(context.Background(), ws, user, `{"identifier":"ENG-1","instructions":"x","workflow":"Implement with review loop"}`)
 	require.Error(t, err, "without workflows only the default can run")
+}
+
+// A pipeline is chosen for a delegation like any workflow while the server
+// has pipelines on (KUA-291). Off, the assistant is told so and proposes
+// nothing, as the task composer offers none.
+func TestDelegationChoosesAPipelineOnlyWhilePipelinesAreOn(t *testing.T) {
+	ws, user, team := uuid.New(), uuid.New(), uuid.New()
+	issue := &domain.Issue{ID: uuid.New(), Identifier: "ENG-1", Title: "Dark mode"}
+	tools := NewAssistantTools(prIssues{issue: issue}, nil, prMembers{user: domain.RoleMember}, nil)
+	raw, err := json.Marshal(domain.TeamPipeline(uuid.New(), uuid.New()))
+	require.NoError(t, err)
+	tools.SetWorkflows(delegationWorkflows{ws: {{Workflow: domain.Workflow{ID: team, WorkspaceID: ws, Name: "Team"}, Graph: raw}}})
+	tasks := NewAgentTaskService(nil, nil, nil)
+	tools.SetAgentTasks(tasks)
+	prepare := func() (domain.DelegationPayload, error) {
+		_, payload, err := tools.prepareDelegation(context.Background(), ws, user, `{"identifier":"ENG-1","instructions":"Implement it","workflow":"Team"}`)
+		return payload, err
+	}
+
+	_, err = prepare()
+	var refused *errAssistantTool
+	require.ErrorAs(t, err, &refused)
+	require.Equal(t, `Team is a pipeline, and pipeline workflows are turned off on this server; omit workflow to use the issue's default, or name another workflow`, refused.message)
+
+	tasks.SetPipelines(true)
+	payload, err := prepare()
+	require.NoError(t, err)
+	require.Equal(t, team.String(), payload.WorkflowID)
+	require.Equal(t, "Team", payload.Workflow)
 }
 
 // The approved delegation passes the recorded workflow to the task request;

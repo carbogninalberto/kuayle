@@ -68,6 +68,17 @@ func (s *AgentAutomationService) Create(ctx context.Context, ws, owner uuid.UUID
 	if input.VersionPolicy != "" && (input.WorkflowID == nil || (input.VersionPolicy != "pin" && input.VersionPolicy != "latest")) {
 		return nil, ErrInvalidAutomation
 	}
+	// A rule chooses a pipeline only while the server has pipelines on, as a
+	// scope's default does; its runs would be refused otherwise.
+	if input.WorkflowID != nil && (s.tasks == nil || !s.tasks.PipelinesEnabled()) {
+		kind, err := s.repo.WorkflowKind(ctx, ws, *input.WorkflowID)
+		if err != nil && !errors.Is(err, repository.ErrAutomationNotFound) {
+			return nil, err
+		}
+		if kind == domain.WorkflowKindPipeline {
+			return nil, ErrPipelinesDisabled
+		}
+	}
 	automation.Cron, automation.Timezone = strings.TrimSpace(input.Cron), input.Timezone
 	if automation.Timezone == "" {
 		automation.Timezone = "UTC"

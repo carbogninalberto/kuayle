@@ -149,6 +149,65 @@ func TestAutomationDelegatesPinnedOrLatestPublishedVersion(t *testing.T) {
 	}
 }
 
+// An automation runs a pipeline like any workflow while the server has
+// pipelines on (KUA-291): its runs start pipeline tasks. Off, a rule cannot
+// choose one, as a scope's default cannot.
+func TestAutomationRunsAPipelineOnlyWhilePipelinesAreOn(t *testing.T) {
+	f := newToolFixture(t)
+	_, err := f.db.Exec(`UPDATE workspace_members SET role='admin' WHERE workspace_id=$1 AND user_id=$2`, f.ws, f.user)
+	require.NoError(t, err)
+	var team, status, issue uuid.UUID
+	require.NoError(t, f.db.Get(&team, `SELECT id FROM teams WHERE workspace_id=$1`, f.ws))
+	require.NoError(t, f.db.Get(&status, `SELECT id FROM team_statuses WHERE team_id=$1 LIMIT 1`, team))
+	require.NoError(t, f.db.Get(&issue, `INSERT INTO issues(workspace_id,team_id,number,identifier_text,title,creator_id,status_id)
+	 VALUES($1,$2,1,'ENG-1','Check the change',$3,$4) RETURNING id`, f.ws, team, f.user, status))
+
+	definitions := repository.NewWorkflowRepository(f.db)
+	require.NoError(t, definitions.EnsureBuiltinProfiles(f.ctx, f.ws))
+	var implementer, reviewer uuid.UUID
+	profiles, err := definitions.Profiles(f.ctx, f.ws)
+	require.NoError(t, err)
+	for _, p := range profiles {
+		if p.Behaviour == domain.AgentBehaviourChangesCode {
+			implementer = p.ID
+		} else if p.Reviews() {
+			reviewer = p.ID
+		}
+	}
+	raw, err := json.Marshal(domain.TeamPipeline(implementer, reviewer))
+	require.NoError(t, err)
+	pipeline, err := definitions.CreateWorkflow(f.ctx, f.ws, f.user, "Team", "", raw, "created")
+	require.NoError(t, err)
+
+	machines := repository.NewDevMachineRepository(f.db)
+	require.NoError(t, machines.UpsertPolicy(f.ctx, &domain.DevMachineWorkspacePolicy{WorkspaceID: f.ws, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2, MaxDailyAgentRuns: 25, MaxDiskGB: 100, AllowedProviders: json.RawMessage(`["claude-code"]`), AllowedRepositories: json.RawMessage(`[]`)}))
+	taskSvc := NewAgentTaskService(repository.NewAgentTaskRepository(f.db), NewDevMachineService(machines, agent.NewRegistry(agent.NewClaudeCodeProvider("test")), true, "", nil, time.Minute, DevMachineImages{}), nil)
+	taskSvc.SetWorkflows(definitions)
+	repo := repository.NewAgentAutomationRepository(f.db)
+	svc := NewAgentAutomationService(repo, f.repo, taskSvc)
+	input := AutomationInput{TeamID: team, StatusID: &status, Name: "Triage", Instructions: "Fix the issue", WorkflowID: &pipeline.ID, VersionPolicy: "pin"}
+
+	_, err = svc.Create(f.ctx, f.ws, f.user, input)
+	require.ErrorIs(t, err, ErrPipelinesDisabled)
+	var rules int
+	require.NoError(t, f.db.Get(&rules, `SELECT count(*) FROM agent_automations WHERE workspace_id=$1`, f.ws))
+	require.Zero(t, rules)
+
+	taskSvc.SetPipelines(true)
+	rule, err := svc.Create(f.ctx, f.ws, f.user, input)
+	require.NoError(t, err)
+	require.Equal(t, 1, *rule.PinnedVersion)
+	var run uuid.UUID
+	require.NoError(t, f.db.Get(&run, `INSERT INTO agent_automation_runs(automation_id,workspace_id,issue_id,status) VALUES($1,$2,$3,'pending_approval') RETURNING id`, rule.ID, f.ws, issue))
+	started, err := svc.Decide(f.ctx, f.ws, run, f.user, false, true)
+	require.NoError(t, err)
+	require.Equal(t, "started", started.Status, started.Error)
+	var task domain.AgentTask
+	require.NoError(t, f.db.Get(&task, `SELECT * FROM agent_tasks WHERE id=$1`, started.TaskID))
+	require.True(t, task.Pipeline, "the run's task is on the pipeline")
+	require.Equal(t, *pipeline.VersionID, *task.WorkflowVersionID)
+}
+
 func TestAutomationStopsRetryingAndCanReplayOnlyAsOriginalActor(t *testing.T) {
 	f := newToolFixture(t)
 	svc, repo, tasks, id := automationRun(t, f, "starting", &f.user)

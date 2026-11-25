@@ -26,7 +26,10 @@ type approvalTaskFake struct {
 	mu         sync.Mutex
 	creates    int
 	requests   []domain.AgentTaskRequest // every Create call, in order
+	pipelines  bool                      // the server's pipeline switch
 }
+
+func (f *approvalTaskFake) PipelinesEnabled() bool { return f.pipelines }
 
 func (f *approvalTaskFake) Options(context.Context, uuid.UUID, uuid.UUID) (*AgentTaskOptions, error) {
 	if f.optionsErr != nil {
