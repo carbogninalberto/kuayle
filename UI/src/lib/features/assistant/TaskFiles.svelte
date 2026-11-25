@@ -17,7 +17,8 @@
 	// server decides and the panel says so.
 	let { slug, task }: { slug: string; task: AgentTask } = $props();
 
-	let listing = $state<TaskFiles | null>(null);
+	// Replaced whole on every read: raw, so 30,000 entries are not proxied one by one.
+	let listing = $state.raw<TaskFiles | null>(null);
 	let status = $state<'loading' | 'ready' | FileError>('loading');
 	let reloads = $state(0);
 	let query = $state('');

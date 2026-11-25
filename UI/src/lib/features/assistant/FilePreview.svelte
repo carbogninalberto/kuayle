@@ -36,13 +36,14 @@
 		reload: () => void;
 	} = $props();
 
-	let page = $state<TaskFileContent | null>(null);
+	// Pages, tokens and the diff are replaced whole: raw state, never proxied line by line.
+	let page = $state.raw<TaskFileContent | null>(null);
 	let status = $state<'loading' | 'ready' | FileError>('loading');
 	let start = $state(1);
 	let history = $state<number[]>([]);
 	let attempt = $state(0);
 	// Highlighted lines of the page, or null to show it plain.
-	let tokens = $state<Token[][] | null>(null);
+	let tokens = $state.raw<Token[][] | null>(null);
 	const highlightable = $derived(!!page && page.content.length <= highlightCap);
 	const plainLines = $derived(page ? page.content.replace(/\n$/, '').split('\n') : []);
 	const hasNext = $derived(!!page && !!nextPage(page, history));
@@ -82,7 +83,7 @@
 		start = to.start;
 	}
 
-	let stored = $state<{ file?: DiffFile; truncated: boolean } | null>(null);
+	let stored = $state.raw<{ file?: DiffFile; truncated: boolean } | null>(null);
 	let diffStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	function loadDiff() {
 		diffStatus = 'loading';
