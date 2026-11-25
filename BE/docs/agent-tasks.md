@@ -3028,8 +3028,9 @@ who may post what:
 | `verdict` (`approve`, `request_changes` or `comment`, for a commit) | no | no | for its own role | no | no |
 | `phase` | no | no | no | yes | only without a lead |
 | `request` (`review`, `merge`, `publish` or `split`) | except `split` | `review` only | no | yes | no |
+| `request` with action `approve` | no | no | no | with approval authority | no |
 | `waiver` (of a check) | yes | no | no | checks granted to it | no |
-| `grant` (of a check) | yes | no | no | no | no |
+| `grant` (approve or waive one check) | yes | no | no | no | no |
 | `fact` | no | no | no | no | yes |
 | `summary` | no | no | no | yes | yes |
 
@@ -3043,6 +3044,30 @@ is stored with its `reject_reason` (200 characters), without recipients or
 data, is never delivered and is shown to its sender at its next turn. Every
 stored post writes a `task.room_message` conversation event in its
 transaction, and a person's post wakes the task's tick.
+
+**Grants and waivers** (KUA-305). The pinned definition can delegate merge
+approval with `autonomy.approve: "lead"` and individual checks with
+`autonomy.waive`, for example `{"ci":"lead"}`. The creator can also grant
+authority for this task through the session-only
+`POST /agent-tasks/:taskId/room` route. Send one post for each permission.
+
+- Merge approval uses `{"kind":"grant","data":{"role":"lead","action":"approve"}}`.
+- Waiving the CI check uses `{"kind":"grant","data":{"role":"lead","action":"waive","check":"ci"}}`.
+
+The existing `{"kind":"grant","data":{"check":"ci"}}` form grants the lead
+that one waiver. The lead exercises approval by
+posting `request` with `data.action="approve"` and the full room head in
+`data.commit`. The existing merge gate still checks the head and all other
+required checks. A review verdict and a request to merge have their own
+meanings. Message bodies, PR comments and agent output cannot grant authority.
+
+The creator or an authorized lead waives a named check by posting `waiver`
+with `data.check` and a reason in `body`. By default the waiver covers the
+last head Kuayle posted in the room. With `data.standing=true` it also
+covers future heads of this task. Kuayle stores each accepted room grant,
+waiver and delegated approval in `workflow_audit_events` in the same
+transaction as the room post. Replaying a post with the same dedupe key
+returns the original decision.
 
 **Splitting an issue.** The lead proposes 1–10 children in a `request`
 with `data.action = "split"` and `data.issues`, an array of objects with
@@ -3267,7 +3292,7 @@ current phase; `workflow_status`, `workflow_wake_at`, `workflow_sequence`;
 `workflow_iterations` counts the turns charged; the budget clock), so the
 claim query, pause, resume and the existing views keep working, and its
 memory between passes in `agent_tasks.pipeline_state`: the facts last posted,
-the room read so far, the creator's waivers, which head each role was asked
+the room read so far, the accepted waivers, which head each role was asked
 about, the approval, the last published turn, branch updates, the CI rerun,
 the merge, the script checks' runs, since when the phase waits on checks
 that change by themselves, and the stall counter. Every save is fenced by
@@ -3276,8 +3301,8 @@ sequence, which moves on only when the phase or the status changes or a
 person decides. One pass:
 
 1. reads the facts, the verdicts, approval and script runs that hold for the
-   head, the overlap and the room since the last pass (a creator's `waiver`
-   holds for the head the room last named). A verdict or a script run holds
+   head, the overlap and the room since the last pass (a `waiver` covers the head
+   the room last named, or every head when standing). A verdict or a script run holds
    across merges of the base that Kuayle verified on top of its commit, up to
    `maxUpdateChain` (12); the owner's approval across at most
    `maxMergeUpdates` (3) of them, the merge's own (KUA-277). A pull request that cannot be
@@ -3426,9 +3451,8 @@ approve, continue and stop.
 - The lead takes a turn only when its unread posts call for one, as a role
   that is not on call does, and Kuayle still derives the phase (with a
   `lead` set it posts no `phase` move, and the lead's own moves change
-  nothing yet). `autonomy` is not read:
-  approving is a person's decision and waiving the creator's, and a `grant`
-  is stored but grants nothing until there is a lead.
+  nothing yet). Running lead turns is separate from permission to approve
+  or waive a check.
 - Writers write one at a time, on the root task; the other roles never
   publish and have no push credential. A read-only member cannot run a
   command that writes into its worktree (some test runners do).

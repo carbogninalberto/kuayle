@@ -72,14 +72,14 @@ type tickState struct {
 	Pass int `json:"pass"`
 	// Facts are the values last posted to the room, by fact.
 	Facts map[string]json.RawMessage `json:"facts,omitempty"`
-	// Read is the room read so far, Head the head the room last said; a
-	// person's waiver holds for the head it was given on (Waivers).
+	// Read is the room cursor. Waivers maps each waived check to the head
+	// Kuayle named in the room at that point, or standingWaiver.
 	Read    int64             `json:"read,omitempty"`
 	Head    string            `json:"head,omitempty"`
 	Waivers map[string]string `json:"waivers,omitempty"`
 	// Asked is the head each role was last asked to review.
 	Asked map[string]string `json:"asked,omitempty"`
-	// Approved is the owner's approval to merge a head.
+	// Approved names the head and the user whose authority the merge uses.
 	Approved *tickApproval `json:"approved,omitempty"`
 	// Published is the writer's run Kuayle last published.
 	Published string `json:"published,omitempty"`
@@ -106,6 +106,9 @@ type tickWait struct {
 	Key   string    `json:"key,omitempty"`
 	Since time.Time `json:"since,omitzero"`
 }
+
+// A standing waiver holds for every head. The marker cannot be a commit SHA.
+const standingWaiver = "*"
 
 type tickApproval struct {
 	Head string    `json:"head"`
@@ -361,8 +364,9 @@ func (t *tickPass) read(ctx context.Context) error {
 	if t.members, err = s.Repo.MemberTasks(ctx, task); err != nil {
 		return err
 	}
-	if t.facts.Err != nil || t.facts.PRExists != FactYes {
-		return t.readRoom(ctx)
+	// A granted approval in this batch counts when evaluating this pass.
+	if err = t.readRoom(ctx); err != nil || t.facts.Err != nil || t.facts.PRExists != FactYes {
+		return err
 	}
 	head := t.facts.HeadSHA
 	verdicts, err := s.Repo.LatestVerdicts(ctx, task, "")
@@ -402,7 +406,7 @@ func (t *tickPass) read(ctx context.Context) error {
 			t.facts.Overlap = boardOverlap(board, task.ID)
 		}
 	}
-	return t.readRoom(ctx)
+	return nil
 }
 
 // covered is the head when it is commit, or commit plus at most limit merges
@@ -422,27 +426,45 @@ func (t *tickPass) covered(commit string, limit int) (string, error) {
 	return head, nil
 }
 
-// readRoom reads the room since the last pass: the head Kuayle last named,
-// and the waivers the task's creator gave for it.
+// readRoom reads one page of accepted decisions and head changes in order.
 func (t *tickPass) readRoom(ctx context.Context) error {
 	posts, err := t.s.Repo.RoomMessages(ctx, t.task.WorkspaceID, t.task.ID, t.st.Read)
 	if err != nil {
 		return err
 	}
 	for _, m := range posts {
-		t.st.Read = m.Seq
-		switch {
-		case m.RejectReason != nil:
-		case m.AuthorKind == domain.RoomAuthorKuayle && m.Kind == domain.RoomFact && m.Data.Fact == "head_sha":
-			_ = json.Unmarshal(m.Data.Value, &t.st.Head)
-		case m.AuthorKind == domain.RoomAuthorHuman && m.Kind == domain.RoomWaiver:
-			if t.st.Waivers == nil {
-				t.st.Waivers = map[string]string{}
-			}
+		t.applyRoomMessage(m)
+	}
+	// A decision beyond this page still needs a pass, even if the task
+	// would otherwise sleep until a person approves.
+	t.pending = len(posts) == repository.RoomMessagePageSize
+	return nil
+}
+
+func (t *tickPass) applyRoomMessage(m domain.TaskMessage) {
+	t.st.Read = m.Seq
+	if m.RejectReason != nil {
+		return
+	}
+	// The room authenticated the sender and checked its grant on insertion.
+	lead := m.AuthorKind == domain.RoomAuthorMember && deref(m.AuthorRole) == domain.PipelineLeadRole
+	switch {
+	case m.AuthorKind == domain.RoomAuthorKuayle && m.Kind == domain.RoomFact && m.Data.Fact == "head_sha":
+		_ = json.Unmarshal(m.Data.Value, &t.st.Head)
+	// Reasonless lead waivers accepted by earlier rooms stay inert.
+	case m.Kind == domain.RoomWaiver && (m.AuthorKind == domain.RoomAuthorHuman || lead && m.Body != ""):
+		if t.st.Waivers == nil {
+			t.st.Waivers = map[string]string{}
+		}
+		if m.Data.Standing {
+			t.st.Waivers[m.Data.Check] = standingWaiver
+		} else if t.st.Waivers[m.Data.Check] != standingWaiver {
+			// An older post could carry an unvalidated commit field.
 			t.st.Waivers[m.Data.Check] = t.st.Head
 		}
+	case lead && m.Kind == domain.RoomRequest && m.Data.Action == domain.RoomActionApprove && m.Data.Commit != "" && m.Data.Commit == t.st.Head:
+		t.st.Approved = &tickApproval{Head: m.Data.Commit, By: t.task.CreatorID}
 	}
-	return nil
 }
 
 // postScripts posts each script check's result once: a failed advisory
@@ -522,7 +544,7 @@ func (t *tickPass) phase() (int, []UnmetCheck) {
 	for i, phase := range t.p.Phases {
 		var checks []FactCheck
 		for _, check := range phase.Checks {
-			if waived, ok := t.st.Waivers[check.ID]; check.Required && (!ok || waived != t.facts.HeadSHA) {
+			if waived := t.st.Waivers[check.ID]; check.Required && waived != standingWaiver && (waived == "" || waived != t.facts.HeadSHA) {
 				checks = append(checks, FactCheck{ID: check.ID, Fact: check.Fact, Role: check.Role})
 			}
 		}

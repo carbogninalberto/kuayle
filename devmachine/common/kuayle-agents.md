@@ -154,6 +154,11 @@ kuayle-say --to @reviewer --request review
   question asked of you before you end your turn, with `--reply-to` and its
   number.
 - The implementer may ask for a review with `--request review`.
+- If you are the lead and have approval authority, use
+  `kuayle-say --to @all --request approve --commit <full-room-head>`.
+  To waive a check you have authority over, use
+  `kuayle-say --to @all --waive <check> "reason"`. Add `--standing` if
+  the reason also applies to future heads of this task.
 - Text is at most 4,000 characters; point to files instead of pasting them.
 
 ### Verdicts

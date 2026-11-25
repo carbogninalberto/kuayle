@@ -213,3 +213,86 @@ func TestLeadSplitRequest(t *testing.T) {
 		}
 	})
 }
+
+func TestTaskRoomCreatorGrantNamesAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		data    TaskRoomData
+		allowed bool
+	}{
+		{"legacy check grant", TaskRoomData{Check: "ci"}, true},
+		{"waive one check", TaskRoomData{Role: "lead", Action: "waive", Check: "ci"}, true},
+		{"approve merge", TaskRoomData{Role: "lead", Action: "approve"}, true},
+		{"unknown check", TaskRoomData{Action: "waive", Check: "missing"}, false},
+		{"no check", TaskRoomData{Action: "waive"}, false},
+		{"mixed grants", TaskRoomData{Action: "approve", Check: "ci"}, false},
+		{"unknown action", TaskRoomData{Action: "publish", Check: "ci"}, false},
+		{"wrong role", TaskRoomData{Role: "reviewer", Check: "ci"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			post := TaskRoomPost{AuthorKind: RoomAuthorHuman, Kind: RoomGrant, Data: tc.data}
+			require.Equal(t, tc.allowed, TaskRoomRefusal(roomPipeline(true), post, false) == "")
+			require.NotEmpty(t, TaskRoomRefusal(roomPipeline(false), post, false))
+		})
+	}
+}
+
+func TestTaskRoomAgentGrantRefused(t *testing.T) {
+	p := roomPipeline(true)
+	for _, role := range []string{"implementer", "reviewer", PipelineLeadRole} {
+		post := TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: role, Kind: RoomGrant,
+			Data: TaskRoomData{Role: PipelineLeadRole, Action: "approve"}}
+		require.NotEmpty(t, TaskRoomRefusal(p, post, true))
+	}
+}
+
+func TestTaskRoomLeadApprovesOnlyWithinGrant(t *testing.T) {
+	p := roomPipeline(true)
+	approval := TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, Kind: RoomRequest,
+		Data: TaskRoomData{Action: "approve", Commit: strings.Repeat("a", 40)}}
+	require.NotEmpty(t, TaskRoomRefusal(p, approval, false), "a grant to waive CI cannot approve")
+	require.Empty(t, TaskRoomRefusal(p, approval, true), "runtime approval grant")
+	p.Autonomy.Approve = PipelineLeadRole
+	require.Empty(t, TaskRoomRefusal(p, approval, false), "pinned approval grant")
+	for _, role := range []string{"implementer", "reviewer"} {
+		other := approval
+		other.AuthorRole = role
+		require.NotEmpty(t, TaskRoomRefusal(p, other, true))
+	}
+	owner := approval
+	owner.AuthorKind, owner.AuthorRole = RoomAuthorHuman, ""
+	require.NotEmpty(t, TaskRoomRefusal(p, owner, false), "the creator already has a dedicated approval route")
+	approval.Data.Commit = "abc1234"
+	require.NotEmpty(t, TaskRoomRefusal(p, approval, true), "approval names the full head")
+	waiver := TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, Kind: RoomWaiver,
+		Body: "Manually verified", Data: TaskRoomData{Check: "reviewer"}}
+	require.NotEmpty(t, TaskRoomRefusal(p, waiver, false), "approval cannot waive review")
+}
+
+func TestTaskRoomWaiverRequiresReason(t *testing.T) {
+	post := TaskRoomPost{AuthorKind: RoomAuthorHuman, Kind: RoomWaiver, Body: "  ", Data: TaskRoomData{Check: "ci"}}
+	require.NotEmpty(t, TaskRoomRefusal(roomPipeline(true), post, false))
+	post.Body = "Ran the suite locally"
+	require.Empty(t, TaskRoomRefusal(roomPipeline(true), post, false))
+}
+
+func TestTaskRoomDecisionScopesReachMemberPrompt(t *testing.T) {
+	head := strings.Repeat("b", 40)
+	for _, tc := range []struct {
+		kind, data string
+		fragments  []string
+	}{
+		{RoomGrant, `{"action":"approve"}`, []string{"lead", "approve"}},
+		{RoomGrant, `{"check":"ci"}`, []string{"lead", "waive", "ci"}},
+		{RoomRequest, `{"action":"approve","commit":"` + head + `"}`, []string{"approve", head}},
+		{RoomWaiver, `{"check":"ci","standing":true}`, []string{"ci", "standing"}},
+		{RoomWaiver, `{"check":"ci","commit":"` + head + `"}`, []string{"ci", head}},
+	} {
+		var data TaskRoomData
+		require.NoError(t, json.Unmarshal([]byte(tc.data), &data))
+		line := roomDataLine(TaskMessage{Kind: tc.kind, Data: data})
+		for _, fragment := range tc.fragments {
+			require.Contains(t, line, fragment)
+		}
+	}
+}

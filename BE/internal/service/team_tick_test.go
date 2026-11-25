@@ -1204,8 +1204,8 @@ func TestTickAWriterTurnThatCannotStartYetWaits(t *testing.T) {
 }
 
 // A waiver holds for the head the room last named when the task's creator
-// gave it, and only from the creator: a role's waiver is refused.
-func TestTickAWaiverHoldsForItsHeadAndOnlyFromTheCreator(t *testing.T) {
+// gave it. A writer without a grant cannot waive review.
+func TestTickCreatorWaiverHoldsForItsHead(t *testing.T) {
 	w := newTickWorld(t, nil)
 	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
 		switch {
@@ -1222,7 +1222,7 @@ func TestTickAWaiverHoldsForItsHeadAndOnlyFromTheCreator(t *testing.T) {
 	require.Len(t, refused, 1)
 	require.NotNil(t, refused[0].RejectReason)
 
-	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomWaiver, Data: domain.TaskRoomData{Check: "reviewer"}})
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomWaiver, Body: "Verified the toggle manually.", Data: domain.TaskRoomData{Check: "reviewer"}})
 	require.NoError(t, err)
 	w.drain()
 	require.Equal(t, "integrate", w.phase(), "the owner waived the review of this head")

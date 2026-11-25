@@ -295,6 +295,40 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	await page.screenshot({ path: testInfo.outputPath('task-room-phone.png') });
 });
 
+test('the room shows who may approve a merge and which commits a waiver covers', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	const commit = 'abc1234def567890123456789012345678901234';
+	state.room = [
+		post(1, 'human', 'grant', '', { data: { action: 'approve', role: 'lead' } }),
+		post(2, 'human', 'waiver', 'The retired check has no runner.', { data: { check: 'legacy-ci', standing: true } }),
+		post(3, 'human', 'waiver', 'Verified this build locally.', { data: { check: 'ci', commit } }),
+		post(4, 'member', 'request', '', { author_role: 'lead', data: { action: 'approve', commit } })
+	];
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const room = page.getByRole('list', { name: 'Task room' });
+	await expect(room.locator('[data-seq="1"]')).toContainText('Lets the lead approve merges');
+	await expect(room.locator('[data-seq="2"]')).toContainText('Waived the check legacy-ci for all commits');
+	await expect(room.locator('[data-seq="3"]')).toContainText('Waived the check ci');
+	await expect(room.locator('[data-seq="3"]')).toContainText('Commit abc1234');
+	await expect(room.locator('[data-seq="4"]')).toContainText('Approved merging abc1234');
+
+	for (const [device, width] of [
+		['desktop', 1280],
+		['phone', 390]
+	] as const) {
+		await page.setViewportSize({ width, height: 900 });
+		await expect.poll(() => room.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+		for (const mode of ['light', 'dark']) {
+			await page.evaluate((mode) => {
+				document.documentElement.classList.toggle('dark', mode === 'dark');
+				document.documentElement.classList.toggle('light', mode === 'light');
+			}, mode);
+			await page.screenshot({ path: testInfo.outputPath(`grants-${device}-${mode}.png`) });
+		}
+	}
+});
+
 // The owner approves the head where the pipeline waits for it (its tick then
 // merges through the gate); a pipeline has nothing to deny.
 test('the owner approves a pipeline task waiting for approval', async ({ page }) => {

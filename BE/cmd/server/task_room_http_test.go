@@ -140,7 +140,7 @@ func TestTaskRoomHTTP(t *testing.T) {
 		`{"kind":"say","body":"  Use the new API "}`,
 		`{"kind":"ask","body":"Ready for review?","to":["implementer"],"reply_to":1}`,
 		`{"kind":"request","data":{"action":"merge"},"request_id":"` + request + `"}`,
-		`{"kind":"waiver","body":"Flaky job","data":{"check":"ci"}}`,
+		`{"kind":"waiver","body":"Retired job","data":{"check":"ci","standing":true}}`,
 		`{"kind":"grant","data":{"check":"owner"}}`,
 	}
 	var sent []domain.TaskMessage
@@ -202,6 +202,22 @@ func TestTaskRoomHTTP(t *testing.T) {
 	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: creator, Name: "Room", Scopes: []string{domain.PermAgentTasksRead, "dev_machine:manage"}, TokenHash: hash, TokenPrefix: prefix}))
 	call("GET", room, "", pat, 403, nil)
 	call("POST", room, posts[0], pat, 403, nil)
+	t.Run("OnlyTheCreatorsSessionRouteGrants", func(t *testing.T) {
+		const grant = `{"kind":"grant","data":{"role":"lead","action":"approve"}}`
+		call("POST", room, grant, pat, 403, nil)
+		call("POST", room, grant, tokenFor(owner), 404, nil)
+		call("POST", room, grant, tokenFor(member), 404, nil)
+		call("POST", room, grant, tokenFor(outsider), 403, nil)
+		call("POST", strings.Replace(room, ws.String(), otherWS.String(), 1), grant, token, 404, nil)
+
+		var accepted domain.TaskMessage
+		call("POST", room, grant, token, 201, &accepted)
+		require.Nil(t, accepted.RejectReason)
+		require.Equal(t, &creator, accepted.AuthorUserID)
+		var n int
+		require.NoError(t, db.Get(&n, `SELECT count(*) FROM task_messages WHERE workspace_id=$1 AND task_id=$2 AND kind='grant' AND data->>'action'='approve'`, ws, task.ID))
+		require.Equal(t, 1, n)
+	})
 	// The demo guard covers it like every task route.
 	demoDenied.Store(true)
 	call("GET", room, "", token, 403, nil)

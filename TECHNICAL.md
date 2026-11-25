@@ -738,7 +738,10 @@ succeeded on the same machine, and otherwise starts with the handoff. Such a
 turn reads its worktree read-only at the commit it reviews where the harness
 can run that way. Other reviews still start cold. The roles and Kuayle talk in the task's room
 (migrations 206 and 207), and a tick on the task worker, not the graph
-runner, moves the task from the facts it reads (migration 208).
+runner, moves the task from the facts it reads (migration 208). The pinned
+pipeline and its creator’s session can grant the lead approval or waiver
+authority. The room stores each accepted decision with its workflow audit
+event (KUA-305).
 A lead can propose children in that room. The creator approves the stored
 proposal in a session action that creates and audits all children together.
 See [the team workflow contract](BE/docs/agent-tasks.md#team-workflows-experimental).
