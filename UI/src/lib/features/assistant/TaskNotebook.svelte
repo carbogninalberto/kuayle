@@ -1,61 +1,35 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { BotMessageSquare, ChevronRight, Circle, CircleCheck, NotebookText } from '@lucide/svelte';
+	import { BotMessageSquare, ChevronRight, Circle, CircleCheck, RefreshCw } from '@lucide/svelte';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
-	import type { NotebookFinding, TaskNotebook } from '$lib/api/agent-tasks';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import type { AgentTask, NotebookFinding } from '$lib/api/agent-tasks';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import type { ConversationState } from './conversation-state.svelte';
 	import ClampedText from './ClampedText.svelte';
 	import Markdown from './Markdown.svelte';
+	import { useTaskRun } from './task-run.svelte';
 	import { notebookDocument, type NotebookHistoryEntry } from './task-notebook';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
-	// The task's notebook as a short working doc, one quiet line above
-	// the timeline until it is opened: the plan as a checklist, what is done
-	// and what remains, how to verify, decisions and findings. What people
-	// asked is set apart from what agents wrote; who wrote what, at which
-	// step, is the history at the end. Everything in it is untrusted text and
-	// only ever escaped (the plan's text goes through the sanitizing Markdown
-	// view, as it does in its step).
-	let {
-		view,
-		request,
-		name = () => '',
-		open = $bindable(false),
-		onopened
-	}: {
-		view: TaskNotebook;
-		// The task's request, which the view shows above: it is not repeated.
-		request: string;
-		// A person's name by id; empty when not known.
-		name?: (id: string | undefined) => string;
-		open?: boolean;
-		// The document was opened and is laid out: the view may place it.
-		onopened?: () => void;
-	} = $props();
-
-	let section = $state<HTMLElement | null>(null);
-	// Told once the opened document is in the page, and once more if it only
-	// reaches its height a moment later; what the reader opens inside it
-	// afterwards is not an opening.
-	$effect(() => {
-		const node = section;
-		if (!open || !node || !onopened) return;
-		const opened = onopened;
-		let height = node.offsetHeight;
-		// Untracked: placing the view reads the scroller's state, and a change to it (the
-		// reader scrolling) must not count as an opening and send them back to the top.
-		untrack(opened);
-		const observer = new ResizeObserver(() => {
-			if (node.offsetHeight > height) opened();
-			height = node.offsetHeight;
-		});
-		observer.observe(node);
-		const settled = setTimeout(() => observer.disconnect(), 400);
-		return () => {
-			clearTimeout(settled);
-			observer.disconnect();
-		};
-	});
+	// The task's notebook as a short working doc, in its side panel tab
+	// (KUA-286): the plan as a checklist, what is done and what remains, how
+	// to verify, decisions and findings. What people asked is set apart from
+	// what agents wrote; who wrote what, at which step, is the history at the
+	// end. Everything in it is untrusted text and only ever escaped (the
+	// plan's text goes through the sanitizing Markdown view, as it does in
+	// its step). It reads the task's shared run (useTaskRun), which follows
+	// the task's events; only the task's creator can read it. Mounted per
+	// task.
+	let { chat, task }: { chat: ConversationState; task: AgentTask } = $props();
+	const run = useTaskRun(untrack(() => chat), () => task, { notebook: true });
+	const view = $derived(run.notebook);
+	// The request is the task's header; it is not repeated.
+	const request = $derived(task.prompt);
+	// A person's name by id; empty when not known.
+	const name = (id: string | undefined) =>
+		id && id === authState.user?.id ? authState.user.display_name || authState.user.name : '';
 
 	const doc = $derived(notebookDocument(view, request));
 	const when = (at: string) => new Date(at).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' });
@@ -105,22 +79,17 @@
 	>
 {/snippet}
 
-<section bind:this={section} aria-label={m['notebook.title']()} class="min-w-0" data-testid="task-notebook">
-	<Collapsible.Root bind:open>
-		<Collapsible.Trigger
-			class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-		>
-			<span class="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground"
-				><NotebookText size={14} aria-hidden="true" /></span
-			>
-			<span class="min-w-0 flex-1 truncate text-sm font-medium">{m['notebook.title']()}</span>
-			{#if doc.progress}<span class="shrink-0 text-xs text-muted-foreground tabular-nums"
-					>{m['notebook.progress']({ done: doc.progress.done, total: doc.progress.total })}</span
-				>{/if}
-			{@render chevron()}
-		</Collapsible.Trigger>
-		<Collapsible.Content>
-			{#if open}<div class="ml-2.5 flex min-w-0 flex-col gap-5 border-l py-3 pl-4 text-sm sm:pl-5">
+<div class="min-w-0 px-4 py-3 text-sm" data-testid="task-notebook">
+	{#if !view}
+		{#if run.notebookRead}<div class="flex flex-wrap items-center gap-2">
+				<p role="alert" class="text-destructive">{m['tasks.load_error']()}</p>
+				<Button variant="ghost" size="sm" onclick={() => void run.loadNotebook()}><RefreshCw />{m['tasks.refresh']()}</Button>
+			</div>{:else}<p class="text-xs text-muted-foreground" role="status">{m['assistant.loading']()}</p>{/if}
+	{:else}
+				<div class="flex min-w-0 flex-col gap-5">
+					{#if doc.progress}<p class="text-xs text-muted-foreground tabular-nums" data-testid="notebook-progress">
+							{m['notebook.progress']({ done: doc.progress.done, total: doc.progress.total })}
+						</p>{/if}
 					{#if doc.empty}<p class="text-muted-foreground">{m['notebook.empty']()}</p>{/if}
 
 					{#if doc.steps.length || doc.planText}<section aria-labelledby="notebook-plan" class="min-w-0">
@@ -262,7 +231,6 @@
 								</ol>
 							</Collapsible.Content>
 						</Collapsible.Root>{/if}
-				</div>{/if}
-		</Collapsible.Content>
-	</Collapsible.Root>
-</section>
+				</div>
+	{/if}
+</div>

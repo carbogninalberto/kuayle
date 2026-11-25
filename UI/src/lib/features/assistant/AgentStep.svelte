@@ -25,17 +25,21 @@
 	import Markdown from './Markdown.svelte';
 	import RunPrompt from './RunPrompt.svelte';
 	import StepStatus from './StepStatus.svelte';
+	import TurnLine from './TurnLine.svelte';
 	import { stepDuration, type TimelineStep } from './agent-timeline';
+	import { firstLine, workTokens } from './thread-rows';
 	import { stepAgent, stepTitle } from './step-labels';
 	import type { Conversation } from './agent-conversation';
 	import type { ReviewSession } from './agent-review';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
-	// One step of a task's timeline. An agent's step is a single quiet line
-	// (what, who, how long, how it went) that opens to its work: the result
-	// first, the trace below. Other steps disclose their recorded details. The section
-	// id is the step's anchor, so other views can link to it.
+	// One step of a task's timeline. An agent's step is a single quiet line,
+	// as a role's turn is in a room (KUA-286): what, who, what it ended with,
+	// how long, the tokens and how it went. It opens to its work: the harness,
+	// model and flags, the result, the trace below. Other steps disclose their
+	// recorded details. The section id is the step's anchor, so other views
+	// can link to it.
 	let {
 		chat,
 		step,
@@ -122,6 +126,12 @@
 		return '';
 	};
 	const branchReason = $derived(step.branch ? branchText(step.branch) : '');
+	// What the step ended with: its last run's final message, its plan or
+	// findings, or what the runner recorded once it is over.
+	const summary = $derived(
+		firstLine(step.runs.at(-1)?.summary || step.plan || findings || (step.status === 'running' ? '' : step.detail))
+	);
+	const tokens = $derived(workTokens(step.runs));
 </script>
 
 {#snippet status()}<StepStatus status={step.status} />{/snippet}
@@ -132,6 +142,9 @@
 		>{/if}
 	<span class="sr-only">{aside}</span>
 {/snippet}
+
+<!-- Which harness ran it and when are read out with the line, shown on hover or focus. -->
+{#snippet spoken()}<span class="sr-only">{aside}</span>{/snippet}
 
 {#snippet chevron()}
 	<ChevronRight
@@ -158,32 +171,18 @@
 								{...props}
 								class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
 							>
-				{#if step.harness}<AgentLogo agent={step.harness} size="sm" />{:else}<span class="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground"
-						><SearchCheck size={14} aria-hidden="true" /></span
-					>{/if}
-				<span class="min-w-0 flex-1 truncate text-sm">
-					<span class="font-medium">{title}</span>{#if who}<span class="text-muted-foreground">{` · ${who}`}</span>{/if}
-				</span>
-				{#if step.model}<span class="hidden max-w-40 shrink truncate text-xs text-muted-foreground sm:inline"
-						>{step.model}</span
-					>{/if}
-				{#if unanswered}<span
-						role="img"
-						aria-label={m['tasks.live_state_unanswered']()}
-						title={m['tasks.live_state_unanswered']()}
-						class="inline-flex shrink-0 text-[var(--status-warning)]"><MessageCircleWarning size={14} /></span
-					>{/if}
-				{#if unrecorded}<span
-						role="img"
-						aria-label={m['notebook.missed']()}
-						title={m['notebook.missed']()}
-						class="inline-flex shrink-0 text-[var(--status-warning)]"
-						data-flag="notebook"><NotebookPen size={14} /></span
-					>{/if}
-				{@render tail()}
-				{@render status()}
-				{@render chevron()}
-							</Collapsible.Trigger>
+									<TurnLine
+										role={title}
+										{who}
+										{summary}
+										duration={time}
+										startedAt={step.startedAt}
+										{tokens}
+										status={step.status}
+										visit={step.visit}
+										marks={spoken}
+									/>
+								</Collapsible.Trigger>
 						{/snippet}
 					</Tooltip.Trigger>
 					<Tooltip.Content side="top" align="end">{aside}</Tooltip.Content>
@@ -191,7 +190,21 @@
 			</Tooltip.Provider>
 			<Collapsible.Content>
 				{#if open}<div class="ml-2.5 flex min-w-0 flex-col gap-4 border-l py-3 pl-4 sm:pl-5">
-						{#if step.model}<p class="truncate text-xs text-muted-foreground sm:hidden">{step.model}</p>{/if}
+						<!-- Who ran it and what went wrong besides its status: inside, so the line stays quiet. -->
+						<p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground" data-testid="step-details">
+							{#if step.harness}<AgentLogo agent={step.harness} size="sm" class="size-4" /><span>{harness}</span>{:else}<SearchCheck
+									size={13}
+									aria-hidden="true"
+								/>{/if}
+							{#if step.model}<span class="min-w-0 truncate">· {step.model}</span>{/if}
+							<time datetime={step.startedAt}>· {started}</time>
+							{#if unanswered}<span class="inline-flex items-center gap-1 text-[var(--status-warning)]" data-flag="reply"
+									><MessageCircleWarning size={13} aria-hidden="true" />{m['tasks.live_state_unanswered']()}</span
+								>{/if}
+							{#if unrecorded}<span class="inline-flex items-center gap-1 text-[var(--status-warning)]" data-flag="notebook"
+									><NotebookPen size={13} aria-hidden="true" />{m['notebook.missed']()}</span
+								>{/if}
+						</p>
 						{#if promptable && prompted.length}<Button
 								variant="ghost"
 								size="xs"

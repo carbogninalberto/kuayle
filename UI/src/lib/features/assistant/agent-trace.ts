@@ -7,9 +7,11 @@ export interface PlanStep {
 	label: string;
 	status: PlanStatus;
 }
+// changed (set only when true): the task changed the file, or a file below the folder.
 export type FileNode =
-	| { type: 'file'; name: string; path: string }
-	| { type: 'folder'; name: string; path: string; children: FileNode[] };
+	| { type: 'file'; name: string; path: string; changed?: true }
+	| { type: 'folder'; name: string; path: string; changed?: true; children: FileNode[] };
+type FolderNode = Extract<FileNode, { type: 'folder' }>;
 
 const maxLineLength = 64 * 1024;
 const maxSteps = 50;
@@ -98,29 +100,44 @@ export function reasoningSummaries(lines: string[]): string[] {
 		.map((entry) => (entry.length > maxReasoningLength ? entry.slice(0, maxReasoningLength) + '…' : entry));
 }
 
-/** Nests repository-relative paths into folders, folders first, then by name. */
-export function fileTree(paths: string[]): FileNode[] {
+const collator = new Intl.Collator();
+
+/**
+ * Nests repository-relative paths into folders, folders first, then by name.
+ * An entry may mark its file changed; its folders are marked too. Only the
+ * first `limit` entries are used.
+ */
+export function fileTree(entries: (string | { path: string; changed?: boolean })[], limit = 500): FileNode[] {
 	const root: FileNode[] = [];
-	for (const raw of paths.slice(0, 500)) {
+	const folders = new Map<string, FolderNode>();
+	const files = new Set<string>();
+	for (const entry of entries.slice(0, limit)) {
+		const raw = typeof entry === 'string' ? entry : entry.path;
+		const changed = typeof entry !== 'string' && entry.changed === true;
 		const parts = raw.split('/').filter((part) => part && part !== '.' && part !== '..');
 		let level = root;
+		let path = '';
 		parts.forEach((name, index) => {
-			const path = parts.slice(0, index + 1).join('/');
+			path = path ? `${path}/${name}` : name;
 			if (index === parts.length - 1) {
-				if (!level.some((node) => node.path === path)) level.push({ type: 'file', name, path });
+				if (files.has(path)) return;
+				files.add(path);
+				level.push(changed ? { type: 'file', name, path, changed } : { type: 'file', name, path });
 				return;
 			}
-			let folder = level.find((node) => node.type === 'folder' && node.path === path);
+			let folder = folders.get(path);
 			if (!folder) {
 				folder = { type: 'folder', name, path, children: [] };
+				folders.set(path, folder);
 				level.push(folder);
 			}
-			level = (folder as { children: FileNode[] }).children;
+			if (changed) folder.changed = true;
+			level = folder.children;
 		});
 	}
 	const sort = (nodes: FileNode[]): FileNode[] =>
 		nodes
-			.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'folder' ? -1 : 1))
+			.sort((a, b) => (a.type === b.type ? collator.compare(a.name, b.name) : a.type === 'folder' ? -1 : 1))
 			.map((node) => (node.type === 'folder' ? { ...node, children: sort(node.children) } : node));
 	return sort(root);
 }

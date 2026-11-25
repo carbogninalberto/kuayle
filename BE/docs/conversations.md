@@ -207,7 +207,10 @@ compact steps where they started) and a floating composer; the right side is a
 resizable [panel host](../../UI/src/lib/features/assistant/panels/panel-host.svelte.ts)
 (inline from 1280 px, a drawer below) with Details (environment, context
 usage of the 50-message model window, changes, background tasks), Agents (each
-coding task with the path it took) and Diff panels. New panels, such as a
+coding task with the path it took), Workflow, Files (a task's files at its
+head with a preview and its diff, see [files at a commit](agent-tasks.md#files-at-a-commit)),
+Notebook and Checks (the open task's, see the agent view below) and Diff
+panels. New panels, such as a
 future workflow editor, register as one more `PanelDefinition`. Unknown tool
 names render through the generic step chip; [tool-chips.ts](../../UI/src/lib/features/assistant/tool-chips.ts)
 registers per-tool labels, icons or renderers. The one composer sends to the
@@ -256,6 +259,37 @@ as what the message answers (dismissable); the message is then sent as
 `In answer to your question "…":` followed by the answer, so the agent knows
 which question it is, and its own reply names that message's number.
 
+**Task page layout** (KUA-281). While the agent view is open the assistant's
+sidebar folds to a rail of icons ([AssistantRail](../../UI/src/lib/features/assistant/AssistantRail.svelte));
+the person can open it again, and that choice is kept apart from the chat's.
+From 1280 px a task column ([TaskColumn](../../UI/src/lib/features/assistant/TaskColumn.svelte))
+sits left of the room, on the same resizable pane group as the side panel: a
+pipeline task's phases with the current one and what it waits for, its roster
+with who works now and each member's turns, and the budget used (turns or
+iterations against the workflow's limit and its extensions, and the runs'
+tokens and cost); any other task shows the path it took. It is derived from
+the task and its workflow view ([task-column.ts](../../UI/src/lib/features/assistant/task-column.ts));
+nothing is read for it alone. The task column and the side panel each close
+from their own header or the top bar and the choice is kept; their sizes
+persist for each set of open panes (paneforge `autoSaveId`), and the room stays
+mounted while they open and close. The room keeps its reading width beside an
+open side panel and takes the column's width when it is closed. Below 1280 px
+the page is one column and the task column and the panels open as sheets.
+
+**Panel switchers** (KUA-296). Both follow the width they get, not the
+window's, through container queries. The top bar shows a button per panel
+while it is at least 36rem wide; narrower (a phone, or the room between the
+task column and an open side panel) and with more than two panels, it shows
+the open panel's button and a "More panels" menu that lists every panel,
+checks the open one and opens or closes it, so the conversation's title keeps
+its room. The side panel's own switcher shows every tab's icon and the open
+tab's name from 18rem, icons only below that (the phone's sheet), and below
+13rem, where even seven icons do not fit, the open tab and the same menu.
+Names stay for screen readers and hover. Browser coverage:
+`UI/tests/e2e/task-layout.test.ts`; the Phase 3 checkpoint (who works, which
+phase, what blocks it, what changed, a file and its diff, keyboard only at
+1280 px and 390 px) is `UI/tests/e2e/task-page-checkpoint.test.ts`.
+
 The conversation lives in the timeline
 ([agent-conversation.ts](../../UI/src/lib/features/assistant/agent-conversation.ts),
 from `GET /agent-tasks/:taskId/live-messages`, reloaded on each
@@ -270,18 +304,23 @@ at the end of the running step, or after the last step when none runs. A
 message is "no reply" once the attempt that received it ran to its end
 without one (or the task ended); an attempt that was interrupted or paused
 hands it to the one that continues it. A missing reply never fails the
-attempt, so the task goes on; the step's line carries a warning icon, also
-when closed, and the attempt's risk notes say which message. There is no
+attempt, so the task goes on; the opened step says "No reply" beside the
+harness that ran it (its line stays quiet), and the attempt's risk notes say
+which message. There is no
 separate "Live messages" thread, in this view or on the task card in the
 sidebar.
-The header has "Request review"
-([AgentReviewRequest.svelte](../../UI/src/lib/features/assistant/AgentReviewRequest.svelte))
-while the task awaits review with its pull request open: a menu of the
-allowed harnesses that writes the request into the assistant's composer and
-returns to the chat, where the assistant asks for approval (see
+**Header** (KUA-286): the way back, the issue and iteration, the request's
+first line (its whole text and the task's usage behind "Expand"), the phase
+or workflow step with the task's state, how many work on it now, Stop, and a
+"More actions" menu
+([TaskThreadMenu.svelte](../../UI/src/lib/features/assistant/TaskThreadMenu.svelte))
+with "Download trace" and, while the task awaits review with its pull request
+open, "Request review": a submenu of the allowed harnesses that writes the
+request into the assistant's composer and returns to the chat, where the
+assistant asks for approval (see
 [requested agent reviews](agent-tasks.md#requested-agent-reviews)). The
 requested reviews and their findings are listed under the timeline.
-The header also has a Stop button
+The Stop button
 ([TaskStopButton.svelte](../../UI/src/lib/features/assistant/TaskStopButton.svelte))
 while the task can still be stopped, shown to the person who started it: one
 confirmation, then the existing cancel endpoint, and the task reads as
@@ -289,10 +328,19 @@ cancelling until it reports cancelled.
 
 The thread is a timeline of the task's workflow steps, oldest first
 ([agent-timeline.ts](../../UI/src/lib/features/assistant/agent-timeline.ts),
-from `GET /agent-tasks/:taskId/workflow`): one line per step with its name,
-the profile and harness that ran it, the model, the visit when it is not the
-first, how long it worked (the time a person's pause held it,
-`paused_seconds`, is left out; the start time on hover) and a status icon. An agent
+from `GET /agent-tasks/:taskId/workflow`), one line per event as a pipeline's
+room is (KUA-286, [TurnLine.svelte](../../UI/src/lib/features/assistant/TurnLine.svelte),
+[thread-rows.ts](../../UI/src/lib/features/assistant/thread-rows.ts)): an
+agent step's line has its name and the profile that ran it, the first line of
+what it ended with (its last run's final message, its plan or findings), the
+visit when it is not the first, how long it worked (the time a person's pause
+held it, `paused_seconds`, is left out), the tokens its runs worked through
+(input plus output, as reported) and a status icon; the harness, model, start
+time and flags are inside the opened step. Steps Kuayle ran one after another
+(publish, a check, a merge) fold into one line that opens to each; an
+approval, a review's verdict and the step the task is on stay lines of their
+own. A task that follows a workflow is filtered by role (an agent step's
+profile) or to its decisions (approvals and verdicts). An agent
 step opens to its work; a step that is not an agent's (start, publish, check,
 approval, merge, end) is a compact row that opens only when the runner
 recorded a detail for it. The step an agent is running is open and streams;
@@ -304,15 +352,17 @@ own agent view (`?agent=<review task id>`, read by id because the conversation
 does not list reviews). A task without a workflow is one step per attempt,
 from `/runs`. Each section's element id is stable (`step-<sequence>`, or
 `run-<run id>` without a workflow), and a link with that fragment opens the
-step, also when the view is already open (the sidebar's path links here). The request and a prompt in the session are clamped with "Expand" in
+step (and the folded line that holds it, clearing a filter that hides it),
+also when the view is already open (the sidebar's path links here). The request and a prompt in the session are clamped with "Expand" in
 place; the original output is behind the terminal toggle under each run. The
 harness name and the start time are read out with the line and shown in a
 tooltip on hover or keyboard focus.
 
 **Notebook, prompt and flags** (KUA-134), for the task's creator, who alone
-can read them. The [task notebook](agent-tasks.md#task-notebook) is one quiet
-line above the timeline, "Notebook" with the plan's progress ("2 of 5"), so
-the transcript stays the view; it opens in place to a short working document
+can read them. The [task notebook](agent-tasks.md#task-notebook) is a side
+panel tab, "Notebook" (KUA-286; before, a line above the timeline), so the
+transcript stays the view; it is a short working document with the plan's
+progress ("2 of 5") on top
 ([TaskNotebook.svelte](../../UI/src/lib/features/assistant/TaskNotebook.svelte),
 [task-notebook.ts](../../UI/src/lib/features/assistant/task-notebook.ts)):
 the plan as a checklist that shows what is done (a step opens to its
@@ -332,12 +382,9 @@ until asked for. The view has no labels beyond the section names and nothing
 to fill in: there is no write route. It is read with the task's shared load
 (below), so it follows the task's events and the workflow's fallback poll
 without a poll of its own, and again when a message is sent to the agent (an
-instruction in it); the same revision is not rendered again. Once the opened
-document is laid out the transcript is scrolled to its start
-(`scrollToStart`), which also stops the scroller following the live end: a
-short transcript is at both ends at once and would otherwise jump below the
-notebook as it grows. A review task has
-no notebook, and another member's task shows none.
+instruction in it); the same revision is not rendered again. The tab scrolls
+on its own. A review task has no notebook, and another member's task offers
+no tab.
 
 An opened agent step has one small button above its work, "Prompt", that
 opens [the prompt its agent received](agent-tasks.md#the-prompt-a-step-received)
@@ -353,10 +400,10 @@ on screen together. A step resumed in several runs offers each as a tab
 named by the step and its place in it ("Implement · 2", the start time on
 hover), the newest chosen; a run from before prompts were recorded says so.
 
-A run that ended without updating the notebook is flagged on its step's
-line, also when closed, with a quiet icon named "Did not update the
-notebook", beside the "No reply" icon of a run that did not answer a
-message. It is read from the notebook's history: Kuayle then records the
+A run that ended without updating the notebook is flagged inside its opened
+step, "Did not update the notebook" beside the harness that ran it and the
+"No reply" of a run that did not answer a message (KUA-286: the line stays
+quiet). It is read from the notebook's history: Kuayle then records the
 agent's final message as done itself, the only time it writes that section,
 with the run it belongs to (so the flag covers the notebook's newest 50
 changes). `closing_seconds` is not returned by the API and is not shown.

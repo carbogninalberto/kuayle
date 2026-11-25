@@ -107,7 +107,7 @@ const room = () => [
 		reject_reason: 'the implementer may not post verdict'
 	}),
 	member(5, 'reviewer', 'run-rev-1', 'say', 'Yes, ignore case.', { to_roles: ['implementer'], reply_to: 3 }),
-	post(6, 'kuayle', 'fact', 'CI passed on abc1234.', { data: { fact: 'ci_green', value: true } }),
+	post(6, 'kuayle', 'fact', '', { data: { fact: 'ci_green', value: { state: 'passing', head: 'abc1234def5678', failing: [] } } }),
 	member(7, 'reviewer', 'run-rev-2', 'verdict', 'Looks good to me.', {
 		data: { verdict: 'approve', commit: 'abc1234def5678', role: 'reviewer' }
 	})
@@ -221,35 +221,41 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	await expect(rows.nth(0).getByRole('article', { name: 'You' })).toContainText('Search should cover titles and identifiers.');
 	await expect(rows.nth(1).getByRole('article', { name: 'Kuayle' })).toContainText('Moved to Implement');
 
-	// The implementer's turn is one row: its question to the reviewer and
-	// its refused post, muted with the reason.
+	// The implementer's turn is one line (KUA-286): its role, what it said
+	// last, how long it took and how it went, with its question flagged.
+	// The model, what it posted and its transcript are inside.
 	const implementer = rows.nth(2).getByRole('article', { name: 'implementer' });
-	await expect(implementer).toContainText('Should search ignore case?');
+	const line = implementer.getByRole('button').first();
+	await expect(implementer.getByRole('button')).toHaveCount(1);
+	await expect(line).toHaveAttribute('aria-expanded', 'false');
+	await expect(line).toContainText('implementer — Should search ignore case?');
+	await expect(line).toContainText('2m 0s');
+	await expect(line.getByRole('img', { name: 'Question' })).toBeVisible();
+	await expect(line.getByRole('img', { name: 'Done' })).toBeVisible();
+	await expect(implementer.getByText('claude-opus-5-5')).toHaveCount(0);
+	await expect(implementer.getByText('Starting with the endpoint.')).toHaveCount(0);
+	await line.press('Enter');
+	await expect(line).toHaveAttribute('aria-expanded', 'true');
+	await expect(implementer.getByTestId('turn-details')).toContainText('Claude Code');
+	await expect(implementer.getByTestId('turn-details')).toContainText('claude-opus-5-5');
 	await expect(implementer).toContainText('To reviewer');
-	await expect(implementer.getByRole('img', { name: 'Question' })).toBeVisible();
-	await expect(implementer).toContainText('claude-opus-5-5');
+	await expect(implementer.getByText('Starting with the endpoint.')).toBeVisible();
+	// Its refused post is muted, with the reason.
 	const refused = implementer.locator('[data-refused]');
 	await expect(refused).toContainText('Approving my own work.');
 	await expect(refused).toContainText('Kuayle refused this message: the implementer may not post verdict');
 	await expect(refused.locator('[data-slot="bubble-content"]')).toHaveClass(/text-muted-foreground/);
 
-	// The reviewer answers in a turn of its own; Kuayle posts a fact; the
+	// The reviewer answers in a turn of its own; Kuayle's fact is a line; the
 	// reviewer's next turn gives its verdict on a commit.
 	await expect(rows.nth(3).getByRole('article', { name: 'reviewer' })).toContainText('Yes, ignore case.');
-	await expect(rows.nth(4).getByRole('article', { name: 'Kuayle' })).toContainText('CI passed on abc1234.');
+	await expect(rows.nth(4).getByRole('article', { name: 'Kuayle' })).toContainText('CI passed');
 	const verdict = rows.nth(5).getByRole('article', { name: 'reviewer' });
-	await expect(verdict).toContainText('Approves');
-	await expect(verdict).toContainText('Commit abc1234');
-	await expect(verdict).toContainText('Looks good to me.');
+	await expect(verdict.getByRole('button')).toContainText('Approves');
+	await expect(verdict.getByRole('button')).toContainText('Looks good to me.');
 	await expect(verdict.getByRole('img', { name: 'Running' })).toBeVisible();
-
-	// A turn opens the run's transcript.
-	const session = implementer.getByRole('button', { name: 'Agent session · implementer' });
-	await expect(session).toHaveAttribute('aria-expanded', 'false');
-	await expect(implementer.getByText('Starting with the endpoint.')).toHaveCount(0);
-	await session.press('Enter');
-	await expect(session).toHaveAttribute('aria-expanded', 'true');
-	await expect(implementer.getByText('Starting with the endpoint.')).toBeVisible();
+	await verdict.getByRole('button').click();
+	await expect(verdict).toContainText('Commit abc1234');
 	await page.screenshot({ path: testInfo.outputPath('task-room-desktop.png'), fullPage: true });
 
 	// The composer writes to the room: a say, sent once.
@@ -282,7 +288,9 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 
 	// A post that arrives after a gap reads what was missed.
 	const missed = member(10, 'implementer', 'run-impl-2', 'say', 'Docs updated.');
-	const after = post(11, 'kuayle', 'fact', 'CI running.', { data: { fact: 'ci_green', value: null } });
+	const after = post(11, 'kuayle', 'fact', '1 of 3 check(s) are still running.', {
+		data: { fact: 'ci_green', value: { state: 'pending', head: 'abc1234def5678', failing: [] } }
+	});
 	state.room.push(missed, after);
 	emit('task.room_message', after);
 	await expect(rows).toHaveCount(10);

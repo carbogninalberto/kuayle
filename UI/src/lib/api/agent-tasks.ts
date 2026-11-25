@@ -58,6 +58,8 @@ export interface AgentTask {
 	workflow_node?: string | null;
 	workflow_status?: string | null;
 	workflow_iterations?: number;
+	// Each extension a person granted adds the workflow's budget once more.
+	workflow_budget_extensions?: number;
 	// Set while its creator's pause holds the workflow; a request is a pause
 	// that takes effect when the current step has an outcome.
 	workflow_paused_at?: string | null;
@@ -292,6 +294,33 @@ export interface NotebookChange {
 	summary: string;
 	created_at: string;
 }
+/** One file a commit of the task tracks; changed: the task changed it. */
+export interface TaskFileEntry {
+	path: string;
+	changed: boolean;
+}
+/** The files one commit of the task tracks, sorted by path; truncated: the listing stops at a bound. */
+export interface TaskFiles {
+	commit: string;
+	files: TaskFileEntry[];
+	truncated: boolean;
+}
+/**
+ * Lines start to end (1-based) of one listed file at commit. truncated: the
+ * file goes on after end, or a line was cut. A binary or too large file
+ * carries no content.
+ */
+export interface TaskFileContent {
+	path: string;
+	commit: string;
+	content: string;
+	start: number;
+	end: number;
+	total_lines: number;
+	truncated: boolean;
+	binary: boolean;
+	too_large: boolean;
+}
 export interface TaskNotebook {
 	task_id: string;
 	revision: number;
@@ -513,6 +542,17 @@ export const agentTasks = {
 	debugTrace: (slug: string, id: string) => api.blob(`${task(slug, id)}/debug`),
 	diff: (slug: string, id: string, run: string) =>
 		api.get<{ diff: string; truncated: boolean }>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/diff`),
+	// The files a commit of the task tracks (the head by default) and one page
+	// of a file's lines; creator only. Untracked and ignored files are never served.
+	files: (slug: string, id: string, ref?: string) =>
+		api.get<TaskFiles>(`${task(slug, id)}/files${ref ? `?${new URLSearchParams({ ref })}` : ''}`),
+	fileContent: (slug: string, id: string, path: string, page: { ref?: string; start?: number; end?: number } = {}) => {
+		const query = new URLSearchParams({ path });
+		if (page.ref) query.set('ref', page.ref);
+		if (page.start) query.set('start', String(page.start));
+		if (page.end) query.set('end', String(page.end));
+		return api.get<TaskFileContent>(`${task(slug, id)}/files/content?${query}`);
+	},
 	// Checks run on demand on an attempt, oldest first.
 	manualChecks: (slug: string, id: string, run: string) =>
 		api.get<ValidationStep[]>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/checks`),

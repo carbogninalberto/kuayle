@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { Bot, PanelLeftClose, Search, Server, Settings, SquarePen } from '@lucide/svelte';
+	import { PanelLeftClose, Search, Settings, SquarePen } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import type { Conversation } from '$lib/api/conversations';
 	import ConversationNav from './ConversationNav.svelte';
 	import type { TaskIndicator } from './shell-rules';
+	import { assistantPlaces } from './assistant-places';
 	import { m } from '$lib/features/i18n/messages';
 
 	let {
@@ -38,10 +39,7 @@
 		oncollapse: () => void;
 		collapseLabel: string;
 	} = $props();
-	const places = $derived([
-		{ href: `/${slug}/settings/agents`, label: m['settings.nav.agents'](), icon: Bot },
-		{ href: `/${slug}/machines`, label: m['machines.title'](), icon: Server }
-	]);
+	const places = $derived(assistantPlaces(slug));
 </script>
 
 <!-- relative: visually hidden (absolute) labels inside the list are clipped by

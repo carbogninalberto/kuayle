@@ -567,11 +567,27 @@ test('delegates from an issue conversation and shows real execution updates', as
 
 // The coding agents live in the side panel: inline on wide screens, a drawer
 // that the top bar's Agents button opens on narrow ones.
+// The top bar shows a button per panel when it has room; a narrow bar (a phone,
+// or the room beside an open side panel) shows the open one and lists them all
+// under "More panels" (KUA-296).
+async function openPanel(page: Page, name: string) {
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	const button = bar.getByRole('button', { name, exact: true });
+	const more = bar.getByRole('button', { name: 'More panels', exact: true });
+	await expect(button.or(more).first()).toBeVisible();
+	if (await button.isVisible()) {
+		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+		return;
+	}
+	await more.click();
+	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+}
 async function showAgents(page: Page) {
 	const tasks = page.getByRole('region', { name: 'Coding tasks' });
-	await expect(page.getByRole('button', { name: 'Agents', exact: true }).first()).toBeVisible();
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	await expect(bar.getByRole('button').first()).toBeVisible();
 	if (await tasks.isVisible()) return;
-	await page.getByRole('button', { name: 'Agents', exact: true }).first().click();
+	await openPanel(page, 'Agents');
 	await expect(tasks).toBeVisible();
 }
 
@@ -1151,9 +1167,11 @@ test('downloads the task trace from the card menu and the agent view', async ({ 
 
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	// In the agent view it is in the header's menu (KUA-286).
+	await thread.getByRole('button', { name: 'More actions', exact: true }).click();
 	const [fromThread] = await Promise.all([
 		page.waitForEvent('download'),
-		thread.getByRole('button', { name: 'Download trace', exact: true }).click()
+		page.getByRole('menuitem', { name: 'Download trace', exact: true }).click()
 	]);
 	expect(fromThread.suggestedFilename()).toBe('kuayle-trace-ENG-1.json');
 	expect(state.traceDownloads).toBe(2);
@@ -1939,7 +1957,9 @@ test('requests an agent review from the agent view, through the chat, and shows 
 	const toggle = page.getByRole('button', { name: /^Agent · ENG-1/ });
 	await toggle.click();
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
-	await thread.getByRole('button', { name: 'Request review', exact: true }).click();
+	// It is in the header's menu (KUA-286).
+	await thread.getByRole('button', { name: 'More actions', exact: true }).click();
+	await page.getByRole('menuitem', { name: 'Request review', exact: true }).click();
 	const items = page.getByRole('menu').last().getByRole('menuitem');
 	await expect(items).toHaveText([/Codex\s*Same agent$/, /Claude Code$/]);
 	await page.getByRole('menuitem', { name: 'Claude Code' }).click();

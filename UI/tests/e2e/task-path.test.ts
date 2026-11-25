@@ -289,10 +289,25 @@ const tasksRegion = (page: Page) => page.getByRole('region', { name: 'Coding tas
 const pathOf = (page: Page) => tasksRegion(page).getByRole('list', { name: 'Path taken' });
 const count = (requests: string[], wanted: string) => requests.filter((request) => request === wanted).length;
 
+// The top bar shows a button per panel when it has room; a narrow bar (a phone,
+// or the room beside an open side panel) shows the open one and lists them all
+// under "More panels" (KUA-296).
+async function openPanel(page: Page, name: string) {
+	const bar = page.getByRole('group', { name: 'Side panels' });
+	const button = bar.getByRole('button', { name, exact: true });
+	const more = bar.getByRole('button', { name: 'More panels', exact: true });
+	await expect(button.or(more).first()).toBeVisible();
+	if (await button.isVisible()) {
+		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
+		return;
+	}
+	await more.click();
+	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
+}
 async function showAgents(page: Page) {
 	const tasks = tasksRegion(page);
-	await expect(page.getByRole('button', { name: 'Agents', exact: true }).first()).toBeVisible();
-	if (!(await tasks.isVisible())) await page.getByRole('button', { name: 'Agents', exact: true }).first().click();
+	await expect(page.getByRole('group', { name: 'Side panels' }).getByRole('button').first()).toBeVisible();
+	if (!(await tasks.isVisible())) await openPanel(page, 'Agents');
 	await expect(tasks).toBeVisible();
 }
 
@@ -664,7 +679,7 @@ test('a task without a workflow shows its attempts and state changes the same wa
 	await when.blur();
 
 	// The workflow panel draws the Standard flow and shows the same path under it.
-	await page.getByRole('button', { name: 'Workflow', exact: true }).first().click();
+	await openPanel(page, 'Workflow');
 	const panel = page.getByTestId('workflow-panel');
 	await expect(panel.getByTestId('task-workflow')).toContainText('Standard · version 1');
 	await expect(panel.getByRole('list', { name: 'Path taken' }).getByRole('link')).toHaveText([/^Codex/, /^Codex/]);
@@ -781,14 +796,15 @@ test('the sidebar has no composer and no review action; both are in the agent vi
 	await expect(reviews.getByText('handle the empty query')).toBeVisible();
 	await expect(tasks.getByRole('region', { name: 'Review by Claude Code' })).toHaveCount(0);
 
-	// A review is asked for from its header: nothing is started, the request
-	// is written for the assistant, which asks for approval.
+	// A review is asked for from its header's menu: nothing is started, the
+	// request is written for the assistant, which asks for approval.
 	const sent: string[] = [];
 	page.on('request', (request) => {
 		if (request.method() !== 'GET') sent.push(request.url());
 	});
-	await thread.getByRole('button', { name: 'Request review', exact: true }).click();
-	const items = page.getByRole('menu').getByRole('menuitem');
+	await thread.getByRole('button', { name: 'More actions', exact: true }).click();
+	await page.getByRole('menuitem', { name: 'Request review', exact: true }).click();
+	const items = page.getByRole('menu').last().getByRole('menuitem');
 	await expect(items).toHaveText([/OpenCode\s*Same agent$/, /Claude Code$/, /Codex$/]);
 	await page.getByRole('menuitem', { name: 'Claude Code' }).click();
 	await expect(page).not.toHaveURL(/agent=/);
@@ -837,7 +853,7 @@ test('a chart that does not load leaves a task without a workflow its attempts',
 	await page.goto('/test/assistant?conversation=chat-1');
 	await showAgents(page);
 	await expect(pathOf(page).getByRole('link')).toHaveText([/^Claude Code/, /^Codex/]);
-	await page.getByRole('button', { name: 'Workflow', exact: true }).first().click();
+	await openPanel(page, 'Workflow');
 	const panel = page.getByTestId('workflow-panel');
 	await expect(panel.getByRole('alert')).toContainText("Could not load the task's workflow");
 	// The attempts are their own load: they stay, with no retry of their own.
