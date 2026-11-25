@@ -132,6 +132,24 @@ async function fixture(page: Page) {
 
 const file = (name: string, mimeType = 'image/png') => ({ name, mimeType, buffer: png });
 
+test('attachment and send buttons align at opposite edges of the composer', async ({ page }) => {
+	await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const form = page.getByRole('form', { name: 'Message composer' });
+	const attach = form.getByRole('button', { name: 'Attach images' });
+	const send = form.getByRole('button', { name: 'Send message' });
+	await expect(attach).toBeEnabled();
+
+	for (const width of [1280, 390]) {
+		await page.setViewportSize({ width, height: 800 });
+		const row = (await form.boundingBox())!;
+		const left = (await attach.boundingBox())!;
+		const right = (await send.boundingBox())!;
+		expect(left).toMatchObject({ width: right.width, height: right.height, y: right.y });
+		expect(left.x - row.x).toBeCloseTo(row.x + row.width - right.x - right.width, 0);
+	}
+});
+
 test('attaches images by button, paste and drop, uploads them and sends their IDs', async ({ page }, testInfo) => {
 	const state = await fixture(page);
 	await page.goto('/test/assistant?conversation=chat-1');
