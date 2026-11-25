@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -24,11 +25,11 @@ import (
 // Liveness of the pipeline tick (KUA-278). Seeded pseudo-random sequences of
 // what happens around a pipeline task (pushes, CI results, base moves and
 // conflicts, verdicts, the owner's approvals, decisions and posts, member
-// turns that finish, fail or are cancelled, GitHub failing or answering too
-// slowly, script checks, the budget running out) play through the scenario
-// tests' world (tickWorld): the real worker, tick, repository and room, with
-// GitHub and the machines faked. After every step the worker takes, the task
-// must be
+// turns that finish, fail or are cancelled, publications under way for a
+// pass or two, GitHub failing or answering too slowly, script checks, the
+// budget running out) play through the scenario tests' world (tickWorld):
+// the real worker, tick, repository and room, with GitHub and the machines
+// faked. After every step the worker takes, the task must be
 //
 //   - working: the writer's turn, or a member's, is under way;
 //   - waiting on a fact that changes by itself, named in its reason, with a
@@ -37,7 +38,8 @@ import (
 //     owner's approval, a phase a person owns);
 //   - or ended, with no member's turn left running;
 //
-// never idle without a pending wake. After the sequence everyone cooperates
+// never idle without a pending wake, and the room never told of a
+// publication still under way. After the sequence everyone cooperates
 // (GitHub answers, CI passes, the roles commit and approve, the owner
 // approves and continues) and the task must end within tickLivenessSettle
 // rounds, with at most one Continue beyond its budget's: a task that only
@@ -241,6 +243,13 @@ func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 		if r.IntN(7) == 0 {
 			played.posts = []string{`{"to":"@reviewer","kind":"ask","body":"Is the toggle in the right place?"}`}
 		}
+		// Its publication is under way for a pass or two before it ends
+		// (KUA-297). A randomness of its own keeps the seeds' turns as
+		// they were.
+		if p := l.turnRand(role+" publication", turn); p.IntN(3) == 0 {
+			queued, running := domain.DevMachineAgentRunStepStatusQueued, domain.DevMachineAgentRunStepStatusRunning
+			played.publishing = [][]domain.DevMachineAgentRunStepStatus{{queued}, {running}, {queued, running}}[p.IntN(3)]
+		}
 	} else {
 		switch x := r.IntN(10); {
 		case x < 4:
@@ -286,6 +295,9 @@ func describeTurn(turn tickTurn) string {
 	}
 	if len(turn.posts) > 0 {
 		parts = append(parts, "posts")
+	}
+	if len(turn.publishing) > 0 {
+		parts = append(parts, fmt.Sprintf("its publication is under way for %d pass(es)", len(turn.publishing)))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -385,6 +397,17 @@ func (l *liveWorld) dropCheck() {
 // the worker settled, none of its members still working).
 func (l *liveWorld) check(settled bool) {
 	l.t.Helper()
+	// The room hears what a publication did once it ended, never while
+	// it is under way: the task waits in publishing for it (KUA-297).
+	for _, m := range l.facts("publication") {
+		var value struct {
+			Status domain.DevMachineAgentRunStepStatus `json:"status"`
+		}
+		require.NoError(l.t, json.Unmarshal(m.Data.Value, &value))
+		if value.Status == domain.DevMachineAgentRunStepStatusQueued || value.Status == domain.DevMachineAgentRunStepStatusRunning {
+			l.violation("the room was told of a publication still %s (#%d: %s)", value.Status, m.Seq, m.Body)
+		}
+	}
 	root := l.task()
 	roles, members := l.memberTasks()
 	busy := ""

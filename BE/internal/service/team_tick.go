@@ -176,7 +176,8 @@ func (s *AgentTaskService) pipelineTurnEnded(ctx context.Context, task domain.Ag
 }
 
 // pipelinePublished is the worker's report of the publication of the
-// writer's turn: anything but a pull request at a commit is a fact.
+// writer's turn once it ended: anything but a pull request at a commit is a
+// fact.
 func (s *AgentTaskService) pipelinePublished(ctx context.Context, task domain.AgentTask, result *domain.DevMachineAgentRunStep) error {
 	if why := publicationFact(result); why != "" {
 		value, _ := json.Marshal(map[string]string{"status": string(result.Status), "run": task.RunID.String()})

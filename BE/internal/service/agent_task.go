@@ -268,7 +268,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if err != nil {
 			return s.preparationError(ctx, task, err)
 		}
-		if result == nil {
+		// The publication runs on the machine, which may publish only while
+		// the task is publishing: the task waits for its outcome here, and
+		// the next pass reads it again (KUA-297).
+		if result == nil || result.Status == domain.DevMachineAgentRunStepStatusQueued || result.Status == domain.DevMachineAgentRunStepStatusRunning {
 			return nil
 		}
 		// A pipeline's tick reads what the publication did as a fact.
