@@ -168,6 +168,27 @@ async function openFiles(page: Page) {
 const tree = (page: Page) => page.getByRole('region', { name: 'File tree' });
 const fits = (page: Page) =>
 	page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+// The page-height rule (page-height.test.ts) inside the panel: the document never
+// scrolls, and the panel's scrolling regions are siblings, never one inside another.
+const scrolling = (page: Page) =>
+	page.evaluate(() => {
+		const panel = document.querySelector('[data-testid=files-panel]')!;
+		const scrolls = (element: Element) => {
+			const overflow = getComputedStyle(element).overflowY;
+			return (overflow === 'auto' || overflow === 'scroll') && element.scrollHeight > element.clientHeight + 1;
+		};
+		const found = [...panel.querySelectorAll('*')].filter(scrolls);
+		const nested = found.filter((element) => {
+			for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement)
+				if (scrolls(parent)) return true;
+			return false;
+		});
+		return {
+			regions: found.length,
+			nested: nested.length,
+			document: document.documentElement.scrollHeight <= window.innerHeight + 1
+		};
+	});
 
 test('desktop: the tree marks changes, filters by path and opens a file with its diff', async ({ page }) => {
 	const state = await fixture(page);
@@ -257,6 +278,9 @@ test('a long file pages by line range, plain above the highlighting cap; a trunc
 	const lines = preview.locator('[data-slot=code-block-line]');
 	await expect(lines.first()).toHaveText(logLine(1));
 	await expect(pages.getByRole('button', { name: 'Previous lines' })).toBeDisabled();
+	// 5,000 lines scroll inside the preview, not the panel or the page.
+	expect(await scrolling(page)).toMatchObject({ nested: 0, document: true });
+	expect((await scrolling(page)).regions).toBeGreaterThan(0);
 
 	await pages.getByRole('button', { name: 'Next lines' }).click();
 	await expect(pages).toContainText('Lines 5,001–10,000 of 12,000');
@@ -325,6 +349,7 @@ test('phone: the panel is a sheet; the tree and the preview fit its width', asyn
 	expect(box.x).toBeGreaterThanOrEqual(0);
 	expect(box.x + box.width).toBeLessThanOrEqual(390);
 	expect(await fits(page)).toBe(true);
+	expect(await scrolling(page)).toMatchObject({ nested: 0, document: true });
 	if (shots) await page.screenshot({ path: `${shots}/files-phone-light.png`, animations: 'disabled' });
 });
 
