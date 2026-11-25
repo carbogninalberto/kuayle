@@ -3263,7 +3263,10 @@ migration 208; a person's decisions in `service/workflow_pipeline.go`). `AgentTa
 the tick instead of the graph runner. The root task is the writer: when its
 turn ends, a turn that changed the work (or any, while nothing is published
 yet) is published once, a failed one is posted as a `turn` fact, and the
-task waits in `awaiting_review`, where a pass runs on every wake. The
+task waits in `awaiting_review`, where a pass runs on every wake. A
+publication runs on the machine, which may publish only while the task is
+`publishing`: the task stays there while the worker reads it queued or
+running, and only its outcome reaches the tick (KUA-297). The
 tick keeps its position in the workflow columns (`workflow_node` is the
 current phase; `workflow_status`, `workflow_wake_at`, `workflow_sequence`;
 `workflow_iterations` counts the turns charged; the budget clock), so the
@@ -3348,13 +3351,15 @@ with a reason, sent to whoever owns the phase.
 (`service/team_tick_liveness_test.go`) plays seeded random sequences of what
 happens around a pipeline task (pushes, CI results, base moves and conflicts,
 verdicts, the owner's approvals, decisions and posts, member turns that
-finish, fail or are cancelled, GitHub failing or answering too slowly, script
-check results, merges refused, the budget running out, another task on the
-repository's board moving) through the scenario
-tests' worker, tick, repository and room. After every worker step the task
-must be working (a turn under way), waiting on a fact that changes by itself
+finish, fail or are cancelled, publications under way for a pass or two,
+GitHub failing or answering too slowly, script check results, merges
+refused, the budget running out, another task on the repository's board
+moving) through the scenario tests' worker, tick, repository and room.
+After every worker step the task must be working (a turn or its
+publication under way), waiting on a fact that changes by itself
 with a wake at most one poll away, waiting on a person (paused, or the clock
-held for a person), or ended with no member's turn left running; after the
+held for a person), or ended with no member's turn left running, and the
+room must never have heard of a publication still under way; after the
 sequence, with everyone cooperating, it must end, needing at most one
 Continue beyond its budget's. A failure prints its seed
 and events: `TICK_LIVENESS_SEED=<n>` replays one sequence,
