@@ -970,6 +970,48 @@ func TestTickAStallReachesThePhaseOwner(t *testing.T) {
 	})
 }
 
+// A reviewer that owns its phase and asked for changes cannot make them:
+// the stall reaches the writer too, whose new head the reviewer then
+// reviews (the liveness test's seed 70, where each Continue only repeated
+// the stall).
+func TestTickARequestForChangesReachesTheWriterWhenAReviewerOwnsThePhase(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) { p.Phases[2].Owner = "reviewer" })
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "reviewer" && turn == 1 {
+			return tickTurn{final: "Verdict: request_changes\nPersist the toggle across reloads."}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	summaries := w.posts(domain.RoomSummary)
+	require.NotEmpty(t, summaries)
+	require.ElementsMatch(t, []string{"reviewer", "implementer"}, []string(summaries[0].ToRoles), "the owner is still told, and the writer acts")
+	require.Equal(t, 2, w.runtime.turns["implementer"], "the writer takes a turn on the request for changes")
+	require.Contains(t, w.prompt("implementer", 2), "did not approve")
+	require.Equal(t, sha(2), *w.member("reviewer").PinnedCommit, "the reviewer reviews the new head")
+	require.Equal(t, "integrate", w.phase())
+	require.NotEqual(t, domain.WorkflowStatusPaused, *w.task().WorkflowStatus)
+}
+
+// A head someone else pushed is not one a reviewer can review (it reads
+// what Kuayle published): when the reviewer owns its phase, the stall
+// reaches the writer too, whose next published head the reviewer reviews.
+func TestTickAnUnpublishedHeadReachesTheWriterWhenAReviewerOwnsThePhase(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) { p.Phases[2].Owner = "reviewer" })
+	w.agent = w.writesAndApproves
+	w.drain()
+	require.Equal(t, "integrate", w.phase())
+	w.head(sha(0x99)) // a person pushed to the branch
+	w.later()
+	summaries := w.posts(domain.RoomSummary)
+	require.NotEmpty(t, summaries)
+	require.ElementsMatch(t, []string{"reviewer", "implementer"}, []string(summaries[0].ToRoles))
+	require.Equal(t, 2, w.runtime.turns["implementer"], "the writer takes a turn on the head it did not publish")
+	require.Equal(t, sha(2), *w.member("reviewer").PinnedCommit, "the reviewer reviews the writer's new head")
+	require.Equal(t, "integrate", w.phase())
+	require.NotEqual(t, domain.WorkflowStatusPaused, *w.task().WorkflowStatus)
+}
+
 // A head the writer published while the reviewer still reviewed the one
 // before is asked for once that review ends.
 func TestTickAsksForAHeadPublishedDuringAReview(t *testing.T) {

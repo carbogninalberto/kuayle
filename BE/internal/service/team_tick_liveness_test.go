@@ -40,7 +40,8 @@ import (
 // never idle without a pending wake. After the sequence everyone cooperates
 // (GitHub answers, CI passes, the roles commit and approve, the owner
 // approves and continues) and the task must end within tickLivenessSettle
-// rounds: a task that only polls forever is not live either.
+// rounds, with at most one Continue beyond its budget's: a task that only
+// polls forever, or moves only when a person pushes it, is not live either.
 //
 // TICK_LIVENESS_SEED=<seed> replays one sequence; TICK_LIVENESS_SEEDS=<n>
 // plays n seeds from TICK_LIVENESS_FROM (1 by default). A failure names its
@@ -217,13 +218,8 @@ func (l *liveWorld) commit(resolves bool) string {
 }
 
 // agent plays a role's turn: at random, or cooperating.
-func (l *liveWorld) agent(role string, turn int, task domain.AgentTask) tickTurn {
+func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 	if l.cooperative {
-		if role != l.writer && !l.verdictAsked(task) {
-			// Sent what blocks its phase without a review to give (its own
-			// request for changes, say): it asks the writer to act on it.
-			return tickTurn{final: "Asked the writer to act.", posts: []string{`{"to":"@implementer","body":"Address what blocks the phase and push."}`}}
-		}
 		return l.cooperate(role)
 	}
 	r := l.turnRand(role, turn)
@@ -266,13 +262,6 @@ func (l *liveWorld) agent(role string, turn int, task domain.AgentTask) tickTurn
 	}
 	l.note("     @%s turn %d: %s", role, turn, describeTurn(played))
 	return played
-}
-
-// verdictAsked reports whether a member's turn must end with a verdict.
-func (l *liveWorld) verdictAsked(task domain.AgentTask) bool {
-	var asked bool
-	require.NoError(l.t, l.f.db.Get(&asked, `SELECT verdict_asked FROM task_members WHERE member_task_id=$1`, task.ID))
-	return asked
 }
 
 func (l *liveWorld) cooperate(role string) tickTurn {
@@ -726,10 +715,13 @@ func (l *liveWorld) pullRequestEnds() string {
 	return fmt.Sprintf("someone merges the pull request on GitHub (webhook %t)", webhook)
 }
 
-// settle has everyone cooperate until the task ends.
+// settle has everyone cooperate until the task ends. A pause the sequence
+// left takes one Continue; cooperating, the task never pauses again but for
+// its budget: a task that does only makes progress when a person pushes it.
 func (l *liveWorld) settle() {
 	l.t.Helper()
 	l.cooperative = true
+	continued := 0
 	g := l.github
 	g.downFor, g.slowFor, g.refuseFor, g.methodFor, g.unknown, l.checkoutFor = 0, 0, 0, 0, false, 0
 	for round := 1; round <= tickLivenessSettle; round++ {
@@ -751,6 +743,11 @@ func (l *liveWorld) settle() {
 		root := l.task()
 		switch {
 		case root.State == "blocked" && deref(root.WorkflowStatus) == domain.WorkflowStatusPaused:
+			if !strings.Contains(root.Reason, "budget of") {
+				if continued++; continued > 1 {
+					l.violation("cooperating, the task paused again and needs a person's Continue each time")
+				}
+			}
 			l.note("     the owner continues: %v", l.decide(WorkflowDecisionContinue))
 		case root.State == "awaiting_review" && root.WorkflowHeldSince != nil:
 			if err := l.decide(WorkflowDecisionApprove); err != nil {

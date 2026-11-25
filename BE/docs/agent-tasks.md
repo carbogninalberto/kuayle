@@ -3242,9 +3242,14 @@ person decides. One pass:
    call for one, owing a verdict when the phase requires its verdict;
 9. when nobody works, nothing is under way and nothing is awaited, posts the
    current phase's unmet checks with their reasons as a `summary` to the
-   phase's owner (the writer for a phase Kuayle owns). A role's turn starts
-   on it in the same pass; for a phase a person owns, the task waits for the
-   person, the budget clock held, and is announced once. What changes by
+   phase's owner (the writer for a phase Kuayle owns), and to the writer as
+   well when only the writer can move a verdict check, whoever owns the
+   phase: the role's verdict on the head did not approve it, or the role
+   reviewed the newest commit Kuayle published and the head is another one
+   (someone else pushed it, and roles review only what Kuayle published).
+   A role's turn starts on it in the same pass; for a phase a person owns,
+   the task waits for the person (unless the writer was sent it too), the
+   budget clock held, and is announced once. What changes by
    itself (CI running, a check run under way, a fact not readable) is
    awaited, and read again every minute, for at most `mergeWaitTimeout` on
    the same head and checks; after that it is sent on like any unmet check,
@@ -3275,7 +3280,8 @@ tests' worker, tick, repository and room. After every worker step the task
 must be working (a turn under way), waiting on a fact that changes by itself
 with a wake at most one poll away, waiting on a person (paused, or the clock
 held for a person), or ended with no member's turn left running; after the
-sequence, with everyone cooperating, it must end. A failure prints its seed
+sequence, with everyone cooperating, it must end, needing at most one
+Continue beyond its budget's. A failure prints its seed
 and events: `TICK_LIVENESS_SEED=<n>` replays one sequence,
 `TICK_LIVENESS_SEEDS` and `TICK_LIVENESS_FROM` play more, and
 `TICK_LIVENESS_TRACE=1` lists the events of passing seeds too.

@@ -791,8 +791,9 @@ func (t *tickPass) deliver(ctx context.Context, index int) error {
 }
 
 // stall sends the current phase's unmet checks to its owner when nobody
-// works, nothing is under way and nothing is awaited; after tickStallLimit
-// such passes in a row on the same head and checks it pauses for a person.
+// works, nothing is under way and nothing is awaited, and to the writer too
+// when only the writer can move one (writerActs); after tickStallLimit such
+// passes in a row on the same head and checks it pauses for a person.
 func (t *tickPass) stall(ctx context.Context, phase domain.PipelinePhase, unmet []UnmetCheck) (repository.WorkflowEntry, bool, error) {
 	if t.busy || t.pending || t.poll || t.person || len(unmet) == 0 {
 		return repository.WorkflowEntry{}, false, nil
@@ -815,9 +816,24 @@ func (t *tickPass) stall(ctx context.Context, phase domain.PipelinePhase, unmet 
 	}
 	owner := t.owner(phase)
 	t.person = owner == domain.PipelineOwnerHuman
+	to := []string{owner}
+	if owner != t.writer.Role && slices.ContainsFunc(unmet, t.writerActs) {
+		to = append(to, t.writer.Role)
+	}
 	body := fmt.Sprintf("Nobody is working, and the phase %s waits on:\n%s", phase.Label, strings.Join(reasons, "\n"))
-	return repository.WorkflowEntry{}, false, t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomSummary, ToRoles: []string{owner},
+	return repository.WorkflowEntry{}, false, t.s.kuaylePost(ctx, t.task, domain.TaskRoomPost{Kind: domain.RoomSummary, ToRoles: to,
 		Body: truncateUTF8Bytes(body, domain.RoomMaxBodyBytes), DedupeKey: fmt.Sprintf("stall:%d", t.st.Pass)})
+}
+
+// writerActs reports whether only the writer can move an unmet verdict
+// check: the role's verdict on the head did not approve it, or the role
+// reviewed the newest commit Kuayle published and the head is another one
+// (someone else pushed it), which no role can review.
+func (t *tickPass) writerActs(check UnmetCheck) bool {
+	verdict, given := t.facts.Verdicts[check.Role]
+	head := t.facts.HeadSHA
+	return check.Fact == factVerdict && given && (verdict.Commit == head && verdict.Verdict != "approve" ||
+		verdict.Commit != head && t.target != nil && verdict.Commit == t.target.CommitSHA)
 }
 
 // writerTurn starts the writer's next turn on the task: the original
