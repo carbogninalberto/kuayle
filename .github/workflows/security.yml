@@ -53,7 +53,7 @@ jobs:
 
   frontend-security:
     needs: changes
-    if: ${{ fromJSON(needs.changes.outputs.plan).frontend }}
+    if: ${{ contains(fromJSON(needs.changes.outputs.plan).required.security, 'frontend-security') }}
     name: Frontend Security Scan
     runs-on: ubuntu-latest
     defaults:
@@ -62,22 +62,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.0
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      - uses: actions/setup-node@v6.4.0
-        with:
-          node-version: 22
+      - uses: ./.github/actions/frontend-dependencies
 
-      - name: Install dependencies
-        run: npm ci
-
+      # Tests audits main pushes alongside the frontend unit and type checks.
       - name: Run npm audit
+        if: github.event_name != 'push' || github.ref != 'refs/heads/main'
         run: node ../scripts/ci/npm-audit.mjs
 
-      # Frontend Checks builds before its PR browser suite.
       - name: Build check
-        if: github.event_name != 'pull_request'
         run: npm run build
 
   docker-security:

@@ -704,6 +704,10 @@ CI it cannot see or a run on the commit that has not finished; its prompt lists
 each check's state on the reviewed commit when Kuayle knows it, and otherwise
 says CI is unknown.
 
+Kuayle's own frontend checks publish a merged browser report on the Tests run.
+The [CI routing guide](scripts/ci/README.md#frontend-browser-coverage) describes
+which specs run and how shard failures reach the stable check.
+
 A failed CI suite on a task's pull request carries what GitHub reported about
 its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),
 migration 170): the checks' names, failed steps, annotations and an excerpt of

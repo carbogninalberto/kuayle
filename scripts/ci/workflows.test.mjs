@@ -232,3 +232,39 @@ test('server release jobs skip cli-v* releases, which CLI Release publishes', ()
   assert.equal(cli.match(/contents: write/g).length, 1);
   assert.match(cli, /--verify-tag/);
 });
+
+test('Tests runs the full browser suite nightly and on release integration branches', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8');
+  const triggers = workflow.split('\nconcurrency:')[0];
+  for (const event of ['push', 'pull_request']) {
+    assert.match(triggers.split(`  ${event}:\n`)[1].split('\n')[0], /main.*\*\*release-integration\*\*/);
+  }
+  assert.match(triggers, /schedule:\n    - cron: '[0-9]+ [0-9]+ \* \* \*'/);
+  assert.match(triggers, /workflow_dispatch:/);
+});
+
+test('six browser shards feed the merged report and stable Frontend Checks gate', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/test.yml', import.meta.url), 'utf8');
+  const browser = workflow.split('  frontend-browser:\n')[1]?.split('  frontend-check:\n')[0] ?? '';
+  const gate = workflow.split('  frontend-check:\n')[1].split('  web-check:\n')[0];
+  assert.match(browser, /fail-fast: false/);
+  assert.match(browser, /shard: \[1, 2, 3, 4, 5, 6\]/);
+  assert.match(browser, /--fully-parallel .*--shard="\$SHARD\/6"/);
+  assert.match(browser, /--test-list/);
+  assert.match(browser, /--reporter=dot,github,blob/);
+  assert.match(gate, /name: Frontend Checks\n/);
+  assert.match(gate, /needs: \[changes, frontend-fast, frontend-browser\]/);
+  assert.match(gate, /merge-reports --reporter=html/);
+  // The report must still be produced when a browser test fails.
+  assert.match(gate, /!cancelled\(\)/);
+  assert.match(gate, /needs.frontend-browser.result/);
+  assert.match(gate, /needs.frontend-fast.result/);
+});
+
+test('Frontend Security follows the planner and keeps the tag and scheduled npm audits', () => {
+  const workflow = readFileSync(new URL('../../.github/workflows/security.yml', import.meta.url), 'utf8');
+  const frontend = workflow.split('  frontend-security:\n')[1].split('  docker-security:\n')[0];
+  assert.match(frontend, /if: .*contains\(fromJSON\(needs\.changes\.outputs\.plan\)\.required\.security, 'frontend-security'\)/);
+  assert.match(frontend, /if: github\.event_name != 'push' \|\| github\.ref != 'refs\/heads\/main'\n\s+run: node \.\.\/scripts\/ci\/npm-audit\.mjs/);
+  assert.match(frontend, /- name: Build check\n\s+run: npm run build/);
+});

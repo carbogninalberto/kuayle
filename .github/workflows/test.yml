@@ -2,13 +2,16 @@ name: Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, '**release-integration**']
   pull_request:
-    branches: [main]
+    branches: [main, '**release-integration**']
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
 
 # Superseded checks should not compete for hosted runners.
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}
+  group: tests-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -18,6 +21,8 @@ jobs:
   changes:
     name: CI Impact
     uses: ./.github/workflows/ci-impact.yml
+    with:
+      frontend_only: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref_name != 'main') }}
 
   agent-harness:
     needs: changes
@@ -204,53 +209,108 @@ jobs:
           KUAYLE_DOCKER_INTEGRATION: '1'
         run: go test ./internal/machine -run '^TestDockerRuntimeLifecycle$' -race -count=1 -v -timeout=5m
 
-  frontend-check:
+  frontend-fast:
+    name: Frontend types, units and audit
     needs: changes
     if: ${{ fromJSON(needs.changes.outputs.plan).frontend }}
-    name: Frontend Checks
-    # Playwright 1.58 supports Ubuntu 24.04, not the moving latest image.
     runs-on: ubuntu-24.04
     defaults:
       run:
-        working-directory: ./UI
-
+        working-directory: UI
     steps:
-      - uses: actions/checkout@v7.0.0
+      - &checkout-product
+        uses: actions/checkout@v7.0.0
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
-      - uses: actions/setup-node@v6.4.0
+      # Older PR heads can predate the action that the workflow revision uses.
+      - &checkout-frontend-action
+        uses: actions/checkout@v7.0.0
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: UI/package-lock.json
+          ref: ${{ github.sha }}
+          path: .ci-actions
+          sparse-checkout: .github/actions/frontend-dependencies
+          persist-credentials: false
+      - uses: ./.ci-actions/.github/actions/frontend-dependencies
+      - run: npm run check
+      - run: npm run test:unit
+      - name: Audit dependencies
+        run: node ../scripts/ci/npm-audit.mjs
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Svelte check (type checking)
-        run: npm run check
-
-      - name: Unit tests
-        run: npm run test:unit
-
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
-      - name: Frontend browser tests
-        run: npm run test:e2e
-
-      - name: Upload Playwright failure artifacts
-        if: ${{ failure() }}
+  frontend-browser:
+    name: Frontend browser (${{ matrix.shard }}/6)
+    needs: changes
+    if: ${{ fromJSON(needs.changes.outputs.plan).frontend }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    defaults:
+      run:
+        working-directory: UI
+    steps:
+      - *checkout-product
+      - *checkout-frontend-action
+      - uses: ./.ci-actions/.github/actions/frontend-dependencies
+        with:
+          chromium: 'true'
+      - name: Run selected browser tests
+        env:
+          SPECS: ${{ toJSON(fromJSON(needs.changes.outputs.plan).frontendSpecs) }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          selection=()
+          if [[ "$SPECS" != null ]]; then
+            jq -er '.[]' <<< "$SPECS" > "$RUNNER_TEMP/specs.txt"
+            selection+=(--test-list "$RUNNER_TEMP/specs.txt")
+          fi
+          npm run test:e2e -- --fully-parallel --shard="$SHARD/6" --reporter=dot,github,blob "${selection[@]}"
+      - name: Upload shard report
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: ui-playwright-failure
-          path: |
-            UI/playwright-report
-            UI/test-results
-          if-no-files-found: ignore
+          name: ui-blob-${{ matrix.shard }}
+          path: UI/blob-report/*.zip
+          if-no-files-found: error
+          overwrite: true
           retention-days: 7
+
+  frontend-check:
+    name: Frontend Checks
+    needs: [changes, frontend-fast, frontend-browser]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && fromJSON(needs.changes.outputs.plan).frontend }}
+    runs-on: ubuntu-24.04
+    steps:
+      - *checkout-product
+      - *checkout-frontend-action
+      - uses: ./.ci-actions/.github/actions/frontend-dependencies
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: ui-blob-*
+          path: UI/blob-report
+          merge-multiple: true
+      - name: Merge browser reports
+        working-directory: UI
+        run: |
+          shopt -s nullglob
+          reports=(blob-report/*.zip)
+          test "${#reports[@]}" -eq 6
+          npx --no-install playwright merge-reports --reporter=html blob-report
+      - name: Upload merged report and failure traces
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ui-playwright-report
+          path: UI/playwright-report
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Require fast checks and every browser shard to pass
+        if: ${{ !cancelled() }}
+        env:
+          FAST: ${{ needs.frontend-fast.result }}
+          BROWSER: ${{ needs.frontend-browser.result }}
+        run: test "$FAST" = success && test "$BROWSER" = success
 
   web-check:
     needs: changes
@@ -262,28 +322,18 @@ jobs:
         working-directory: ./WEB
 
     steps:
-      - uses: actions/checkout@v7.0.0
+      - *checkout-product
+      - *checkout-frontend-action
+      - uses: ./.ci-actions/.github/actions/frontend-dependencies
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-
-      - uses: actions/setup-node@v6.4.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: WEB/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
+          directory: WEB
+          chromium: 'true'
 
       - name: Svelte check (type checking)
         run: npm run check
 
       - name: Build + SEO validation
         run: npm run validate
-
-      - name: Install responsive-test browser
-        run: npx playwright install --with-deps chromium
 
       - name: Responsive layout tests
         run: npm run test:responsive
@@ -361,7 +411,7 @@ jobs:
   result:
     name: Tests CI Result
     if: always()
-    needs: [changes, agent-harness, backend-test, docker-integration, frontend-check, web-check, ci-validation, selfhosting-check, cli-check]
+    needs: [changes, agent-harness, backend-test, docker-integration, frontend-fast, frontend-browser, frontend-check, web-check, ci-validation, selfhosting-check, cli-check]
     runs-on: ubuntu-latest
     permissions:
       contents: read

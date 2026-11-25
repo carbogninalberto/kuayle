@@ -60,6 +60,38 @@ images. New paths must be classified by actual consumers before narrowing their
 fallback. Docker context membership alone is not proof of a runtime dependency:
 Go test files and README files do not enter the built application.
 
+## Frontend browser coverage
+
+Tests runs Svelte checking, unit tests and the dependency audit once, alongside
+six Playwright jobs. Each shard uses two workers and splits by test so large
+files such as `page-height.test.ts` can span runners. The **Frontend Checks** job
+merges all six blob reports into the seven-day `ui-playwright-report` HTML
+artifact, including traces from failed tests. Both **Frontend Checks** and
+**Tests CI Result** require the fast job and every selected shard to pass.
+
+On PRs, `frontendSpecs` in the impact summary lists filenames relative to
+`UI/tests/e2e/`. The planner takes the union across the complete PR diff.
+
+| Changed UI input | Selected specs |
+| --- | --- |
+| An individual top-level `*.test.ts` e2e spec with a simple lowercase name | The changed spec |
+| Workspace settings leaf page for backups, forges, import, lessons, MCP, push, Slack, Telegram, templates, tokens, voice or webhooks | The dedicated specs and `page-height.test.ts`. Tokens also runs `mcp-settings.test.ts`. |
+| Workspace insights page | `insights.test.ts` and `page-height.test.ts` |
+| Slack integration callback page | `slack-settings.test.ts` |
+| Any other frontend input, missing selected spec, backend contract consumed by UI, or broad CI change | Full browser suite |
+
+The full-suite fallback includes layouts, app shell, components, API clients,
+test helpers, Playwright configuration, dependencies and lockfiles. When adding
+a mapping, check every spec that visits the route, including cross-page tests.
+Main pushes always run the full suite. A PR with `release-integration` in its
+head or base branch also runs it. Pushes to those integration branches, nightly
+Tests at 02:17 UTC and manual Tests runs select the full frontend suite alone.
+
+Frontend jobs restore npm's download cache by lockfile and installed modules
+by exact dependency inputs, Node version and runner platform. Browser jobs
+share the Chromium download cache by installed Playwright version and platform.
+Each browser runner installs the OS libraries it needs even on a cache hit.
+
 ## One verification owner per PR image
 
 - [Release Readiness](../../.github/workflows/release-readiness.yml) owns application
@@ -73,8 +105,10 @@ Go test files and README files do not enter the built application.
   [Security Scan](../../.github/workflows/security.yml) retains the updater image;
   the ten duplicate PR runtime-image scans are omitted there.
 - PR Go race tests run in [Tests](../../.github/workflows/test.yml) with database
-  coverage. Frontend browser tests build UI before preview. Security Scan retains
-  govulncheck, vet, Go build and npm audit, without repeating those PR tests/builds.
+  coverage. Tests owns the frontend npm audit on PRs and pushes to main, alongside
+  type and unit checks. Security Scan runs govulncheck, vet and Go build on PRs.
+  Its frontend job builds on main pushes and both audits and builds on tags and
+  its own schedule.
 - The frontend npm audit runs [npm-audit.mjs](npm-audit.mjs) (not bare
   `npm audit`): it fails on every high or critical advisory except the entries in
   [UI/npm-audit-allowlist.json](../../UI/npm-audit-allowlist.json) (id, package,
@@ -185,7 +219,7 @@ no failed/cancelled dependency. An unexpected skip or missing selected job fails
 an intentional omission is permitted. The full job catalog must match the gate's
 dependencies; unknown jobs cannot silently skip. Workflow contract tests also
 check catalog/needs completeness and planner selectors. Existing fixed job names remain visible
-as skipped when not selected; dynamic matrix names exist only for selected images.
+as skipped when not selected; matrix entries appear for selected images and browser shards.
 A manual release dispatch keeps `release-source` in the catalog but omits it from
 the required jobs, because that run deliberately builds an existing tag.
 
