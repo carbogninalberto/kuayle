@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -277,6 +278,79 @@ func apiAtLeast(version, minimum string) bool {
 	return ok && (major > wantMajor || major == wantMajor && minor >= wantMinor)
 }
 
+// isTaskWorktree reports whether a path is a task's own worktree,
+// /workspace/tasks/<name>.
+func isTaskWorktree(worktree string) bool {
+	name, ok := strings.CutPrefix(worktree, taskWorktreeRoot+"/")
+	return ok && name != "" && worktree == path.Clean(worktree) && !strings.ContainsAny(name, "/\x00") && !strings.HasPrefix(name, ".")
+}
+
+// pinStore says which commit a pipeline member's turn reads (KUA-289); ""
+// for any other run.
+type pinStore interface {
+	MemberCommit(ctx context.Context, runID uuid.UUID) (string, error)
+}
+
+// pinRuntime checks a task worktree out at a commit.
+type pinRuntime interface {
+	PinWorktree(ctx context.Context, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, commit string) error
+}
+
+// pinWorktree checks the worktree of a member's turn out at the commit it
+// reads before the worktree is mounted read-only (KUA-289): the agent cannot
+// do it itself then. Any other read-only run (a planning step) reads its
+// worktree as it is. It reports whether the worktree is ready to be read.
+func (m *Manager) pinWorktree(ctx context.Context, machine *domain.DevMachine, run *domain.DevMachineAgentRun, checkout *domain.DevMachineCheckout) bool {
+	store, ok := m.store.(pinStore)
+	if !ok || run.TaskID == nil {
+		return true
+	}
+	commit, err := store.MemberCommit(ctx, run.ID)
+	if err == nil && commit != "" {
+		runtime, ok := m.runtime.(pinRuntime)
+		if !ok || checkout == nil {
+			err = fmt.Errorf("the runtime cannot check out a commit")
+		} else {
+			var services []domain.DevMachineService
+			if services, err = m.store.ListServices(ctx, machine.WorkspaceID, machine.ID); err == nil {
+				err = runtime.PinWorktree(ctx, services, checkout, commit)
+			}
+		}
+	}
+	if err != nil {
+		log.WithFields(log.Fields{"machine_id": machine.ID, "agent_run_id": run.ID}).WithError(err).Warn("the member's worktree could not be checked out at the commit it reads")
+		return false
+	}
+	return true
+}
+
+var pinnedCommit = regexp.MustCompile(`^[0-9a-f]{40}([0-9a-f]{24})?$`)
+
+// pinWorktreeScript checks a worktree out, detached, at a commit, through
+// the publication preamble's g(): nothing the agent-writable checkout
+// configures (hooks, fsmonitor, filter programs) runs. g() keeps HEAD in its
+// own directory, so the worktree's HEAD is then set to the commit.
+const pinWorktreeScript = `set -eu
+path=$1 branch=$2 commit=$3 step=pin
+` + publishCheckoutScript + `g checkout --quiet --force --detach "$commit"
+printf '%s\n' "$commit" > "$gitdir/HEAD"
+`
+
+// PinWorktree checks a member's own worktree out, detached, at the commit
+// its turn reads, discarding what an earlier turn changed in it: Kuayle never
+// publishes a member's changes.
+func (r *DockerRuntime) PinWorktree(ctx context.Context, services []domain.DevMachineService, checkout *domain.DevMachineCheckout, commit string) error {
+	developer := developerContainerID(services)
+	if developer == "" || checkout == nil {
+		return fmt.Errorf("developer container is unavailable")
+	}
+	if !pinnedCommit.MatchString(commit) || !isTaskWorktree(checkout.WorkspacePath) {
+		return fmt.Errorf("invalid commit or worktree")
+	}
+	_, err := r.execOutput(ctx, developer, []string{"/bin/sh", "-c", pinWorktreeScript, "kuayle-pin", checkout.WorkspacePath, checkout.WorkingBranch, commit})
+	return err
+}
+
 // readOnlyWorktreeMounts are the mounts that make the run's worktree
 // read-only and keep its .kuayle directory writable, or nil when the run
 // does not ask for it or its checkout is not a task worktree.
@@ -285,8 +359,7 @@ func readOnlyWorktreeMounts(volumeName string, run *domain.DevMachineAgentRun, c
 		return nil
 	}
 	worktree := checkout.WorkspacePath
-	name, ok := strings.CutPrefix(worktree, taskWorktreeRoot+"/")
-	if !ok || name == "" || worktree != path.Clean(worktree) || strings.ContainsAny(name, "/\x00") || strings.HasPrefix(name, ".") {
+	if !isTaskWorktree(worktree) {
 		return nil
 	}
 	subpath := strings.TrimPrefix(worktree, "/workspace/")

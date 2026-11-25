@@ -40,4 +40,6 @@ test('only a live workflow task is asked about', () => {
 	assert.equal(mayHaveWorkflowUpdate({ ...task, workflow_version_id: null }), false);
 	assert.equal(mayHaveWorkflowUpdate({ ...task, kind: 'review' }), false);
 	for (const state of ['completed', 'failed', 'cancelled']) assert.equal(mayHaveWorkflowUpdate({ ...task, state }), false);
+	// A task on a pipeline stays on the version it started on (KUA-291).
+	assert.equal(mayHaveWorkflowUpdate({ ...task, pipeline: true }), false);
 });

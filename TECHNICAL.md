@@ -12,7 +12,7 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
 
 - A Dev Machine is a logical workspace composed of cooperating containers. It is never a monolithic IDE/browser/agent container.
 - Generic machine creation does not require repository, branch, issue, project, or manual TTL input. Friendly random names are case-insensitively unique per creator within a workspace and can be checked through the availability API.
-- Repository and environment defaults resolve from issue, then project, then team, then workspace. A manually used machine has affinity to one repository and can host multiple issue worktrees from it. A machine that agent tasks use serves several repositories: each repository is cached once on the machine and every task gets its own worktree. A different environment, or a machine busy with another active task, requires another machine.
+- Repository and environment defaults resolve from issue, then project, then team, then workspace. A manually used machine has affinity to one repository and can host multiple issue worktrees from it. A machine that agent tasks use serves several repositories: each repository is cached once on the machine and every task gets its own worktree. Tasks in the same environment can share a suitable running machine under the [task machine reuse](#task-machine-reuse) rules.
 - The Kuayle API does not receive the Docker socket.
 - Agent, developer, browser, collector, egress, and gateway containers do not receive the host Docker socket. A machine may have its own sandboxed Docker daemon (see [Machine Docker daemon](#machine-docker-daemon)), never the host's.
 - The Machine Manager is the only Dev Machines runtime component with Docker socket access and is treated as host-privileged. The separately optional system updater also mounts the socket when enabled.
@@ -91,7 +91,7 @@ The shared workspace is writable by developer and agent containers. The collecto
 
 Standard machines represent the developer container as separate `ide` and `terminal` service records that point at one container: code-server listens on `8080`, ttyd listens on `7681`, and terminal sessions attach to named tmux sessions under the same `HOME`, process tree, tools, and `/workspace` used by code-server. Headless machines expose only the `terminal` developer-service record plus collector and egress; the terminal uses the headless developer image, which also serves as the autonomous image for the five new built-in CLIs. Development Environment image selection does not replace that headless image. Headless developer containers retain the standard developer security, tmpfs executable scratch space, workspace mount, and terminal-session scripts.
 
-Agent containers are created on demand, one per run (`kuayle-<routing key>-agent-<run>`). Attempts of different agent tasks may run on one machine at the same time, each in its own task worktree, up to the workspace's task limit (see [Task machine reuse](#resource-limits-and-quotas)); a user's own (non-task) agent run keeps the machine to itself (partial unique index `idx_dev_machine_agent_runs_one_active_manual`).
+Agent containers are created on demand, one per run (`kuayle-<routing key>-agent-<run>`). Tasks can share a machine up to its [task limit](#task-machine-reuse), each in its own worktree. A user's own (non-task) agent run keeps the machine to itself (partial unique index `idx_dev_machine_agent_runs_one_active_manual`).
 
 ## Network Isolation
 
@@ -630,9 +630,9 @@ An autonomous run receives:
 - explicitly allowed secret names;
 - whether to push the working branch.
 
-Pull requests are opened only by task publication (`publish_agent`), never by the run itself.
-
-Kuayle adds an execution contract instructing the provider to work only inside the selected workspace path, avoid credential output, run the requested tests, commit results, and use the configured working branch.
+A task attempt works in its selected checkout, runs the requested tests and
+leaves changes uncommitted. Kuayle's publication operation (`publish_agent`)
+commits them, pushes the task branch and opens or updates the pull request.
 
 ## Lifecycle
 
@@ -660,7 +660,7 @@ spawn/reconcile failure -> failed -> spawning or tearing_down
 | `failed` | A lifecycle operation attempt failed and requires retry or teardown |
 | `expired` | Legacy: no longer assigned. Migration 101 turns a machine the old expiry reaper marked but had not started tearing down into a stop; the manager stops it (`expired` → `stopped`) |
 
-Lifecycle commands write `dev_machine_operations` with generation and idempotency key. Leasing locks the machine row and selects at most one ordinary operation per machine; teardown and cancellation may preempt a long-running agent operation. The manager cancels local run contexts before destructive cleanup. Every non-destructive state write is conditional on the operation generation, and a stale spawn compensates by tearing down anything it created, so it cannot overwrite or survive a newer desired state. Identical idempotency-key retries return the original operation; reusing a key for another action is rejected. Read-only worktree scans (`scan_worktree`, migration 157) lease beside an agent attempt, validation, publication, check or tool run, and a running scan never blocks other work.
+Lifecycle commands write `dev_machine_operations` with generation and idempotency key. Each lease pass locks the machine row and selects at most one operation per machine. Teardown and cancellation may preempt a long-running agent operation. The manager cancels local run contexts before destructive cleanup. Every non-destructive state write is conditional on the operation generation, and a stale spawn compensates by tearing down anything it created, so it cannot overwrite or survive a newer desired state. Identical idempotency-key retries return the original operation; reusing a key for another action is rejected. The manager can lease another task's operation on the same machine under the [task sharing rules](#task-machine-reuse).
 
 Every reconciliation pass inspects Docker networks, volumes, gateway attachment, and non-agent service containers. A desired-running machine with missing, stopped, or detached resources is repaired from deterministic names and labels before the database is returned to `running`. Workspace deletion is rejected until all machine runtimes are destroyed, preserving the records needed for cleanup.
 
@@ -668,7 +668,7 @@ Resource names and labels are deterministic. Missing resources during teardown c
 
 The production repository currently supplies services to the runtime in egress, collector, developer, then browser order; the Docker runtime starts them in caller-provided order rather than computing dependencies itself. Developer and browser containers publish file-based Docker health checks.
 
-Machines have no lifetime. The one exception is an assistant temporary machine (`dev_machines.temporary_expires_at`, migration 159), which reconciliation permanently deletes 30 minutes after it was created; see [commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines). A booted machine stays up until its user pauses, stops, tears down or deletes it: nothing pauses idle machines, stops them after a maximum runtime, tears them down when they expire, or stops an idle machine to make room for another (a spawn or start that waits for host CPU or memory keeps waiting, see host admission below). Agent tasks do not pause or stop their machine when they finish or are cancelled, so the next task can reuse it (see [Task machines](#resource-limits-and-quotas)). Only the host disk floor still stops running machines, to protect the host. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`, which orders machines for reuse. Each agent run, check and custom tool run keeps its own time limit (`max_runtime_seconds`, 3600 seconds by default, 10800 seconds (three hours) for task attempts, up to 86400). Migration `000101_dev_machines_persistent` drops `dev_machines.expires_at`, `max_runtime_minutes` and `keep_running` and the workspace policy's `max_runtime_minutes` and `idle_pause_minutes`; existing machines keep running whatever their old expiry, and the machine's own credentials (collector token, browser CDP token, Docker TLS material) no longer expire with it. Docker TLS material is issued for ten years and discarded at teardown; Docker-enabled machines created before migration 101 keep certificates that end a day after their old expiry, so recreate them to use Docker beyond that. Rollback restores the columns with a 480-minute runtime and a lifetime of one day counted from the rollback, after which the previous release tears machines down again.
+Machines have no lifetime. The one exception is an assistant temporary machine (`dev_machines.temporary_expires_at`, migration 159), which reconciliation permanently deletes 30 minutes after it was created; see [commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines). A booted machine stays up until its user pauses, stops, tears down or deletes it: nothing pauses idle machines, stops them after a maximum runtime, tears them down when they expire, or stops an idle machine to make room for another (a spawn or start that waits for host CPU or memory keeps waiting, see host admission below). Agent tasks do not pause or stop their machine when they finish or are cancelled, so the next task can reuse it (see [task machine reuse](#task-machine-reuse)). Only the host disk floor still stops running machines, to protect the host. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`, which orders machines for reuse. Each agent run, check and custom tool run keeps its own time limit (`max_runtime_seconds`, 3600 seconds by default, 10800 seconds (three hours) for task attempts, up to 86400). Migration `000101_dev_machines_persistent` drops `dev_machines.expires_at`, `max_runtime_minutes` and `keep_running` and the workspace policy's `max_runtime_minutes` and `idle_pause_minutes`; existing machines keep running whatever their old expiry, and the machine's own credentials (collector token, browser CDP token, Docker TLS material) no longer expire with it. Docker TLS material is issued for ten years and discarded at teardown; Docker-enabled machines created before migration 101 keep certificates that end a day after their old expiry, so recreate them to use Docker beyond that. Rollback restores the columns with a 480-minute runtime and a lifetime of one day counted from the rollback, after which the previous release tears machines down again.
 
 Starting a stopped or paused machine is idempotent. When its workspace volume was never recorded (its first spawn failed), the volume no longer exists, or a service container is missing, the start provisions the machine again from its deterministic names and reuses whatever still exists. The developer start scripts accept a workspace volume that already holds Kuayle state (`.kuayle/`, `repos/`, `tasks/`) or the user's work: a repository machine's root checkout is cloned into `.kuayle/root-checkout`, its files are moved into `/workspace` without replacing existing paths, and `.git` is moved last, so an existing `/workspace/.git` means the root is prepared and an interrupted preparation completes on the next start. The working branch is selected only when the root checkout is created; a restart keeps the current branch and local commits.
 
@@ -683,12 +683,10 @@ Pause, stop, teardown, and permanent delete are intentionally distinct:
 
 ## Agent task integration
 
-Persistent task execution is being integrated with the existing native run and
-machine operation records. The [agent task contract](BE/docs/agent-tasks.md)
-documents migration 56, authorization/lease ordering, encrypted per-attempt
-recovery credentials, live output capture and conversation events, and the
-session-only task routes, worker wiring, pull request publication and remaining review work. Manual IDE/terminal
-workflows continue to use the existing machine controls.
+The task worker runs attempts through the existing machine operations. The
+[agent task contract](BE/docs/agent-tasks.md) covers access and leases,
+per-attempt credentials, conversation events, publication and recovery.
+
 A task's check can also run on demand ([manual checks](BE/docs/agent-tasks.md#manual-checks),
 migration 97): `POST /agent-tasks/:taskId/checks`, the task card's "Run check"
 button or the assistant's approved `run_check` tool queue a `run_check`
@@ -696,46 +694,15 @@ operation that runs in the credential-free check container on the latest
 attempt's checkout, records a `manual_check` step and never starts an attempt
 or changes the task's state. It is refused while the agent works on the machine.
 
-Read-only worktree scans (`scan_worktree`, migration 157) let the assistant
-inspect a task's checkout while its agent works: grep, glob, read, git status
-and a list of `/workspace/tasks` run in the developer container. Every git
-command goes through the publication preamble's throwaway git directory, so no
-configuration, hook, fsmonitor or attribute program from the agent-writable
-checkout runs; `git status` also passes `--ignore-submodules=all`, so a nested
-repository never runs its own configuration. A scan row and its operation share
-an ID; the result, or a short error, is stored on
-`dev_machine_worktree_scans`, and a workspace's scans older than an hour are
-removed. One requester may keep four unfinished scans per machine; more are
-refused as busy. A list scan prints each worktree as it reads it, skips
-symlinked entries, returns partial rows with `truncated: true` when its 10 s
-deadline stops it, and checks only tracked modifications per worktree. rg
-respects the checkout's ignore files, read paths cannot leave the checkout, and
-output, line, file and match counts are bounded. A status or read result's
-`branch` and `commit` name the task's branch ref: an agent that switched
-branches leaves its own working tree, which is what the scan reads.
-
 Every task attempt runs inside a tracked [agent session](BE/docs/agent-tasks.md#agent-sessions)
 (migration 84, `agent_sessions`): an implementing task keeps one session across
 its follow-ups, and its state follows the task's transitions in the same
-transaction. Agent reviews of a published pull request run only when requested
-from chat, as separate review tasks that never validate, publish or receive a
-push credential; see [requested agent reviews](BE/docs/agent-tasks.md#requested-agent-reviews).
+transaction. Reviews requested from chat run as separate review tasks that
+never validate, publish or receive a push credential; see [requested agent reviews](BE/docs/agent-tasks.md#requested-agent-reviews).
 A reviewer is told that CI is judged separately and not to request changes over
 CI it cannot see or a run on the commit that has not finished; its prompt lists
 each check's state on the reviewed commit when Kuayle knows it, and otherwise
 says CI is unknown.
-
-A task on an experimental [team workflow](BE/docs/agent-tasks.md#team-workflows-experimental)
-(a pipeline, KUA-252; off unless `WORKFLOW_PIPELINES_ENABLED` is set) runs
-its roles as members. The writer's turns are the task's own attempts. Every
-other role, such as the reviewer, gets one review task of it, created at its
-first turn and run again as the next generation for each later turn, so each
-role keeps one session for the task: a turn resumes it (`claude --resume`,
-`codex exec resume`, `opencode run --session`) when the role's previous turn
-succeeded on the same machine, and otherwise starts with the handoff. Other
-reviews still start cold. The roles and Kuayle talk in the task's room
-(migrations 206 and 207), and a tick on the task worker, not the graph
-runner, moves the task from the facts it reads (migration 208).
 
 A failed CI suite on a task's pull request carries what GitHub reported about
 its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),
@@ -822,7 +789,10 @@ session only, audited in `workspace_lesson_events`); until then a task's
 proposal is read only by them and the task's creator. Only approved lessons
 are returned by `WorkspaceMemoryService.ApprovedLessons`, bounded and
 redacted again, for a task's prompt. A private team's lesson stays with that
-team.
+team. A lesson may be for one role of a team workflow (migration 209,
+`role`): a pipeline member's outbox lesson is proposed for the role it plays,
+and once approved it reaches only the tasks that play that role, alongside the
+lessons for every task; any other task reads only the lessons without a role.
 
 [Configurable workflows](BE/docs/agent-tasks.md#configurable-workflows)
 (migration 118) replace the fixed implement → validate → publish → review flow
@@ -867,6 +837,50 @@ received is recorded by source.
 
 [Automations](BE/docs/agent-tasks.md#automations) (migrations 69 and 193) delegate matching issues to their default, selected latest or pinned workflow. Rules match continuously, during a legacy UTC hour or on a timezone-aware cron schedule. The dedicated automation worker supports leased starts, bounded retries and replay. Runs need approval unless a rule is unattended and the workspace policy allows unattended automations; every start acts for a recorded user under that user's current permissions.
 
+### Team workflows
+
+Settings → Workflows lets workspace owners and admins build a pipeline from
+phases, checks and role profiles, start from a template, or draft a separate
+pipeline from a supported graph. Tasks pin the workflow version at start.
+A graph runs on the graph runner. A pipeline runs on the task worker's
+[tick](BE/internal/service/team_tick.go), which reads facts, posts changes in
+the task room and schedules turns and platform actions.
+
+Writer roles take turns on the root task's checkout under one write lock.
+Reviewers and the optional lead run on separate member tasks. The room holds
+instructions, verdicts tied to a commit, phase changes and decisions. The
+lead reads the repository board, moves phases, maintains the notebook and
+reports to the creator. Authority to approve the current head or waive a
+check comes from the pinned pipeline or a grant from the creator. A lead's
+split request creates sub-issues once the creator approves it, or at once
+when the creator granted the lead the split (KUA-313). With no
+lead, Kuayle derives the phase from required checks. Kuayle enforces the
+merge gate in both cases.
+
+Kuayle publishes the writer's work. The task stays in `publishing` while
+the machine operation is queued or running. Only its finished result goes
+back to the tick. The task page shows room posts, running roles, the pinned
+phase chart, check results and files at a commit. See the
+[team workflow contract](BE/docs/agent-tasks.md#team-workflows) for the
+editor, room permissions, turn delivery, capacity and merge rules.
+
+### Worktree scans
+
+The assistant reads a task creator's live checkout on its running machine
+through `scan_worktree`. Grep and glob respect ignore files. Read checks the
+resolved path against the checkout. Status compares the live files to the task
+branch and ignores submodules. A list scan reports tracked modifications
+across worktrees and returns partial results if its deadline expires. These
+read-only operations can run alongside other work. See the
+[worktree scan contract](BE/docs/agent-tasks.md#worktree-scans) for limits and
+result storage.
+
+The Files panel reads a commit. Published commits come from a temporary
+GitHub checkout. Before publication, or for a commit recorded by an attempt,
+the service can read on the machine with the `tree` and `show` scan kinds.
+Both read tracked regular files from Git objects, so uncommitted work stays
+out of the panel. See [files at a commit](BE/docs/agent-tasks.md#files-at-a-commit).
+
 ## Resource Limits and Quotas
 
 **Host admission.** Before spawning or starting a machine, the manager reads the
@@ -906,8 +920,6 @@ A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12
 
 **Task machines.** Machines Kuayle creates itself for agent tasks (issue delegations, the assistant's delegate tool and automations all go through agent tasks) are headless custom machines sized by the workspace policy's `task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (Settings → Dev Machines → Policy → Task machines). The defaults are 4 vCPU, 8 GB and 20 GB; migration 90 gives existing workspaces the same values (task machines were previously `small`, whose 4 GB left an agent such as Claude Code 1.4 GB and was OOM-killed under builds). The same size rules apply, and the task disk must stay within `max_disk_gb`. Changes affect task machines created afterwards; reused task machines keep their size.
 
-**Task machine reuse.** A task first runs on a suitable machine that is already running, sharing it with other tasks when needed. When the creator has such a machine but it already runs as many tasks as its limit allows, the task waits for a free slot on it (still `preparing`, with a reason naming the machine and its task count) instead of creating a machine the host cannot start; only when the creator has no suitable running machine does it create a task machine (named `task-<reservation>`), which then stays running after the task for later tasks. A task whose own task machine was created but never started (queued and not yet spawned) moves to a free slot on another suitable machine when one appears, and that unstarted machine is deleted. `AgentTaskRepository.ReserveMachine` picks, under the workspace advisory lock and `FOR UPDATE SKIP LOCKED`, a machine that is: in the task's workspace and created by the task's creator (the task runs as its creator); `running` with desired `running` and not being deleted; a `standard` or `headless` machine of the task's environment (no environment means headless) and not an Environment Builder or an assistant temporary machine; allowed by the enabled workspace policy (a sudo machine only while sudo is allowed, a Docker machine only while Docker is allowed); running no agent session of the user's own and no pending or leased stop, pause, teardown, snapshot, check or custom tool operation; and working on fewer other active tasks than the machine's `max_tasks`, or the policy's `task_machine_max_tasks` when the machine has none (default 10, from 1 to 10; `awaiting_review`, `blocked` and finished tasks do not count). Idle machines (no active agent run, no other active task, no queued publication) come first: one already used by a task of the same issue, then the most recently active one (machines that already cache the repository or carry the task's agent break ties). Otherwise the least loaded busy machine is shared, with the same tie-breaks. Paused and stopped machines are left alone: their user chose that. A task keeps the machine it was given across attempts, retries and restarts (a stopped or paused one is started again for it). Each task works in its own checkout (`/workspace/tasks/<issue>-<task>`, branch `kuayle/<issue>-<task>`, agent sessions under `/workspace/.kuayle/agent-sessions/<task>`), so sharing never mixes work. `CreateAgentRun` re-checks the limit under the workspace and machine locks: a task attempt waits (the task retries) while the user's own agent session runs, a manual check or tool run is queued, or as many other tasks as the limit allows hold an attempt, publication or cleanup there; a user's own agent run still needs a machine without task work. Publications of a finished attempt run beside other tasks' attempts (`lockTaskMachine`), while manual checks and custom tool runs still need a machine without agent work (`lockMachineForCheck`). The manager leases one operation per machine at a time, except that agent tasks' `run_agent`, `checkout_issue`, and `publish_agent` operations (a run with a `task_id`, a checkout with a task `scope_key`) run beside one another (`LeaseOperations`); the user's own agent runs and checkouts, which share the root workspace and its `/workspace/current` link, and lifecycle, preview, image update and sign-in operations still run alone. Read-only `scan_worktree` operations are the other exception: they lease beside any leased work and never block it. Tasks on one machine share its CPU, memory and disk: their agent containers split the agent memory share below (`agentMemoryBytes`), so ten tasks on a 16 GB headless machine get about 1 GB each instead of 8 GB each, while CPU and PID limits keep the full share. `task_machine_max_tasks` bounds concurrency on one machine, not the number of machines: a new task machine is created only when the creator has no suitable running machine, while a full suitable machine makes the task wait for a slot. Raising the limit (up to 10, for the workspace or for one machine) therefore lets more tasks run on one machine at once. A machine excluded from selection — running the user's own agent session, or with a pending stop, pause, teardown, snapshot, check or tool operation — counts as no suitable machine, so a task may still create a task machine while such a machine exists. The machine's agent is attached under the same policy checks as creating a machine with it. The Environment Builder dialog starts with the task machine CPU and memory.
-
 The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). PID limits count threads. Agent containers, including manual checks and custom tools, get at least 4,096 PIDs up to the machine's configured PID limit, or their share if higher. Migration 194 raises the machine default from 512 to 4,096 and updates machines with the previous default. The IDE and terminal retain their 1,024-PID floor. Other services keep their share, with at least 256 for the browser and 32 otherwise. Manual checks keep the 35% agent share because their compose services share another 30%. When agent tasks share a machine, the memory limit of each agent attempt and manual check container is the agent share divided by the tasks with a running attempt or check there, the new one included (`agentMemoryBytes`, counted from the machine's running agent containers when a container is created and again on resize), with at least 1 GB (`agentMinimumMemoryBytes`) and never more than the undivided share. The limits then add up to about the agent share instead of a multiple of the machine, so a busy machine reclaims cache and slows down rather than the kernel stopping agents with exit code 137; a container keeps the limit it started with until the machine is resized. CPU and PID limits apply per container without division among tasks. These CPU and memory shares apply to machines that do not share their resources ([shared machine resources](#shared-machine-resources)); PID shares always apply. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
 **Live resize.** `PATCH /dev-machines/:machineId` with any of `cpu_millis`,
@@ -933,19 +945,6 @@ and the volumes' `size_limit_bytes`, which the disk monitor reads. A stopped
 machine's containers take the new limits at their next start, which admits them.
 A rejected resize clears the pending size and records `resize_error`. Events:
 `machine.resize_requested` and `machine.resized`.
-
-**Per-machine task limit.** A machine can override how many active agent tasks
-share it with `PATCH /dev-machines/:machineId` and `max_tasks` (1 to 10), or go
-back to the workspace policy with `clear_max_tasks: true` (migration 156,
-`dev_machines.max_tasks`; NULL follows the policy). The creator keeps the same
-`dev_machine:manage` and ownership check as resizing, but the change works in
-every machine status, including running: no operation is queued and nothing
-restarts, because the limit is read only when a task is placed and when an
-attempt starts. The request may resize and change the limit together. Both
-placement (`ReserveMachine`) and the attempt check in `CreateAgentRun` use
-`COALESCE(dev_machines.max_tasks, dev_machine_workspace_policies.task_machine_max_tasks)`.
-The machine page shows the effective limit and labels whether it is this
-machine's own or the workspace default.
 
 **Release images.** Each machine service and agent provider records the image
 it was created with (`dev_machine_services.image_ref`,
@@ -1001,11 +1000,50 @@ Workspace policy controls:
 - task machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB; older clients that omit them keep the current values);
 - how many active agent tasks share one task machine (`task_machine_max_tasks`, default 10, 1 to 10; migrations 113 and 117, which kept saved values; rolling 117 back caps limits above 4 at 4; older clients that omit it keep the current value);
 - an optional per-machine override of that limit (`dev_machines.max_tasks`, 1 to 10, migration 156; NULL follows the policy and it can be changed while the machine runs);
+- how many files a task's file listing holds (`task_files_max`, default 30,000, 100 to 30,000; migration 210; older clients that omit it keep the current value), for both [sources of a task's files](BE/docs/agent-tasks.md#files-at-a-commit);
 - allowed providers;
 - allowed repositories;
 - whether custom providers are allowed;
 - whether new machines get their own Docker daemon (`allow_docker`, default off);
 - whether the developer containers of new machines allow sudo (`allow_sudo`, default off).
+
+### Task machine reuse
+
+A new task uses a running machine owned by its creator in the same workspace
+and environment. The machine must have a standard or headless profile and
+satisfy the workspace's sudo and Docker policies. Builders, temporary machines
+and machines being deleted are excluded. A manual agent session or pending or
+leased stop, pause, teardown, snapshot, check, tool or command also excludes
+the machine.
+
+[ReserveMachine](BE/internal/repository/agent_task.go) picks an idle machine
+first, then the one with the fewest active tasks. Ties favour a machine used
+for the same issue, recent activity, the cached repository and an enabled
+provider. If every suitable machine is full, the task stays in `preparing`
+and shows the machine name and task count. If none is suitable, Kuayle creates
+a task machine. A task can give up a newly created machine that has never
+started when a suitable machine becomes free. Later attempts keep their
+assigned machine while it exists and can restart it if paused or stopped.
+
+Each task has its own checkout, branch and session directory. Task checkouts,
+attempts, validations and publications can run alongside one another.
+A user's manual agent session needs exclusive access, and manual checks and
+custom tool runs are refused while the machine has active agent work.
+Read-only [scans](#worktree-scans) can run alongside either. See the manager's
+[operation leasing rules](BE/internal/repository/dev_machine.go).
+
+The workspace policy sets `task_machine_max_tasks` (1–10, default 10).
+The creator with `dev_machine:manage` can set `max_tasks` with
+`PATCH /dev-machines/:machineId` or send `clear_max_tasks: true` to follow
+the policy again. This works in every machine status, including during a
+resize request. The machine page shows the effective limit and its source.
+Changes apply at the next placement or turn without a restart. Placement and [member turns](BE/internal/repository/task_member_slot.go)
+count active tasks holding the machine under the same workspace lock.
+Finished, blocked and awaiting-review tasks release their slots. A member
+uses its own task's machine or the root task's machine for its first turn.
+When turns from several tasks are waiting on one machine, the oldest unread
+room post gets the next slot. Attempt creation checks capacity again under
+the workspace and machine locks.
 
 ### Shared machine resources
 
@@ -1213,9 +1251,22 @@ Development defaults are stored in `dev_machine_scope_settings`. A setting may p
 
 Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready manual checkouts from the same repository. Task checkouts (`/workspace/tasks/{issue-key}-{task-id}`) do not use or change the machine's repository affinity, so one task machine serves several repositories; the environment must still match.
 
-Task reservation reuses one of the creator's own machines with the same environment before creating a new one: running machines first, then paused, then stopped ones (the task starts a paused or stopped machine through the ordinary lifecycle checks, including the machine limits), preferring a machine that already caches the task's repository or carries its agent. Machines of other users, environment builders, machines being deleted or changing state, machines running the user's own agent session, and machines already working on the workspace's limit of active tasks are never chosen; an idle machine comes before a busy one.
+For placement and capacity, see [task machine reuse](#task-machine-reuse).
 
-Every repository a machine checks out is cloned once as a bare cache, `/workspace/repos/{owner}/{repo}.git`, and each checkout is a `git worktree` of that cache; earlier machines may also hold flat `/workspace/repos/{owner}-{repo}.git` caches, which existing worktrees keep using. Preparing an existing checkout path again fetches it and keeps its work, and is refused when the path holds another repository. The caches store no credential: each checkout authenticates with an installation token scoped to that one repository, passed through an ephemeral askpass helper, and worktrees use the token-less credential helper that reads the per-run `GITHUB_TOKEN`. All repositories on one machine share its workspace volume, so they share the creator's trust boundary; the repository allowlist is checked for every checkout.
+Each checkout is a worktree of a per-repository bare cache under
+`/workspace/repos/{owner}/{repo}.git`. Older worktrees can still point at the
+flat `{owner}-{repo}.git` cache. Preparing an existing worktree fetches again
+and preserves its files. Kuayle checks the repository allowlist for every
+checkout. Worktrees on the same machine share the creator's workspace volume.
+
+The [checkout script](BE/internal/machine/docker_checkout.go) borrows the
+cache's objects and refs in a temporary Git directory with isolated
+configuration and disabled hooks. It fetches from the fixed GitHub URL with
+a token scoped to that repository and removes the token before writing the
+worktree. The IDE and terminal credential helper answers only for HTTPS on
+`github.com`. Publication and worktree scans use the same Git isolation.
+See [what publication runs](BE/docs/agent-tasks.md#what-publication-runs) and
+[KS-39](SECURITY_AUDIT.md#ks-39--checkout-leaked-the-repository-token-critical).
 
 Development Environments are immutable local OCI images created from owner/admin-created Environment Builder machines. Environment Builders run the developer container with a writable root filesystem so tooling can be installed intentionally. Snapshot requests are accepted only while the builder is `paused` or `stopped`; the environment moves `pending -> building -> ready` or `failed`. The snapshot commits the developer container layer with Kuayle environment/workspace labels, may leave a human-readable local tag (`kuayle/dev-environment-{id}:snapshot`), and records the immutable local image ID (`sha256:...`) as both `image_ref` and `image_digest` once ready. Machine creation uses only that immutable local ID, verifies the image labels match the expected workspace/environment, and never registry-pulls a missing local snapshot ID. The repository workspace named volume, `/run/kuayle-secrets`, `/tmp`, and other tmpfs scratch mounts are not part of the image. Selected shell and code-server customization is copied into an image template before commit; files in that template whose names contain `history`, `token`, or `credential` are removed. The complete writable developer layer is still committed, so operators must scrub any other sensitive data before snapshotting.
 
@@ -1223,7 +1274,10 @@ Environment deletion is two-phase. The API marks an environment `delete_requeste
 
 ## GitHub Integration
 
-Dev Machines use GitHub App installation tokens, not broad personal access tokens. Generic machines may start without a repository; issue checkouts resolve the linked repository through issue, project, team, then workspace development settings. Once a machine has repository affinity, additional manual issue worktrees must use the same linked repository; task worktrees may use any allowed linked repository. Agent runs and publication mint tokens for the checkout's repository; the IDE and terminal receive a token for the machine's root repository.
+Dev Machines use GitHub App installation tokens. The IDE and terminal use
+the machine's root repository. Task publication uses the checkout's
+repository, which may be any repository the policy allows. Task attempts
+run without a GitHub token.
 
 Required GitHub App repository permissions:
 
@@ -1234,9 +1288,8 @@ Required GitHub App repository permissions:
 | pull requests | read and write |
 | workflows | read and write for publication and PR branch updates or merges that change workflows |
 
-The manager requests a token restricted to the selected linked repository and required permissions for the machine checkout or agent run. The token is short-lived, never stored in plaintext, and injected only into the developer or agent containers that need Git.
-
-The IDE uses an ephemeral askpass helper for clone. Agent containers install an ephemeral Git credential helper. Kuayle resolves the workspace or global GitHub App client again and mints a fresh token before creating a pull request after a successful run.
+Kuayle mints a fresh installation token when task publication opens or
+updates the pull request.
 
 Agent pull request descriptions are written by the agent in `.kuayle/pull_request.json` (description, changes, verification, notes, screenshots), sanitized, and rendered with the nearest scope's template or the default Description/Changes/Verification/Screenshots/Notes template. Empty sections are dropped. Screenshots the agent leaves in `.kuayle/screenshots/` are validated and committed through the Git data API to a separate `kuayle/screenshots/<task id>` branch. Commit-pinned links follow the repository's visibility, and the screenshot branch retains prior snapshots. When a new attempt updates an open pull request, Kuayle restores missing links from the latest screenshot snapshot and labels carried screenshots as earlier evidence. A new upload supersedes earlier evidence with the same filename. The description reports recoveries, omissions and screenshot branch failures for that publish. See [Pull request description](BE/docs/agent-tasks.md#pull-request-description-kua-210).
 
@@ -1716,6 +1769,37 @@ Outside `ENVIRONMENT=development`, `config.Load` and `config.LoadMachineGateway`
 The optional [release updater](selfhosting/RELEASE_UPDATER.md) supports detached release checkouts and digest-pinned production Compose deployments. It exports release source without changing the checkout, prepares images before downtime (pulling digest-pinned API, UI and, when active, Dev Machines control-plane/runtime images published by the release workflow; a Dev Machines image missing from GHCR is built locally from the release source), stops application/control-plane writers before a database backup and migrations, and waits for health before removing maintenance mode. Failure after migrations begin leaves writers stopped; it never restarts old binaries against a potentially changed schema. After migrations it records the dump in `backup_runs` (kind `pre_upgrade`).
 
 Instance backups (migration `000164_backups`, `BE/internal/service/backup*.go`) are configured by sysadmins in Settings → Backups. `backup_settings` is a singleton row holding the schedule, retention, AES-GCM encrypted S3 credentials and passphrase (key derived from `JWT_SECRET+":backup"`) and a lease (`lease_token`, `lease_expires_at`) that allows one run at a time across replicas; each replica's scheduler claims `next_run_at` with compare-and-set every minute. `backup_runs` is the history; each run records the S3 endpoint and bucket its copy went to, and retention and Verify act only on copies in the bucket configured now. The S3 endpoint dials public addresses only unless `BACKUP_S3_ALLOW_PRIVATE_NETWORK=true`. See [Backups](docs/backups.md) for the archive and encryption format and the restore procedure.
+
+### Instance configuration
+
+The [configuration registry](BE/internal/config/registry.go) describes the
+API process's settings, including the backup command's
+`KUAYLE_BACKUP_PASSPHRASE`. Its [test](BE/internal/config/registry_test.go)
+checks field coverage and secret classification. Settings → Instance
+configuration shows this registry to sysadmins listed in `SYSADMINS`.
+
+The API requires a sysadmin session, rejects SSO-scoped sessions and returns
+`Cache-Control: private, no-store`.
+
+| Route | Result |
+| --- | --- |
+| `GET /api/system/config` | Returns each variable's effective value and source (override, environment or default). Secrets expose only set/unset status. A URL carrying credentials, a query or a fragment is withheld. |
+| `PUT /api/system/config/:name` | Validates and stores a runtime override in `instance_config_overrides`. Returns `400 INVALID_CONFIG_VALUE` for an invalid value and `409 CONFIG_READ_ONLY` for a startup-only setting. |
+| `DELETE /api/system/config/:name` | Removes the override. The environment value or built-in default takes effect again. |
+
+The runtime readers are `AgentTaskService.PipelinesEnabled`
+(`WORKFLOW_PIPELINES_ENABLED`, default `true`), registration
+(`DISABLE_REGISTRATION`) and backup runs and Verify (`BACKUP_TIMEOUT`).
+Disabling pipelines prevents saving them or starting tasks on them. Existing
+runs continue on their pinned version. A stored override wins over the
+environment, which wins over the built-in default. The
+[instance configuration service](BE/internal/service/instance_config.go)
+caches overrides for five seconds per process. If the store is unavailable,
+it uses its last successful read or the environment and defaults on first
+use. Writes and resets record the actor and both values in the audit log as
+`system.config_updated` and `system.config_reset`. See the
+[operator guide](docs/self-hosting.md#instance-configuration) for editing
+and resetting a setting.
 
 The optional `searxng` Compose profile runs a pinned SearXNG image for the
 assistant's `web_search` (see [self-hosted web search](docs/self-hosting.md#self-hosted-web-search-optional)).

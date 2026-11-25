@@ -70,11 +70,28 @@ type BackupService struct {
 	sleep    func(context.Context, time.Duration) error
 	logger   log.FieldLogger
 	runs     sync.WaitGroup
+	// timeoutSource, when set, is BACKUP_TIMEOUT in effect; each run and
+	// Verify reads it when it starts.
+	timeoutSource func() time.Duration
 
 	// base is the context of the scheduler loop; manual runs started by
 	// RunNow outlive their request but stop with the server.
 	baseMu sync.Mutex
 	base   context.Context
+}
+
+// SetTimeoutSource reads BACKUP_TIMEOUT through source, so a change made in
+// Settings -> Instance configuration bounds the next run without a restart.
+func (s *BackupService) SetTimeoutSource(source func() time.Duration) { s.timeoutSource = source }
+
+// timeout is how long a run or a Verify may take.
+func (s *BackupService) timeout() time.Duration {
+	if s.timeoutSource != nil {
+		if timeout := s.timeoutSource(); timeout > 0 {
+			return timeout
+		}
+	}
+	return s.cfg.Timeout
 }
 
 // NewBackupService builds the service. uploads names the upload directory,
@@ -460,7 +477,8 @@ func (s *BackupService) startRun(ctx context.Context, kind string, userID *uuid.
 // execute performs a run under the lease held by token and releases it.
 func (s *BackupService) execute(parent context.Context, token uuid.UUID, run *domain.BackupRun, settings *domain.BackupSettings) {
 	defer s.release(token)
-	ctx, cancel := context.WithTimeout(parent, s.cfg.Timeout)
+	timeout := s.timeout()
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	renewDone := make(chan struct{})
 	defer close(renewDone)
@@ -470,7 +488,7 @@ func (s *BackupService) execute(parent context.Context, token uuid.UUID, run *do
 	fail := func(err error) {
 		message := s.sanitize(err, secrets...)
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			message = "timed out after " + s.cfg.Timeout.String() + ": " + message
+			message = "timed out after " + timeout.String() + ": " + message
 		}
 		s.finish(run, domain.BackupStatusFailed, &message)
 		s.logger.WithFields(log.Fields{"run_id": run.ID, "kind": run.Kind, "error": message}).Error("backup failed")
@@ -726,7 +744,7 @@ func (s *BackupService) Verify(ctx context.Context, runID uuid.UUID) (*domain.Ba
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, s.timeout())
 	defer cancel()
 	verifyErr := s.verifyRun(ctx, run, settings)
 	now := s.now()

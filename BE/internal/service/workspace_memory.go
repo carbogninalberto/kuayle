@@ -24,7 +24,8 @@ type workspaceMemoryStore interface {
 	Drop(ctx context.Context, ws, actor, id uuid.UUID) (*domain.Lesson, error)
 	Reorder(ctx context.Context, ws, actor uuid.UUID, repository string, ids []uuid.UUID) ([]domain.Lesson, error)
 	Events(ctx context.Context, ws, actor, id uuid.UUID) ([]domain.LessonEvent, error)
-	ApprovedTexts(ctx context.Context, ws, team uuid.UUID, repository string) ([]string, error)
+	ApprovedTexts(ctx context.Context, ws, team uuid.UUID, repository, role string) ([]string, error)
+	TaskRole(ctx context.Context, task domain.AgentTask) (string, error)
 	TaskRepository(ctx context.Context, task domain.AgentTask) (string, error)
 }
 
@@ -184,7 +185,11 @@ func (s *WorkspaceMemoryService) Audit(ctx context.Context, ws, id uuid.UUID) ([
 // domain.LessonsPromptMaxBytes bytes, with secrets redacted. It returns ""
 // when the task has no checkout yet or the repository has no approved lesson.
 // A proposed, dropped or retired lesson is never part of it, and a private
-// team's lesson reaches only that team's tasks. The text is what a workspace
+// team's lesson reaches only that team's tasks. A lesson for a role of a team
+// workflow reaches only the tasks that play that role on a pipeline (the
+// root task for the role of the writer holding its write lock, a member's
+// task for its own); every other
+// task receives the lessons without a role. The text is what a workspace
 // owner or admin approved, so it is the workspace's own configuration, like
 // the project's agent instructions.
 func (s *WorkspaceMemoryService) ApprovedLessons(ctx context.Context, task domain.AgentTask) (string, error) {
@@ -192,18 +197,27 @@ func (s *WorkspaceMemoryService) ApprovedLessons(ctx context.Context, task domai
 	if err != nil || repo == "" {
 		return "", err
 	}
+	role, err := s.store.TaskRole(ctx, task)
+	if err != nil {
+		return "", err
+	}
 	machine := task.ReservedMachineID
 	if task.MachineID != nil {
 		machine = *task.MachineID
 	}
-	return s.ApprovedLessonsForRepository(ctx, task.WorkspaceID, task.TeamID, repo, machine)
+	return s.approvedLessons(ctx, task.WorkspaceID, task.TeamID, repo, role, machine)
 }
 
 // ApprovedLessonsForRepository is ApprovedLessons for a caller that already
-// knows the repository ("owner/name") and the team of the task; machineID
-// names the machine whose secret values are redacted (uuid.Nil: none known).
+// knows the repository ("owner/name") and the team of a task that plays no
+// role; machineID names the machine whose secret values are redacted
+// (uuid.Nil: none known).
 func (s *WorkspaceMemoryService) ApprovedLessonsForRepository(ctx context.Context, workspaceID, teamID uuid.UUID, repo string, machineID uuid.UUID) (string, error) {
-	texts, err := s.store.ApprovedTexts(ctx, workspaceID, teamID, repo)
+	return s.approvedLessons(ctx, workspaceID, teamID, repo, "", machineID)
+}
+
+func (s *WorkspaceMemoryService) approvedLessons(ctx context.Context, workspaceID, teamID uuid.UUID, repo, role string, machineID uuid.UUID) (string, error) {
+	texts, err := s.store.ApprovedTexts(ctx, workspaceID, teamID, repo, role)
 	if err != nil || len(texts) == 0 {
 		return "", err
 	}

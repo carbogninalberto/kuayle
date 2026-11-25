@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -134,6 +135,14 @@ type tickTurn struct {
 	posts               []string
 	// hold keeps the turn's agent working until the test finishes it.
 	hold bool
+	// publishing are what the publication of the writer's turn reports
+	// while it is under way on the machine (queued, running), one to each
+	// pass of the worker, before it ends; unpublished makes it end failed.
+	publishing  []domain.DevMachineAgentRunStepStatus
+	unpublished bool
+	// published is the publication's outcome, reported again when the
+	// worker reads it again (as EnsurePublication does).
+	published *domain.DevMachineAgentRunStep
 }
 
 type tickWorld struct {
@@ -148,6 +157,8 @@ type tickWorld struct {
 	// agent plays each turn of a role ("implementer" writes); turn counts
 	// that role's turns from 1.
 	agent func(role string, turn int, task domain.AgentTask) tickTurn
+	// afterStep, when set, runs after each step the worker takes.
+	afterStep func(task domain.AgentTask)
 }
 
 func newTickWorld(t *testing.T, edit func(*domain.Pipeline)) *tickWorld {
@@ -170,7 +181,7 @@ func newTickWorld(t *testing.T, edit func(*domain.Pipeline)) *tickWorld {
 	f.tasks.Workflow().SetPullRequests(github, github)
 	f.tasks.Workflow().SetCIChecks(github)
 	w := &tickWorld{t: t, f: f, github: github, machine: uuid.New(), step: 20 * time.Second}
-	w.runtime = &tickRuntime{w: w, runs: map[uuid.UUID]*domain.DevMachineAgentRun{}, commits: map[uuid.UUID]string{}, turns: map[string]int{}, held: map[uuid.UUID]string{}}
+	w.runtime = &tickRuntime{w: w, runs: map[uuid.UUID]*domain.DevMachineAgentRun{}, played: map[uuid.UUID]*tickTurn{}, turns: map[string]int{}, held: map[uuid.UUID]string{}}
 	f.tasks.runtime = w.runtime
 	suffix := strings.ReplaceAll(w.machine.String(), "-", "")
 	w.exec(`INSERT INTO dev_machines(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,machine_size,cpu_millis,memory_mb,disk_gb)
@@ -222,16 +233,21 @@ func (w *tickWorld) exec(query string, args ...any) {
 	require.NoError(w.t, err)
 }
 
-// drain runs the worker until no task has anything to do now.
+// drain runs the worker until the tasks are quiescent: once every wake that
+// has come by the tick's own clock is due for the worker too, the worker can
+// claim no task.
 func (w *tickWorld) drain() {
 	w.t.Helper()
 	for range 300 {
-		// A turn the test holds is left alone while its agent works.
+		// A turn the test holds is left alone while its agent works, and a
+		// publication while the machine has not finished it.
 		held := []string{}
 		for run := range w.runtime.held {
 			held = append(held, run.String())
 		}
-		w.exec(`UPDATE agent_tasks SET next_poll_at=CASE WHEN run_id::text=ANY($1) AND state<>'cancelling' THEN now()+interval '1 hour' ELSE now() END`, pq.Array(held))
+		w.exec(`UPDATE agent_tasks SET next_poll_at=CASE WHEN run_id::text=ANY($1) AND state<>'cancelling' THEN now()+interval '1 hour'
+ WHEN state='publishing' AND EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.agent_run_id=agent_tasks.run_id AND o.action='publish_agent' AND o.status IN ('pending','leased')) THEN now()+interval '1 hour' ELSE now() END`, pq.Array(held))
+		w.wakeDue()
 		ctx, cancel := context.WithTimeout(context.Background(), w.step)
 		task, err := w.f.tasks.Repo.Claim(ctx)
 		require.NoError(w.t, err)
@@ -247,8 +263,25 @@ func (w *tickWorld) drain() {
 		}
 		_ = w.f.tasks.store.Release(ctx, *task)
 		cancel()
+		if w.afterStep != nil {
+			w.afterStep(*task)
+		}
 	}
 	w.t.Fatal("the tasks did not settle")
+}
+
+// wakeDue makes every wake that has come by the tick's clock due for the
+// worker too (KUA-303). The tick writes a wake with its own clock (a wait
+// "at once" is its now), and Claim compares it with the database's now().
+// The database runs in a container whose clock can lag the test's (about a
+// millisecond on a loaded developer Mac), so a wake that was due could look
+// future to Claim and drain stopped early. A wake is compared here only with
+// the clock that set it; one the database set with its own now() is due for
+// Claim already. It runs right before Claim, so Claim finding nothing means
+// nothing is due by either clock.
+func (w *tickWorld) wakeDue() {
+	w.t.Helper()
+	w.exec(`UPDATE agent_tasks SET workflow_wake_at=now() WHERE workflow_wake_at>now() AND workflow_wake_at<=$1`, w.f.tasks.Workflow().now())
 }
 
 // later lets the time pass that the waiting tasks wait for, and drains.
@@ -351,37 +384,52 @@ func (w *tickWorld) update(from, merge string) {
 }
 
 type tickRuntime struct {
-	w       *tickWorld
-	runs    map[uuid.UUID]*domain.DevMachineAgentRun
-	commits map[uuid.UUID]string
+	w    *tickWorld
+	runs map[uuid.UUID]*domain.DevMachineAgentRun
+	// played is each run's turn as the agent played it.
+	played  map[uuid.UUID]*tickTurn
 	turns   map[string]int
 	prompts map[string][]string
 	// held are the runs whose agent still works, by role.
 	held map[uuid.UUID]string
+	// underway counts the passes that found a publication under way.
+	underway int
+	// publish, when set, publishes in place of the fake: the repository's
+	// own publication, whose operation the test plays the machine for.
+	publish func(context.Context, domain.AgentTask) (*domain.DevMachineAgentRunStep, error)
 }
 
 // finish ends the held turn of a role as turn says.
 func (w *tickWorld) finish(role string, turn tickTurn) {
 	w.t.Helper()
 	for run, held := range w.runtime.held {
-		if held != role {
-			continue
+		if held == role {
+			w.finishRun(run, turn)
+			return
 		}
-		status := domain.DevMachineAgentRunStatusSucceeded
-		if turn.fail != "" {
-			status = domain.DevMachineAgentRunStatusFailed
-			w.runtime.runs[run].FailureCause = &turn.fail
-		}
-		w.exec(`UPDATE dev_machine_agent_runs SET status=$2,summary=$3,completed_at=now() WHERE id=$1`, run, status, turn.final)
-		w.runtime.runs[run].Status = status
-		delete(w.runtime.held, run)
-		return
 	}
 	w.t.Fatalf("no turn of the @%s is held", role)
 }
 
+// finishRun ends a held run as turn says.
+func (w *tickWorld) finishRun(run uuid.UUID, turn tickTurn) {
+	w.t.Helper()
+	status := domain.DevMachineAgentRunStatusSucceeded
+	if turn.fail != "" {
+		status = domain.DevMachineAgentRunStatusFailed
+		w.runtime.runs[run].FailureCause = &turn.fail
+	}
+	w.exec(`UPDATE dev_machine_agent_runs SET status=$2,summary=$3,completed_at=now() WHERE id=$1`, run, status, turn.final)
+	w.runtime.runs[run].Status = status
+	delete(w.runtime.held, run)
+}
+
 func (r *tickRuntime) role(task domain.AgentTask) string {
 	if task.Kind != domain.AgentTaskKindReview {
+		// The writer holding the write lock.
+		if holder := domain.PipelineHolderRole(r.w.task().PipelineState); holder != "" {
+			return holder
+		}
 		return "implementer"
 	}
 	var role string
@@ -428,7 +476,7 @@ func (r *tickRuntime) Attempt(ctx context.Context, task domain.AgentTask) (*doma
 	}
 	r.w.exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,started_at,completed_at,summary,worktree_changed,encrypted_output_secrets)
  VALUES($1,$2,$3,$4,$5,$6,'autonomous',$7,'["agent"]',60,$8,now(),now(),$9,$10,'sealed')`, task.RunID, task.WorkspaceID, r.w.machine, task.ID, task.CreatorID, task.Provider, task.Prompt, status, turn.final, turn.commit != "")
-	r.commits[task.RunID] = turn.commit
+	r.played[task.RunID] = &turn
 	now := time.Now()
 	run := &domain.DevMachineAgentRun{ID: task.RunID, TaskID: &task.ID, Status: status, StartedAt: &now, Prompt: task.Prompt}
 	if turn.fail != "" {
@@ -439,15 +487,37 @@ func (r *tickRuntime) Attempt(ctx context.Context, task domain.AgentTask) (*doma
 }
 
 // Publish pushes the writer's commit and records it, as Kuayle's
-// publication does; a turn that committed nothing publishes nothing.
-func (r *tickRuntime) Publish(_ context.Context, task domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
-	commit := r.commits[task.RunID]
-	if commit == "" {
-		summary := domain.NoChangesReason("main")
-		return &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped, Summary: &summary}, nil
+// publication does; a turn that committed nothing publishes nothing. While
+// the publication is under way (tickTurn.publishing) it reports that.
+func (r *tickRuntime) Publish(ctx context.Context, task domain.AgentTask) (*domain.DevMachineAgentRunStep, error) {
+	if r.publish != nil {
+		return r.publish(ctx, task)
 	}
-	r.w.publish(task.RunID, commit)
-	return &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSucceeded}, nil
+	turn := r.played[task.RunID]
+	if turn == nil {
+		turn = &tickTurn{}
+		r.played[task.RunID] = turn
+	}
+	if len(turn.publishing) > 0 {
+		status := turn.publishing[0]
+		turn.publishing = turn.publishing[1:]
+		r.underway++
+		return &domain.DevMachineAgentRunStep{Status: status}, nil
+	}
+	if turn.published != nil {
+		return turn.published, nil
+	}
+	switch {
+	case turn.unpublished:
+		turn.published = &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusFailed}
+	case turn.commit == "":
+		summary := domain.NoChangesReason("main")
+		turn.published = &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSkipped, Summary: &summary}
+	default:
+		r.w.publish(task.RunID, turn.commit)
+		turn.published = &domain.DevMachineAgentRunStep{Status: domain.DevMachineAgentRunStepStatusSucceeded}
+	}
+	return turn.published, nil
 }
 
 // Cancel stops the task's run, as the machine confirms it.
@@ -506,6 +576,21 @@ func TestTickScenario01HappyPath(t *testing.T) {
 	require.Equal(t, 1, w.member("reviewer").Turns)
 }
 
+// The tick writes a wake "at once" with its own clock and Claim compares it
+// with the database's now(). Those are two clocks, and when the database's
+// runs behind, a wake that is due looks future: drain used to stop early
+// (KUA-303). A tick clock two seconds ahead makes that deterministic.
+func TestTickDrainDoesNotDependOnTheDatabaseClock(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.f.tasks.Workflow().now = func() time.Time { return time.Now().Add(2 * time.Second) }
+	w.agent = w.writesAndApproves
+	w.throughReview()
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	w.drain()
+	require.Equal(t, "completed", w.task().State, "the approval's wake is due at once")
+	require.Equal(t, []string{sha(1)}, w.github.merged)
+}
+
 func TestTickScenario02ChangesRequestedThenReviewedAgain(t *testing.T) {
 	w := newTickWorld(t, nil)
 	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
@@ -527,7 +612,7 @@ func TestTickScenario02ChangesRequestedThenReviewedAgain(t *testing.T) {
 	var generation int64
 	require.NoError(t, w.f.db.Get(&generation, `SELECT generation FROM agent_tasks WHERE id=$1`, *reviewer.MemberTaskID))
 	require.EqualValues(t, 2, generation, "the reviewer's task is reused, so its session resumes")
-	require.Contains(t, w.prompt("reviewer", 2), fmt.Sprintf("git diff %s %s", sha(1), sha(2)))
+	require.Contains(t, w.prompt("reviewer", 2), fmt.Sprintf("git diff %s..%s", sha(1), sha(2)))
 	require.Equal(t, sha(2), *reviewer.PinnedCommit)
 	require.Equal(t, "integrate", w.phase())
 }
@@ -676,14 +761,16 @@ func TestTickScenario07QuestionAndAnswerResumeSessions(t *testing.T) {
 }
 
 // relaunch builds, on provider, the launch of the task's current turn as
-// Kuayle starts it on its machine, with session as the session of the
-// task's turn before: the real launch path (devMachineTaskRuntime.Attempt)
+// Kuayle starts it on its machine, optionally recording the previous
+// session when the fixture supplies one: the real launch path (devMachineTaskRuntime.Attempt)
 // over the scenario's own records.
 func (w *tickWorld) relaunch(id uuid.UUID, provider, session string) domain.DevMachineAgentRun {
 	w.t.Helper()
 	var task domain.AgentTask
 	require.NoError(w.t, w.f.db.Get(&task, `SELECT * FROM agent_tasks WHERE id=$1`, id))
-	w.exec(`UPDATE dev_machine_agent_runs SET native_session_id=$3,provider_id=$4 WHERE id=(SELECT id FROM dev_machine_agent_runs WHERE task_id=$1 AND id<>$2 ORDER BY created_at DESC,id LIMIT 1)`, id, task.RunID, session, provider)
+	if session != "" {
+		w.exec(`UPDATE dev_machine_agent_runs SET native_session_id=$3,provider_id=$4 WHERE id=(SELECT id FROM dev_machine_agent_runs WHERE task_id=$1 AND id<>$2 ORDER BY created_at DESC,id LIMIT 1)`, id, task.RunID, session, provider)
+	}
 	task.State, task.Provider = "preparing", provider
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
 		policy:        testPolicy(task.WorkspaceID),
@@ -850,6 +937,27 @@ func TestTickScenario12UnreadableFactWaits(t *testing.T) {
 
 // A wake that lands while a pass runs (a webhook, a member's turn ending)
 // is not lost to the wait that pass schedules: the task is looked at again.
+// A pass that cannot read GitHub once the time budget has passed cannot
+// stop the task: it polls, rather than waking at the deadline that has
+// passed, which would run it again at once while GitHub is down (the
+// liveness test's seed 36).
+func TestTickAnUnreadablePullRequestPastTheTimeBudgetPolls(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	w.drain()
+	w.github.readErr = errors.New("GitHub answered 502")
+	w.exec(`UPDATE agent_tasks SET workflow_started_at=workflow_started_at-interval '3 days',workflow_budget_from=workflow_budget_from-interval '3 days',workflow_wake_at=now() WHERE id=$1`, w.root)
+	w.drain()
+	waiting := w.task()
+	require.Equal(t, "awaiting_review", waiting.State)
+	require.NotNil(t, waiting.WorkflowWakeAt)
+	require.True(t, waiting.WorkflowWakeAt.After(time.Now().Add(tickPoll/2)), "the next pass is a poll away")
+
+	w.github.readErr = nil
+	w.later()
+	require.Equal(t, domain.WorkflowStatusPaused, *w.task().WorkflowStatus, "once GitHub answers, the used-up budget asks a person")
+}
+
 func TestTickKeepsAWakeThatLandsDuringAPass(t *testing.T) {
 	w := newTickWorld(t, nil)
 	w.agent = w.writesAndApproves
@@ -963,6 +1071,48 @@ func TestTickAStallReachesThePhaseOwner(t *testing.T) {
 		require.Equal(t, []string{"human"}, []string(summaries[0].ToRoles))
 		require.Equal(t, 1, w.runtime.turns["implementer"])
 	})
+}
+
+// A reviewer that owns its phase and asked for changes cannot make them:
+// the stall reaches the writer too, whose new head the reviewer then
+// reviews (the liveness test's seed 70, where each Continue only repeated
+// the stall).
+func TestTickARequestForChangesReachesTheWriterWhenAReviewerOwnsThePhase(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) { p.Phases[2].Owner = "reviewer" })
+	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+		if role == "reviewer" && turn == 1 {
+			return tickTurn{final: "Verdict: request_changes\nPersist the toggle across reloads."}
+		}
+		return w.writesAndApproves(role, turn, task)
+	}
+	w.drain()
+	summaries := w.posts(domain.RoomSummary)
+	require.NotEmpty(t, summaries)
+	require.ElementsMatch(t, []string{"reviewer", "implementer"}, []string(summaries[0].ToRoles), "the owner is still told, and the writer acts")
+	require.Equal(t, 2, w.runtime.turns["implementer"], "the writer takes a turn on the request for changes")
+	require.Contains(t, w.prompt("implementer", 2), "did not approve")
+	require.Equal(t, sha(2), *w.member("reviewer").PinnedCommit, "the reviewer reviews the new head")
+	require.Equal(t, "integrate", w.phase())
+	require.NotEqual(t, domain.WorkflowStatusPaused, *w.task().WorkflowStatus)
+}
+
+// A head someone else pushed is not one a reviewer can review (it reads
+// what Kuayle published): when the reviewer owns its phase, the stall
+// reaches the writer too, whose next published head the reviewer reviews.
+func TestTickAnUnpublishedHeadReachesTheWriterWhenAReviewerOwnsThePhase(t *testing.T) {
+	w := newTickWorld(t, func(p *domain.Pipeline) { p.Phases[2].Owner = "reviewer" })
+	w.agent = w.writesAndApproves
+	w.drain()
+	require.Equal(t, "integrate", w.phase())
+	w.head(sha(0x99)) // a person pushed to the branch
+	w.later()
+	summaries := w.posts(domain.RoomSummary)
+	require.NotEmpty(t, summaries)
+	require.ElementsMatch(t, []string{"reviewer", "implementer"}, []string(summaries[0].ToRoles))
+	require.Equal(t, 2, w.runtime.turns["implementer"], "the writer takes a turn on the head it did not publish")
+	require.Equal(t, sha(2), *w.member("reviewer").PinnedCommit, "the reviewer reviews the writer's new head")
+	require.Equal(t, "integrate", w.phase())
+	require.NotEqual(t, domain.WorkflowStatusPaused, *w.task().WorkflowStatus)
 }
 
 // A head the writer published while the reviewer still reviewed the one
@@ -1132,8 +1282,8 @@ func TestTickAWriterTurnThatCannotStartYetWaits(t *testing.T) {
 }
 
 // A waiver holds for the head the room last named when the task's creator
-// gave it, and only from the creator: a role's waiver is refused.
-func TestTickAWaiverHoldsForItsHeadAndOnlyFromTheCreator(t *testing.T) {
+// gave it. A writer without a grant cannot waive review.
+func TestTickCreatorWaiverHoldsForItsHead(t *testing.T) {
 	w := newTickWorld(t, nil)
 	w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
 		switch {
@@ -1150,7 +1300,7 @@ func TestTickAWaiverHoldsForItsHeadAndOnlyFromTheCreator(t *testing.T) {
 	require.Len(t, refused, 1)
 	require.NotNil(t, refused[0].RejectReason)
 
-	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomWaiver, Data: domain.TaskRoomData{Check: "reviewer"}})
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomWaiver, Body: "Verified the toggle manually.", Data: domain.TaskRoomData{Check: "reviewer"}})
 	require.NoError(t, err)
 	w.drain()
 	require.Equal(t, "integrate", w.phase(), "the owner waived the review of this head")
@@ -1348,4 +1498,205 @@ func TestTickABasePushWakesTheWaitingPipeline(t *testing.T) {
 	w.exec(`UPDATE agent_tasks SET run_id=$2,workflow_wake_at=NULL WHERE id=$1`, w.root, quiet)
 	require.Equal(t, 1, wake("main"))
 	require.WithinDuration(t, time.Now(), *w.task().WorkflowWakeAt, 5*time.Second)
+}
+
+// KUA-297: a publication runs on the machine after the worker queued it.
+// While it is under way the task stays in publishing and nobody hears of
+// it; only its outcome is a fact, and a writer's turn starts only after it.
+func TestTickWaitsForItsPublicationToEnd(t *testing.T) {
+	queued, running := domain.DevMachineAgentRunStepStatusQueued, domain.DevMachineAgentRunStepStatusRunning
+	for _, tc := range []struct {
+		name        string
+		publishing  []domain.DevMachineAgentRunStepStatus
+		unpublished bool
+	}{
+		{"queued, then published", []domain.DevMachineAgentRunStepStatus{queued}, false},
+		{"running, then failed", []domain.DevMachineAgentRunStepStatus{running}, true},
+		{"queued and running, then published", []domain.DevMachineAgentRunStepStatus{queued, running}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newTickWorld(t, nil)
+			var first uuid.UUID
+			w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+				played := w.writesAndApproves(role, turn, task)
+				if role == "implementer" && turn == 1 {
+					first = task.RunID
+					played.publishing, played.unpublished = slices.Clone(tc.publishing), tc.unpublished
+				}
+				return played
+			}
+			underway := 0
+			w.afterStep = func(domain.AgentTask) {
+				if w.runtime.underway == underway {
+					return
+				}
+				underway = w.runtime.underway
+				require.Equal(t, "publishing", w.task().State, "the task waits for its publication")
+				require.Empty(t, w.facts("publication"), "nobody hears of a publication under way")
+				require.Equal(t, 1, w.runtime.turns["implementer"], "no turn of the writer starts meanwhile")
+			}
+			w.drain()
+			require.Equal(t, len(tc.publishing), w.runtime.underway, "each pass found the publication under way")
+			require.Equal(t, "integrate", w.phase(), "the work went on to CI")
+			if !tc.unpublished {
+				require.Empty(t, w.facts("publication"))
+				require.Equal(t, []string{"review", "integrate"}, w.phases(), "published at once, the work skips the pull request phase")
+				require.Equal(t, 1, w.runtime.turns["implementer"])
+				require.Equal(t, sha(1), *w.member("reviewer").PinnedCommit)
+				return
+			}
+			// The failure is one fact, of the publication's outcome; the
+			// writer is sent the unmet check, and its next turn publishes.
+			failed := w.facts("publication")
+			require.Len(t, failed, 1)
+			require.Equal(t, "Publishing failed; check the repository connection", failed[0].Body)
+			require.JSONEq(t, fmt.Sprintf(`{"status":"failed","run":%q}`, first), string(failed[0].Data.Value))
+			require.Equal(t, []string{"pr", "review", "integrate"}, w.phases())
+			require.Equal(t, 2, w.runtime.turns["implementer"])
+			require.Contains(t, w.prompt("implementer", 2), "Publishing failed; check the repository connection")
+			require.Equal(t, sha(2), *w.member("reviewer").PinnedCommit)
+		})
+	}
+}
+
+// A pause asked for while the writer's turn is being published takes effect
+// once the publication ended, as a graph's does: the tick does not act on it
+// and nobody's turn starts. Resuming reads the publication's outcome again.
+func TestTickAPauseDuringThePublicationTakesEffectWhenItEnds(t *testing.T) {
+	for _, mode := range []string{domain.WorkflowPauseNow, domain.WorkflowPauseAfterStep} {
+		t.Run(mode, func(t *testing.T) {
+			w := newTickWorld(t, nil)
+			w.agent = func(role string, turn int, task domain.AgentTask) tickTurn {
+				played := w.writesAndApproves(role, turn, task)
+				if role == "implementer" && turn == 1 {
+					played.publishing = []domain.DevMachineAgentRunStepStatus{domain.DevMachineAgentRunStepStatusQueued}
+				}
+				return played
+			}
+			w.afterStep = func(domain.AgentTask) {
+				if w.runtime.underway == 1 && w.task().WorkflowPauseRequest == nil && w.task().WorkflowPausedAt == nil {
+					_, err := w.f.tasks.PauseWorkflow(w.f.ctx, w.f.ws, w.root, mode)
+					require.NoError(t, err)
+					require.NotNil(t, w.task().WorkflowPauseRequest, "a pause while publishing waits for the publication")
+				}
+			}
+			w.drain()
+			paused := w.task()
+			require.Equal(t, "publishing", paused.State)
+			require.NotNil(t, paused.WorkflowPausedAt, "the pause took effect once the publication ended")
+			require.Nil(t, paused.WorkflowPauseRequest)
+			require.Equal(t, 1, w.runtime.turns["implementer"], "no turn of the writer starts")
+			require.Zero(t, w.runtime.turns["reviewer"], "nor anyone else's")
+			require.Empty(t, w.posts(domain.RoomFact), "the tick did not run")
+
+			w.afterStep = nil
+			_, err := w.f.tasks.Resume(w.f.ctx, w.f.ws, w.root)
+			require.NoError(t, err)
+			w.drain()
+			require.Equal(t, "integrate", w.phase())
+			require.Equal(t, []string{"review", "integrate"}, w.phases(), "the publication's outcome was read again")
+			require.Equal(t, 1, w.runtime.turns["implementer"])
+			require.Equal(t, sha(1), *w.member("reviewer").PinnedCommit)
+		})
+	}
+}
+
+// KUA-297, with the repository's own publication: the machine keeps the
+// authority to publish the writer's turn while the task waits for it, and
+// what it published flows into the facts.
+func TestTickThePublicationKeepsItsAuthorityOnTheMachine(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	w.runtime.publish = w.f.tasks.Repo.EnsurePublication
+	w.drain()
+	task := w.task()
+	require.Equal(t, "publishing", task.State)
+	w.exec(`UPDATE dev_machine_agent_runs SET checkout_id=$2 WHERE id=$1`, task.RunID, task.CheckoutID)
+
+	store := repository.NewDevMachineRepository(w.f.db)
+	ctx := context.Background()
+	ops, err := store.LeaseOperations(ctx, "tick-publication-fixture", 1, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, ops, 1)
+	op := ops[0]
+	require.Equal(t, domain.DevMachineOpPublishAgent, op.Action)
+	_, err = store.GetPublication(ctx, op)
+	require.NoError(t, err, "the machine may publish the writer's turn")
+	require.NoError(t, store.StartPublication(ctx, op))
+
+	// A pass of the worker finds the publication running and leaves it be.
+	w.exec(`UPDATE agent_tasks SET next_poll_at=now() WHERE id=$1`, w.root)
+	claimed, err := w.f.tasks.Repo.Claim(ctx)
+	require.NoError(t, err)
+	require.Equal(t, w.root, claimed.ID)
+	require.NoError(t, w.f.tasks.step(ctx, *claimed))
+	require.NoError(t, w.f.tasks.store.Release(ctx, *claimed))
+	require.Equal(t, "publishing", w.task().State)
+	require.Empty(t, w.room(), "nobody hears of a publication under way")
+
+	require.NoError(t, store.CompletePublication(ctx, op, domain.AgentPublicationResult{Branch: "kuayle/eng-1", Commit: sha(1), PullRequestNumber: 12, PullRequestURL: "https://github.com/acme/app/pull/12"}))
+	require.NoError(t, store.CompleteOperation(ctx, op.ID, *op.LeaseOwner))
+	w.head(sha(1))
+	w.drain()
+	require.Equal(t, "integrate", w.phase())
+	require.Equal(t, []string{"review", "integrate"}, w.phases())
+	require.Empty(t, w.facts("publication"))
+	require.Equal(t, 1, w.runtime.turns["implementer"])
+	require.Equal(t, sha(1), *w.member("reviewer").PinnedCommit)
+}
+
+// chatting plays KUA-295's loop: the writer commits every turn and asks the
+// reviewer to look, the reviewer answers the writer, and the publication of
+// the writer's turn fails unless publishes says otherwise.
+func (w *tickWorld) chatting(publishes func(turn int) bool) func(string, int, domain.AgentTask) tickTurn {
+	return func(role string, turn int, _ domain.AgentTask) tickTurn {
+		if role == "reviewer" {
+			return tickTurn{final: "I looked at the branch.", posts: []string{`{"to":"@implementer","body":"I still see nothing new on the branch."}`}}
+		}
+		return tickTurn{commit: sha(turn), final: "Committed.", unpublished: !publishes(turn), posts: []string{`{"to":"@reviewer","body":"I committed the fix; please look."}`}}
+	}
+}
+
+// KUA-297: writer turns that the room's posts start, and that leave the same
+// head and the same unmet checks, make no progress however they were asked
+// for: after tickStallLimit of them the task pauses for the owner, instead
+// of turning until its budget runs out.
+func TestTickWriterTurnsWithoutProgressPauseForTheOwner(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.chatting(func(int) bool { return false })
+	said := false
+	w.afterStep = func(domain.AgentTask) {
+		if !said && w.runtime.turns["implementer"] == 2 {
+			said = true
+			_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Please install the missing library.", ToRoles: []string{"implementer"}})
+			require.NoError(t, err)
+		}
+	}
+	w.drain()
+	paused := w.task()
+	require.Equal(t, "blocked", paused.State)
+	require.Equal(t, domain.WorkflowStatusPaused, deref(paused.WorkflowStatus))
+	require.Contains(t, paused.Reason, "Nobody made progress on")
+	require.Contains(t, paused.Reason, "pr-exists")
+	require.Equal(t, 1+tickStallLimit, w.runtime.turns["implementer"], "the first turn, then tickStallLimit that changed nothing")
+	require.Len(t, w.facts("publication"), 1+tickStallLimit)
+	require.Empty(t, w.posts(domain.RoomSummary), "the room's posts, not stall summaries, started the turns")
+
+	// Continuing counts again from nothing.
+	require.NoError(t, w.decide(WorkflowDecisionContinue))
+	w.drain()
+	require.Equal(t, domain.WorkflowStatusPaused, deref(w.task().WorkflowStatus))
+	require.Equal(t, 1+2*tickStallLimit, w.runtime.turns["implementer"])
+}
+
+// A writer's turn that publishes a new head starts the count again.
+func TestTickAWriterTurnThatPublishesStartsTheCountAgain(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.chatting(func(turn int) bool { return turn == tickStallLimit })
+	w.drain()
+	paused := w.task()
+	require.Equal(t, domain.WorkflowStatusPaused, deref(paused.WorkflowStatus))
+	require.Contains(t, paused.Reason, "Nobody made progress on "+shortSHA(sha(tickStallLimit)))
+	require.Equal(t, sha(tickStallLimit), *w.member("reviewer").PinnedCommit, "the turn that published was reviewed")
+	require.Equal(t, 2*tickStallLimit, w.runtime.turns["implementer"], "tickStallLimit turns that changed nothing after the one that published, not counting those before it")
 }

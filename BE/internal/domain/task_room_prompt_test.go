@@ -78,13 +78,60 @@ func TestRoomWakesForTalkAddressedToTheRole(t *testing.T) {
 		roomPost(5, RoomSay, RoomAuthorMember, "implementer", []string{"security"}, "for someone else"),
 		refused,
 	}
-	require.False(t, RoomWakes("reviewer", RoomInbox("reviewer", waits)))
+	reviewer := PipelineMember{Role: "reviewer"}
+	require.False(t, RoomWakes(reviewer, RoomInbox("reviewer", waits)))
 	for name, post := range map[string]TaskMessage{
 		"addressed to it":          roomPost(6, RoomSummary, RoomAuthorKuayle, "", []string{"reviewer"}, "Review waits on you"),
 		"a person to everyone":     roomPost(6, RoomSay, RoomAuthorHuman, "", nil, "Please hurry"),
 		"a role asking everyone":   roomPost(6, RoomAsk, RoomAuthorMember, "implementer", nil, "Anyone?"),
 		"a request for its review": roomPost(6, RoomRequest, RoomAuthorMember, "implementer", []string{"reviewer"}, ""),
 	} {
-		require.True(t, RoomWakes("reviewer", RoomInbox("reviewer", append(waits, post))), name)
+		require.True(t, RoomWakes(reviewer, RoomInbox("reviewer", append(waits, post))), name)
 	}
+}
+
+// The board (P4.6) is posted to whoever plans the merge order, but it moves
+// with other tasks, which no turn of this one can change: it waits for the
+// role's next turn. Another fact addressed to the role still calls for one.
+func TestTheBoardWaitsForTheNextTurn(t *testing.T) {
+	board := roomPost(7, RoomFact, RoomAuthorKuayle, "", []string{"implementer"}, "KUA-5 (pull request #12) also changes ui/toggle.ts and is ahead of this task in the merge order.")
+	board.Data.Fact = RoomFactBoard
+	require.False(t, RoomWakes(PipelineMember{Role: "implementer"}, RoomInbox("implementer", []TaskMessage{board})))
+	script := roomPost(8, RoomFact, RoomAuthorKuayle, "", []string{"implementer"}, "Check lint failed")
+	script.Data.Fact = PipelineFactScript
+	require.True(t, RoomWakes(PipelineMember{Role: "implementer"}, RoomInbox("implementer", []TaskMessage{board, script})))
+	// It is still read at that turn.
+	require.Contains(t, RoomTurnPrompt("implementer", []TaskMessage{board}), "is ahead of this task in the merge order")
+}
+
+// An on-call role works only when it is addressed by name: what a person or
+// another role says to everyone waits for its next turn.
+func TestAnOnCallRoleWakesOnlyWhenAddressed(t *testing.T) {
+	uiux := PipelineMember{Role: "uiux", OnCall: true}
+	everyone := []TaskMessage{
+		roomPost(1, RoomSay, RoomAuthorHuman, "", nil, "Please hurry"),
+		roomPost(2, RoomAsk, RoomAuthorMember, "implementer", nil, "Anyone?"),
+		roomPost(3, RoomRequest, RoomAuthorMember, "implementer", nil, ""),
+		roomPost(4, RoomSay, RoomAuthorMember, "reviewer", []string{"implementer"}, "not for it"),
+	}
+	everyone[2].Data.Action = RoomRequestReview
+	require.False(t, RoomWakes(uiux, RoomInbox("uiux", everyone)))
+	require.False(t, RoomReviewRequested(uiux, RoomInbox("uiux", everyone)), "a review asked of everyone is not asked of it")
+	require.True(t, RoomWakes(PipelineMember{Role: "uiux"}, RoomInbox("uiux", everyone)), "the same posts call a role that is not on call")
+
+	addressed := append(everyone, roomPost(5, RoomAsk, RoomAuthorHuman, "", []string{"uiux"}, "Is the contrast right?"))
+	require.True(t, RoomWakes(uiux, RoomInbox("uiux", addressed)))
+	require.False(t, RoomReviewRequested(uiux, RoomInbox("uiux", addressed)))
+	review := roomPost(6, RoomRequest, RoomAuthorMember, "implementer", []string{"uiux"}, "")
+	review.Data.Action = RoomRequestReview
+	require.True(t, RoomReviewRequested(uiux, RoomInbox("uiux", append(addressed, review))))
+}
+
+func TestBroadcastApprovalDoesNotWakeWriter(t *testing.T) {
+	approval := roomPost(1, RoomRequest, RoomAuthorMember, PipelineLeadRole, nil, "")
+	approval.Data.Action = "approve"
+	writer := PipelineMember{Role: "implementer", Writer: true}
+	require.False(t, RoomWakes(writer, []TaskMessage{approval}))
+	approval.ToRoles = []string{writer.Role}
+	require.True(t, RoomWakes(writer, []TaskMessage{approval}))
 }

@@ -27,21 +27,40 @@ func RoomInbox(role string, posts []TaskMessage) []TaskMessage {
 	return inbox
 }
 
-// RoomWakes reports whether a role's inbox (RoomInbox) calls for a turn: a
-// post addressed to the role, or one a person or another role wrote to
-// everyone to talk (say, ask, request). What only records a state (a fact,
-// a phase, a verdict, a summary) to everyone waits for the next turn.
-func RoomWakes(role string, inbox []TaskMessage) bool {
-	for _, m := range inbox {
-		switch {
-		case m.RejectReason != nil:
-		case slices.Contains(m.ToRoles, role):
-			return true
-		case len(m.ToRoles) == 0 && m.AuthorKind != RoomAuthorKuayle && (m.Kind == RoomSay || m.Kind == RoomAsk || m.Kind == RoomRequest):
-			return true
-		}
+// RoomFactBoard is the fact Kuayle posts with the task's place on its
+// repository's board (P4.6): the other active tasks that change the same
+// files, in merge order. It goes to whoever plans the merge order.
+const RoomFactBoard = "board"
+
+// RoomWakes reports whether a member's inbox (RoomInbox) calls for a turn
+// (roomCalls; LeadWakes for the lead). What only records a state (a fact, a
+// phase, a verdict, a summary) to everyone waits for the next turn, and so
+// does the board: it moves with other tasks, which no turn of this one can
+// change.
+func RoomWakes(member PipelineMember, inbox []TaskMessage) bool {
+	if member.Role == PipelineLeadRole {
+		return LeadWakes(inbox)
 	}
-	return false
+	return slices.ContainsFunc(inbox, func(m TaskMessage) bool { return roomCalls(member, m) })
+}
+
+// roomCalls reports whether a post the room took calls on a member: it is
+// addressed to the member's role, or a person or another role wrote it to
+// everyone to talk (say, ask, request). An on-call role is called only by
+// name, so what is said to everyone never starts it. The board never calls.
+func roomCalls(member PipelineMember, m TaskMessage) bool {
+	switch {
+	case m.RejectReason != nil:
+		return false
+	case m.AuthorKind == RoomAuthorKuayle && m.Kind == RoomFact && m.Data.Fact == RoomFactBoard:
+		return false
+	case slices.Contains(m.ToRoles, member.Role):
+		return true
+	case m.Kind == RoomRequest && m.Data.Action == RoomActionApprove:
+		// The merge gate consumes a broadcast approval.
+		return false
+	}
+	return !member.OnCall && len(m.ToRoles) == 0 && m.AuthorKind != RoomAuthorKuayle && (m.Kind == RoomSay || m.Kind == RoomAsk || m.Kind == RoomRequest)
 }
 
 // RoomTurnPrompt is the room section of a member's turn prompt: each post of
@@ -113,8 +132,25 @@ func roomDataLine(m TaskMessage) string {
 	case RoomVerdict:
 		return d.Verdict + " on " + d.Commit
 	case RoomRequest:
+		if d.Action == RoomActionApprove {
+			return "approve " + d.Commit
+		}
 		return d.Action
-	case RoomWaiver, RoomGrant:
+	case RoomGrant:
+		switch {
+		case d.Action == RoomActionApprove && d.Check == "":
+			return "lead may approve the merge"
+		case d.Action == RoomRequestSplit:
+			return "lead may split the issue without approval"
+		}
+		return "lead may waive check " + d.Check
+	case RoomWaiver:
+		if d.Standing {
+			return "standing waiver of check " + d.Check
+		}
+		if roomCommit.MatchString(d.Commit) {
+			return "check " + d.Check + " on " + d.Commit
+		}
 		return "check " + d.Check
 	case RoomFact:
 		if len(d.Value) > 0 {

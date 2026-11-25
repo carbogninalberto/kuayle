@@ -1069,7 +1069,8 @@ const stepRunColumns = `r.id,r.task_id,r.provider_id,COALESCE(r.model,'') AS mod
 // was the latest one entered when the run was created (a resumed step has
 // several), the runs of the review tasks its reviewer steps created, and on
 // a pipeline task the runs of its members' tasks, each with the role it
-// played (the root's own runs are its writer's). A review or member task has
+// played (the root's own runs are its writers', each by the writer holding
+// the write lock when the run started). A review or member task has
 // the creator, conversation and issue of the task it reviews, so whoever
 // reads the task reads them. A finished run's summary never changes:
 // summariesSince leaves out those of runs that completed at or before it,
@@ -1086,7 +1087,7 @@ func (r *AgentTaskRepository) StepRuns(ctx context.Context, ws, id uuid.UUID, su
 	runs := []domain.WorkflowStepRun{}
 	err = tx.SelectContext(ctx, &runs, `SELECT * FROM (
  (SELECT `+stepRunColumns+`,(SELECT max(s.sequence) FROM agent_task_workflow_steps s WHERE s.task_id=r.task_id AND s.generation IS NOT NULL AND s.entered_at<=r.created_at)::int AS step,
-  (SELECT m.role FROM task_members m WHERE m.task_id=$1 AND m.workspace_id=$2 AND m.member_task_id IS NULL) AS role
+  `+runWriter+` AS role
   FROM dev_machine_agent_runs r WHERE r.task_id=$1 AND r.workspace_id=$2 ORDER BY r.created_at DESC,r.id DESC LIMIT 200)
  UNION ALL
  (SELECT `+stepRunColumns+`,s.sequence AS step,NULL::text AS role
@@ -1502,12 +1503,13 @@ func (r *AgentTaskRepository) ProfileBundle(ctx context.Context, task domain.Age
 			return nil, err
 		}
 		if task.Pipeline {
-			// A pipeline task's turns are its writer's.
+			// A pipeline task's turns are those of the writer holding its
+			// write lock.
 			pipeline, err := domain.ParsePipeline(raw)
 			if err != nil {
 				return nil, err
 			}
-			writer, _ := pipeline.Writer()
+			writer := pipeline.Holder(domain.PipelineHolderRole(task.PipelineState))
 			profileID = &writer.ProfileID
 		} else {
 			var graph domain.WorkflowGraph

@@ -5,6 +5,8 @@ import {
 	customWorkflows,
 	defaultMayBeCustom,
 	isCustomChoice,
+	isPipelineChoice,
+	startable,
 	workflowEdit,
 	workflowOptions
 } from '../../src/lib/features/assistant/workflow-choice.ts';
@@ -67,4 +69,26 @@ test('a decision carries the workflow only when the approver changed it', () => 
 	assert.deepEqual(workflowEdit('loop', undefined), { workflow_id: 'loop' });
 	assert.deepEqual(workflowEdit('standard', 'loop'), { workflow_id: 'standard' });
 	assert.deepEqual(workflowEdit(DEFAULT_WORKFLOW, 'loop'), { workflow_id: '' }, 'back to the issue default');
+});
+
+// KUA-291: wherever a workflow is chosen (the composer, the approval card, the
+// defaults and the automations), a pipeline is offered only while the server
+// has pipelines on, and an archived workflow never.
+test('a pipeline is offered only while pipelines are on', () => {
+	const off = { ...list, pipelines_enabled: false };
+	const byId = (id) => list.workflows.find((w) => w.id === id);
+	assert.equal(startable(list, byId('team')), true);
+	assert.equal(startable(off, byId('team')), false);
+	assert.equal(startable(off, byId('loop')), true);
+	assert.equal(startable(list, byId('standard')), true);
+	assert.equal(startable(list, byId('old')), false);
+	assert.equal(startable(null, byId('team')), false);
+});
+
+test('a pipeline choice is told apart, for the note on who decides the agent', () => {
+	assert.equal(isPipelineChoice(list, 'team'), true);
+	assert.equal(isPipelineChoice(list, 'loop'), false);
+	assert.equal(isPipelineChoice(list, 'standard'), false);
+	assert.equal(isPipelineChoice(list, DEFAULT_WORKFLOW), false);
+	assert.equal(isPipelineChoice(null, 'team'), false);
 });

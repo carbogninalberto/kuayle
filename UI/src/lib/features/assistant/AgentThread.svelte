@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { setContext, tick, untrack } from 'svelte';
-	import { ArrowLeft, ChevronDown, FileDown, RefreshCw } from '@lucide/svelte';
+	import { ArrowLeft, ChevronDown, ChevronRight, Gavel, Layers, LoaderCircle, RefreshCw } from '@lucide/svelte';
 	import { page } from '$app/state';
 	import * as Breadcrumb from '$lib/components/ui/breadcrumb/index.js';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
+	import { Toggle } from '$lib/components/ui/toggle/index.js';
+	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import {
 		agentTasks,
 		type AgentLiveMessage as LiveMessage,
@@ -15,37 +17,43 @@
 	import type { ConversationState } from './conversation-state.svelte';
 	import AgentStep from './AgentStep.svelte';
 	import AgentLiveMessage from './AgentLiveMessage.svelte';
-	import AgentReviewRequest from './AgentReviewRequest.svelte';
 	import AgentReview from './AgentReview.svelte';
-	import TaskNotebook from './TaskNotebook.svelte';
+	import StepStatus from './StepStatus.svelte';
 	import TaskRoom from './TaskRoom.svelte';
+	import TaskThreadMenu from './TaskThreadMenu.svelte';
 	import UsageLine from './UsageLine.svelte';
 	import { missedNotebook } from './task-notebook';
 	import TaskStopButton from './TaskStopButton.svelte';
-	import { openStep } from './agent-timeline';
+	import { openStep, type TimelineStep } from './agent-timeline';
 	import { answerContext, placeConversation, sendOptions, type AnswerContext } from './agent-conversation';
 	import { reviewSessions } from './agent-review';
 	import { placeByTime } from './shell-rules';
 	import { useTaskRun } from './task-run.svelte';
 	import { useMessageScroller } from '$lib/components/ui/message-scroller/index.js';
+	import { pipelineMembers, pipelinePhases } from './task-column';
+	import { shownRows, stepThread, threadRoles, type StepRow, type ThreadFilter } from './thread-rows';
+	import { stepAgent, stepTitle } from './step-labels';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
 	import { downloadTaskTrace } from './task-trace';
 	import { m } from '$lib/features/i18n/messages';
 
-	// One coding task as the centre conversation: where it is (a breadcrumb
-	// back to the assistant), what was asked, and its timeline: one section
-	// per workflow step, in the order the task took them, the running one
-	// open and streaming. A task without a workflow is one step per attempt.
-	// The conversation with the agent lives in it: a message sits in the run
-	// that received it, at the moment it was delivered, with the agent's
-	// reply as the next item; one that waits while no step runs follows the
-	// last step, where the next iteration picks it up. It is written in the
-	// composer under the view (the shared chat composer). A review of the task's pull
-	// request is asked for from its header and appears in the timeline. A task
-	// on a pipeline shows its room instead of a timeline (TaskRoom), and the
-	// composer writes to the room.
+	// One coding task as the centre conversation, one line per event
+	// (KUA-286). The header says where it is (a breadcrumb back to the
+	// assistant, the issue), what was asked, its phase, how many work on it
+	// now, and stops it; the trace and a review request are in its menu. A
+	// task that follows a workflow is filtered by role, or to its decisions.
+	// A task on a pipeline shows its room (TaskRoom), and the composer writes
+	// to it. Any other task shows its timeline: one line per workflow step in
+	// the order the task took them, the running one open and streaming, and
+	// the steps Kuayle ran in a row folded into one line; a task without a
+	// workflow is one line per attempt. The conversation with the agent lives
+	// in it: a message sits in the run that received it, at the moment it
+	// was delivered, with the agent's reply as the next item; one that waits
+	// while no step runs follows the last step, where the next iteration
+	// picks it up. It is written in the composer under the view (the shared
+	// chat composer). The task's notebook and its checks are side panel tabs.
 	let {
 		chat,
 		task,
@@ -92,23 +100,19 @@
 
 	// What the task did is loaded once for this view, the sidebar's path and
 	// the workflow chart; it reloads on the task's events and is polled as a
-	// fallback (see TaskRun).
-	// The notebook and a run's prompt are read by the task's creator alone; a
+	// fallback (see TaskRun). The notebook (its tab) is read by the task's
+	// creator alone, and here only for the runs that did not update it; a
 	// review has no notebook.
 	const mine = $derived(task.creator_id === authState.user?.id);
 	const run = useTaskRun(
 		untrack(() => chat),
 		() => task,
-		untrack(() => ({ notebook: mine && task.kind !== 'review' }))
+		untrack(() => ({ room: true, notebook: mine && task.kind !== 'review' }))
 	);
 	const steps = $derived(run.steps);
 	const missed = $derived(missedNotebook(run.notebook));
-	let notebookOpen = $state(false);
-	// The transcript follows its live end while the reader is there, and a
-	// short one is at its end and its start at once: the opened notebook
-	// would send the reader below it. Opening it is reading from the top.
+	// Opening the details is reading from the top.
 	const scroller = useMessageScroller();
-	const personName = (id: string | undefined) => (id && id === authState.user?.id ? authState.user.display_name || authState.user.name : '');
 	// The task's live channel, reloaded on each of its events. A review has
 	// none; another member's task answers "not found" and shows nothing.
 	let live = $state<LiveMessage[]>([]);
@@ -144,8 +148,46 @@
 				}
 			: undefined
 	);
+
+	// Where the task is and who works on it now, for the header: its
+	// pipeline phase, or the workflow step it is on.
+	const phase = $derived.by(() => {
+		if (run.pipeline) return pipelinePhases(run.pipeline, run.view, task).find((p) => p.state === 'current')?.label ?? '';
+		const on = run.followsWorkflow ? steps.find((step) => step.current) : undefined;
+		return on ? stepTitle(on) : '';
+	});
+	const working = $derived(
+		run.pipeline
+			? pipelineMembers(run.pipeline, run.view?.runs, run.view?.profiles ?? [], task).filter((member) => member.working).length
+			: steps.filter((step) => step.current && step.status === 'running').length
+	);
+	const stateText = $derived(phase ? `${phase} · ${taskLabel(task.state)}` : taskLabel(task.state));
+
+	// The lines a task that follows a workflow is filtered by: one role, and
+	// only its decisions (phase moves, verdicts, waivers, approvals).
+	const EVERYONE = '*';
+	let role = $state(EVERYONE);
+	let decisions = $state(false);
+	const filter = $derived<ThreadFilter>({ role: role === EVERYONE ? '' : role, decisions });
+	const resetFilter = () => {
+		role = EVERYONE;
+		decisions = false;
+	};
+	const stepRows = $derived(stepThread(steps, (step) => stepAgent(step) || stepTitle(step)));
+	const roles = $derived(
+		run.pipeline
+			? [...run.pipeline.roster.map((member) => member.role), ...(run.pipeline.lead ? ['lead'] : [])]
+			: threadRoles(stepRows, (row) => (row.role ? [row.role] : []))
+	);
+	// A task without a workflow is one line per attempt of one agent: nothing to filter.
+	const filterable = $derived(run.followsWorkflow && !!run.view);
+	const filtered = $derived(!!filter.role || filter.decisions);
+	const shownSteps = $derived(shownRows(stepRows, filter, (row) => (row.role ? [row.role] : []), (row) => row.decision));
+
 	// The running step is open and the finished ones are closed, until the
-	// reader opens or closes one; a link to a step (#step-4) opens it.
+	// reader opens or closes one; a link to a step (#step-4) opens it, and
+	// the folded line that holds it, and shows every line again if a filter
+	// hid it.
 	let chosen = $state<Record<string, boolean>>({});
 	const current = $derived(openStep(steps.filter((step) => !step.reviewTaskId)));
 	let followed = '';
@@ -153,7 +195,12 @@
 		const linked = page.url.hash.slice(1);
 		if (!linked || linked === followed || !steps.some((step) => step.anchor === linked)) return;
 		followed = linked;
-		untrack(() => (chosen[linked] = true));
+		untrack(() => {
+			chosen[linked] = true;
+			const fold = stepRows.find((row) => row.type === 'fold' && row.steps.some((step) => step.anchor === linked));
+			if (fold) chosen[fold.key] = true;
+			if (!shownSteps.some((row) => row.key === (fold?.key ?? linked))) resetFilter();
+		});
 		void tick().then(() => document.getElementById(linked)?.scrollIntoView({ block: 'start' }));
 	});
 
@@ -186,15 +233,19 @@
 			reviews.filter((session) => !linked.has(session.task_id))
 		);
 	});
+	// A requested review is a verdict of no role of the task's workflow.
+	const reviewsShown = $derived(!filter.role);
 	// The request is written for the assistant, which asks for approval.
 	function requestReview(text: string) {
 		chat.composerDraft = text;
 		onback();
 	}
 
-	// Durations of running steps tick.
+	// Durations of running steps and turns tick.
 	let now = $state(Date.now());
-	const ticking = $derived(steps.some((step) => step.status === 'running'));
+	const ticking = $derived(
+		steps.some((step) => step.status === 'running') || (run.view?.runs ?? []).some((item) => item.status === 'running')
+	);
 	$effect(() => {
 		if (!ticking) return;
 		now = Date.now();
@@ -211,7 +262,47 @@
 </script>
 
 {#snippet reviewRow(session: (typeof reviews)[number])}
-	<li class="min-w-0"><AgentReview {session} /></li>
+	{#if reviewsShown}<li class="min-w-0"><AgentReview {session} /></li>{/if}
+{/snippet}
+
+{#snippet stepItem(step: TimelineStep)}
+	<AgentStep
+		{chat}
+		{step}
+		{now}
+		reviewHref={step.reviewTaskId ? reviewHref(step.reviewTaskId) : undefined}
+		reviewSession={step.reviewTaskId ? reviewsByTask.get(step.reviewTaskId) : undefined}
+		{conversation}
+		promptable={mine}
+		{missed}
+		bind:open={() => chosen[step.anchor] ?? step.anchor === current, (open) => (chosen[step.anchor] = open)}
+	/>
+{/snippet}
+
+<!-- Steps Kuayle ran one after another, as one line that opens to each. -->
+{#snippet fold(row: Extract<StepRow, { type: 'fold' }>)}
+	{@const failed = row.steps.find((step) => step.status === 'failed' || step.status === 'stopped')}
+	<section class="min-w-0" data-step="fold" aria-label={row.steps.map((step) => stepTitle(step)).join(' · ')}>
+		<Collapsible.Root bind:open={() => chosen[row.key] ?? false, (open) => (chosen[row.key] = open)}>
+			<Collapsible.Trigger
+				class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+			>
+				<span class="inline-flex size-5 shrink-0 items-center justify-center"><Layers size={14} aria-hidden="true" /></span>
+				<span class="min-w-0 flex-1 truncate">{row.steps.map((step) => stepTitle(step)).join(' · ')}</span>
+				{#if failed}<StepStatus status={failed.status} />{/if}
+				<ChevronRight
+					size={14}
+					aria-hidden="true"
+					class="shrink-0 text-muted-foreground/60 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none"
+				/>
+			</Collapsible.Trigger>
+			<Collapsible.Content>
+				<ol class="ml-2.5 flex min-w-0 flex-col border-l pl-3 sm:pl-4">
+					{#each row.steps as step (step.anchor)}<li class="min-w-0">{@render stepItem(step)}</li>{/each}
+				</ol>
+			</Collapsible.Content>
+		</Collapsible.Root>
+	</section>
 {/snippet}
 
 <Collapsible.Root
@@ -255,16 +346,28 @@
 					title={m['tasks.details']()}
 				><ChevronDown size={14} aria-hidden="true" class="transition-transform group-aria-expanded:rotate-180 motion-reduce:transition-none" /></Collapsible.Trigger>
 			</div>
-			<div class="flex shrink-0 items-center gap-1 @min-[36rem]:gap-1.5">
-				<AgentReviewRequest {chat} {task} {allowedAgents} onrequest={requestReview} />
-				<Button variant="outline" size="sm" class="@max-[36rem]:w-7 @max-[36rem]:px-0" disabled={traceBusy}
-					aria-label={m['tasks.download_trace']()} title={m['tasks.download_trace']()} onclick={() => void downloadTrace()}
-					><FileDown /><span class="hidden @min-[36rem]:inline">{m['tasks.download_trace']()}</span></Button
-				>
+			{#if working}{@const text = m['tasks.working_count']({ count: working })}<span
+					class="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--status-running)] tabular-nums"
+					title={text}
+					data-testid="thread-working"
+					><LoaderCircle size={12} aria-hidden="true" class="animate-spin motion-reduce:animate-none" /><span
+						class="sr-only @min-[30rem]:not-sr-only">{text}</span
+					></span
+				>{/if}
+			<Badge variant="outline" class="max-w-28 shrink-0 @min-[36rem]:max-w-52 {toneBadge[tone]}" title={stateText} role="status"
+				><span class="truncate">{stateText}</span></Badge
+			>
+			<div class="flex shrink-0 items-center gap-0.5 @min-[36rem]:gap-1">
 				<TaskStopButton {chat} {task} {identifier} onerror={(message) => (stopError = message)} />
+				<TaskThreadMenu
+					{chat}
+					{task}
+					{allowedAgents}
+					onrequest={requestReview}
+					ondownload={() => void downloadTrace()}
+					downloading={traceBusy}
+				/>
 			</div>
-			<Badge variant="outline" class="max-w-24 shrink-0 @min-[36rem]:max-w-40 {toneBadge[tone]}"
-				title={taskLabel(task.state)} role="status"><span class="truncate">{taskLabel(task.state)}</span></Badge>
 		</div>
 	</header>
 
@@ -280,32 +383,48 @@
 				<UsageLine usage={run.usage} label={m['tasks.usage_total']()} />
 			{/if}
 		</Collapsible.Content>
-		{#if run.notebook}<TaskNotebook view={run.notebook} request={task.prompt} name={personName} bind:open={notebookOpen} onopened={() => scroller.scrollToStart({ behavior: 'auto' })} />{/if}
 	</section>
 
-	{#if run.pipeline}<TaskRoom {chat} {task} {run} />{:else}<ol aria-label={m['workflows.task.path']()} class="flex min-w-0 flex-col gap-1">
-		{#each steps as step (step.anchor)}
-			{#each timeline.before[step.anchor] ?? [] as session (session.id)}{@render reviewRow(session)}{/each}
-			<li class="min-w-0">
-				<AgentStep
-					{chat}
-					{step}
-					{now}
-					reviewHref={step.reviewTaskId ? reviewHref(step.reviewTaskId) : undefined}
-					reviewSession={step.reviewTaskId ? reviewsByTask.get(step.reviewTaskId) : undefined}
-					{conversation}
-					promptable={mine}
-					{missed}
-					bind:open={() => chosen[step.anchor] ?? step.anchor === current, (open) => (chosen[step.anchor] = open)}
-				/>
-			</li>
-		{/each}
-		{#each timeline.after as session (session.id)}{@render reviewRow(session)}{/each}
-		<!-- Waiting with no step running: the next iteration picks these up here. -->
-		{#if conversation.pending.length && steps.length}<li class="flex min-w-0 flex-col gap-3 py-2" data-step="pending">
-				{#each conversation.pending as placed (placed.message.id)}<AgentLiveMessage {placed} />{/each}
-			</li>{/if}
-	</ol>{/if}
+	{#if filterable}<div
+			class="flex min-w-0 flex-wrap items-center gap-1.5"
+			role="group"
+			aria-label={m['tasks.filter_label']()}
+			data-testid="thread-filters"
+		>
+			<SelectField
+				size="sm"
+				aria-label={m['tasks.filter_role']()}
+				bind:value={role}
+				options={[
+					{ value: EVERYONE, label: m['tasks.filter_everyone']() },
+					...roles.map((value) => ({ value, label: value }))
+				]}
+			/>
+			<Toggle variant="outline" size="sm" bind:pressed={decisions} class="text-xs font-normal"
+				><Gavel aria-hidden="true" />{m['tasks.filter_decisions']()}</Toggle
+			>
+		</div>{/if}
+
+	{#if run.pipeline}<TaskRoom {chat} {task} {run} {filter} {now} onreset={resetFilter} />{:else}<ol
+			aria-label={m['workflows.task.path']()}
+			class="flex min-w-0 flex-col gap-1"
+		>
+			{#each shownSteps as row (row.key)}
+				{#each row.type === 'fold' ? row.steps : [row.step] as step (step.anchor)}{#each timeline.before[step.anchor] ?? [] as session (session.id)}{@render reviewRow(
+							session
+						)}{/each}{/each}
+				<li class="min-w-0">{#if row.type === 'fold'}{@render fold(row)}{:else}{@render stepItem(row.step)}{/if}</li>
+			{/each}
+			{#each timeline.after as session (session.id)}{@render reviewRow(session)}{/each}
+			<!-- Waiting with no step running: the next iteration picks these up here. -->
+			{#if conversation.pending.length && steps.length && !filtered}<li class="flex min-w-0 flex-col gap-3 py-2" data-step="pending">
+					{#each conversation.pending as placed (placed.message.id)}<AgentLiveMessage {placed} />{/each}
+				</li>{/if}
+		</ol>
+		{#if filtered && stepRows.length && !shownSteps.length}<div class="flex flex-wrap items-center gap-2" role="status">
+				<p class="text-sm text-muted-foreground">{m['tasks.filter_empty']()}</p>
+				<Button variant="ghost" size="sm" onclick={resetFilter}>{m['tasks.filter_reset']()}</Button>
+			</div>{/if}{/if}
 	{#if run.failed}<div class="flex flex-wrap items-center gap-2">
 			<p role="alert" class="text-sm text-destructive">
 				{run.followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}

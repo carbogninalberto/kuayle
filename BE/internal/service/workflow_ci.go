@@ -561,6 +561,25 @@ func (w *WorkflowRunner) awaitCheckDetails(task domain.AgentTask, ci *repository
 	return true
 }
 
+// rerunFailed asks GitHub to run the Actions jobs of the failed checks
+// again. done is false when there is nothing to run or GitHub could not be
+// reached (ask again later); ran says whether GitHub took it, since a
+// refusal (rerunRefusal) is done too and not asked again.
+func (w *WorkflowRunner) rerunFailed(ctx context.Context, ws uuid.UUID, repository string, failed []PullRequestCheck) (ran, done bool) {
+	rerunner, ok := w.checks.(ciRerunner)
+	runs := []int64{}
+	for _, check := range failed {
+		if run := actionsRunID(check.URL); run > 0 && !slices.Contains(runs, run) {
+			runs = append(runs, run)
+		}
+	}
+	if !ok || len(runs) == 0 {
+		return false, false
+	}
+	err := rerunner.RerunFailedJobs(ctx, ws, repository, runs)
+	return err == nil, err == nil || rerunRefusal(err) != ""
+}
+
 // rerunRefusal words why GitHub will not run the jobs again, or returns ""
 // for a failure that may pass on its own (GitHub unreachable).
 func rerunRefusal(err error) string {

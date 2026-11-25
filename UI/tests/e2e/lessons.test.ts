@@ -11,6 +11,7 @@ const lesson = (id: string, repository: string, state: string, text: string, ove
 	id,
 	repository,
 	team_id: null,
+	role: null,
 	state,
 	text,
 	source_event: 'task',
@@ -326,6 +327,33 @@ for (const size of sizes) {
 				page.getByRole('region', { name: 'Proposals' }).getByRole('listitem').filter({ hasText: 'run the linter' }).getByRole('img', { name: 'Private' })
 			).toBeVisible();
 			expect(await fits(page)).toBe(true);
+		});
+
+		test('a lesson for one role of a team workflow says so', async ({ page }) => {
+			const state = await fixture(page, 'owner');
+			state.lessons.find((item) => item.id === 'a2')!.role = 'reviewer';
+			state.lessons.find((item) => item.id === 'p1')!.role = 'security';
+			await page.goto('/test/settings/lessons');
+			const api = page.getByRole('region', { name: 'acme/api' }).getByRole('listitem');
+			await expect(api.filter({ hasText: 'Migration numbers' })).toContainText('Only for the reviewer role');
+			await expect(api.filter({ hasText: 'Never edit generated' })).not.toContainText('Only for');
+			const proposals = page.getByRole('region', { name: 'Proposals' }).getByRole('listitem');
+			await expect(proposals.filter({ hasText: 'run the linter' })).toContainText('Only for the security role');
+			await expect(proposals.filter({ hasText: 'Keep strings' })).not.toContainText('Only for');
+			await expect(page.getByTestId('lesson-role')).toHaveCount(2);
+			expect(await fits(page)).toBe(true);
+			const roleShots = process.env.KUA282_SHOTS;
+			if (roleShots)
+				for (const colorScheme of ['light', 'dark'] as const) {
+					// The page follows the system's scheme.
+					await page.route('**/api/preferences', (route) =>
+						route.fulfill({ json: { font_size: 'default', pointer_cursors: true, theme_mode: 'system', light_theme: 'light', dark_theme: 'dark' } })
+					);
+					await page.emulateMedia({ colorScheme });
+					await page.reload();
+					await expect(page.getByTestId('lesson-role')).toHaveCount(2);
+					await page.screenshot({ path: `${roleShots}/lessons-role-${size.name}-${colorScheme}.png`, fullPage: true });
+				}
 		});
 
 		test('a guest is not offered lessons, and the address says there is no access', async ({ page }) => {

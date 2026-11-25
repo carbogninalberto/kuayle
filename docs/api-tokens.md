@@ -176,6 +176,9 @@ authentication.
 | GET | `/api/system/backups/settings` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | PUT | `/api/system/backups/settings` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
 | POST | `/api/system/backups/test-connection` | session only | Backups export every workspace and hold storage credentials; configuring and running them stays an interactive sysadmin action. |
+| GET | `/api/system/config` | session only | Instance configuration shows every operator setting and changes the server at runtime; it stays an interactive sysadmin action. |
+| DELETE | `/api/system/config/:name` | session only | Instance configuration shows every operator setting and changes the server at runtime; it stays an interactive sysadmin action. |
+| PUT | `/api/system/config/:name` | session only | Instance configuration shows every operator setting and changes the server at runtime; it stays an interactive sysadmin action. |
 | POST | `/api/system/push/keys` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
 | GET | `/api/system/push/settings` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
 | PUT | `/api/system/push/settings` | session only | Instance Web Push settings and test delivery require an interactive sysadmin session. |
@@ -234,6 +237,8 @@ authentication.
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/cancel` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/checks` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/debug` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| GET | `/api/workspaces/:slug/agent-tasks/:taskId/files` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| GET | `/api/workspaces/:slug/agent-tasks/:taskId/files/content` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/history` | token | agent_tasks:read |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/live-messages` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/live-messages` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
@@ -246,6 +251,7 @@ authentication.
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/retry` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/room` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | POST | `/api/workspaces/:slug/agent-tasks/:taskId/room` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
+| POST | `/api/workspaces/:slug/agent-tasks/:taskId/room/:seq/approve-split` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs` | token | agent_tasks:read |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/artifacts` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
 | GET | `/api/workspaces/:slug/agent-tasks/:taskId/runs/:runId/artifacts/:artifactId` | session only | Agent runs, logs, diffs, prompts and runtime mutations can expose code or credentials and act as the user. |
@@ -604,6 +610,7 @@ authentication.
 | PUT | `/api/workspaces/:slug/workflows/:workflowId` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | POST | `/api/workspaces/:slug/workflows/:workflowId/archive` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | GET | `/api/workspaces/:slug/workflows/:workflowId/audit` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
+| POST | `/api/workspaces/:slug/workflows/:workflowId/draft-pipeline` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | POST | `/api/workspaces/:slug/workflows/:workflowId/duplicate` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | POST | `/api/workspaces/:slug/workflows/validate` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | GET | `/api/workspaces/:slug/ws` | session only | The realtime WebSocket connection carries live assistant events for a browser session. |

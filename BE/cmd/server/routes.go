@@ -101,6 +101,7 @@ type appHandlers struct {
 	analytics         *handler.AnalyticsHandler
 	system            *handler.SystemHandler
 	backup            *handler.BackupHandler
+	instanceConfig    *handler.InstanceConfigHandler
 	webhook           *handler.WebhookHandler
 	sharedLink        *handler.SharedLinkHandler
 	upload            *handler.UploadHandler
@@ -249,6 +250,13 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(api, http.MethodPost, "/system/backups/run", h.backup.RunNow, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodGet, "/system/backups/runs", h.backup.ListRuns, mw.RejectSSOScopedSession())
 	sessionOnly(api, http.MethodPost, "/system/backups/runs/:id/verify", h.backup.Verify, mw.RejectSSOScopedSession())
+
+	// Instance configuration lists every operator setting (secrets only as
+	// set or not set) and changes the runtime ones: an interactive sysadmin
+	// session that no workspace's SSO minted.
+	sessionOnly(api, http.MethodGet, "/system/config", h.instanceConfig.List, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodPut, "/system/config/:name", h.instanceConfig.Update, mw.RejectSSOScopedSession())
+	sessionOnly(api, http.MethodDelete, "/system/config/:name", h.instanceConfig.Reset, mw.RejectSSOScopedSession())
 
 	// Workspaces (no workspace context needed for list/create)
 	scoped(api, http.MethodGet, "/workspaces", h.workspace.List, "workspaces:read")
@@ -502,6 +510,8 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(ws, http.MethodGet, "/workflows/:workflowId", h.workflow.Get, domain.PermWorkflowsRead)
 	sessionOnly(ws, http.MethodPut, "/workflows/:workflowId", h.workflow.Save)
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/duplicate", h.workflow.Duplicate)
+	// Drafts a pipeline from a graph workflow and saves nothing (KUA-283).
+	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/draft-pipeline", h.workflow.DraftPipeline)
 	sessionOnly(ws, http.MethodPost, "/workflows/:workflowId/archive", h.workflow.Archive)
 	sessionOnly(ws, http.MethodDelete, "/workflows/:workflowId", h.workflow.Delete)
 	sessionOnly(ws, http.MethodGet, "/workflows/:workflowId/audit", h.workflow.Audit)
@@ -653,6 +663,9 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/sessions", h.agentTask.Sessions)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/live-messages", h.agentTask.LiveMessages)
 	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/room", h.agentTask.Room)
+	// The files a commit of the task tracks, and one of them a page at a time.
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/files", h.agentTask.Files)
+	sessionOnly(dm, http.MethodGet, "/agent-tasks/:taskId/files/content", h.agentTask.FileContent)
 	scoped(dm, http.MethodGet, "/agent-tasks", h.agentTask.Queue, domain.PermAgentTasksRead)
 	// The board of a repository's active tasks has the visibility of the list.
 	scoped(dm, http.MethodGet, "/agent-tasks/board", h.agentTask.Board, domain.PermAgentTasksRead)
@@ -679,6 +692,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	}
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/live-messages", h.agentTask.SendLiveMessage)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/room", h.agentTask.PostRoom)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/room/:seq/approve-split", h.agentTask.ApproveSplit, mw.RequireTeamResourcePermission(domain.PermIssueCreate))
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	// A task paused by its agent's usage limit: resume now, or don't resume.

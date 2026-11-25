@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 )
 
 // QueueLiveMessage sends text from the task's creator (sender "user") or from
@@ -47,4 +48,42 @@ func (s *AgentTaskService) PostRoomMessage(ctx context.Context, ws, id uuid.UUID
 		return nil, err
 	}
 	return s.Repo.PostRoomMessage(ctx, ws, id, post)
+}
+
+// ApproveTaskSplit announces the children created by a committed approval.
+// Replaying the same approval returns no new children to announce.
+func (s *AgentTaskService) ApproveTaskSplit(ctx context.Context, ws, id uuid.UUID, seq int64) error {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return err
+	}
+	issues, err := s.Repo.ApproveTaskSplit(ctx, ws, id, seq)
+	if err != nil {
+		return err
+	}
+	s.announceSplit(ctx, ws, issues)
+	return nil
+}
+
+// carryOutGrantedSplits creates the sub-issues of the lead's split requests
+// that the task's creator granted (KUA-313), without the approval step, and
+// announces them as an approved split's are.
+func (s *AgentTaskService) carryOutGrantedSplits(ctx context.Context, task domain.AgentTask) error {
+	issues, err := s.Repo.CarryOutGrantedSplits(ctx, task.WorkspaceID, task.ID)
+	s.announceSplit(ctx, task.WorkspaceID, issues)
+	return err
+}
+
+// announceSplit tells the workspace and its webhooks of a split's children.
+func (s *AgentTaskService) announceSplit(ctx context.Context, ws uuid.UUID, issues []domain.Issue) {
+	if len(issues) == 0 {
+		return
+	}
+	if s.events != nil {
+		for i := range issues {
+			s.events.Broadcast(ws, realtime.Event{Type: WebhookEventIssueCreated, Payload: &issues[i]})
+		}
+	}
+	if s.webhooks != nil {
+		s.webhooks.IssueEvents(ctx, ws, WebhookEventIssueCreated, issues, issues[0].CreatorID)
+	}
 }

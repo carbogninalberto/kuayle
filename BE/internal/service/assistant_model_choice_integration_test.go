@@ -19,6 +19,8 @@ type twoServerTasks struct {
 	defaultID, otherID uuid.UUID
 }
 
+func (f *twoServerTasks) PipelinesEnabled() bool { return false }
+
 func (f *twoServerTasks) Options(context.Context, uuid.UUID, uuid.UUID) (*AgentTaskOptions, error) {
 	return &AgentTaskOptions{Providers: []dto.AgentProviderResponse{{ID: "codex"}}, ModelServers: []dto.ModelServerResponse{
 		{ID: f.defaultID, IsDefault: true, Harnesses: []string{"codex"}, DefaultModel: "deepseek-flash", Models: []string{"deepseek-flash"}, Thinking: "high"},

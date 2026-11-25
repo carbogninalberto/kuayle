@@ -73,6 +73,11 @@ func main() {
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
 
+	// Settings -> Instance configuration: sysadmin overrides of the variables
+	// a running server reads per use (internal/config/registry.go). The
+	// readers below ask it on every use, so a change needs no restart.
+	instanceConfig := service.NewInstanceConfigService(cfg, repository.NewInstanceConfigRepository(db))
+
 	workspaceRepo := repository.NewWorkspaceRepository(db)
 	hub := realtime.NewHub(workspaceRepo.RealtimeAccess)
 	conversationRepo := repository.NewConversationRepository(db)
@@ -119,7 +124,7 @@ func main() {
 	// Tasks that pin a configurable workflow follow it (KUA-95).
 	workflowRepo := repository.NewWorkflowRepository(db)
 	agentTaskSvc.SetWorkflows(workflowRepo)
-	agentTaskSvc.SetPipelines(cfg.WorkflowPipelines)
+	agentTaskSvc.SetPipelineSwitch(instanceConfig.PipelinesEnabled)
 	automationSvc := service.NewAgentAutomationService(repository.NewAgentAutomationRepository(db), conversationRepo, agentTaskSvc)
 	if len(os.Args) == 2 && os.Args[1] == "automation-worker" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -157,7 +162,7 @@ func main() {
 	inviteLinkSvc := service.NewInviteLinkService(inviteLinkRepo, workspaceRepo)
 	authSvc := service.NewAuthService(userRepo, refreshRepo, cfg.JWTSecret,
 		service.WithPublicDemoMode(cfg.PublicDemoMode),
-		service.WithRegistrationDisabled(cfg.DisableRegistration),
+		service.WithRegistrationSwitch(instanceConfig.RegistrationDisabled),
 		service.WithInviteRedeemer(inviteLinkSvc),
 		service.WithPasswordReset(repository.NewPasswordResetRepository(db), resetMailer(cfg), cfg.FrontendURL, cfg.Environment == "development"),
 	)
@@ -233,7 +238,7 @@ func main() {
 	passkeyH := handler.NewPasskeyHandler(passkeySvc, authH)
 	scimH := handler.NewSCIMHandler(service.NewSCIMService(repository.NewSCIMRepository(db), workspaceSvc), cfg.FrontendURL)
 	ssoH := handler.NewSSOHandler(ssoSvc, authH, cfg.Environment != "development" || cfg.DevMachine.AllowSameSite)
-	configH := handler.NewConfigHandler(authSvc.PublicRegistrationEnabled()).
+	configH := handler.NewConfigHandler(false).WithRegistration(authSvc.PublicRegistrationEnabled).
 		WithPasskeys(passkeySvc.Enabled()).
 		WithSSOInstance(cfg.SSOInstanceConfig().Configured()).
 		WithSSOAvailability(ssoSvc.SignInEnabled)
@@ -386,6 +391,7 @@ func main() {
 		Sysadmins:           cfg.SysadminIDs(),
 		AppVersion:          buildinfo.Version,
 	}, service.BackupUploadsFromBackend(store, cfg.Storage.LocalDir))
+	backupSvc.SetTimeoutSource(instanceConfig.BackupTimeout)
 	backupH := handler.NewBackupHandler(backupSvc, cfg.IsSysAdmin, backupDir)
 	wikiPublishSvc := service.NewWikiPublishService(repository.NewWikiRepository(db), sharedLinkRepo, workspaceRepo, cfg.JWTSecret)
 	uploadH.SetWikiPublicPages(wikiPublishSvc.PublicPageReachable)
@@ -454,6 +460,9 @@ func main() {
 	assistantTools.SetRepositoryScans(repositoryCheckouts, devMachineRepo)
 	// Live worktree scans queue a read-only operation on the task's machine.
 	assistantTools.SetWorktreeScans(devMachineRepo)
+	// A task's creator reads its files at a commit: published commits from
+	// the same checkouts, the rest with git on the task's machine.
+	agentTaskSvc.SetTaskFiles(repositoryCheckouts, devMachineRepo)
 	assistantApprovals.SetReleases(githubSvc)
 	githubSvc.SetPullRequestSettings(repository.NewAgentTaskRepository(db))
 	assistantApprovals.SetPullRequestHeads(githubSvc)
@@ -543,6 +552,7 @@ func main() {
 		fav:               favH,
 		prefs:             prefsH,
 		push:              handler.NewPushHandler(pushSvc, cfg.IsSysAdmin),
+		instanceConfig:    handler.NewInstanceConfigHandler(instanceConfig, cfg.IsSysAdmin),
 		token:             tokenH,
 		cliLink:           cliLinkH,
 		aiSettings:        aiSettingsH,

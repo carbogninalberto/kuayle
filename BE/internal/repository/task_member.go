@@ -29,13 +29,8 @@ var (
 	ErrMemberUnavailable = errors.New("the agent profile that plays the role was archived")
 )
 
-// memberTurnPosts bounds the posts one turn reads (a page of the room);
-// memberPromptBytes is what a task's prompt may hold. What does not fit
-// waits for the next turn.
-const (
-	memberTurnPosts   = 200
-	memberPromptBytes = 32768
-)
+// memberTurnPosts bounds the posts one turn reads (a page of the room).
+const memberTurnPosts = 200
 
 // memberRoot opens the transaction of a pipeline task's room for its
 // creator: the task locked in the usual order, the room serialized by the
@@ -67,8 +62,8 @@ func (r *AgentTaskRepository) memberRoot(ctx context.Context, rootID uuid.UUID) 
 	return tx, root, pipeline, nil
 }
 
-// ensureWriterMember creates the member of the role that writes, played by
-// the root task, the first time; its profile is pinned then.
+// ensureWriterMember creates the member of the first writer, played by the
+// root task, the first time; its profile is pinned then.
 func ensureWriterMember(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask, pipeline domain.Pipeline) error {
 	writer, ok := pipeline.Writer()
 	if !ok {
@@ -79,9 +74,38 @@ func ensureWriterMember(ctx context.Context, tx *sqlx.Tx, root domain.AgentTask,
 	return err
 }
 
-// Members lists the members of a pipeline task, oldest first. The member
-// that writes (the root task) exists from the first call; the others exist
-// once they took a turn (StartMemberTurn).
+// holdWriteLock gives a pipeline task's write lock to the writer whose turn
+// the task's next iteration is (KUA-289), in the iteration's transaction:
+// the writers' turns are the root task's attempts, one at a time, so the
+// lock moves only between turns. A move is recorded with its time, which
+// tells one writer's runs from another's; the writer is a member from its
+// first turn, with its profile pinned.
+func holdWriteLock(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, writer domain.PipelineMember) error {
+	if !writer.Writer {
+		return ErrConversationInvalid
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO task_members(workspace_id,task_id,role,profile_id,state) VALUES($1,$2,$3,$4,'idle') ON CONFLICT (task_id,role) DO NOTHING`,
+		task.WorkspaceID, task.ID, writer.Role, writer.ProfileID); err != nil {
+		return err
+	}
+	return tx.GetContext(ctx, task, `UPDATE agent_tasks SET pipeline_state=jsonb_set(pipeline_state,'{writer}',to_jsonb($2::text))||CASE WHEN COALESCE(pipeline_state->>'writer',$2)=$2 THEN '{}'::jsonb
+ ELSE jsonb_build_object('moves',COALESCE(pipeline_state->'moves','[]'::jsonb)||jsonb_build_array(jsonb_build_object('role',$2::text,'at',now()))) END WHERE id=$1 RETURNING *`, task.ID, writer.Role)
+}
+
+// writerMoved is true for a run of a pipeline task (r) after which the
+// write lock moved to another writer: its session is another writer's.
+const writerMoved = `EXISTS(SELECT 1 FROM agent_tasks wt,jsonb_array_elements(COALESCE(wt.pipeline_state->'moves','[]'::jsonb)) move
+ WHERE wt.id=r.task_id AND wt.pipeline AND (move->>'at')::timestamptz>r.created_at)`
+
+// runWriter is the writer that ran a run (r) of pipeline task $1: the one
+// the write lock last moved to before the run, or the first writer.
+const runWriter = `COALESCE((SELECT move->>'role' FROM agent_tasks wt,jsonb_array_elements(COALESCE(wt.pipeline_state->'moves','[]'::jsonb)) move
+ WHERE wt.id=$1 AND (move->>'at')::timestamptz<=r.created_at ORDER BY (move->>'at')::timestamptz DESC LIMIT 1),
+ (SELECT m.role FROM task_members m WHERE m.task_id=$1 AND m.workspace_id=$2 AND m.member_task_id IS NULL ORDER BY m.created_at,m.id LIMIT 1))`
+
+// Members lists the members of a pipeline task, oldest first. The first
+// writer (the root task) exists from the first call; the others exist once
+// they took a turn (StartMemberTurn, or holdWriteLock for a writer).
 func (r *AgentTaskRepository) Members(ctx context.Context, rootID uuid.UUID) ([]domain.TaskMember, error) {
 	tx, root, pipeline, err := r.memberRoot(ctx, rootID)
 	if err != nil {
@@ -98,11 +122,15 @@ func (r *AgentTaskRepository) Members(ctx context.Context, rootID uuid.UUID) ([]
 	return members, tx.Commit()
 }
 
-// unreadPosts lists the room after a role's cursor, oldest first, bounded.
+// unreadPosts lists the room after a role's cursor, oldest first, bounded:
+// the oldest page for a member, and the newest for a role that is not one
+// yet (KUA-288), whose first turn is called by the newest posts; what was
+// said before it joined is history it may skip.
 func unreadPosts(ctx context.Context, q sqlx.QueryerContext, root domain.AgentTask, role string) ([]domain.TaskMessage, error) {
 	posts := []domain.TaskMessage{}
-	err := sqlx.SelectContext(ctx, q, &posts, `SELECT * FROM task_messages WHERE task_id=$1 AND workspace_id=$2
- AND seq>COALESCE((SELECT last_read_seq FROM task_members WHERE task_id=$1 AND role=$3),0) ORDER BY seq LIMIT $4`, root.ID, root.WorkspaceID, role, memberTurnPosts)
+	err := sqlx.SelectContext(ctx, q, &posts, `SELECT * FROM (SELECT * FROM task_messages WHERE task_id=$1 AND workspace_id=$2
+ AND seq>COALESCE((SELECT last_read_seq FROM task_members WHERE task_id=$1 AND role=$3),0)
+ ORDER BY CASE WHEN EXISTS(SELECT 1 FROM task_members WHERE task_id=$1 AND role=$3) THEN seq ELSE -seq END LIMIT $4) page ORDER BY seq`, root.ID, root.WorkspaceID, role, memberTurnPosts)
 	return posts, err
 }
 
@@ -139,20 +167,24 @@ func (r *AgentTaskRepository) MarkMemberRead(ctx context.Context, rootID uuid.UU
 // Kuayle published from the root task's attempts; it must end with a
 // verdict for that commit when asked (askVerdict, or a review request in
 // the posts it reads). A member whose turn is queued or running, or whose
-// task waits on a usage limit, is ErrMemberBusy.
+// task waits on a usage limit, is ErrMemberBusy; a turn that finds no free
+// task slot on its machine (memberSlot) is ErrNoTaskSlot.
 func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.UUID, role string, askVerdict bool) (*domain.TaskMember, error) {
 	tx, root, pipeline, err := r.memberRoot(ctx, rootID)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
-	roster, ok := pipeline.RosterRole(role)
+	roster, ok := pipeline.Member(role)
 	if !ok {
 		return nil, ErrTaskRoomUnavailable
 	}
 	if roster.Writer {
 		return nil, ErrMemberWrites
 	}
+	// The lead manages (KUA-300): it reads as the roles that review do, and
+	// is never asked for a verdict.
+	manages := pipeline.Behaviour(role) == domain.AgentBehaviourManages
 	if err = ensureWriterMember(ctx, tx, *root, *pipeline); err != nil {
 		return nil, err
 	}
@@ -170,6 +202,15 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 			return nil, err
 		}
 		if member.State != domain.MemberIdle || (task.State != "blocked" && task.State != "failed" && task.State != "cancelled") || task.UsageLimitMessage != nil {
+			return nil, ErrMemberBusy
+		}
+		// Nothing of the previous turn may still be active.
+		var pending bool
+		if err = tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
+ OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview','cleanup_task'))`, task.ID, task.CheckoutID); err != nil {
+			return nil, err
+		}
+		if pending {
 			return nil, ErrMemberBusy
 		}
 	case errors.Is(err, sql.ErrNoRows):
@@ -200,29 +241,64 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 	if member != nil && member.PinnedCommit != nil {
 		turn.Since = *member.PinnedCommit
 	}
-	if target != nil {
-		turn.VerdictAsked = askVerdict || domain.RoomReviewRequested(domain.RoomInbox(role, posts))
+	if member != nil {
+		if turn.Reviewed, err = earlierReview(ctx, tx, *member); err != nil {
+			return nil, err
+		}
+	}
+	asked := func() bool {
+		return target != nil && !manages && (askVerdict || domain.RoomReviewRequested(roster, domain.RoomInbox(role, posts)))
+	}
+	if turn.VerdictAsked = asked(); target != nil && !manages {
 		if turn.CI, err = recordedReviewCI(ctx, tx, published, target.CommitSHA); err != nil {
 			return nil, err
 		}
 	}
-	// What does not fit this turn's prompt waits for the next turn.
+	phase := ""
+	if root.WorkflowNode != nil {
+		phase = *root.WorkflowNode
+	}
+	var board string
+	if manages {
+		if board, err = leadBoard(ctx, tx, *root, target); err != nil {
+			return nil, err
+		}
+	}
+	// What does not fit this turn's prompt waits for the next turn; a first
+	// turn keeps the newest posts instead.
 	var prompt string
 	for {
 		turn.Posts = posts
-		prompt = domain.MemberTurnPrompt(turn)
-		if len(prompt) <= memberPromptBytes || len(posts) <= 1 {
+		if manages {
+			prompt = domain.LeadTurnPrompt(domain.LeadTurn{Pipeline: *pipeline, Phase: phase, Target: target, Instructions: profile.Instructions, Posts: posts, Board: board})
+		} else {
+			prompt = domain.MemberTurnPrompt(turn)
+		}
+		if len(prompt) <= domain.MemberPromptBytes || len(posts) <= 1 {
 			break
 		}
-		posts = posts[:len(posts)-1]
-		turn.VerdictAsked = target != nil && (askVerdict || domain.RoomReviewRequested(domain.RoomInbox(role, posts)))
+		if member == nil {
+			posts = posts[1:]
+		} else {
+			posts = posts[:len(posts)-1]
+		}
+		turn.VerdictAsked = asked()
 	}
-	if len(prompt) > memberPromptBytes {
+	if len(prompt) > domain.MemberPromptBytes {
 		return nil, ErrConversationInvalid
 	}
 	read := int64(0)
 	if member != nil {
 		read = member.LastReadSeq
+	}
+	// The turn takes a task slot on its machine, or waits for one.
+	machine, err := memberSlot(ctx, tx, *root, role, task, read)
+	if err != nil {
+		return nil, err
+	}
+	var slot any
+	if machine != uuid.Nil {
+		slot = machine
 	}
 	if len(posts) > 0 {
 		read = posts[len(posts)-1].Seq
@@ -239,6 +315,11 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		if task, err = insertReviewAgentTask(ctx, tx, *root, *root.ConversationID, root.CreatorID, input, prompt, reason); err != nil {
 			return nil, err
 		}
+		if slot != nil {
+			if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET machine_id=$2 WHERE id=$1 RETURNING *`, task.ID, slot); err != nil {
+				return nil, err
+			}
+		}
 		member = &domain.TaskMember{}
 		if err = tx.GetContext(ctx, member, `INSERT INTO task_members(workspace_id,task_id,role,profile_id,member_task_id,last_read_seq,state,turns,pinned_commit,verdict_asked)
  VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$9) RETURNING *`, root.WorkspaceID, root.ID, role, profile.ID, task.ID, read, domain.MemberState(task.State), pinned, turn.VerdictAsked); err != nil {
@@ -249,18 +330,9 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		}
 		return member, tx.Commit()
 	}
-	// Nothing of the previous turn may still be active.
-	var pending bool
-	if err = tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM dev_machine_agent_runs WHERE task_id=$1 AND status IN ('queued','starting','running','waiting_input'))
- OR EXISTS(SELECT 1 FROM dev_machine_operations o WHERE (o.checkout_id=$2 OR o.agent_run_id IN (SELECT id FROM dev_machine_agent_runs WHERE task_id=$1)) AND o.status IN ('pending','leased') AND o.action NOT IN ('start_preview','stop_preview','cleanup_task'))`, task.ID, task.CheckoutID); err != nil {
-		return nil, err
-	}
-	if pending {
-		return nil, ErrMemberBusy
-	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET prompt=$2,generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET prompt=$2,machine_id=COALESCE($3,machine_id),generation=generation+1,run_id=gen_random_uuid(),failure_count=0,failure_pending=false,failure_class=NULL,sign_in_required=false,
  usage_limit_resumes=0,resume_native_session=false,platform_retries=0,platform_retry_pending=false,live_resume_generation=NULL,lease_token=NULL,lease_expires_at=NULL,next_poll_at=now()
- WHERE id=$1 RETURNING *`, task.ID, prompt); err != nil {
+ WHERE id=$1 RETURNING *`, task.ID, prompt, slot); err != nil {
 		return nil, err
 	}
 	if err = tx.GetContext(ctx, member, `UPDATE task_members SET last_read_seq=$2,turns=turns+1,pinned_commit=$3,verdict_asked=$4,updated_at=now() WHERE id=$1 RETURNING *`,
@@ -274,6 +346,21 @@ func (r *AgentTaskRepository) StartMemberTurn(ctx context.Context, rootID uuid.U
 		return nil, err
 	}
 	return member, tx.Commit()
+}
+
+// earlierReview is what a member's earlier review left for its next pass
+// (P4.4): its role's latest verdict, and the final message of its last
+// turn (the newest run of its task, as PreviousAttempt orders them); nil
+// before the role gave a verdict.
+func earlierReview(ctx context.Context, tx *sqlx.Tx, member domain.TaskMember) (*domain.MemberReview, error) {
+	var review domain.MemberReview
+	err := tx.GetContext(ctx, &review, `SELECT v.commit_sha,v.verdict,v.findings,
+ COALESCE((SELECT r.summary FROM dev_machine_agent_runs r WHERE r.task_id=$4 AND r.workspace_id=$2 ORDER BY r.created_at DESC,r.id LIMIT 1),'') AS last_message
+ FROM task_verdicts v WHERE v.task_id=$1 AND v.workspace_id=$2 AND v.role=$3 ORDER BY v.seq DESC LIMIT 1`, member.TaskID, member.WorkspaceID, member.Role, member.MemberTaskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &review, err
 }
 
 // pipelinePublicationRun is the last run of a pipeline task (t) that
@@ -308,6 +395,32 @@ func publishedTarget(ctx context.Context, q sqlx.QueryerContext, root domain.Age
 	return target, published, err
 }
 
+// PublishedWork is the newest pull request and commit Kuayle published from
+// a task's attempts, whichever attempt published it; nil before anything is
+// published with a pull request.
+func (r *AgentTaskRepository) PublishedWork(ctx context.Context, task domain.AgentTask) (*domain.AgentReviewTarget, error) {
+	target, _, err := publishedTarget(ctx, r.db, task)
+	return target, err
+}
+
+// MemberTasks is the task whose generations are each member's turns, by
+// role, for every member but the writer (whose turns are the root task's).
+func (r *AgentTaskRepository) MemberTasks(ctx context.Context, root domain.AgentTask) (map[string]domain.AgentTask, error) {
+	var rows []struct {
+		Role string `db:"member_role"`
+		domain.AgentTask
+	}
+	if err := r.db.SelectContext(ctx, &rows, `SELECT m.role AS member_role,t.* FROM task_members m JOIN agent_tasks t ON t.id=m.member_task_id AND t.workspace_id=m.workspace_id
+ WHERE m.task_id=$1 AND m.workspace_id=$2`, root.ID, root.WorkspaceID); err != nil {
+		return nil, err
+	}
+	tasks := make(map[string]domain.AgentTask, len(rows))
+	for _, row := range rows {
+		tasks[row.Role] = row.AgentTask
+	}
+	return tasks, nil
+}
+
 // LatestVerdicts is the latest verdict of each role for one commit of a
 // pipeline task, or with commit "" on any commit. A verdict counts for the
 // commit it names only: whether it also holds for a head that merely merged
@@ -339,13 +452,14 @@ func (r *AgentTaskRepository) TaskMember(ctx context.Context, task domain.AgentT
 }
 
 // syncMemberState keeps the state of the member whose turns a task runs in
-// step with the task, in the transition's transaction.
+// step with the task, in the transition's transaction: for a pipeline task,
+// the writer holding its write lock.
 func syncMemberState(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) error {
 	if task.Kind != domain.AgentTaskKindReview && task.WorkflowVersionID == nil {
 		return nil
 	}
-	_, err := tx.ExecContext(ctx, `UPDATE task_members SET state=$3,updated_at=now() WHERE workspace_id=$2 AND (member_task_id=$1 OR (task_id=$1 AND member_task_id IS NULL)) AND state<>$3`,
-		task.ID, task.WorkspaceID, domain.MemberState(task.State))
+	_, err := tx.ExecContext(ctx, `UPDATE task_members SET state=$3,updated_at=now() WHERE workspace_id=$2 AND (member_task_id=$1 OR (task_id=$1 AND member_task_id IS NULL AND ($4='' OR role=$4))) AND state<>$3`,
+		task.ID, task.WorkspaceID, domain.MemberState(task.State), domain.PipelineHolderRole(task.PipelineState))
 	if err != nil || task.Kind != domain.AgentTaskKindReview || domain.MemberState(task.State) != domain.MemberIdle {
 		return err
 	}
@@ -495,6 +609,21 @@ func (r *DevMachineRepository) MissingVerdict(ctx context.Context, runID uuid.UU
  JOIN agent_tasks t ON t.id=m.member_task_id AND t.run_id=r.id
  WHERE r.id=$1 AND m.verdict_asked AND m.pinned_commit IS NOT NULL
  AND NOT EXISTS(SELECT 1 FROM task_verdicts v WHERE v.task_id=m.task_id AND v.role=m.role AND v.run_id=$1 AND v.commit_sha=m.pinned_commit)`, runID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return commit, err
+}
+
+// MemberCommit is the commit the turn of a pipeline member running as run
+// reads (KUA-289): the machine checks it out before it mounts the member's
+// worktree read-only. "" for any other run.
+func (r *DevMachineRepository) MemberCommit(ctx context.Context, runID uuid.UUID) (string, error) {
+	var commit string
+	err := r.db.GetContext(ctx, &commit, `SELECT m.pinned_commit FROM dev_machine_agent_runs r
+ JOIN task_members m ON m.member_task_id=r.task_id AND m.workspace_id=r.workspace_id
+ JOIN agent_tasks t ON t.id=m.member_task_id AND t.run_id=r.id
+ WHERE r.id=$1 AND m.pinned_commit IS NOT NULL`, runID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

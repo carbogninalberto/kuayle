@@ -1,7 +1,7 @@
 import type { Component } from 'svelte';
 import type { ConversationState } from '../conversation-state.svelte';
 import type { TaskBoard } from '../task-board.svelte';
-import type { AgentQueueItem } from '$lib/api/agent-tasks';
+import type { AgentQueueItem, AgentTask } from '$lib/api/agent-tasks';
 
 // What every side panel receives. A panel reads the open conversation and
 // its task board, never owns them, so panels can be added, closed or moved
@@ -16,6 +16,8 @@ export interface PanelContext {
 	open: (id: string) => void;
 	// Asks the chat composer to show text, e.g. a request to open a pull request.
 	draft: (text: string) => void;
+	// The task the agent view shows, if it shows one (KUA-286).
+	agentTask?: AgentTask;
 }
 
 /**
@@ -35,6 +37,9 @@ export interface PanelDefinition {
 	component: Component<{ context: PanelContext }>;
 	// Hidden from the panel switcher (and closed) while this returns false.
 	available?: () => boolean;
+	// The panel scrolls inside its own regions: the host gives it the full
+	// height instead of scrolling it (no scroller inside another).
+	scrolls?: boolean;
 }
 
 /** Which side panel is open; the choice is remembered per person. */

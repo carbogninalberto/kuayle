@@ -1,12 +1,14 @@
 package repository
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 
@@ -52,11 +54,16 @@ func (r *AgentTaskRepository) PostRoomMessage(ctx context.Context, ws, id uuid.U
 	if err != nil {
 		return nil, err
 	}
-	// The task's tick delivers it (to a role that rests, a turn) at once.
-	if _, err = tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND pipeline AND state='awaiting_review'`, task.ID); err != nil {
+	if err = wakeRoomTick(ctx, tx, task); err != nil {
 		return nil, err
 	}
 	return message, tx.Commit()
+}
+
+// Wake the task waiting for a person's post or a delegated decision.
+func wakeRoomTick(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask) error {
+	_, err := tx.ExecContext(ctx, `UPDATE agent_tasks SET workflow_wake_at=now() WHERE id=$1 AND workspace_id=$2 AND pipeline AND state='awaiting_review'`, task.ID, task.WorkspaceID)
+	return err
 }
 
 // RecordRoomMessage posts to the room of a pipeline task for one of its
@@ -160,8 +167,8 @@ type roomPoster struct {
 
 // roomSender says which room a task posts to and as which role. A member's
 // task posts to its root task's room as the member's role. An implementing
-// task pinned to a pipeline is the root of its room and plays the
-// pipeline's writer.
+// task pinned to a pipeline is the root of its room and plays the writer
+// holding its write lock.
 func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) (roomPoster, error) {
 	var member struct {
 		ID     uuid.UUID `db:"id"`
@@ -178,11 +185,11 @@ func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) 
 		return roomPoster{}, err
 	}
 	var row struct {
-		RunID    uuid.UUID  `db:"run_id"`
-		Graph    []byte     `db:"graph"`
-		MemberID *uuid.UUID `db:"member_id"`
+		RunID uuid.UUID       `db:"run_id"`
+		Graph []byte          `db:"graph"`
+		State json.RawMessage `db:"pipeline_state"`
 	}
-	err = r.db.GetContext(ctx, &row, `SELECT t.run_id,v.graph,(SELECT m.id FROM task_members m WHERE m.task_id=t.id AND m.member_task_id IS NULL) AS member_id
+	err = r.db.GetContext(ctx, &row, `SELECT t.run_id,v.graph,t.pipeline_state
  FROM agent_tasks t JOIN workflow_versions v ON v.id=t.workflow_version_id AND v.workspace_id=t.workspace_id
  WHERE t.id=$1 AND t.kind=$2`, taskID, domain.AgentTaskKindImplement)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -198,11 +205,21 @@ func (r *AgentTaskRepository) roomSender(ctx context.Context, taskID uuid.UUID) 
 	if err != nil {
 		return roomPoster{}, err
 	}
-	if writer, ok := pipeline.Writer(); ok {
-		return roomPoster{taskID: taskID, role: writer.Role, memberID: row.MemberID, runID: row.RunID}, nil
+	// The root task plays the writer holding the write lock: its run is
+	// that writer's turn.
+	writer := pipeline.Holder(domain.PipelineHolderRole(row.State))
+	if writer.Role == "" {
+		return roomPoster{}, ErrTaskRoomUnavailable
 	}
-	return roomPoster{}, ErrTaskRoomUnavailable
+	var memberID *uuid.UUID
+	if err = r.db.GetContext(ctx, &memberID, `SELECT (SELECT id FROM task_members WHERE task_id=$1 AND role=$2 AND member_task_id IS NULL)`, taskID, writer.Role); err != nil {
+		return roomPoster{}, err
+	}
+	return roomPoster{taskID: taskID, role: writer.Role, memberID: memberID, runID: row.RunID}, nil
 }
+
+// RoomMessagePageSize is the maximum number of posts read at once.
+const RoomMessagePageSize = 200
 
 // RoomMessages lists the room of a pipeline task after a sequence number,
 // oldest first, for its creator. Refused posts are listed with their reason.
@@ -222,7 +239,7 @@ func (r *AgentTaskRepository) RoomMessages(ctx context.Context, ws, id uuid.UUID
 		return nil, err
 	}
 	messages := []domain.TaskMessage{}
-	err = tx.SelectContext(ctx, &messages, `SELECT * FROM task_messages WHERE task_id=$1 AND workspace_id=$2 AND seq>$3 ORDER BY seq LIMIT 200`, task.ID, ws, after)
+	err = tx.SelectContext(ctx, &messages, `SELECT * FROM task_messages WHERE task_id=$1 AND workspace_id=$2 AND seq>$3 ORDER BY seq LIMIT $4`, task.ID, ws, after, RoomMessagePageSize)
 	return messages, err
 }
 
@@ -273,19 +290,44 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 			return nil, err
 		}
 		if sent >= budget {
-			return nil, ErrTaskRoomRateLimited
+			// A role is told at its next turn, once an hour, that its posts
+			// are dropped: its first post over the limit is kept, refused
+			// (KUA-315). A person hears 429 at once.
+			told := post.AuthorKind != domain.RoomAuthorMember
+			if !told {
+				if err = tx.GetContext(ctx, &told, `SELECT EXISTS(SELECT 1 FROM task_messages WHERE task_id=$1 AND author_kind='member' AND author_role=$2
+ AND dedupe_key LIKE 'room-limit:%' AND created_at>now()-interval '1 hour')`, task.ID, post.AuthorRole); err != nil {
+					return nil, err
+				}
+			}
+			if told {
+				return nil, ErrTaskRoomRateLimited
+			}
+			post.Refused = fmt.Sprintf("the @%s's hourly limit of %d room posts is spent, so Kuayle drops its posts until the hour has passed; say what matters in fewer posts", post.AuthorRole, budget)
+			post.DedupeKey = "room-limit:" + post.AuthorRole + ":" + cmp.Or(post.DedupeKey, uuid.NewString())
 		}
 	}
 	post = post.Clean()
-	granted := false
-	if post.Kind == domain.RoomWaiver && post.AuthorRole == domain.PipelineLeadRole {
-		if err = tx.GetContext(ctx, &granted, `SELECT EXISTS(SELECT 1 FROM task_messages WHERE task_id=$1 AND kind='grant' AND reject_reason IS NULL AND data->>'check'=$2)`, task.ID, post.Data.Check); err != nil {
+	// The outbox supplies neither the author nor the grant. Read only the
+	// creator's accepted, structured grant for this role and this decision.
+	approval := post.Kind == domain.RoomRequest && post.Data.Action == domain.RoomActionApprove
+	delegated := post.AuthorKind == domain.RoomAuthorMember && post.AuthorRole == domain.PipelineLeadRole && (approval || post.Kind == domain.RoomWaiver)
+	var grantSeq int64
+	if delegated {
+		// Before approval grants existed, a check-bearing grant delegated that
+		// check to the lead and ignored any extra role or action fields.
+		if err = tx.GetContext(ctx, &grantSeq, `SELECT COALESCE((SELECT seq FROM task_messages
+ WHERE task_id=$1 AND workspace_id=$2 AND author_kind='human' AND author_user_id=$3
+ AND kind='grant' AND reject_reason IS NULL
+ AND CASE WHEN $4::boolean THEN data->>'role'='lead' AND data->>'action'='approve' AND NOT (data ? 'check')
+          ELSE data->>'check'=$5 END
+ ORDER BY seq DESC LIMIT 1),0)`, task.ID, task.WorkspaceID, task.CreatorID, approval, post.Data.Check); err != nil {
 			return nil, err
 		}
 	}
 	reason := post.Refused
 	if reason == "" {
-		reason = domain.TaskRoomRefusal(*pipeline, post, granted)
+		reason = domain.TaskRoomRefusal(*pipeline, post, grantSeq != 0)
 	}
 	var seq int64
 	if err = tx.GetContext(ctx, &seq, `SELECT COALESCE(max(seq),0)+1 FROM task_messages WHERE task_id=$1`, task.ID); err != nil {
@@ -307,6 +349,18 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 			return nil, err
 		}
 		post.Data.Commit, post.Data.Role = commit, post.AuthorRole
+	}
+	if reason == "" && post.Kind == domain.RoomGrant {
+		action := post.Data.Action
+		if action == "" {
+			action = domain.RoomActionWaive
+		}
+		post.Data = domain.TaskRoomData{Role: domain.PipelineLeadRole, Action: action, Check: post.Data.Check}
+	}
+	if reason == "" && (approval || post.Kind == domain.RoomWaiver) {
+		if reason, err = bindRoomDecisionHead(ctx, tx, task, &post); err != nil {
+			return nil, err
+		}
 	}
 	if reason != "" && (post.AuthorKind != domain.RoomAuthorMember || !slices.Contains(domain.RoomKinds, post.Kind)) {
 		return nil, &TaskRoomRefusedError{reason}
@@ -332,8 +386,26 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 	if err != nil {
 		return nil, err
 	}
+	if message.IsLeadReport() {
+		if err = recordLeadReport(ctx, tx, *task, message); err != nil {
+			return nil, err
+		}
+	}
 	if message.Kind == domain.RoomVerdict && message.RejectReason == nil {
 		if err = recordVerdict(ctx, tx, message); err != nil {
+			return nil, err
+		}
+	}
+	if rejected == nil && (post.Kind == domain.RoomGrant || post.Kind == domain.RoomWaiver || approval) {
+		if err = auditRoomDecision(ctx, tx, task, message, grantSeq); err != nil {
+			return nil, err
+		}
+	}
+	// A lead's split request wakes the tick too, which carries it out at
+	// once when the creator granted the split (KUA-313).
+	split := post.Kind == domain.RoomRequest && post.Data.Action == domain.RoomRequestSplit
+	if (delegated || split) && rejected == nil {
+		if err = wakeRoomTick(ctx, tx, task); err != nil {
 			return nil, err
 		}
 	}
@@ -343,4 +415,47 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 		}
 	}
 	return &message, nil
+}
+
+// bindRoomDecisionHead uses the last head Kuayle announced under the room
+// lock. An intervening push cannot transfer a decision to another head.
+func bindRoomDecisionHead(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, post *domain.TaskRoomPost) (string, error) {
+	var head string
+	err := tx.GetContext(ctx, &head, `SELECT COALESCE((SELECT data->>'value' FROM task_messages
+ WHERE task_id=$1 AND workspace_id=$2 AND author_kind='kuayle' AND kind='fact' AND data->>'fact'='head_sha'
+ ORDER BY seq DESC LIMIT 1),'')`, task.ID, task.WorkspaceID)
+	if err != nil {
+		return "", err
+	}
+	if post.Kind == domain.RoomRequest {
+		if head == "" || post.Data.Commit != head {
+			return "approval must name the current room head", nil
+		}
+		post.Data = domain.TaskRoomData{Action: domain.RoomActionApprove, Commit: head}
+	} else {
+		if head == "" && !post.Data.Standing {
+			return "a head-bound waiver needs a current room head", nil
+		}
+		post.Data = domain.TaskRoomData{Check: post.Data.Check, Standing: post.Data.Standing, Commit: head}
+	}
+	return "", nil
+}
+
+// auditRoomDecision links an accepted delegated decision to the grant or
+// pinned definition that authorized it. A member's run has no user actor.
+func auditRoomDecision(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, m domain.TaskMessage, grantSeq int64) error {
+	action := m.Kind
+	if m.Kind == domain.RoomRequest {
+		action = domain.RoomActionApprove
+	}
+	detail := map[string]any{"sequence": m.Seq, "data": m.Data, "reason": m.Body, "author_kind": m.AuthorKind}
+	if m.AuthorKind == domain.RoomAuthorMember {
+		detail["author_role"], detail["run_id"] = m.AuthorRole, m.RunID
+		if grantSeq > 0 {
+			detail["grant_sequence"] = grantSeq
+		} else {
+			detail["workflow_version_id"] = task.WorkflowVersionID
+		}
+	}
+	return workflowAudit(ctx, tx, task.WorkspaceID, m.AuthorUserID, "task_workflow", task.ID, action, detail)
 }

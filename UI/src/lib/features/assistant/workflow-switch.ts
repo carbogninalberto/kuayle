@@ -10,12 +10,18 @@ export type WorkflowUpdate =
 	| { kind: 'pause_first'; version: number }
 	| { kind: 'step_removed' | 'step_changed'; version: number; current: number };
 
-type SwitchFields = Pick<AgentTask, 'state' | 'kind' | 'workflow_version_id'>;
+type SwitchFields = Pick<AgentTask, 'state' | 'kind' | 'workflow_version_id' | 'pipeline'>;
 
-/** Whether it is worth asking the server about a newer version at all. */
+/**
+ * Whether it is worth asking the server about a newer version at all. A task
+ * on a pipeline is never moved (the server refuses it as pipeline_pinned).
+ */
 export function mayHaveWorkflowUpdate(task: SwitchFields): boolean {
 	return (
-		!!task.workflow_version_id && task.kind !== 'review' && !['completed', 'failed', 'cancelled'].includes(task.state)
+		!!task.workflow_version_id &&
+		!task.pipeline &&
+		task.kind !== 'review' &&
+		!['completed', 'failed', 'cancelled'].includes(task.state)
 	);
 }
 

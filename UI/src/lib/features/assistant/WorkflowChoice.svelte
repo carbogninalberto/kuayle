@@ -3,7 +3,13 @@
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import type { WorkflowList } from '$lib/api/workflows';
 	import { m } from '$lib/features/i18n/messages';
-	import { DEFAULT_WORKFLOW, defaultMayBeCustom, isCustomChoice, workflowOptions } from './workflow-choice';
+	import {
+		DEFAULT_WORKFLOW,
+		defaultMayBeCustom,
+		isCustomChoice,
+		isPipelineChoice,
+		workflowOptions
+	} from './workflow-choice';
 
 	// The workflow a task follows: the issue's default, Standard or a custom
 	// workflow of the workspace. The task composer and the approval card of an
@@ -26,8 +32,12 @@
 	const options = $derived(
 		workflowOptions(list, { default: m['workflows.choose_default'](), standard: m['workflows.standard']() }, extra)
 	);
-	// A default may also name a custom workflow, whose first agent step decides.
+	// A default may also name a custom workflow, whose first agent step decides;
+	// on a pipeline, its writer role does.
 	const noted = $derived(isCustomChoice(value) || (value === DEFAULT_WORKFLOW && defaultMayBeCustom(list)));
+	const note = $derived(
+		isPipelineChoice(list, value) ? m['workflows.composer_note_pipeline']() : m['workflows.composer_note']()
+	);
 </script>
 
 <div class="grid min-w-0 gap-1.5">
@@ -41,4 +51,4 @@
 		data-testid="task-workflow"
 	/>
 </div>
-{#if noted}<p id="{id}-note" class="order-last basis-full text-xs text-muted-foreground">{m['workflows.composer_note']()}</p>{/if}
+{#if noted}<p id="{id}-note" class="order-last basis-full text-xs text-muted-foreground">{note}</p>{/if}

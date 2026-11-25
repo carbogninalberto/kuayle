@@ -65,12 +65,16 @@ type Config struct {
 	IssueDeleteGracePeriod time.Duration `envconfig:"ISSUE_DELETE_GRACE_PERIOD" default:"720h"`
 
 	// DisableRegistration gates public registration behind a valid invite-link
-	// token. Defaults to false, preserving open registration.
+	// token. Defaults to false, preserving open registration. A sysadmin can
+	// override it at runtime; read it through the instance configuration
+	// service.
 	DisableRegistration bool `envconfig:"DISABLE_REGISTRATION" default:"false"`
 
-	// WorkflowPipelines allows saving the experimental pipeline workflows
-	// (KUA-252). Off, a pipeline is neither saved nor started.
-	WorkflowPipelines bool `envconfig:"WORKFLOW_PIPELINES_ENABLED" default:"false"`
+	// WorkflowPipelines allows saving the pipeline workflows (KUA-252). Off,
+	// a pipeline is neither saved nor started. A sysadmin can override it at
+	// runtime (registry.go); read it through the instance configuration
+	// service, not this field.
+	WorkflowPipelines bool `envconfig:"WORKFLOW_PIPELINES_ENABLED" default:"true"`
 
 	// Passkeys (WebAuthn). The relying party defaults to FRONTEND_URL; see
 	// BE/docs/passkeys.md. PASSKEY_RP_ORIGINS is a comma-separated list.
@@ -91,7 +95,8 @@ type Config struct {
 	ForgeAllowPrivateNetwork bool `envconfig:"FORGE_ALLOW_PRIVATE_NETWORK" default:"false"`
 
 	// Instance backups (Settings -> Backups, sysadmins only). BACKUP_DIR is
-	// where archives are written; BACKUP_TIMEOUT bounds one run.
+	// where archives are written; BACKUP_TIMEOUT bounds one run (a sysadmin
+	// can override it at runtime through the instance configuration service).
 	// BACKUP_S3_ALLOW_PRIVATE_NETWORK lets the sysadmin-configured S3 endpoint
 	// target private or loopback addresses, such as a MinIO on the same host.
 	BackupDir                   string        `envconfig:"BACKUP_DIR" default:"./backups"`

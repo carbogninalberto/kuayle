@@ -4,10 +4,13 @@
 	import { workflows, type WorkflowList, type WorkflowScope } from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
+	import { startable } from '$lib/features/assistant/workflow-choice';
 
 	// The workflow new tasks use by default: the workspace's, overridden per
 	// team and per project (the most specific wins). A missing team or project
-	// row inherits; a stored null chooses the built-in Standard workflow.
+	// row inherits; a stored null chooses the built-in Standard workflow. A
+	// pipeline is offered only while the server has pipelines on; a row whose
+	// default already is one keeps showing it.
 	let {
 		slug,
 		list,
@@ -27,11 +30,10 @@
 	const INHERIT = 'inherit';
 	let busy = $state<string | null>(null);
 
-	const choices = $derived(
+	const choices = (selected: string) =>
 		list.workflows
-			.filter((w) => !w.archived)
-			.map((w) => ({ value: w.id, label: w.builtin ? m['workflows.standard']() : w.name }))
-	);
+			.filter((w) => startable(list, w) || (w.id === selected && !w.archived))
+			.map((w) => ({ value: w.id, label: w.builtin ? m['workflows.standard']() : w.name }));
 
 	function current(scope: WorkflowScope, scopeId: string): string {
 		const row = list.defaults.find((d) => d.scope === scope && d.scope_id === scopeId);
@@ -84,7 +86,7 @@
 						bind:value={() => current(row.scope, row.id), (value: string) => void choose(row.scope, row.id, value)}
 						options={[
 							...(row.scope === 'workspace' ? [] : [{ value: INHERIT, label: m['workflows.inherit']() }]),
-							...choices
+							...choices(current(row.scope, row.id))
 						]}
 					/>
 				</div>

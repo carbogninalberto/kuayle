@@ -18,44 +18,20 @@ import (
 // remembers between passes is pipeline_state, which only the tick reads.
 
 // startPipeline pins a pipeline version on a new task, whose first turn is
-// the writer's: the iteration delegation creates. The writer is a member
-// from the start; the other roles become members when first addressed.
+// the first writer's: the iteration delegation creates, which holds the
+// write lock. That writer is a member from the start; the other roles become
+// members when first addressed.
 func startPipeline(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, version domain.WorkflowVersion) error {
 	pipeline, err := domain.ParsePipeline(version.Graph)
 	if err != nil {
 		return err
 	}
-	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_version_id=$2,workflow_node=$3,workflow_visits='{}',workflow_iterations=1,workflow_status='running',workflow_sequence=1,pipeline=true WHERE id=$1 RETURNING *`,
-		task.ID, version.ID, pipeline.Phases[0].ID); err != nil {
+	writer, _ := pipeline.Writer()
+	if err = tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_version_id=$2,workflow_node=$3,workflow_visits='{}',workflow_iterations=1,workflow_status='running',workflow_sequence=1,pipeline=true,
+ pipeline_state=jsonb_build_object('writer',$4::text) WHERE id=$1 RETURNING *`, task.ID, version.ID, pipeline.Phases[0].ID, writer.Role); err != nil {
 		return err
 	}
 	return ensureWriterMember(ctx, tx, *task, *pipeline)
-}
-
-// PublishedWork is the newest pull request and commit Kuayle published from
-// a task's attempts, whichever attempt published it; nil before anything is
-// published with a pull request.
-func (r *AgentTaskRepository) PublishedWork(ctx context.Context, task domain.AgentTask) (*domain.AgentReviewTarget, error) {
-	target, _, err := publishedTarget(ctx, r.db, task)
-	return target, err
-}
-
-// MemberTasks is the task whose generations are each member's turns, by
-// role, for every member but the writer (whose turns are the root task's).
-func (r *AgentTaskRepository) MemberTasks(ctx context.Context, root domain.AgentTask) (map[string]domain.AgentTask, error) {
-	var rows []struct {
-		Role string `db:"member_role"`
-		domain.AgentTask
-	}
-	if err := r.db.SelectContext(ctx, &rows, `SELECT m.role AS member_role,t.* FROM task_members m JOIN agent_tasks t ON t.id=m.member_task_id AND t.workspace_id=m.workspace_id
- WHERE m.task_id=$1 AND m.workspace_id=$2`, root.ID, root.WorkspaceID); err != nil {
-		return nil, err
-	}
-	tasks := make(map[string]domain.AgentTask, len(rows))
-	for _, row := range rows {
-		tasks[row.Role] = row.AgentTask
-	}
-	return tasks, nil
 }
 
 // PipelineApply is what one pass of a pipeline task's tick, or a person's
@@ -73,6 +49,9 @@ type PipelineApply struct {
 	// ReadSeq), a publication, a pause, a failure or completion.
 	Entry   WorkflowEntry
 	ReadSeq int64
+	// Writer is the writer whose turn an iteration starts: it takes the
+	// write lock.
+	Writer domain.PipelineMember
 	// Turns are the turns the pass started, charged to the budget.
 	Turns int
 	// ClaimedWake is the wake-up the worker claimed the task for: an event
@@ -171,10 +150,13 @@ func applyPipelineTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	var err error
 	switch kind := apply.Entry.Kind; {
 	case kind == WorkflowEnterIteration:
+		if err = holdWriteLock(ctx, tx, task, apply.Writer); err != nil {
+			return err
+		}
 		if err = workflowIteration(ctx, tx, task, apply.Entry, apply.Actor); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE task_members SET last_read_seq=GREATEST(last_read_seq,$2),turns=turns+1,updated_at=now() WHERE task_id=$1 AND member_task_id IS NULL`, task.ID, apply.ReadSeq)
+		_, err = tx.ExecContext(ctx, `UPDATE task_members SET last_read_seq=GREATEST(last_read_seq,$2),turns=turns+1,updated_at=now() WHERE task_id=$1 AND member_task_id IS NULL AND role=$3`, task.ID, apply.ReadSeq, apply.Writer.Role)
 	case kind == WorkflowEnterFail:
 		err = beginAgentTaskFailure(ctx, tx, task, apply.FailureClass, apply.Entry.Reason)
 	case task.State != WorkflowEntryState(kind) || reason != apply.Entry.Reason:

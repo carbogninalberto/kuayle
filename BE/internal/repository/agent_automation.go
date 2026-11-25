@@ -21,6 +21,37 @@ func NewAgentAutomationRepository(db *sqlx.DB) *AgentAutomationRepository {
 
 const runViewColumns = `r.*, a.workflow_id, a.pinned_version, a.name AS automation_name, a.owner_id, a.instructions, a.team_id, i.identifier_text AS issue_identifier, i.title AS issue_title`
 
+// automationProfile is the profile a version's first turn runs: a graph's
+// first agent step, or a pipeline's writer.
+func automationProfile(raw []byte) (uuid.UUID, bool) {
+	if domain.WorkflowKind(raw) == domain.WorkflowKindPipeline {
+		p, err := domain.ParsePipeline(raw)
+		if err != nil {
+			return uuid.Nil, false
+		}
+		writer, ok := p.Writer()
+		return writer.ProfileID, ok
+	}
+	graph, err := domain.ParseWorkflowGraph(raw)
+	if err != nil || graph.FirstRun().ProfileID == nil {
+		return uuid.Nil, false
+	}
+	return *graph.FirstRun().ProfileID, true
+}
+
+// WorkflowKind is the kind of the latest version ("graph" or "pipeline") of
+// a workflow of the workspace that is not archived.
+func (r *AgentAutomationRepository) WorkflowKind(ctx context.Context, ws, workflow uuid.UUID) (string, error) {
+	version, err := publishedWorkflowVersion(ctx, r.db, ws, workflow, nil)
+	if errors.Is(err, ErrWorkflowNotFound) {
+		return "", ErrAutomationNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return domain.WorkflowKind(version.Graph), nil
+}
+
 func (r *AgentAutomationRepository) List(ctx context.Context, ws uuid.UUID) ([]domain.AgentAutomation, error) {
 	automations := []domain.AgentAutomation{}
 	err := r.db.SelectContext(ctx, &automations, `SELECT * FROM agent_automations WHERE workspace_id=$1 AND `+teamVisible(ctx, "team_id")+` ORDER BY created_at, id`, ws)
@@ -43,12 +74,12 @@ func (r *AgentAutomationRepository) Create(ctx context.Context, a *domain.AgentA
 		if err != nil {
 			return err
 		}
-		graph, err := domain.ParseWorkflowGraph(version.Graph)
-		if err != nil || graph.FirstRun().ProfileID == nil {
+		profile, ok := automationProfile(version.Graph)
+		if !ok {
 			return ErrAutomationNotFound
 		}
 		var available bool
-		if err = tx.GetContext(ctx, &available, `SELECT EXISTS(SELECT 1 FROM agent_profiles WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL FOR SHARE)`, graph.FirstRun().ProfileID, a.WorkspaceID); err != nil {
+		if err = tx.GetContext(ctx, &available, `SELECT EXISTS(SELECT 1 FROM agent_profiles WHERE id=$1 AND workspace_id=$2 AND archived_at IS NULL FOR SHARE)`, profile, a.WorkspaceID); err != nil {
 			return err
 		}
 		if !available {

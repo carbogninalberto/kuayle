@@ -16,11 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type notebookSourceFake struct{ notebook domain.Notebook }
+type notebookSourceFake struct {
+	notebook domain.Notebook
+	required bool
+}
 
-func (f *notebookSourceFake) AttemptNotebook(context.Context, domain.AgentTask) (*domain.Notebook, error) {
-	copied := f.notebook
-	return &copied, nil
+func (f *notebookSourceFake) AttemptNotebook(context.Context, domain.AgentTask) (*domain.AttemptNotebook, error) {
+	return &domain.AttemptNotebook{Notebook: f.notebook, Required: f.required}, nil
 }
 
 type profileSourceFake struct{ bundle *domain.AgentProfileBundle }
@@ -37,6 +39,15 @@ func (f profileSourceFake) ProfileBundle(context.Context, domain.AgentTask) (*do
 // notebook and profile given, and returns the run Kuayle created for it.
 func notebookAttempt(t *testing.T, provider string, notebook *domain.Notebook, bundle *domain.AgentProfileBundle, change func(*domain.AgentTask), memory ...taskMemorySource) domain.DevMachineAgentRun {
 	t.Helper()
+	var source taskNotebookSource
+	if notebook != nil {
+		source = &notebookSourceFake{notebook: *notebook, required: true}
+	}
+	return notebookAttemptWithSource(t, provider, source, bundle, change, nil, memory...)
+}
+
+func notebookAttemptWithSource(t *testing.T, provider string, source taskNotebookSource, bundle *domain.AgentProfileBundle, change func(*domain.AgentTask), previous *domain.AgentHandoff, memory ...taskMemorySource) domain.DevMachineAgentRun {
+	t.Helper()
 	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
 		policy:        testPolicy(ws),
@@ -48,10 +59,7 @@ func notebookAttempt(t *testing.T, provider string, notebook *domain.Notebook, b
 	machines := newTestDevMachineService(store)
 	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""), agent.NewQwenCodeProvider(""),
 		agent.NewKimiProvider(""), agent.NewGooseProvider(""), agent.NewCrushProvider(""))
-	runtime := &devMachineTaskRuntime{machines: machines, profiles: profileSourceFake{bundle}}
-	if notebook != nil {
-		runtime.notebooks = &notebookSourceFake{*notebook}
-	}
+	runtime := &devMachineTaskRuntime{machines: machines, profiles: profileSourceFake{bundle}, notebooks: source, tasks: &taskRuntimeStoreFake{previous: previous}}
 	if len(memory) > 0 {
 		runtime.memory = memory[0]
 	}
@@ -125,6 +133,23 @@ func TestAttemptReceivesTheWholeNotebookOnEachHarnessInstructionPath(t *testing.
 		require.NotContains(t, run.Prompt, domain.NotebookUpdateHelp)
 		require.NotContains(t, string(run.ProfileFiles), domain.NotebookHeading)
 	})
+}
+
+func TestPipelineWriterNotebookClosingAsk(t *testing.T) {
+	for name, required := range map[string]bool{"with lead": false, "without lead": true} {
+		t.Run(name, func(t *testing.T) {
+			source := &notebookSourceFake{notebook: recordedNotebook(), required: required}
+			previous := &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", NotebookProblem: "No update"}
+			run := notebookAttemptWithSource(t, "codex", source, nil, func(task *domain.AgentTask) {
+				task.Pipeline, task.Generation = true, 2
+			}, previous)
+			require.Contains(t, run.Prompt, "The previous attempt did not update the task notebook")
+			require.Equal(t, required, strings.Contains(run.Prompt, "write a valid `.kuayle/outbox/notebook.json` before your own final message"))
+			require.Contains(t, string(run.ProfileFiles), "Theme tokens added in UI/src/app.css")
+			require.Equal(t, required, run.NotebookRequired)
+			require.Equal(t, required, strings.Contains(run.Prompt, domain.NotebookUpdateHelp))
+		})
+	}
 }
 
 // The command of the closing continuation, which continues an attempt's

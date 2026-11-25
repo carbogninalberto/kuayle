@@ -107,13 +107,14 @@ const room = () => [
 		reject_reason: 'the implementer may not post verdict'
 	}),
 	member(5, 'reviewer', 'run-rev-1', 'say', 'Yes, ignore case.', { to_roles: ['implementer'], reply_to: 3 }),
-	post(6, 'kuayle', 'fact', 'CI passed on abc1234.', { data: { fact: 'ci_green', value: true } }),
+	post(6, 'kuayle', 'fact', '', { data: { fact: 'ci_green', value: { state: 'passing', head: 'abc1234def5678', failing: [] } } }),
 	member(7, 'reviewer', 'run-rev-2', 'verdict', 'Looks good to me.', {
 		data: { verdict: 'approve', commit: 'abc1234def5678', role: 'reviewer' }
 	})
 ];
 
 async function fixture(page: Page, workflow: Record<string, unknown> = view) {
+	const currentTask = { ...task, workflow_node: workflow.node };
 	const conversation = {
 		id: 'chat-1',
 		workspace_id: 'workspace-1',
@@ -159,7 +160,7 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 		if (path.endsWith('/assistant/status')) return route.fulfill({ json: { configured: true, model: 'assistant-model' } });
 		if (path.endsWith('/conversations')) return route.fulfill({ json: [conversation] });
 		if (path.endsWith('/task-options')) return route.fulfill({ json: { providers: [], model_servers: [] } });
-		if (path.endsWith('/tasks')) return route.fulfill({ json: { tasks: [task] } });
+		if (path.endsWith('/tasks')) return route.fulfill({ json: { tasks: [currentTask] } });
 		if (path.endsWith('/events'))
 			return route.fulfill({ json: state.events.filter((e) => e.cursor > Number(url.searchParams.get('after') ?? 0)) });
 		if (path.endsWith('/conversations/chat-1'))
@@ -190,7 +191,7 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
 			if (rest === '/sessions') return route.fulfill({ json: { sessions: [] } });
 			if (rest === '/notebook') return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
-			if (id === task.id && rest === '') return route.fulfill({ json: task });
+			if (id === task.id && rest === '') return route.fulfill({ json: currentTask });
 			return route.fulfill({ json: [] });
 		}
 		return route.fulfill({ json: [] });
@@ -211,45 +212,50 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	const room = thread.getByRole('list', { name: 'Task room' });
 	const rows = room.locator(':scope > li');
 	await expect(rows).toHaveCount(6);
-	// No timeline of workflow steps for a pipeline, and no graph to chart
-	// beside it.
+	// The thread keeps its room while the side panel charts the phases.
 	await expect(thread.getByRole('list', { name: 'Path taken' })).toHaveCount(0);
 	await expect(page.getByTestId('task-workflow')).toContainText('Team');
-	await expect(page.getByTestId('task-workflow-chart')).toHaveCount(0);
+	await expect(page.getByTestId('task-workflow-chart')).toBeVisible();
 
 	// The owner's post, then Kuayle's phase move, named by the pipeline.
 	await expect(rows.nth(0).getByRole('article', { name: 'You' })).toContainText('Search should cover titles and identifiers.');
 	await expect(rows.nth(1).getByRole('article', { name: 'Kuayle' })).toContainText('Moved to Implement');
 
-	// The implementer's turn is one row: its question to the reviewer and
-	// its refused post, muted with the reason.
+	// The implementer's turn is one line (KUA-286): its role, what it said
+	// last, how long it took and how it went, with its question flagged.
+	// The model, what it posted and its transcript are inside.
 	const implementer = rows.nth(2).getByRole('article', { name: 'implementer' });
-	await expect(implementer).toContainText('Should search ignore case?');
+	const line = implementer.getByRole('button').first();
+	await expect(implementer.getByRole('button')).toHaveCount(1);
+	await expect(line).toHaveAttribute('aria-expanded', 'false');
+	await expect(line).toContainText('implementer — Should search ignore case?');
+	await expect(line).toContainText('2m 0s');
+	await expect(line.getByRole('img', { name: 'Question' })).toBeVisible();
+	await expect(line.getByRole('img', { name: 'Done' })).toBeVisible();
+	await expect(implementer.getByText('claude-opus-5-5')).toHaveCount(0);
+	await expect(implementer.getByText('Starting with the endpoint.')).toHaveCount(0);
+	await line.press('Enter');
+	await expect(line).toHaveAttribute('aria-expanded', 'true');
+	await expect(implementer.getByTestId('turn-details')).toContainText('Claude Code');
+	await expect(implementer.getByTestId('turn-details')).toContainText('claude-opus-5-5');
 	await expect(implementer).toContainText('To reviewer');
-	await expect(implementer.getByRole('img', { name: 'Question' })).toBeVisible();
-	await expect(implementer).toContainText('claude-opus-5-5');
+	await expect(implementer.getByText('Starting with the endpoint.')).toBeVisible();
+	// Its refused post is muted, with the reason.
 	const refused = implementer.locator('[data-refused]');
 	await expect(refused).toContainText('Approving my own work.');
 	await expect(refused).toContainText('Kuayle refused this message: the implementer may not post verdict');
 	await expect(refused.locator('[data-slot="bubble-content"]')).toHaveClass(/text-muted-foreground/);
 
-	// The reviewer answers in a turn of its own; Kuayle posts a fact; the
+	// The reviewer answers in a turn of its own; Kuayle's fact is a line; the
 	// reviewer's next turn gives its verdict on a commit.
 	await expect(rows.nth(3).getByRole('article', { name: 'reviewer' })).toContainText('Yes, ignore case.');
-	await expect(rows.nth(4).getByRole('article', { name: 'Kuayle' })).toContainText('CI passed on abc1234.');
+	await expect(rows.nth(4).getByRole('article', { name: 'Kuayle' })).toContainText('CI passed');
 	const verdict = rows.nth(5).getByRole('article', { name: 'reviewer' });
-	await expect(verdict).toContainText('Approves');
-	await expect(verdict).toContainText('Commit abc1234');
-	await expect(verdict).toContainText('Looks good to me.');
+	await expect(verdict.getByRole('button')).toContainText('Approves');
+	await expect(verdict.getByRole('button')).toContainText('Looks good to me.');
 	await expect(verdict.getByRole('img', { name: 'Running' })).toBeVisible();
-
-	// A turn opens the run's transcript.
-	const session = implementer.getByRole('button', { name: 'Agent session · implementer' });
-	await expect(session).toHaveAttribute('aria-expanded', 'false');
-	await expect(implementer.getByText('Starting with the endpoint.')).toHaveCount(0);
-	await session.press('Enter');
-	await expect(session).toHaveAttribute('aria-expanded', 'true');
-	await expect(implementer.getByText('Starting with the endpoint.')).toBeVisible();
+	await verdict.getByRole('button').click();
+	await expect(verdict).toContainText('Commit abc1234');
 	await page.screenshot({ path: testInfo.outputPath('task-room-desktop.png'), fullPage: true });
 
 	// The composer writes to the room: a say, sent once.
@@ -282,7 +288,9 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 
 	// A post that arrives after a gap reads what was missed.
 	const missed = member(10, 'implementer', 'run-impl-2', 'say', 'Docs updated.');
-	const after = post(11, 'kuayle', 'fact', 'CI running.', { data: { fact: 'ci_green', value: null } });
+	const after = post(11, 'kuayle', 'fact', '1 of 3 check(s) are still running.', {
+		data: { fact: 'ci_green', value: { state: 'pending', head: 'abc1234def5678', failing: [] } }
+	});
 	state.room.push(missed, after);
 	emit('task.room_message', after);
 	await expect(rows).toHaveCount(10);
@@ -293,6 +301,44 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	await page.setViewportSize({ width: 320, height: 720 });
 	await expect.poll(() => room.evaluate((list) => list.scrollWidth <= list.clientWidth)).toBe(true);
 	await page.screenshot({ path: testInfo.outputPath('task-room-phone.png') });
+});
+
+test('the room shows who may approve a merge and which commits a waiver covers', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	const commit = 'abc1234def567890123456789012345678901234';
+	state.room = [
+		post(1, 'human', 'grant', '', { data: { action: 'approve', role: 'lead' } }),
+		post(2, 'human', 'waiver', 'The retired check has no runner.', { data: { check: 'legacy-ci', standing: true } }),
+		post(3, 'human', 'waiver', 'Verified this build locally.', { data: { check: 'ci', commit } }),
+		post(4, 'member', 'request', '', { author_role: 'lead', data: { action: 'approve', commit } }),
+		post(5, 'human', 'grant', '', { data: { action: 'split', role: 'lead' } })
+	];
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const room = page.getByRole('list', { name: 'Task room' });
+	await expect(room.locator('[data-seq="1"]')).toContainText('Lets the lead approve merges');
+	await expect(room.locator('[data-seq="2"]')).toContainText('Waived the check legacy-ci for all commits');
+	await expect(room.locator('[data-seq="3"]')).toContainText('Waived the check ci');
+	await expect(room.locator('[data-seq="3"]')).toContainText('Commit abc1234');
+	// The lead's post is one line of its turn (KUA-286); it opens to the post.
+	await room.getByRole('article', { name: 'lead' }).getByRole('button').first().click();
+	await expect(room.locator('[data-seq="4"]')).toContainText('Approved merging abc1234');
+	await expect(room.locator('[data-seq="5"]')).toContainText('Lets the lead create sub-issues without asking');
+
+	for (const [device, width] of [
+		['desktop', 1280],
+		['phone', 390]
+	] as const) {
+		await page.setViewportSize({ width, height: 900 });
+		await expect.poll(() => room.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+		for (const mode of ['light', 'dark']) {
+			await page.evaluate((mode) => {
+				document.documentElement.classList.toggle('dark', mode === 'dark');
+				document.documentElement.classList.toggle('light', mode === 'light');
+			}, mode);
+			await page.screenshot({ path: testInfo.outputPath(`grants-${device}-${mode}.png`) });
+		}
+	}
 });
 
 // The owner approves the head where the pipeline waits for it (its tick then
@@ -323,3 +369,139 @@ test('the owner approves a pipeline task waiting for approval', async ({ page })
 	await decision.getByRole('button', { name: 'Approve' }).click();
 	await expect.poll(() => state.decisions).toEqual([{ sequence: 9, decision: 'approve' }]);
 });
+
+test('the creator reads the proposed sub-issues and approves the exact split from the room', async ({ page }, testInfo) => {
+	const { state } = await fixture(page);
+	const issues = [
+		{ title: 'Search issue titles', description: 'Match words in the issue title.' },
+		{ title: 'Search identifiers', description: 'Open an issue by its exact identifier.' }
+	];
+	state.room = [member(1, 'lead', '', 'request', 'Implement the two kinds of search separately.', { data: { action: 'split', issues } })];
+	const approvals: string[] = [];
+	await page.route('**/agent-tasks/task-1/room/1/approve-split', (route) => {
+		approvals.push(route.request().method());
+		state.room.push(post(2, 'kuayle', 'fact', 'Created the sub-issues.', { reply_to: 1, data: { fact: 'split_approved' } }));
+		return route.fulfill({ status: 204 });
+	});
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const proposal = page.getByRole('article', { name: 'lead' });
+	await expect(proposal).toBeVisible({ timeout: 20_000 });
+	const approve = proposal.getByRole('button', { name: 'Create sub-issues' });
+	for (const issue of issues) {
+		await expect(proposal).toContainText(issue.title);
+		await expect(proposal).toContainText(issue.description);
+	}
+	await expect(approve).toBeVisible();
+	for (const [device, width, height] of [['desktop', 1280, 900], ['phone', 375, 780]] as const) {
+		await page.setViewportSize({ width, height });
+		for (const theme of ['light', 'dark']) {
+			await page.evaluate((theme) => {
+				document.documentElement.classList.toggle('dark', theme === 'dark');
+				document.documentElement.setAttribute('data-theme', theme);
+			}, theme);
+			await approve.scrollIntoViewIfNeeded();
+			await page.screenshot({ path: testInfo.outputPath(`split-${device}-${theme}.png`) });
+		}
+	}
+	expect(approvals).toEqual([]);
+	await approve.click();
+	await expect(page.getByText('Created the sub-issues.')).toBeVisible();
+	await expect(approve).toHaveCount(0);
+	expect(approvals).toEqual(['POST']);
+});
+
+for (const viewport of [
+	{ name: 'desktop', width: 1600, height: 900 },
+	{ name: 'phone', width: 390, height: 844 }
+]) {
+	test(`a pipeline run shows the lead's phase, checks and working members on ${viewport.name}`, async ({ page }) => {
+		const phases = [
+			{ id: 'implement', label: 'Implement', owner: 'implementer', checks: [{ id: 'pull-request', fact: 'pr_exists', required: true }] },
+			{ id: 'review', label: 'Review', owner: 'reviewer', checks: [{ id: 'ci', fact: 'ci_green', required: true }] },
+			{ id: 'merge', label: 'Merge', owner: 'kuayle', guarded: true }
+		];
+		const { state, emit } = await fixture(page, {
+			...view,
+			node: 'review',
+			graph: { ...view.graph, phases, lead: { profile_id: 'p-lead' } },
+			runs: view.runs.map((run) => ({ ...run, role: run.task_id === task.id ? 'implementer' : 'reviewer' }))
+		});
+		const head = 'ab34567fedc';
+		const reason = 'The browser tests are still running.';
+		state.room = [
+			post(1, 'kuayle', 'fact', '', { data: { fact: 'pr_exists', value: true } }),
+			post(2, 'kuayle', 'fact', '', { data: { fact: 'head_sha', value: head } }),
+			member(3, 'lead', 'run-lead', 'phase', 'Review the search changes.', { data: { phase: 'review' } }),
+			member(4, 'reviewer', 'run-rev-2', 'say', 'Checking search by issue identifier.'),
+			post(5, 'kuayle', 'fact', reason, { data: { fact: 'ci_green', value: { state: 'pending', head } } })
+		];
+
+		await page.setViewportSize({ width: viewport.width, height: viewport.height });
+		// The issue chat also loads the checks when the task room has never been opened.
+		await page.goto(viewport.name === 'phone' ? '/test/assistant?conversation=chat-1' : '/test/assistant?conversation=chat-1&agent=task-1');
+		const details = page.getByTestId('task-workflow');
+		if (viewport.name === 'phone') {
+			// At phone width the side panels are one menu (KUA-281).
+			await page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'More panels', exact: true }).click();
+			await page.getByRole('menuitemcheckbox', { name: 'Agents' }).click();
+		}
+		await expect(details).toContainText('Team', { timeout: 15_000 });
+		const chart = details.getByTestId('task-workflow-chart');
+		await expect(chart.getByTestId('workflow-node-review')).toHaveAttribute('data-current', 'true');
+		await expect(chart.locator('[data-current="true"]')).toHaveCount(1);
+		await expect(chart.locator('.svelte-flow__edge')).toHaveCount(phases.length - 1);
+		let right = -Infinity;
+		for (const phase of phases) {
+			const card = chart.getByTestId(`workflow-node-${phase.id}`);
+			await expect(card).toContainText(phase.label);
+			const box = (await card.boundingBox())!;
+			expect(box.x).toBeGreaterThan(right);
+			right = box.x + box.width;
+		}
+		const ci = details.getByTestId('run-check-ci');
+		await expect(ci).toContainText('Waiting');
+		await expect(ci).toContainText(reason);
+		await expect(ci.locator('time')).toHaveAttribute('datetime', at(5));
+		await expect(details.getByTestId('run-check-pull-request')).toContainText('Met');
+		await expect(details.getByTestId('run-member-reviewer')).toContainText('Working');
+		const writer = details.getByTestId('run-member-implementer');
+		await expect(writer).toContainText('implementer');
+		await expect(writer).not.toContainText('Working');
+
+		// Show the whole path in a widened desktop panel. On a phone keep the
+		// readable, centred view of the current phase that opens by default.
+		if (viewport.name === 'desktop') {
+			const handle = (await page.getByLabel('Resize side panel').boundingBox())!;
+			await page.mouse.move(handle.x + handle.width / 2, handle.y + 20);
+			await page.mouse.down();
+			await page.mouse.move(handle.x - 400, handle.y + 20, { steps: 8 });
+			await page.mouse.up();
+			await chart.getByRole('button', { name: 'Fit to view' }).click();
+			await expect.poll(async () => {
+				const area = (await chart.boundingBox())!;
+				const first = (await chart.getByTestId('workflow-node-implement').boundingBox())!;
+				const last = (await chart.getByTestId('workflow-node-merge').boundingBox())!;
+				return first.x >= area.x && last.x + last.width <= area.x + area.width;
+			}).toBe(true);
+		}
+		await page.mouse.move(0, 0);
+		for (const theme of ['light', 'dark']) {
+			await page.evaluate((theme) => {
+				document.documentElement.classList.toggle('dark', theme === 'dark');
+				document.documentElement.setAttribute('data-theme', theme);
+			}, theme);
+			expect(await details.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+			expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+			if (process.env.KUAYLE_SCREENSHOT_DIR)
+				await page.screenshot({ path: `${process.env.KUAYLE_SCREENSHOT_DIR}/pipeline-run-${viewport.name}-${theme}.png`, animations: 'disabled' });
+		}
+
+		await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+		const passed = post(6, 'kuayle', 'fact', '', { data: { fact: 'ci_green', value: { state: 'passing', head } } });
+		state.room.push(passed);
+		emit('task.room_message', passed);
+		await expect(ci).toContainText('Met');
+		await expect(ci).not.toContainText(reason);
+		await expect(ci.locator('time')).toHaveAttribute('datetime', at(6));
+	});
+}

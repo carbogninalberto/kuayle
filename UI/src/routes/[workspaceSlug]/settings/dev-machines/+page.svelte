@@ -45,6 +45,9 @@
 		DEFAULT_TASK_MACHINE_RESOURCES,
 		DEFAULT_TASK_MACHINE_MAX_TASKS,
 		MAX_TASK_MACHINE_MAX_TASKS,
+		MIN_TASK_FILES_MAX,
+		MAX_TASK_FILES_MAX,
+		taskFilesMax,
 		MACHINE_DISK_GB,
 		normalizeMachineResources,
 		resolveMachineSizeOptions
@@ -159,7 +162,7 @@
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
 				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
 			]);
-			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false, max_temporary_machines: loaded.max_temporary_machines ?? 2, task_machine_cpu_millis: loaded.task_machine_cpu_millis || DEFAULT_TASK_MACHINE_RESOURCES.cpu_millis, task_machine_memory_mb: loaded.task_machine_memory_mb || DEFAULT_TASK_MACHINE_RESOURCES.memory_mb, task_machine_disk_gb: loaded.task_machine_disk_gb || DEFAULT_TASK_MACHINE_RESOURCES.disk_gb, task_machine_max_tasks: loaded.task_machine_max_tasks || DEFAULT_TASK_MACHINE_MAX_TASKS };
+			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false, max_temporary_machines: loaded.max_temporary_machines ?? 2, task_machine_cpu_millis: loaded.task_machine_cpu_millis || DEFAULT_TASK_MACHINE_RESOURCES.cpu_millis, task_machine_memory_mb: loaded.task_machine_memory_mb || DEFAULT_TASK_MACHINE_RESOURCES.memory_mb, task_machine_disk_gb: loaded.task_machine_disk_gb || DEFAULT_TASK_MACHINE_RESOURCES.disk_gb, task_machine_max_tasks: loaded.task_machine_max_tasks || DEFAULT_TASK_MACHINE_MAX_TASKS, task_files_max: loaded.task_files_max || MAX_TASK_FILES_MAX };
 			repositories = policy.allowed_repositories.join('\n');
 			linkedRepositories = github.repos ?? [];
 			environments = availableEnvironments ?? [];
@@ -205,7 +208,8 @@
 				task_machine_cpu_millis: taskMachine.cpu_millis,
 				task_machine_memory_mb: taskMachine.memory_mb,
 				task_machine_disk_gb: taskMachine.disk_gb,
-				task_machine_max_tasks: taskMachineMaxTasks
+				task_machine_max_tasks: taskMachineMaxTasks,
+				task_files_max: taskFilesMax(policy.task_files_max)
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
 			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !template.pull_request_template && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
@@ -332,6 +336,11 @@
 					aria-valuetext={m['settings.dev_machines.task_machine_max_tasks_value']({ count: taskMachineMaxTasks })}
 				/>
 				<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_machine_max_tasks_desc']()}</p>
+			</div>
+			<div class="space-y-1 sm:max-w-sm">
+				<Label for="task-files-max">{m['settings.dev_machines.task_files_max']()}</Label>
+				<Input id="task-files-max" type="number" min={MIN_TASK_FILES_MAX} max={MAX_TASK_FILES_MAX} step="1" bind:value={policy.task_files_max} aria-describedby="task-files-max-desc" />
+				<p id="task-files-max-desc" class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.task_files_max_desc']()}</p>
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">

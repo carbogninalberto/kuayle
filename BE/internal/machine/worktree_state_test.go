@@ -199,3 +199,60 @@ func TestRunRecordsWhetherTheAgentChangedTheWorktree(t *testing.T) {
 	plain.recordWorktreeChange(context.Background(), &domain.DevMachine{}, other, nil, nil, plain.worktreeBefore(context.Background(), &domain.DevMachine{}, other, nil, nil))
 	require.Nil(t, other.WorktreeChanged, "a runtime that cannot fingerprint leaves it unknown")
 }
+
+// After every run the developer container fingerprints and diffs the checkout,
+// next to secrets an agent run is not given, while agent runs can write the
+// checkout's git directory (KUA-299). Against real git: nothing the agent
+// configured there runs, and both still see the agent's changes.
+func TestWorktreeStateAndDiffRunNothingTheAgentConfigured(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	worktree := filepath.Join(root, "work")
+	run := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", worktree, "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+		return strings.TrimSpace(string(out))
+	}
+	require.NoError(t, os.MkdirAll(worktree, 0o755))
+	run("init", "-q", "-b", "main")
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "README.md"), []byte("base\n"), 0o644))
+	run("add", "README.md")
+	run("commit", "-q", "-m", "base")
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "README.md"), []byte("changed\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "new.txt"), []byte("new\n"), 0o644))
+
+	marker := filepath.Join(root, "executed")
+	hostile := filepath.Join(root, "hostile")
+	require.NoError(t, os.WriteFile(hostile, []byte("#!/bin/sh\necho \"ran $0 $*\" >> "+marker+"\ncat\n"), 0o755))
+	hooks := filepath.Join(root, "hooks")
+	require.NoError(t, os.MkdirAll(hooks, 0o755))
+	for _, name := range []string{"post-index-change", "reference-transaction", "post-checkout"} {
+		require.NoError(t, os.Symlink(hostile, filepath.Join(hooks, name)))
+	}
+	for _, setting := range [][2]string{
+		{"core.hooksPath", hooks}, {"core.fsmonitor", hostile}, {"core.untrackedCache", "true"},
+		{"filter.agent.clean", hostile}, {"filter.agent.smudge", hostile}, {"filter.agent.process", hostile},
+		{"diff.external", hostile}, {"diff.agent.textconv", hostile},
+	} {
+		run("config", setting[0], setting[1])
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, ".git", "info", "attributes"), []byte("* filter=agent diff=agent\n"), 0o644))
+
+	out, err := exec.Command("/bin/sh", "-c", worktreeStateScript, "kuayle-worktree", worktree).CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.NotEmpty(t, parseWorktreeState(string(out)), string(out))
+	out, err = exec.Command("/bin/sh", "-c", worktreeDiffScript, "kuayle-diff", worktree, "origin/main").CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.Contains(t, string(out), "+changed")
+	require.Contains(t, string(out), "diff --git a/new.txt b/new.txt", "new files are included")
+
+	ran, _ := os.ReadFile(marker)
+	require.Empty(t, string(ran), "a program the agent configured ran")
+	require.Empty(t, run("diff", "--cached", "--name-only"), "the checkout's real index is untouched")
+}

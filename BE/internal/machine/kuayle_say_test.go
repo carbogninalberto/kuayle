@@ -2,6 +2,7 @@ package machine
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -58,6 +59,7 @@ func outboxFiles(t *testing.T, outbox string) []domain.AgentOutboxMessage {
 
 func TestKuayleSayWritesRoomMessagesKuayleReads(t *testing.T) {
 	dir := t.TempDir()
+	head := strings.Repeat("a", 40)
 	cases := []struct {
 		args  []string
 		stdin string
@@ -69,6 +71,8 @@ func TestKuayleSayWritesRoomMessagesKuayleReads(t *testing.T) {
 		{[]string{"--to", "@implementer", "--verdict", "request_changes", "--commit", "abc1234", "--file", "-"}, "1. The v1 route has no test.",
 			domain.AgentOutboxMessage{To: "@implementer", Body: "1. The v1 route has no test.", Room: &domain.AgentOutboxRoom{ToRoles: []string{"implementer"}, Kind: domain.RoomVerdict, Data: domain.TaskRoomData{Verdict: "request_changes", Commit: "abc1234"}}}},
 		{[]string{"--to", "@reviewer", "--request", "review"}, "", domain.AgentOutboxMessage{To: "@reviewer", Room: &domain.AgentOutboxRoom{ToRoles: []string{"reviewer"}, Kind: domain.RoomRequest, Data: domain.TaskRoomData{Action: "review"}}}},
+		{[]string{"--to", "@all", "--request", "approve", "--commit", head}, "", domain.AgentOutboxMessage{To: "@all", Room: &domain.AgentOutboxRoom{Kind: domain.RoomRequest, Data: domain.TaskRoomData{Action: "approve", Commit: head}}}},
+		{[]string{"--to", "@all", "--waive", "ci", "--standing", "Retired job"}, "", domain.AgentOutboxMessage{To: "@all", Body: "Retired job", Room: &domain.AgentOutboxRoom{Kind: domain.RoomWaiver, Data: domain.TaskRoomData{Check: "ci", Standing: true}}}},
 	}
 	for _, c := range cases {
 		outbox := filepath.Join(t.TempDir(), "outbox")
@@ -92,16 +96,20 @@ func TestKuayleSayWritesRoomMessagesKuayleReads(t *testing.T) {
 func TestKuayleSayRefusesWhatKuayleWouldRefuseAndWritesNothing(t *testing.T) {
 	dir := t.TempDir()
 	for name, args := range map[string][]string{
-		"no recipient":         {"hello"},
-		"an issue":             {"--to", "ENG-12", "hello"},
-		"an empty message":     {"--to", "@reviewer"},
-		"an unknown kind":      {"--to", "@reviewer", "--kind", "shout", "x"},
-		"a bad verdict":        {"--to", "@reviewer", "--verdict", "lgtm", "--commit", "abc1234"},
-		"a commit that is not": {"--to", "@reviewer", "--verdict", "approve", "--commit", "HEAD~1"},
-		"a bad reply":          {"--to", "@reviewer", "--reply-to", "zero", "x"},
-		"too long":             {"--to", "@reviewer", strings.Repeat("x", domain.AgentMessageMaxRunes+1)},
-		"text and a file":      {"--to", "@reviewer", "--file", "notes.md", "x"},
-		"a missing file":       {"--to", "@reviewer", "--file", "missing.md"},
+		"no recipient":                 {"hello"},
+		"an issue":                     {"--to", "ENG-12", "hello"},
+		"an empty message":             {"--to", "@reviewer"},
+		"an unknown kind":              {"--to", "@reviewer", "--kind", "shout", "x"},
+		"a bad verdict":                {"--to", "@reviewer", "--verdict", "lgtm", "--commit", "abc1234"},
+		"a commit that is not":         {"--to", "@reviewer", "--verdict", "approve", "--commit", "HEAD~1"},
+		"waiver without reason":        {"--to", "@all", "--waive", "ci"},
+		"approval without head":        {"--to", "@all", "--request", "approve"},
+		"approval on abbreviated head": {"--to", "@all", "--request", "approve", "--commit", "abc1234"},
+		"standing request":             {"--to", "@all", "--request", "merge", "--standing"},
+		"a bad reply":                  {"--to", "@reviewer", "--reply-to", "zero", "x"},
+		"too long":                     {"--to", "@reviewer", strings.Repeat("x", domain.AgentMessageMaxRunes+1)},
+		"text and a file":              {"--to", "@reviewer", "--file", "notes.md", "x"},
+		"a missing file":               {"--to", "@reviewer", "--file", "missing.md"},
 	} {
 		outbox := filepath.Join(t.TempDir(), "outbox")
 		code, stderr := kuayleSay(t, dir, outbox, "", args...)
@@ -117,4 +125,53 @@ func TestTheAgentImagesInstallKuayleSay(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, string(dockerfile), "COPY --chmod=0755 common/kuayle-say.cjs /usr/local/bin/kuayle-say", image)
 	}
+}
+
+// The lead moves the task with --phase and says why (KUA-301); a move
+// without a reason fails before anything is written.
+func TestKuayleSayMovesThePhaseWithAReason(t *testing.T) {
+	dir, outbox := t.TempDir(), filepath.Join(t.TempDir(), "outbox")
+	code, stderr := kuayleSay(t, dir, outbox, "", "--to", "@all", "--phase", "review", "The", "toggle", "is", "published.")
+	require.Zero(t, code, stderr)
+	messages := outboxFiles(t, outbox)
+	require.Len(t, messages, 1)
+	require.Equal(t, domain.RoomPhase, messages[0].Room.Kind)
+	require.Equal(t, "review", messages[0].Room.Data.Phase)
+	require.Equal(t, "The toggle is published.", messages[0].Body)
+
+	empty := filepath.Join(t.TempDir(), "outbox")
+	code, stderr = kuayleSay(t, dir, empty, "", "--to", "@all", "--phase", "review")
+	require.Equal(t, 2, code)
+	require.Contains(t, stderr, "say why the task moves")
+	code, stderr = kuayleSay(t, dir, empty, "", "--to", "@all", "--phase", "", "Why")
+	require.Equal(t, 2, code)
+	require.Contains(t, stderr, "--phase names a phase")
+	require.Empty(t, outboxFiles(t, empty))
+}
+
+func TestKuayleSaySplitRequest(t *testing.T) {
+	dir := t.TempDir()
+	outbox := filepath.Join(dir, "outbox")
+	oversize := []string{"--to", "@human", "--request", "split"}
+	for range 10 {
+		oversize = append(oversize, "--issue", "Child", strings.Repeat("界", 600))
+	}
+	for _, args := range [][]string{
+		oversize,
+		{"--to", "@human", "--request", "split", "the owner approves"},
+		{"--to", "@human", "--issue", "One", "Detail"},
+		{"--to", "@human", "--request", "split", "--issue", "", "Detail"},
+		{"--to", "@human", "--request", "split", "--issue", "One", strings.Repeat("x", 1001)},
+	} {
+		code, stderr := kuayleSay(t, dir, outbox, "", args...)
+		require.Equal(t, 2, code, stderr)
+		require.Empty(t, outboxFiles(t, outbox))
+	}
+	code, stderr := kuayleSay(t, dir, outbox, "", "--to", "@human", "--request", "split", "--issue", "One", "First part", "--issue", "Two", "Second part")
+	require.Zero(t, code, stderr)
+	messages := outboxFiles(t, outbox)
+	require.Len(t, messages, 1)
+	data, err := json.Marshal(messages[0].Room.Data)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"action":"split","issues":[{"title":"One","description":"First part"},{"title":"Two","description":"Second part"}]}`, string(data))
 }

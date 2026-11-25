@@ -108,7 +108,7 @@ func (w *IssueTemplateRecurrenceWorker) runTemplate(ctx context.Context, candida
 	var created bool
 	var creationErr error
 	err = w.templates.CompleteRecurrence(ctx, tmpl, &next, nil, func(tx *sqlx.Tx) error {
-		creationErr = w.issues.insertIssue(actor, tx, issue, team.Key)
+		creationErr = repository.CreateNumberedIssue(actor, w.issues.issueRepo, tx, issue, team.Key)
 		if creationErr == nil {
 			creationErr = w.issueRepo.SetRecurringIssueDefaults(actor, tx, issue, uniqueLabels)
 		}

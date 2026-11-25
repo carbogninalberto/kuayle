@@ -34,7 +34,8 @@ func (s *memoryStoreStub) MemberRole(context.Context, uuid.UUID, uuid.UUID) (str
 }
 func (s *memoryStoreStub) List(_ context.Context, _, _ uuid.UUID, repo, state string) ([]domain.Lesson, error) {
 	s.repo, s.state = repo, state
-	return []domain.Lesson{{Text: "Run the checks", State: domain.LessonApproved}}, s.fail
+	role := "reviewer"
+	return []domain.Lesson{{Text: "Run the checks", State: domain.LessonApproved, Role: &role}}, s.fail
 }
 func (s *memoryStoreStub) Add(_ context.Context, _, _ uuid.UUID, repo, text string) (*domain.Lesson, error) {
 	s.repo, s.text = repo, &text
@@ -61,8 +62,11 @@ func (s *memoryStoreStub) Reorder(_ context.Context, _, _ uuid.UUID, repo string
 func (s *memoryStoreStub) Events(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) ([]domain.LessonEvent, error) {
 	return []domain.LessonEvent{{Action: "approved"}}, s.fail
 }
-func (s *memoryStoreStub) ApprovedTexts(context.Context, uuid.UUID, uuid.UUID, string) ([]string, error) {
+func (s *memoryStoreStub) ApprovedTexts(context.Context, uuid.UUID, uuid.UUID, string, string) ([]string, error) {
 	return nil, nil
+}
+func (s *memoryStoreStub) TaskRole(context.Context, domain.AgentTask) (string, error) {
+	return "", nil
 }
 func (s *memoryStoreStub) TaskRepository(context.Context, domain.AgentTask) (string, error) {
 	return "", nil
@@ -95,6 +99,7 @@ func TestWorkspaceMemoryRoutesBindDecisionsAndMapRefusals(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listed))
 	require.True(t, listed.CanManage)
 	require.Len(t, listed.Lessons, 1)
+	require.Contains(t, rec.Body.String(), `"role":"reviewer"`, "a lesson says the role it is for")
 	rec = memoryRequest(t, store, (*WorkspaceMemoryHandler).List, http.MethodGet, "/memory/lessons?state=pending", "", "")
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -103,6 +108,8 @@ func TestWorkspaceMemoryRoutesBindDecisionsAndMapRefusals(t *testing.T) {
 	require.Equal(t, "Run the checks", *store.text)
 	rec = memoryRequest(t, store, (*WorkspaceMemoryHandler).Add, http.MethodPost, "/memory/lessons", `{"repository":"acme/app","text":"x","state":"approved"}`, "")
 	require.Equal(t, http.StatusBadRequest, rec.Code, "a caller cannot choose the state")
+	rec = memoryRequest(t, store, (*WorkspaceMemoryHandler).Add, http.MethodPost, "/memory/lessons", `{"repository":"acme/app","text":"x","role":"reviewer"}`, "")
+	require.Equal(t, http.StatusBadRequest, rec.Code, "nor a role: only a member's own lessons are for its role")
 
 	// Approving takes no body, or the edited text.
 	store.text = nil

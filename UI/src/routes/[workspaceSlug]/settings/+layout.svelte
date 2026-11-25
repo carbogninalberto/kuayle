@@ -31,7 +31,8 @@
 		DatabaseBackup,
 		Bell,
 		ShieldCheck,
-		Import
+		Import,
+		SlidersVertical
 	} from '@lucide/svelte';
 	import { GithubLogoIcon } from 'phosphor-svelte';
 	import type { Snippet } from 'svelte';
@@ -155,7 +156,12 @@
 				...(authState.user?.is_sysadmin === true
 					? [
 							{ label: m['settings.nav.backups'](), href: `/${slug}/settings/backups`, icon: DatabaseBackup },
-							{ label: m['settings.push.title'](), href: `/${slug}/settings/push`, icon: Bell }
+							{ label: m['settings.push.title'](), href: `/${slug}/settings/push`, icon: Bell },
+							{
+								label: m['settings.instance_config.title'](),
+								href: `/${slug}/settings/instance-config`,
+								icon: SlidersVertical
+							}
 						]
 					: []),
 				{ label: m['settings.nav.licenses'](), href: `/${slug}/settings/licenses`, icon: ScrollText }

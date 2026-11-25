@@ -38,6 +38,18 @@ export const DEFAULT_TASK_MACHINE_RESOURCES: MachineResources = {
 export const DEFAULT_TASK_MACHINE_MAX_TASKS = 10;
 export const MAX_TASK_MACHINE_MAX_TASKS = 10;
 
+// The most files a task's file listing holds; the server accepts 100 to 30,000.
+export const MIN_TASK_FILES_MAX = 100;
+export const MAX_TASK_FILES_MAX = 30000;
+
+// A typed limit as the server accepts it: a whole number from the minimum to
+// the maximum, the maximum (the default) when empty.
+export function taskFilesMax(value: unknown): number {
+	const typed = Number(value);
+	if (value === '' || value === null || value === undefined || !Number.isFinite(typed)) return MAX_TASK_FILES_MAX;
+	return Math.min(MAX_TASK_FILES_MAX, Math.max(MIN_TASK_FILES_MAX, Math.round(typed)));
+}
+
 function normalizedOptions(values: readonly number[] | undefined, fallback: readonly number[]): number[] {
 	const source = values ?? fallback;
 	return [...new Set(source.filter((value) => Number.isFinite(value) && value > 0))].sort((a, b) => a - b);

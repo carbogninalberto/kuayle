@@ -24,6 +24,19 @@ func sampleAndWait(manager *Manager) {
 	manager.operations.Wait()
 }
 
+// sampledTimes reports whether a machine has n samples and its sampling has
+// ended. The sampler records the sample before it releases its claim on the
+// machine, and a pass skips a machine still claimed, so a pass started only
+// on seeing the sample may skip it.
+func sampledTimes(manager *Manager, store *managerStoreFake, machineID uuid.UUID, n int) func() bool {
+	return func() bool {
+		manager.samplingMu.Lock()
+		_, claimed := manager.sampling[machineID]
+		manager.samplingMu.Unlock()
+		return !claimed && len(store.samplesOf(machineID)) == n
+	}
+}
+
 // The sampler records every running machine, and reconcile no longer calls
 // Runtime.Stats: the Docker runtime derives CPU from the gap between two
 // calls, so a second caller would distort it.
@@ -96,7 +109,7 @@ func TestSamplingKeepsFlowingWhileOneMachineIsSlow(t *testing.T) {
 
 	for i := 1; i <= 3; i++ {
 		manager.sampleResources(context.Background())
-		require.Eventually(t, func() bool { return len(store.samplesOf(healthy.ID)) == i }, 5*time.Second, time.Millisecond,
+		require.Eventually(t, sampledTimes(manager, store, healthy.ID, i), 5*time.Second, time.Millisecond,
 			"the healthy machine is sampled on every pass")
 	}
 	require.Empty(t, store.samplesOf(slow.ID))

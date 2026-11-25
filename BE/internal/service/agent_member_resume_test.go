@@ -1,6 +1,7 @@
 package service
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,40 @@ import (
 // Kuayle created and the store it asked.
 func reviewTurn(t *testing.T, provider, session string, member bool) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
 	t.Helper()
+	return reviewAttempt(t, provider, session, member, 2, nil)
+}
+
+// reviewTurnAt is reviewTurn for the attempt of that generation.
+func reviewTurnAt(t *testing.T, provider, session string, member bool, generation int64) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
+	t.Helper()
+	role := ""
+	if member {
+		role = "reviewer"
+	}
+	return memberTurnAt(t, provider, session, role, generation)
+}
+
+// reviewAttempt is reviewTurnAt with the workspace memory given (nil: none).
+func reviewAttempt(t *testing.T, provider, session string, member bool, generation int64, memory taskMemorySource) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
+	t.Helper()
+	role := ""
+	if member {
+		role = "reviewer"
+	}
+	return memberAttempt(t, provider, session, role, generation, memory)
+}
+
+// memberTurnAt is the attempt of that generation of a review task that runs
+// the turns of a pipeline task's member playing role; "" for any other
+// review.
+func memberTurnAt(t *testing.T, provider, session, role string, generation int64) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
+	t.Helper()
+	return memberAttempt(t, provider, session, role, generation, nil)
+}
+
+// memberAttempt is memberTurnAt with the workspace memory given (nil: none).
+func memberAttempt(t *testing.T, provider, session, role string, generation int64, memory taskMemorySource) (domain.DevMachineAgentRun, *taskRuntimeStoreFake) {
+	t.Helper()
 	ws, machine, user, checkout := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	store := &taskPolicyStore{devMachineStoreFake: &devMachineStoreFake{
 		policy:        testPolicy(ws),
@@ -26,19 +61,20 @@ func reviewTurn(t *testing.T, provider, session string, member bool) (domain.Dev
 		agentProvider: &domain.DevMachineAgentProvider{ProviderID: provider, Enabled: true, RequiredSecrets: json.RawMessage(`[]`), Config: json.RawMessage(`{}`)},
 		checkouts:     []domain.DevMachineCheckout{{ID: checkout, WorkspaceID: ws, MachineID: machine, Status: "ready", WorkspacePath: "/workspace/tasks/check", RepositoryFullName: "example/test", BaseBranch: "main", WorkingBranch: "task/check"}},
 	}}
-	store.policy.AllowedProviders = json.RawMessage(`["opencode","codex","claude-code"]`)
+	store.policy.AllowedProviders = json.RawMessage(`["opencode","codex","claude-code","crush","pi"]`)
 	machines := newTestDevMachineService(store)
-	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""))
+	machines.agents = agent.NewRegistry(agent.NewOpenCodeProvider(""), agent.NewCodexProvider(""), agent.NewClaudeCodeProvider(""), agent.NewCrushProvider(""), agent.NewPiProvider(""))
 	root := uuid.New()
 	// The previous turn ran on the same harness (AgentHandoff.Provider, which
 	// PreviousAttempt reads from the run): only it can continue the session.
-	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, Provider: provider, NativeSessionID: session}}
+	tasks := &taskRuntimeStoreFake{previous: &domain.AgentHandoff{AttemptID: uuid.New(), Status: "succeeded", MachineID: machine, Provider: provider, NativeSessionID: session,
+		Summary: "Verdict: request_changes\nThe toggle is not persisted."}}
 	task := domain.AgentTask{ID: uuid.New(), WorkspaceID: ws, CreatorID: user, MachineID: &machine, CheckoutID: checkout, RunID: uuid.New(), State: "preparing", Provider: provider,
-		Prompt: "You are the @reviewer of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: 2}
-	if member {
-		tasks.member = &domain.TaskMember{ID: uuid.New(), WorkspaceID: ws, TaskID: root, Role: "reviewer", MemberTaskID: &task.ID, State: domain.MemberQueued}
+		Prompt: "You are the @" + cmp.Or(role, "reviewer") + " of the team working on this task.", Kind: domain.AgentTaskKindReview, ReviewOfTaskID: &root, Generation: generation}
+	if role != "" {
+		tasks.member = &domain.TaskMember{ID: uuid.New(), WorkspaceID: ws, TaskID: root, Role: role, MemberTaskID: &task.ID, State: domain.MemberQueued}
 	}
-	runtime := &devMachineTaskRuntime{machines: machines, tasks: tasks}
+	runtime := &devMachineTaskRuntime{machines: machines, tasks: tasks, memory: memory, notebooks: &notebookSourceFake{notebook: recordedNotebook(), required: true}}
 	_, err := runtime.Attempt(context.Background(), task)
 	require.NoError(t, err)
 	require.Len(t, store.agentRuns, 1)
@@ -65,6 +101,38 @@ func TestAMembersNextTurnResumesItsSession(t *testing.T) {
 			require.False(t, run.PushBranch, "a member that reviews never pushes")
 		})
 	}
+}
+
+// A role may be played on any harness (KUA-288). One that keeps no session
+// across runs (Crush, Pi) takes its next turn in a new session, with the
+// handoff that says so and what its previous turn concluded.
+func TestAMembersNextTurnOnAHarnessWithoutResumeGetsTheHandoff(t *testing.T) {
+	for _, provider := range []string{"crush", "pi"} {
+		t.Run(provider, func(t *testing.T) {
+			run, tasks := reviewTurn(t, provider, "", true)
+			require.Equal(t, 1, tasks.previousCalls, "the member's previous turn is read")
+			require.Nil(t, run.NativeSessionID)
+			require.Contains(t, run.Prompt, "You are the @reviewer")
+			require.Contains(t, run.Prompt, "this is a new session on the same branch and worktree; the previous session cannot be resumed")
+			require.Contains(t, run.Prompt, "The toggle is not persisted.", "the previous turn's final message")
+			require.False(t, run.PushBranch)
+		})
+	}
+}
+
+// Only the writer holding the write lock writes (KUA-289): a member's turn,
+// its first one too, reads its worktree read-only where its harness can run
+// that way, and otherwise on a detached worktree as reviews do. Any other
+// review is as before.
+func TestAMembersTurnReadsItsWorktreeReadOnlyWhereItsHarnessCan(t *testing.T) {
+	for provider, readOnly := range map[string]bool{"claude-code": true, "codex": true, "opencode": true, "crush": false, "pi": false} {
+		for _, generation := range []int64{1, 2} {
+			run, _ := reviewTurnAt(t, provider, "", true, generation)
+			require.Equal(t, readOnly, run.WorktreeReadOnly, "%s, turn %d", provider, generation)
+		}
+	}
+	run, _ := reviewTurn(t, "codex", "", false)
+	require.False(t, run.WorktreeReadOnly, "a review a graph workflow or the assistant asked for")
 }
 
 // Every other review (one a graph workflow's reviewer step or the assistant
@@ -143,5 +211,76 @@ func TestOnlyAMembersNextTurnRefreshesItsWorktree(t *testing.T) {
 		refresh, err := runtime.checkoutRefresh(context.Background(), c.task)
 		require.NoError(t, err)
 		require.Equal(t, c.want, refresh, name)
+	}
+}
+
+// A member's turn, its first and every later one, reads the approved lessons
+// the memory service gives the member's task (those for every task and for
+// its role) ahead of its prompt, recorded as the "memory" source. A review
+// that is no member's still reads none, and the memory is not even asked.
+func TestAMembersTurnReadsTheLessonsForItsRole(t *testing.T) {
+	block := lessonsLabel + "\n- Check that every migration has a down file."
+	for _, provider := range []string{"claude-code", "codex", "opencode"} {
+		for _, generation := range []int64{1, 2} {
+			memory := &memorySourceFake{approved: map[uuid.UUID][]string{uuid.Nil: {"Check that every migration has a down file."}}}
+			run, _ := reviewAttempt(t, provider, "0c9a6c1e-0000-4000-8000-000000000001", true, generation, memory)
+			require.Len(t, memory.tasks, 1, provider)
+			require.Equal(t, domain.AgentTaskKindReview, memory.tasks[0].Kind, "asked for the member's own task")
+			require.True(t, strings.HasPrefix(run.Prompt, block), provider)
+			require.Contains(t, run.Prompt, "You are the @reviewer")
+			var sources []domain.PromptSource
+			require.NoError(t, json.Unmarshal(run.PromptSources, &sources))
+			recorded := ""
+			for _, source := range sources {
+				if source.Source == domain.PromptSourceMemory {
+					require.Equal(t, domain.PromptChannelPrompt, source.Channel)
+					recorded += source.Text
+				}
+			}
+			require.Contains(t, recorded, block, provider)
+		}
+	}
+	memory := &memorySourceFake{approved: map[uuid.UUID][]string{uuid.Nil: {"Check that every migration has a down file."}}}
+	run, _ := reviewAttempt(t, "codex", "", false, 1, memory)
+	require.NotContains(t, run.Prompt, "Lessons for this repository")
+	require.Empty(t, memory.tasks)
+}
+
+// The lead manages and reads (KUA-300, invariant 3): every turn of its
+// reads its worktree read-only where its harness can, as the roles that
+// review do, and runs without push, so the machine asks GitHub for no token
+// and its environment has none (TestReviewAttemptsReceiveNoGitHubCredential);
+// nothing it may select is a credential Kuayle manages.
+func TestTheLeadsTurnReadsReadOnlyWithoutCredentials(t *testing.T) {
+	for _, provider := range []string{"claude-code", "codex", "opencode"} {
+		for _, generation := range []int64{1, 2} {
+			run, _ := memberTurnAt(t, provider, "", domain.PipelineLeadRole, generation)
+			require.True(t, run.WorktreeReadOnly, "%s, turn %d", provider, generation)
+			require.False(t, run.PushBranch, "%s, turn %d: no push, so no GitHub token", provider, generation)
+			var secrets []string
+			require.NoError(t, json.Unmarshal(run.AllowedSecrets, &secrets))
+			for _, name := range secrets {
+				require.False(t, name == "GITHUB_TOKEN" || strings.HasPrefix(name, "KUAYLE_"), "%s gets %s", provider, name)
+			}
+			require.Contains(t, run.Prompt, "You are the @lead")
+		}
+	}
+}
+
+func TestOnlyTheLeadMemberOwesANotebookUpdate(t *testing.T) {
+	for _, role := range []string{"reviewer", domain.PipelineLeadRole} {
+		for _, provider := range []string{"codex", "crush"} {
+			t.Run(role+"/"+provider, func(t *testing.T) {
+				run, _ := memberTurnAt(t, provider, "", role, 1)
+				if role == domain.PipelineLeadRole {
+					require.True(t, run.NotebookRequired, "a missing update must trigger the notebook closing ask")
+					require.Contains(t, run.Prompt, domain.NotebookUpdateHelp)
+					require.Contains(t, run.Prompt+string(run.ProfileFiles), "Theme tokens added in UI/src/app.css")
+				} else {
+					require.False(t, run.NotebookRequired)
+					require.NotContains(t, run.Prompt, domain.NotebookUpdateHelp)
+				}
+			})
+		}
 	}
 }

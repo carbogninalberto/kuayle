@@ -146,8 +146,8 @@ export interface PipelineMember {
 
 /**
  * An experimental pipeline (KUA-252): ordered phases with checks, worked by a
- * roster of roles. It is shown read only; with the server's switch on, tasks
- * run on it.
+ * roster of roles. With the server's switch on, it is edited in the pipeline
+ * editor and tasks run on it; otherwise it is shown read only.
  */
 export interface PipelineDefinition {
 	kind: 'pipeline';
@@ -168,6 +168,12 @@ export interface WorkflowIssue {
 	message: string;
 	node_id?: string;
 	edge_id?: string;
+}
+
+/** A pipeline drafted from a graph workflow, or null and the reasons it has none. */
+export interface PipelineDraft {
+	pipeline: PipelineDefinition | null;
+	reasons: WorkflowIssue[];
 }
 
 export interface WorkflowSummary {
@@ -361,12 +367,25 @@ export interface TaskWorkflow {
 
 export type WorkflowDecision = 'approve' | 'deny' | 'continue' | 'stop';
 
+/**
+ * The server's built-in templates. A "_pipeline" one is the pipeline version
+ * of the graph template it names, drafted from it, and is offered only while
+ * the server has pipelines on (KUA-290).
+ */
+export type WorkflowTemplate =
+	| 'review_loop'
+	| 'full_cycle'
+	| 'standard'
+	| 'review_loop_pipeline'
+	| 'full_cycle_pipeline'
+	| 'standard_pipeline';
+
 export interface WorkflowSaveInput {
 	name: string;
 	description: string;
-	graph?: WorkflowGraph;
+	graph?: WorkflowGraph | PipelineDefinition;
 	/** A built-in starting point instead of a graph. */
-	template?: 'review_loop' | 'full_cycle' | 'standard';
+	template?: WorkflowTemplate;
 	expected_version?: number;
 }
 
@@ -393,8 +412,13 @@ export const workflows = {
 	/** Deletes a workflow; for "standard", discards the workspace's edits. */
 	remove: (slug: string, id: string) => api.delete<void>(one(slug, id)),
 	/** Issues refuse a save; warnings (absent on older servers) never do. */
-	validate: (slug: string, graph: WorkflowGraph) =>
+	validate: (slug: string, graph: WorkflowGraph | PipelineDefinition) =>
 		api.post<{ issues: WorkflowIssue[]; warnings?: WorkflowIssue[] }>(`${base(slug)}/workflows/validate`, { graph }),
+	/**
+	 * Drafts a pipeline from a graph workflow, or says why it cannot (KUA-283).
+	 * Nothing is saved: the person saves the draft as a new workflow.
+	 */
+	draftPipeline: (slug: string, id: string) => api.post<PipelineDraft>(`${one(slug, id)}/draft-pipeline`, {}),
 	/** workflow_id "standard" chooses Standard; null makes a team or project inherit. */
 	setDefault: (slug: string, scope: WorkflowScope, scopeId: string, workflowId: string | null) =>
 		api.put<WorkflowList>(`${base(slug)}/workflow-defaults`, { scope, scope_id: scopeId, workflow_id: workflowId }),

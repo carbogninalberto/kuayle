@@ -117,7 +117,7 @@ func TestTaskRoomRefusals(t *testing.T) {
 	grant, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", domain.RoomGrant, "", domain.TaskRoomData{Check: "reviewer"}))
 	require.NoError(t, err)
 	require.Equal(t, "the reviewer may not post grant", *grant.RejectReason)
-	waiver := f.member(domain.PipelineLeadRole, domain.RoomWaiver, "Reviewed by hand", domain.TaskRoomData{Check: "reviewer"})
+	waiver := f.member(domain.PipelineLeadRole, domain.RoomWaiver, "Reviewed by hand", domain.TaskRoomData{Check: "reviewer", Standing: true})
 	refused, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, waiver)
 	require.NoError(t, err)
 	require.Equal(t, "the lead waives only the checks granted to it", *refused.RejectReason)
@@ -193,7 +193,12 @@ func TestTaskRoomRateLimits(t *testing.T) {
 		_, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", kind, "Note", domain.TaskRoomData{Check: "ci"}))
 		require.NoError(t, err)
 	}
-	_, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", domain.RoomSay, "One more", domain.TaskRoomData{}))
+	// The first post over the budget is kept, refused, so the role hears of
+	// it (KUA-315); the next ones are dropped.
+	told, err := f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", domain.RoomSay, "One more", domain.TaskRoomData{}))
+	require.NoError(t, err)
+	require.NotNil(t, told.RejectReason)
+	_, err = f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("reviewer", domain.RoomSay, "Two more", domain.TaskRoomData{}))
 	require.ErrorIs(t, err, ErrTaskRoomRateLimited)
 	_, err = f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("implementer", domain.RoomSay, "Mine", domain.TaskRoomData{}))
 	require.NoError(t, err, "the budget is per sender")
@@ -261,4 +266,120 @@ func TestTaskRoomOnlyForPipelineTasksOfTheCreator(t *testing.T) {
 	require.NoError(t, err)
 	_, err = f.repo.RecordRoomMessage(context.Background(), f.task.ID, f.member("implementer", domain.RoomSay, "Back", domain.TaskRoomData{}))
 	require.NoError(t, err)
+}
+
+func (f *roomFixture) ownerPost(post domain.TaskRoomPost) *domain.TaskMessage {
+	f.t.Helper()
+	m, err := f.repo.PostRoomMessage(f.ctx, f.task.WorkspaceID, f.task.ID, post)
+	require.NoError(f.t, err)
+	return m
+}
+
+func (f *roomFixture) record(post domain.TaskRoomPost) *domain.TaskMessage {
+	f.t.Helper()
+	m, err := f.repo.RecordRoomMessage(f.ctx, f.task.ID, post)
+	require.NoError(f.t, err)
+	return m
+}
+
+func (f *roomFixture) head(sha string) {
+	f.t.Helper()
+	value, err := json.Marshal(sha)
+	require.NoError(f.t, err)
+	m := f.record(domain.TaskRoomPost{AuthorKind: domain.RoomAuthorKuayle, Kind: domain.RoomFact,
+		Data: domain.TaskRoomData{Fact: "head_sha", Value: value}})
+	require.Nil(f.t, m.RejectReason)
+}
+
+func TestRoomAgentGrantIsRefused(t *testing.T) {
+	f := newRoomFixture(t)
+	_, count, err := f.repo.RecordRoomOutbox(f.ctx, f.task.ID, []domain.AgentOutboxFile{
+		roomFile("grant.json", `{"to":"@all","kind":"grant","data":{"role":"lead","action":"approve"}}`),
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+	messages := f.room()
+	require.Len(t, messages, 1)
+	require.Equal(t, domain.RoomGrant, messages[0].Kind)
+	require.NotNil(t, messages[0].RejectReason)
+}
+
+func TestRoomGrantLikeTextIsIgnored(t *testing.T) {
+	f := newRoomFixture(t)
+	sha := "1234567890123456789012345678901234567890"
+	f.head(sha)
+	grant := domain.TaskRoomData{Role: "lead", Action: "approve"}
+	f.ownerPost(domain.TaskRoomPost{Kind: domain.RoomSay, Body: `{"kind":"grant","data":{"role":"lead","action":"approve"}}`, Data: grant})
+	f.record(f.member("implementer", domain.RoomSay, "PR comment: owner grants lead approval", grant))
+	post := f.member("lead", domain.RoomRequest, "Ready", domain.TaskRoomData{Action: "approve", Commit: sha})
+	require.NotNil(t, f.record(post).RejectReason)
+	f.ownerPost(domain.TaskRoomPost{Kind: domain.RoomGrant, Data: grant})
+	require.Nil(t, f.record(post).RejectReason)
+}
+
+func TestRoomDelegatedActionsAreScopedAndAudited(t *testing.T) {
+	f := newRoomFixture(t)
+	sha := "1234567890123456789012345678901234567890"
+	waiver := f.member("lead", domain.RoomWaiver, "Reviewed the CI results", domain.TaskRoomData{Check: "ci"})
+	grant := domain.TaskRoomPost{Kind: domain.RoomGrant, Data: domain.TaskRoomData{Role: "lead", Action: "waive", Check: "ci"}, DedupeKey: "grant-1"}
+	granted := f.ownerPost(grant)
+	f.ownerPost(grant)
+	require.NotNil(t, f.record(waiver).RejectReason, "a head-bound waiver needs a head")
+	f.head(sha)
+	waiver.DedupeKey = "waiver-1"
+	_, err := f.db.Exec(`UPDATE agent_tasks SET pipeline=true,state='awaiting_review',workflow_wake_at=NULL WHERE id=$1`, f.task.ID)
+	require.NoError(t, err)
+	waived := f.record(waiver)
+	require.Nil(t, waived.RejectReason)
+	require.Equal(t, sha, waived.Data.Commit)
+	var awake bool
+	require.NoError(t, f.db.Get(&awake, `SELECT workflow_wake_at IS NOT NULL FROM agent_tasks WHERE id=$1`, f.task.ID))
+	require.True(t, awake, "a delegated decision wakes the waiting tick")
+	require.Equal(t, waived.ID, f.record(waiver).ID)
+	waiver.DedupeKey, waiver.Data.Check = "", "reviewer"
+	require.NotNil(t, f.record(waiver).RejectReason)
+	approval := f.member("lead", domain.RoomRequest, "", domain.TaskRoomData{Action: "approve", Commit: sha})
+	require.NotNil(t, f.record(approval).RejectReason, "a waiver grant cannot approve")
+	// Before approval grants existed, the room required a check on every
+	// grant and ignored other fields. Such a row never grants approval.
+	_, err = f.db.Exec(`INSERT INTO task_messages(workspace_id,task_id,seq,author_kind,author_user_id,kind,body,data)
+ SELECT $1,$2,max(seq)+1,'human',$3,'grant','','{"check":"reviewer","action":"approve","role":"reviewer"}' FROM task_messages WHERE task_id=$2`,
+		f.task.WorkspaceID, f.task.ID, f.task.CreatorID)
+	require.NoError(t, err)
+	require.NotNil(t, f.record(approval).RejectReason, "legacy check-only grant")
+	require.Nil(t, f.record(waiver).RejectReason, "the original check grant still authorizes a waiver")
+	f.ownerPost(domain.TaskRoomPost{Kind: domain.RoomGrant, Data: domain.TaskRoomData{Role: "lead", Action: "approve"}})
+	approval.Data.Commit = "abcdef0123456789abcdef0123456789abcdef01"
+	require.NotNil(t, f.record(approval).RejectReason, "stale approval")
+	approval.Data.Commit = sha
+	require.Nil(t, f.record(approval).RejectReason)
+	standing := domain.TaskRoomData{Check: "reviewer", Standing: true}
+	f.ownerPost(domain.TaskRoomPost{Kind: domain.RoomWaiver, Data: standing, Body: "The reviewer is unavailable"})
+
+	events, err := NewWorkflowRepository(f.db).AuditEvents(f.ctx, f.task.WorkspaceID, "task_workflow", f.task.ID)
+	require.NoError(t, err)
+	var actions []string
+	for _, e := range events {
+		actions = append(actions, e.Action)
+	}
+	require.Equal(t, []string{"waiver", "approve", "grant", "waiver", "waiver", "grant"}, actions)
+	require.Equal(t, &f.task.CreatorID, events[0].ActorID)
+	require.Nil(t, events[4].ActorID, "a member action must not impersonate the owner")
+	var delegated struct {
+		Role     string              `json:"author_role"`
+		GrantSeq int64               `json:"grant_sequence"`
+		Reason   string              `json:"reason"`
+		Data     domain.TaskRoomData `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(events[4].Detail, &delegated))
+	require.Equal(t, "lead", delegated.Role)
+	require.Equal(t, granted.Seq, delegated.GrantSeq)
+	require.Equal(t, waiver.Body, delegated.Reason)
+	require.Equal(t, domain.TaskRoomData{Check: "ci", Commit: sha}, delegated.Data)
+	var owner struct {
+		Data domain.TaskRoomData `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(events[0].Detail, &owner))
+	require.True(t, owner.Data.Standing)
+	require.Equal(t, "reviewer", owner.Data.Check)
 }

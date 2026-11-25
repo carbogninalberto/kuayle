@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -80,7 +81,9 @@ func TestTaskRoomHTTP(t *testing.T) {
 			builtin[*p.BuiltinKey] = p.ID
 		}
 	}
-	raw, err := json.Marshal(domain.TeamPipeline(builtin[domain.AgentBuiltinImplementer], builtin[domain.AgentBuiltinReviewer]))
+	definition := domain.TeamPipeline(builtin[domain.AgentBuiltinImplementer], builtin[domain.AgentBuiltinReviewer])
+	definition.Lead = &domain.PipelineLead{ProfileID: builtin[domain.AgentBuiltinReviewer]}
+	raw, err := json.Marshal(definition)
 	require.NoError(t, err)
 	pipeline, err := workflows.CreateWorkflow(ctx, ws, owner, "Team", "", raw, "created")
 	require.NoError(t, err)
@@ -137,7 +140,7 @@ func TestTaskRoomHTTP(t *testing.T) {
 		`{"kind":"say","body":"  Use the new API "}`,
 		`{"kind":"ask","body":"Ready for review?","to":["implementer"],"reply_to":1}`,
 		`{"kind":"request","data":{"action":"merge"},"request_id":"` + request + `"}`,
-		`{"kind":"waiver","body":"Flaky job","data":{"check":"ci"}}`,
+		`{"kind":"waiver","body":"Retired job","data":{"check":"ci","standing":true}}`,
 		`{"kind":"grant","data":{"check":"owner"}}`,
 	}
 	var sent []domain.TaskMessage
@@ -191,6 +194,7 @@ func TestTaskRoomHTTP(t *testing.T) {
 	} {
 		call("GET", other.path, "", other.auth, other.status, nil)
 		call("POST", other.path, posts[0], other.auth, other.status, nil)
+		call("POST", other.path+"/1/approve-split", "", other.auth, other.status, nil)
 	}
 	// Tokens never reach the room, whatever their scopes.
 	pat, hash, prefix, err := domain.GenerateToken()
@@ -198,11 +202,29 @@ func TestTaskRoomHTTP(t *testing.T) {
 	require.NoError(t, tokens.Create(context.Background(), &domain.PersonalAccessToken{ID: uuid.New(), UserID: creator, Name: "Room", Scopes: []string{domain.PermAgentTasksRead, "dev_machine:manage"}, TokenHash: hash, TokenPrefix: prefix}))
 	call("GET", room, "", pat, 403, nil)
 	call("POST", room, posts[0], pat, 403, nil)
+	t.Run("OnlyTheCreatorsSessionRouteGrants", func(t *testing.T) {
+		const grant = `{"kind":"grant","data":{"role":"lead","action":"approve"}}`
+		call("POST", room, grant, pat, 403, nil)
+		call("POST", room, grant, tokenFor(owner), 404, nil)
+		call("POST", room, grant, tokenFor(member), 404, nil)
+		call("POST", room, grant, tokenFor(outsider), 403, nil)
+		call("POST", strings.Replace(room, ws.String(), otherWS.String(), 1), grant, token, 404, nil)
+
+		var accepted domain.TaskMessage
+		call("POST", room, grant, token, 201, &accepted)
+		require.Nil(t, accepted.RejectReason)
+		require.Equal(t, &creator, accepted.AuthorUserID)
+		var n int
+		require.NoError(t, db.Get(&n, `SELECT count(*) FROM task_messages WHERE workspace_id=$1 AND task_id=$2 AND kind='grant' AND data->>'action'='approve'`, ws, task.ID))
+		require.Equal(t, 1, n)
+	})
 	// The demo guard covers it like every task route.
 	demoDenied.Store(true)
 	call("GET", room, "", token, 403, nil)
 	call("POST", room, posts[0], token, 403, nil)
+	call("POST", room+"/1/approve-split", "", token, 403, nil)
 	demoDenied.Store(false)
+	call("POST", room+"/0/approve-split", "", token, 400, nil)
 
 	// A task without a pipeline has no room.
 	plainRoom := ws.String() + "/agent-tasks/" + plain.ID.String() + "/room"
@@ -210,6 +232,24 @@ func TestTaskRoomHTTP(t *testing.T) {
 	call("GET", plainRoom, "", token, 409, &refusal)
 	require.Equal(t, "ROOM_UNAVAILABLE", refusal.Error.Code)
 	call("POST", plainRoom, posts[0], token, 409, nil)
+
+	t.Run("creator approves the stored split request", func(t *testing.T) {
+		var memberID uuid.UUID
+		require.NoError(t, db.Get(&memberID, `INSERT INTO task_members(workspace_id,task_id,role,profile_id) VALUES($1,$2,'lead',$3) RETURNING id`, ws, task.ID, definition.Lead.ProfileID))
+		var data domain.TaskRoomData
+		require.NoError(t, json.Unmarshal([]byte(`{"action":"split","issues":[{"title":"Parser","description":"Parse room proposals."}]}`), &data))
+		proposal, err := taskRepo.RecordRoomMessage(ctx, task.ID, domain.TaskRoomPost{AuthorKind: domain.RoomAuthorMember, AuthorRole: domain.PipelineLeadRole, AuthorMemberID: &memberID, Kind: domain.RoomRequest, Data: data})
+		require.NoError(t, err)
+		require.Nil(t, proposal.RejectReason)
+		approve := room + "/" + strconv.FormatInt(proposal.Seq, 10) + "/approve-split"
+		call("POST", approve, "", pat, 403, nil)
+		call("POST", approve, "", tokenFor(member), 404, nil)
+		call("POST", approve, "", token, 204, nil)
+		call("POST", approve, "", token, 204, nil)
+		var titles []string
+		require.NoError(t, db.Select(&titles, `SELECT title FROM issues WHERE parent_id=$1 AND team_id=$2 AND workspace_id=$3`, issue, team, ws))
+		require.Equal(t, []string{"Parser"}, titles)
+	})
 
 	// The creator's hourly budget is that of live messages.
 	_, err = db.Exec(`INSERT INTO task_messages(workspace_id,task_id,seq,author_kind,author_user_id,kind,body) SELECT $1,$2,100+n,'human',$3,'say','Earlier' FROM generate_series(1,$4::int) n`, ws, task.ID, creator, domain.AgentLiveMessagesPerHour)

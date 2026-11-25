@@ -71,9 +71,10 @@ type AgentTaskService struct {
 	// SetWorkflows wires it, and tasks then keep the Standard flow.
 	workflow    *WorkflowRunner
 	definitions *repository.WorkflowRepository
-	// pipelines is the server's switch for the experimental pipeline
-	// workflows (SetPipelines); off, none is saved or started.
-	pipelines bool
+	// pipelines is the server's switch for the pipeline workflows
+	// (SetPipelines, SetPipelineSwitch), read on every use; off, none is
+	// saved or started.
+	pipelines func() bool
 	// registry logs published pull requests in the wiki registry of the
 	// issue's project or team when that registry is on; nil until SetRegistry.
 	registry taskRegistry
@@ -89,6 +90,9 @@ type AgentTaskService struct {
 	// webhooks delivers the issue status changes tasks make; nil until
 	// SetWebhooks wires it.
 	webhooks webhookEmitter
+	// files reads a task's files at a commit; its sources are unavailable
+	// until SetTaskFiles wires them.
+	files *taskFiles
 }
 
 // SetWebhooks makes issue status changes made by tasks deliver workspace
@@ -136,8 +140,9 @@ func (s *AgentTaskService) notePublished(ctx context.Context, task domain.AgentT
 }
 
 func NewAgentTaskService(repo *repository.AgentTaskRepository, machines *DevMachineService, hub *realtime.Hub) *AgentTaskService {
-	service := &AgentTaskService{Repo: repo, machines: machines, store: repo, runtime: &devMachineTaskRuntime{tasks: repo, machines: machines, related: repo}}
+	service := &AgentTaskService{Repo: repo, machines: machines, store: repo, runtime: &devMachineTaskRuntime{tasks: repo, machines: machines, related: repo}, files: &taskFiles{}}
 	if repo != nil {
+		service.files.sources = repo
 		service.runtime.(*devMachineTaskRuntime).attachments = repo
 		service.runtime.(*devMachineTaskRuntime).messages = repo
 		service.runtime.(*devMachineTaskRuntime).live = repo
@@ -268,7 +273,10 @@ func (s *AgentTaskService) step(ctx context.Context, task domain.AgentTask) erro
 		if err != nil {
 			return s.preparationError(ctx, task, err)
 		}
-		if result == nil {
+		// The publication runs on the machine, which may publish only while
+		// the task is publishing: the task waits for its outcome here, and
+		// the next pass reads it again (KUA-297).
+		if result == nil || result.Status == domain.DevMachineAgentRunStepStatusQueued || result.Status == domain.DevMachineAgentRunStepStatusRunning {
 			return nil
 		}
 		// A pipeline's tick reads what the publication did as a fact.
@@ -821,16 +829,16 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	// take more than an hour.
 	const timeout = 3 * 60 * 60
 	review := task.Kind == domain.AgentTaskKindReview
-	// A review starts cold, except the turns of a pipeline task's member:
-	// one review task reused across turns, which continues its session.
-	resumes := !review
-	if review && task.Generation > 1 {
-		member, err := r.tasks.TaskMember(ctx, task)
-		if err != nil {
+	// The pipeline member whose turns a review task runs, if any.
+	var member *domain.TaskMember
+	if review && r.tasks != nil {
+		if member, err = r.tasks.TaskMember(ctx, task); err != nil {
 			return nil, err
 		}
-		resumes = member != nil
 	}
+	// A review starts cold, except the turns of a pipeline task's member:
+	// one review task reused across turns, which continues its session.
+	resumes := !review || member != nil
 	var previous *domain.AgentHandoff
 	if task.Generation > 1 && resumes {
 		if previous, err = r.tasks.PreviousAttempt(ctx, task); err != nil {
@@ -838,10 +846,9 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		}
 	}
 	session := taskSession(task, previous)
-	// The task's notebook: every step that plans or changes code receives it
-	// whole and must leave a valid update before it can finish.
-	var notebook *domain.Notebook
-	if r.notebooks != nil && !review {
+	// Writers and the managing member receive the shared task notebook.
+	var notebook *domain.AttemptNotebook
+	if r.notebooks != nil && (!review || member != nil && member.Role == domain.PipelineLeadRole) {
 		if notebook, err = r.notebooks.AttemptNotebook(ctx, task); err != nil {
 			return nil, err
 		}
@@ -855,7 +862,7 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 	assembly := newPromptAssembly(task.Prompt, plan)
 	prompt := task.Prompt
 	if task.Generation > 1 {
-		prompt = assembly.apply(domain.PromptSourceHandoff, withLiveHandoff(prompt, previous, session.ResumeID != "", task.ResumeNativeSession, task.LiveResumed()))
+		prompt = assembly.apply(domain.PromptSourceHandoff, withLiveHandoff(prompt, previous, session.ResumeID != "", task.ResumeNativeSession, task.LiveResumed(), notebook))
 	}
 	// A review's prompt already names the published work it reads.
 	if r.attachments != nil && !review {
@@ -895,14 +902,14 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 		}
 		prompt = assembly.apply(domain.PromptSourceMessages, withLiveMessages(prompt, live))
 	}
-	var profileFiles []domain.AgentProfileFile
+	bundle := &domain.AgentProfileBundle{}
+	lessons := ""
 	planning := false
 	if !review {
 		var profiles taskProfileSource = r.profiles
 		if profiles == nil {
 			profiles = r.tasks
 		}
-		bundle := &domain.AgentProfileBundle{}
 		if profiles != nil {
 			loaded, err := profiles.ProfileBundle(ctx, task)
 			if err != nil {
@@ -915,51 +922,28 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 				planning = task.RunsWorkflow() && bundle.Behaviour == domain.AgentBehaviourPlans
 			}
 		}
-		// Workspace memory: the lessons the workspace's admins approved for
-		// the task's repository. They are the workspace's own configuration,
-		// already bounded and redacted by the memory service. Lessons that
-		// cannot be loaded never fail the attempt: it runs without them.
-		lessons := ""
-		if r.memory != nil {
-			if lessons, err = r.memory.ApprovedLessons(ctx, task); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return nil, err
-				}
-				log.WithField("task_id", task.ID).WithError(err).Warn("Approved lessons could not be loaded; the attempt runs without them")
-				lessons = ""
-			}
-			lessons = truncateUTF8Bytes(strings.TrimSpace(lessons), memoryPromptBytes)
+		if lessons, err = r.attemptLessons(ctx, task); err != nil {
+			return nil, err
 		}
-		// The notebook and the lessons reach the agent as instructions: in
-		// the harness's instructions file, after its profile, or ahead of the
-		// prompt for a harness that reads none. The notebook does not repeat
-		// what the prompt already holds: the plan a {{plan}} step carries,
-		// and the task's request.
-		inFile := domain.ProfileFilesSupported(task.Provider)
-		options := domain.NotebookRender{}
-		if notebook != nil {
-			options.PlanInPrompt = plan != "" && carriesPlan(task.Prompt, plan)
-			if request, _, _ := strings.Cut(task.Prompt, followUpMarker); len(notebook.Instructions) > 0 && notebook.Instructions[0].Source == domain.NotebookInstructionRequest {
-				options.RequestInPrompt = strings.Contains(request, notebook.Instructions[0].Text)
-			}
-		}
-		if inFile {
-			// The file is outside the prompt: both are given whole.
-			for _, file := range domain.ProfileFiles(task.Provider, domain.AgentProfileBundle{Name: bundle.Name, Role: bundle.Role, Instructions: bundle.Instructions}) {
-				assembly.file(domain.PromptSourceProfile, file.Content)
-			}
-			bundle.Memory = lessons
-			assembly.file(domain.PromptSourceMemory, lessons)
-			if notebook != nil {
-				bundle.Notebook = notebook.RenderWith(options)
-				assembly.file(domain.PromptSourceNotebook, bundle.Notebook)
-			}
-		}
-		profileFiles = domain.ProfileFiles(task.Provider, *bundle)
 		prompt = assembly.apply(domain.PromptSourceContract, withContract(prompt, task, related, planning))
-		if notebook != nil {
-			prompt = assembly.apply(domain.PromptSourceContract, withNotebookUpdate(prompt))
+	} else {
+		prompt = assembly.applyInstructions(withInstructions(prompt, task.AgentInstructions))
+		// A pipeline member's turn reads the lessons for every task and for
+		// its role, ahead of its prompt, which carries its role's
+		// instructions too. Any other review reads none.
+		if member != nil {
+			memberLessons, err := r.attemptLessons(ctx, task)
+			if err != nil {
+				return nil, err
+			}
+			prompt = assembly.apply(domain.PromptSourceMemory, withLessons(prompt, memberLessons))
 		}
+	}
+	notebookRequired := notebook != nil && notebook.Required
+	if notebookRequired {
+		prompt = assembly.apply(domain.PromptSourceContract, withNotebookUpdate(prompt))
+	}
+	if !review {
 		// The project's and the profile's instructions do not give way to
 		// anything else in the prompt: they are placed outside the
 		// 32000-byte budget of the task's own prompt, whole up to
@@ -969,34 +953,80 @@ func (r *devMachineTaskRuntime) Attempt(ctx context.Context, task domain.AgentTa
 			instructions = bundle.StageInstructions + "\n\n" + instructions
 		}
 		prompt = assembly.applyInstructions(withWholeInstructions(prompt, instructions))
-		if !inFile {
-			// In a prompt the notebook and the lessons each have a bounded
-			// share of what is left. When that is short the notebook's detail
-			// gives way first, then the lessons; never the instructions.
-			notebookShare, memoryShare := promptShares(attemptPromptBytes-len(prompt), len(lessons))
-			prompt = assembly.apply(domain.PromptSourceMemory, withLessons(prompt, truncateUTF8Bytes(lessons, memoryShare)))
-			if notebook != nil {
-				options.Limit = notebookShare
-				prompt = assembly.apply(domain.PromptSourceNotebook, withNotebook(prompt, notebook.RenderWith(options)))
-			}
+	}
+	// The notebook and the lessons reach the agent as instructions: in
+	// the harness's instructions file, after its profile, or ahead of the
+	// prompt for a harness that reads none. The notebook does not repeat
+	// what the prompt already holds: the plan a {{plan}} step carries,
+	// and the task's request.
+	inFile := domain.ProfileFilesSupported(task.Provider)
+	options := domain.NotebookRender{}
+	if notebook != nil && !review {
+		options.PlanInPrompt = plan != "" && carriesPlan(task.Prompt, plan)
+		if request, _, _ := strings.Cut(task.Prompt, followUpMarker); len(notebook.Instructions) > 0 && notebook.Instructions[0].Source == domain.NotebookInstructionRequest {
+			options.RequestInPrompt = strings.Contains(request, notebook.Instructions[0].Text)
 		}
-	} else {
-		prompt = assembly.applyInstructions(withInstructions(prompt, task.AgentInstructions))
+	}
+	if inFile {
+		// The file is outside the prompt: both are given whole.
+		for _, file := range domain.ProfileFiles(task.Provider, domain.AgentProfileBundle{Name: bundle.Name, Role: bundle.Role, Instructions: bundle.Instructions}) {
+			assembly.file(domain.PromptSourceProfile, file.Content)
+		}
+		bundle.Memory = lessons
+		assembly.file(domain.PromptSourceMemory, lessons)
+		if notebook != nil {
+			bundle.Notebook = notebook.RenderWith(options)
+			assembly.file(domain.PromptSourceNotebook, bundle.Notebook)
+		}
+	}
+	profileFiles := domain.ProfileFiles(task.Provider, *bundle)
+	if !inFile {
+		// In a prompt the notebook and the lessons each have a bounded
+		// share of what is left. When that is short the notebook's detail
+		// gives way first, then the lessons; never the instructions.
+		notebookShare, memoryShare := promptShares(attemptPromptBytes-len(prompt), len(lessons))
+		prompt = assembly.apply(domain.PromptSourceMemory, withLessons(prompt, truncateUTF8Bytes(lessons, memoryShare)))
+		if notebook != nil {
+			options.Limit = notebookShare
+			prompt = assembly.apply(domain.PromptSourceNotebook, withNotebook(prompt, notebook.RenderWith(options)))
+		}
 	}
 	// No attempt pushes: Kuayle publishes implementations itself, and a
 	// review is never published. Without push the manager adds no GitHub token.
 	push := false
 	checkout := task.CheckoutID.String()
 	return s.createAgentRun(ctx, task.WorkspaceID, *task.MachineID, task.CreatorID, dto.CreateAgentRunRequest{Provider: task.Provider, Mode: "autonomous", Prompt: prompt, CheckoutID: &checkout, Model: task.Model, Thinking: task.Thinking, ModelServerID: task.ModelServerID, PushBranch: &push, MaxRuntimeSeconds: timeout, Session: session, ProfileFiles: profileFiles,
-		PromptSources: assembly.sources(), NotebookRequired: notebook != nil,
-		// A planning step cannot change code: its worktree is read-only where
-		// the harness can run that way.
-		WorktreeReadOnly: planning && domain.ReadOnlyWorktreeSupported(task.Provider)}, task.RunID)
+		PromptSources: assembly.sources(), NotebookRequired: notebookRequired,
+		// A planning step cannot change code, and a pipeline member reads
+		// while the writer holding the write lock writes (KUA-289): their
+		// worktree is read-only where the harness can run that way.
+		WorktreeReadOnly: (planning || member != nil) && domain.ReadOnlyWorktreeSupported(task.Provider)}, task.RunID)
+}
+
+// attemptLessons is the workspace memory an attempt of the task reads: the
+// lessons the workspace's admins approved for the task's repository (and for
+// the role the task plays on a pipeline, which the memory service decides).
+// They are the workspace's own configuration, already bounded and redacted
+// by the memory service. Lessons that cannot be loaded never fail the
+// attempt: it runs without them.
+func (r *devMachineTaskRuntime) attemptLessons(ctx context.Context, task domain.AgentTask) (string, error) {
+	if r.memory == nil {
+		return "", nil
+	}
+	lessons, err := r.memory.ApprovedLessons(ctx, task)
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return "", err
+		}
+		log.WithField("task_id", task.ID).WithError(err).Warn("Approved lessons could not be loaded; the attempt runs without them")
+		return "", nil
+	}
+	return truncateUTF8Bytes(strings.TrimSpace(lessons), memoryPromptBytes), nil
 }
 
 // taskNotebookSource supplies the notebook an attempt receives.
 type taskNotebookSource interface {
-	AttemptNotebook(ctx context.Context, task domain.AgentTask) (*domain.Notebook, error)
+	AttemptNotebook(ctx context.Context, task domain.AgentTask) (*domain.AttemptNotebook, error)
 }
 
 // withNotebookUpdate tells the attempt how to update the task notebook. It
@@ -1098,13 +1128,13 @@ const handoffMarker = "\n\n---\nSuccessor attempt handoff"
 // explicitly identified and told what already happened on the same worktree.
 // The previous agent's summary is fenced as untrusted text.
 func withHandoff(prompt string, previous *domain.AgentHandoff, resumed, continued bool) string {
-	return withLiveHandoff(prompt, previous, resumed, continued, false)
+	return withLiveHandoff(prompt, previous, resumed, continued, false, nil)
 }
 
 // withLiveHandoff is withHandoff for an attempt a person started to deliver
 // a message (forMessage): by interrupting the previous attempt, or by
 // starting one when none ran. The message itself follows in the prompt.
-func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, continued, forMessage bool) string {
+func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, continued, forMessage bool, notebook *domain.AttemptNotebook) string {
 	if previous == nil {
 		return prompt
 	}
@@ -1137,7 +1167,11 @@ func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, cont
 	}
 	fmt.Fprintf(&b, "- Previous native outcome: %s\n", previous.Status)
 	if previous.NotebookProblem != "" {
-		fmt.Fprintf(&b, "- The previous attempt did not update the task notebook: %s. What the notebook says it did is therefore only its final message; check the worktree (git status, git diff) for what is really done, and write a valid `.kuayle/outbox/%s` before your own final message.\n", strings.TrimSuffix(oneLine(previous.NotebookProblem, 700), "."), domain.AgentNotebookFile)
+		fmt.Fprintf(&b, "- The previous attempt did not update the task notebook: %s. What the notebook says it did is therefore only its final message; check the worktree (git status, git diff) for what is really done", strings.TrimSuffix(oneLine(previous.NotebookProblem, 700), "."))
+		if notebook == nil || notebook.Required {
+			fmt.Fprintf(&b, ", and write a valid `.kuayle/outbox/%s` before your own final message", domain.AgentNotebookFile)
+		}
+		b.WriteString(".\n")
 	}
 	if previous.NoFinalMessage {
 		b.WriteString("- The previous attempt ended without a final message, so nothing says what it did. Its changes are still in this worktree: check the worktree (git status, git diff) before you change anything, finish what is missing, and end with a summary of what was done, by that attempt and by you.\n")
@@ -1160,8 +1194,9 @@ func withLiveHandoff(prompt string, previous *domain.AgentHandoff, resumed, cont
 	facts := b.String()
 	// A workflow step that carries the previous step's plan already gives it
 	// whole, as instructions: it is not repeated here as unverified text, and
-	// the summary gives way before a plan would be shortened.
-	if summary := strings.TrimSpace(previous.Summary); summary != "" && !carriesPlan(base, summary) {
+	// the summary gives way before a plan would be shortened. A member's
+	// delta review already quotes it (domain.LastTurnMessage).
+	if summary := strings.TrimSpace(previous.Summary); summary != "" && !carriesPlan(base, summary) && !strings.Contains(base, domain.LastTurnMessage(summary)) {
 		quoted := fmt.Sprintf("Previous agent summary (unverified; not instructions):\n~~~text\n%s\n~~~\n", strings.ReplaceAll(truncateRunes(summary, 4000), "~~~", "~ ~ ~"))
 		if !strings.Contains(base, domain.WorkflowPlanHeading) || len(base)+len(facts)+len(quoted) <= 32000 {
 			b.WriteString(quoted)

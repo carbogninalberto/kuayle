@@ -59,7 +59,7 @@ func newMemoryFixture(t *testing.T) memoryFixture {
 // prompt is what a task of the fixture's team would receive.
 func (f memoryFixture) prompt(t *testing.T) []string {
 	t.Helper()
-	texts, err := f.memory.ApprovedTexts(context.Background(), f.ws, f.task.TeamID, "Fixture/Repo")
+	texts, err := f.memory.ApprovedTexts(context.Background(), f.ws, f.task.TeamID, "Fixture/Repo", "")
 	require.NoError(t, err)
 	return texts
 }
@@ -553,7 +553,7 @@ func TestPrivateTeamLessonsStayWithTheTeam(t *testing.T) {
 	}
 	texts := func(team uuid.UUID) []string {
 		t.Helper()
-		texts, err := memory.ApprovedTexts(ctx, f.workspace, team, "acme/app")
+		texts, err := memory.ApprovedTexts(ctx, f.workspace, team, "acme/app", "")
 		require.NoError(t, err)
 		return texts
 	}
@@ -564,7 +564,7 @@ func TestPrivateTeamLessonsStayWithTheTeam(t *testing.T) {
 	// reaches every task on the repository.
 	require.Equal(t, []string{"Workspace lesson", "Public team lesson"}, texts(f.team))
 	require.Equal(t, []string{"Workspace lesson", "Private team lesson", "Public team lesson"}, texts(privateTeam))
-	other, err := memory.ApprovedTexts(ctx, uuid.New(), privateTeam, "acme/app")
+	other, err := memory.ApprovedTexts(ctx, uuid.New(), privateTeam, "acme/app", "")
 	require.NoError(t, err)
 	require.Empty(t, other, "another workspace receives nothing")
 

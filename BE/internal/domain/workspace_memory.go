@@ -67,12 +67,15 @@ var (
 // returned only to owners and admins. TeamID is the team of the task a lesson
 // came from (nil for a lesson written by hand or shared with the workspace):
 // while that team is private, only people who can see it see the lesson and
-// only its tasks receive it.
+// only its tasks receive it. Role is the role of a team workflow's roster a
+// lesson is for (nil: every task): only the members of pipeline tasks that
+// play it receive it.
 type Lesson struct {
 	ID           uuid.UUID  `json:"id" db:"id"`
 	WorkspaceID  uuid.UUID  `json:"-" db:"workspace_id"`
 	Repository   string     `json:"repository" db:"repository_full_name"`
 	TeamID       *uuid.UUID `json:"team_id" db:"team_id"`
+	Role         *string    `json:"role" db:"role"`
 	State        string     `json:"state" db:"state"`
 	Text         string     `json:"text" db:"text"`
 	ProposedText string     `json:"proposed_text,omitempty" db:"proposed_text"`

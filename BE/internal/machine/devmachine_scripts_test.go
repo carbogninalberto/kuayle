@@ -3,7 +3,6 @@ package machine
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -19,54 +18,57 @@ import (
 
 const removedCheckoutTokenPath = "/run/kuayle-secrets/github-token"
 
-func TestCheckoutScriptCleansEphemeralCredentialsOnSuccess(t *testing.T) {
-	result := runCheckoutScriptFixture(t, false)
-	require.NoError(t, result.err, result.stderr)
+// A checkout leaves its token nowhere: not in the cache, the worktree or the
+// home, whether its fetch succeeds or fails. People's IDE and terminals get
+// a helper that reads GITHUB_TOKEN from their own environment for GitHub
+// (TestCredentialHelpersGiveTheTokenOnlyToGitHub), and a stale
+// cache configuration that named the removed token file is replaced.
+func TestCheckoutLeavesNoCredentialBehind(t *testing.T) {
+	e := newGitScriptEnv(t)
+	e.remote("octo/repo", "README.md")
+	workspace := filepath.Join(e.root, "workspace")
+	stale := filepath.Join(workspace, "repos", "octo", "repo.git")
+	e.git("", "init", "-q", "--bare", stale)
+	e.git("", "--git-dir="+stale, "config", "credential.helper", "!f() { cat "+removedCheckoutTokenPath+"; }; f")
+	e.git("", "--git-dir="+stale, "config", "core.askPass", removedCheckoutTokenPath)
+	path := filepath.Join(workspace, "tasks", "sec-02")
 
-	assertDirectoryEmpty(t, result.secretDir)
-	assertDirectoryEmpty(t, result.tmpDir)
-	assertNoSensitiveCheckoutData(t, result, removedCheckoutTokenPath)
-
-	helperBytes, err := os.ReadFile(result.helperPath)
+	output, err := e.runCheckout(workspace, "octo/repo", path)
+	require.NoError(t, err, output)
+	require.FileExists(t, filepath.Join(path, "README.md"))
+	for _, root := range []string{workspace, e.home} {
+		assertNoForbiddenFileContent(t, root, "installation-token-", removedCheckoutTokenPath)
+	}
+	helperPath := filepath.Join(e.home, ".kuayle-git-credential")
+	require.Equal(t, helperPath, e.git("", "--git-dir="+stale, "config", "--get-all", "credential.helper"))
+	helperBytes, err := os.ReadFile(helperPath)
 	require.NoError(t, err)
-	helper := string(helperBytes)
-	require.Contains(t, helper, "GITHUB_TOKEN")
-	require.NotContains(t, helper, result.rawToken)
-	require.NotContains(t, helper, removedCheckoutTokenPath)
-
-	missingTokenCmd := exec.Command(result.helperPath, "get")
+	require.Contains(t, string(helperBytes), "GITHUB_TOKEN")
+	github := "protocol=https\nhost=github.com\n\n"
+	missingTokenCmd := exec.Command(helperPath, "get")
 	missingTokenCmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	missingTokenCmd.Stdin = strings.NewReader(github)
 	require.Error(t, missingTokenCmd.Run())
-	processTokenCmd := exec.Command(result.helperPath, "get")
+	processTokenCmd := exec.Command(helperPath, "get")
 	processTokenCmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GITHUB_TOKEN=process-env-token"}
+	processTokenCmd.Stdin = strings.NewReader(github)
 	processTokenOutput, err := processTokenCmd.Output()
 	require.NoError(t, err)
 	require.Contains(t, string(processTokenOutput), "username=x-access-token")
 	require.Contains(t, string(processTokenOutput), "password=process-env-token")
 
-	workspaceConfig := filepath.Join(result.workspacePath, ".git", "config")
-	configBytes, err := os.ReadFile(workspaceConfig)
-	require.NoError(t, err)
-	config := string(configBytes)
-	require.Contains(t, config, "credential.helper="+result.helperPath)
-	require.NotContains(t, config, result.rawToken)
-	require.NotContains(t, config, removedCheckoutTokenPath)
-}
-
-func TestCheckoutScriptCleansEphemeralCredentialsOnFailure(t *testing.T) {
-	result := runCheckoutScriptFixture(t, true)
-	require.Error(t, result.err)
-	require.Contains(t, result.stderr, "exit status 42")
-
-	assertDirectoryEmpty(t, result.secretDir)
-	assertDirectoryEmpty(t, result.tmpDir)
-	assertNoSensitiveCheckoutData(t, result, removedCheckoutTokenPath)
+	// A fetch that fails leaves nothing behind either.
+	output, err = e.runCheckout(workspace, "octo/missing", filepath.Join(workspace, "tasks", "sec-03"))
+	require.Error(t, err, output)
+	for _, root := range []string{workspace, e.home} {
+		assertNoForbiddenFileContent(t, root, "installation-token-")
+	}
 }
 
 func TestCredentialHelperScriptsDoNotReferencePersistentCheckoutToken(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	paths := []string{
-		filepath.Join(repoRoot, "devmachine", "ide", "checkout.sh"),
+		filepath.Join(repoRoot, "BE", "internal", "machine", "docker_checkout.go"),
 		filepath.Join(repoRoot, "devmachine", "ide", "start.sh"),
 		filepath.Join(repoRoot, "devmachine", "common", "kuayle-agent-runner"),
 		filepath.Join(repoRoot, "BE", "internal", "machine", "docker.go"),
@@ -681,212 +683,6 @@ func TestTerminalSessionCloseReportsPersistentTmuxFailure(t *testing.T) {
 	require.FileExists(t, statePath)
 }
 
-type checkoutScriptResult struct {
-	rawToken      string
-	workspaceRoot string
-	workspacePath string
-	secretDir     string
-	tmpDir        string
-	homeDir       string
-	helperPath    string
-	stdout        string
-	stderr        string
-	err           error
-}
-
-func runCheckoutScriptFixture(t *testing.T, failFetch bool) checkoutScriptResult {
-	t.Helper()
-
-	repoRoot := repoRootFromCaller(t)
-	tempDir := t.TempDir()
-	workspaceRoot := filepath.Join(tempDir, "workspace")
-	workspacePath := filepath.Join(workspaceRoot, "tasks", "SEC-02")
-	secretDir := filepath.Join(tempDir, "secrets")
-	tmpDir := filepath.Join(tempDir, "tmp")
-	homeDir := filepath.Join(tempDir, "home")
-	fakeBin := filepath.Join(tempDir, "bin")
-	helperPath := filepath.Join(homeDir, ".kuayle-git-credential")
-	for _, dir := range []string{filepath.Join(workspaceRoot, "repos"), filepath.Join(workspaceRoot, "tasks"), secretDir, tmpDir, homeDir, fakeBin} {
-		require.NoError(t, os.MkdirAll(dir, 0o700))
-	}
-	staleBareRepository := filepath.Join(workspaceRoot, "repos", "octo", "repo.git")
-	require.NoError(t, os.MkdirAll(staleBareRepository, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(staleBareRepository, "config"), []byte("credential.helper=!f() { cat "+removedCheckoutTokenPath+"; }; f\ncore.askPass="+removedCheckoutTokenPath+"\n"), 0o600))
-
-	fakeGit := filepath.Join(fakeBin, "git")
-	writeFakeGit(t, fakeGit)
-
-	rawToken := "checkout-raw-token-SEC02"
-	cmd := exec.Command("sh", filepath.Join(repoRoot, "devmachine", "ide", "checkout.sh"), "octo/repo", "main", "kuayle-sec-02", workspacePath)
-	cmd.Stdin = strings.NewReader(rawToken + "\n")
-	cmd.Env = []string{
-		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"HOME=" + homeDir,
-		"KUAYLE_WORKSPACE_ROOT=" + workspaceRoot,
-		"KUAYLE_CHECKOUT_SECRET_DIR=" + secretDir,
-		"KUAYLE_CHECKOUT_TMP_DIR=" + tmpDir,
-		"KUAYLE_CHECKOUT_ALLOW_ROOT_OVERRIDE=1",
-		"KUAYLE_GIT_CREDENTIAL_HELPER=" + helperPath,
-		"KUAYLE_FAKE_GIT_LOG=" + filepath.Join(tempDir, "git.log"),
-		"KUAYLE_FAKE_GIT_SECRET_DIR=" + secretDir,
-	}
-	if failFetch {
-		cmd.Env = append(cmd.Env, "KUAYLE_FAKE_GIT_FAIL_FETCH=1")
-	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	if err != nil {
-		stderr.WriteString(fmt.Sprintf("\n%v", err))
-	}
-
-	return checkoutScriptResult{
-		rawToken:      rawToken,
-		workspaceRoot: workspaceRoot,
-		workspacePath: workspacePath,
-		secretDir:     secretDir,
-		tmpDir:        tmpDir,
-		homeDir:       homeDir,
-		helperPath:    helperPath,
-		stdout:        stdout.String(),
-		stderr:        stderr.String(),
-		err:           err,
-	}
-}
-
-func writeFakeGit(t *testing.T, path string) {
-	t.Helper()
-	script := `#!/bin/sh
-set -eu
-log=${KUAYLE_FAKE_GIT_LOG:?}
-printf '%s\n' "$*" >> "$log"
-
-if [ -n "${KUAYLE_CHECKOUT_TOKEN_FILE:-}" ]; then
-  case "$KUAYLE_CHECKOUT_TOKEN_FILE" in "$KUAYLE_FAKE_GIT_SECRET_DIR"/*) ;; *) echo "token file outside secret dir" >&2; exit 90 ;; esac
-  [ -f "$KUAYLE_CHECKOUT_TOKEN_FILE" ] || { echo "missing token file" >&2; exit 91; }
-  [ -x "${GIT_ASKPASS:-}" ] || { echo "missing askpass" >&2; exit 92; }
-  user=$("$GIT_ASKPASS" Username)
-  [ "$user" = x-access-token ] || { echo "bad askpass username" >&2; exit 93; }
-  password=$("$GIT_ASKPASS" Password)
-  [ -n "$password" ] || { echo "empty askpass password" >&2; exit 94; }
-fi
-
-if [ "${KUAYLE_FAKE_GIT_FAIL_FETCH:-}" = "1" ]; then
-  for arg in "$@"; do
-    [ "$arg" != fetch ] || exit 42
-  done
-fi
-
-work_tree=
-git_dir=
-if [ "${1:-}" = "-C" ]; then
-  work_tree=$2
-  shift 2
-fi
-case "${1:-}" in
-  --git-dir=*) git_dir=${1#--git-dir=}; shift ;;
-esac
-command=${1:-}
-[ "$#" -eq 0 ] || shift
-
-config_target() {
-  if [ -n "$work_tree" ]; then
-    mkdir -p "$work_tree/.git"
-    printf '%s\n' "$work_tree/.git/config"
-  elif [ -n "$git_dir" ]; then
-    mkdir -p "$git_dir"
-    printf '%s\n' "$git_dir/config"
-  else
-    printf '%s\n' "$HOME/.gitconfig"
-  fi
-}
-
-write_config() {
-  target=$(config_target)
-  mkdir -p "$(dirname "$target")"
-  printf '%s=%s\n' "$1" "$2" >> "$target"
-}
-
-unset_config() {
-  target=$(config_target)
-  [ -f "$target" ] || return 0
-  tmp="$target.tmp"
-  : > "$tmp"
-  while IFS= read -r line; do
-    case "$line" in
-      "$1"=*) ;;
-      *) printf '%s\n' "$line" >> "$tmp" ;;
-    esac
-  done < "$target"
-  mv "$tmp" "$target"
-}
-
-case "$command" in
-  clone)
-    destination=
-    for arg in "$@"; do destination=$arg; done
-    mkdir -p "$destination"
-    ;;
-  config)
-    if [ "${1:-}" = "--global" ]; then
-      shift
-      if [ "${1:-}" = "--unset-all" ]; then
-        key=${2:-}
-        work_tree=
-        git_dir=
-        unset_config "$key"
-        exit 0
-      fi
-      if [ "${1:-}" = "--add" ]; then shift; fi
-      key=${1:-}
-      value=${2:-}
-      work_tree=
-      git_dir=
-      write_config "$key" "$value"
-      exit 0
-    fi
-    if [ "${1:-}" = "--unset-all" ]; then
-      key=${2:-}
-      unset_config "$key"
-      exit 0
-    fi
-    key=${1:-}
-    value=${2:-}
-    write_config "$key" "$value"
-    ;;
-  remote)
-    mkdir -p "$git_dir"
-    ;;
-  fetch)
-    mkdir -p "$git_dir"
-    ;;
-  worktree)
-    subcommand=${1:-}
-    shift || true
-    if [ "$subcommand" = add ]; then
-      checkout_path=
-      while [ "$#" -gt 0 ]; do
-        case "$1" in
-          -b|-B) shift 2 ;;
-          *) checkout_path=$1; break ;;
-        esac
-      done
-      mkdir -p "$checkout_path/.git"
-    fi
-    ;;
-  show-ref)
-    case "$*" in
-      *refs/remotes/origin/kuayle-sec-02*) exit 1 ;;
-      *refs/remotes/origin/main*) exit 0 ;;
-    esac
-    exit 1
-    ;;
-esac
-`
-	require.NoError(t, os.WriteFile(path, []byte(script), 0o700))
-}
-
 func writeFakeTmux(t *testing.T, path string) {
 	t.Helper()
 	script := `#!/bin/sh
@@ -916,20 +712,6 @@ func repoRootFromCaller(t *testing.T) string {
 	workingDirectory, err := os.Getwd()
 	require.NoError(t, err)
 	return filepath.Clean(filepath.Join(workingDirectory, "..", "..", ".."))
-}
-
-func assertDirectoryEmpty(t *testing.T, path string) {
-	t.Helper()
-	entries, err := os.ReadDir(path)
-	require.NoError(t, err)
-	require.Empty(t, entries)
-}
-
-func assertNoSensitiveCheckoutData(t *testing.T, result checkoutScriptResult, forbidden ...string) {
-	t.Helper()
-	for _, root := range []string{result.workspaceRoot, result.homeDir, result.secretDir, result.tmpDir} {
-		assertNoForbiddenFileContent(t, root, append([]string{result.rawToken}, forbidden...)...)
-	}
 }
 
 func assertNoForbiddenFileContent(t *testing.T, root string, forbidden ...string) {

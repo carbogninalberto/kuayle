@@ -36,7 +36,6 @@ COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-por
 COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md common/kuayle-agent-sign-in.sh common/kuayle-claude-config.cjs common/check-agent-cli-flags.sh /usr/local/lib/kuayle/
 COPY headless/kuayle-headless-start /usr/local/bin/kuayle-headless-start
 COPY ide/shell.sh /usr/local/bin/kuayle-shell
-COPY ide/checkout.sh /usr/local/bin/kuayle-checkout
 COPY ide/terminal-session.sh /usr/local/bin/kuayle-terminal-session
 COPY common/kuayle-task-claude /usr/local/bin/kuayle-task-claude
 COPY ide/command-event.js /usr/local/lib/kuayle-command-event.js
@@ -75,7 +74,6 @@ RUN rm -f /usr/bin/pebble \
          /usr/local/bin/kuayle-agent-runner \
          /usr/local/bin/kuayle-headless-start \
          /usr/local/bin/kuayle-shell \
-         /usr/local/bin/kuayle-checkout \
          /usr/local/bin/kuayle-terminal-session /usr/local/bin/kuayle-task-claude \
          /usr/local/bin/install-agent-clis.sh \
     && ttyd --version \

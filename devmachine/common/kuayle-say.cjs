@@ -12,11 +12,15 @@ const { execFileSync } = require('node:child_process');
 
 const KINDS = ['say', 'ask', 'phase', 'verdict', 'request', 'waiver', 'grant', 'fact', 'summary'];
 const VERDICTS = ['approve', 'request_changes', 'comment'];
-const REQUESTS = ['review', 'merge', 'publish', 'split'];
+const REQUESTS = ['review', 'merge', 'publish', 'split', 'approve'];
 const MAX_RUNES = 4000;
 const USAGE = `usage: kuayle-say --to @role|@all [--ask | --kind KIND] [--reply-to N] [--file PATH] [TEXT...]
        kuayle-say --to @role --verdict approve|request_changes|comment [--commit SHA] [--file FINDINGS]
-       kuayle-say --to @role --request review|merge|publish|split [TEXT...]
+       kuayle-say --to @role --request review|merge|publish [TEXT...]
+       kuayle-say --to @human --request split --issue TITLE DESCRIPTION [--issue TITLE DESCRIPTION ...]
+       kuayle-say --to @all --phase PHASE REASON... (the lead moves the task)
+       kuayle-say --to @all --request approve --commit SHA
+       kuayle-say --to @all --waive CHECK [--standing] REASON
 The text is the remaining arguments, or --file, or standard input with "-".`;
 
 function fail(message) {
@@ -25,7 +29,7 @@ function fail(message) {
 }
 
 function parse(argv) {
-  const opts = { kind: 'say', text: [] };
+  const opts = { kind: 'say', text: [], issues: [] };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -41,6 +45,9 @@ function parse(argv) {
       case '--verdict': opts.kind = 'verdict'; opts.verdict = value(); break;
       case '--commit': opts.commit = value(); break;
       case '--request': opts.kind = 'request'; opts.action = value(); break;
+      case '--waive': opts.kind = 'waiver'; opts.check = value(); break;
+      case '--standing': opts.standing = true; break;
+      case '--issue': opts.issues.push({ title: value().trim(), description: value().trim() }); break;
       case '--phase': opts.kind = 'phase'; opts.phase = value(); break;
       case '-h': case '--help': process.stdout.write(`${USAGE}\n`); process.exit(0); break;
       case '--': opts.text.push(...argv.slice(i + 1)); i = argv.length; break;
@@ -94,8 +101,32 @@ function main() {
   if (opts.kind === 'request') {
     if (!REQUESTS.includes(opts.action)) fail(`--request is one of ${REQUESTS.join(', ')}`);
     data.action = opts.action;
+    if (opts.action === 'approve') {
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(opts.commit || '')) fail('approval needs --commit with the full room head');
+      data.commit = opts.commit;
+    }
   }
-  if (opts.kind === 'phase') data.phase = opts.phase;
+  if (opts.standing && opts.kind !== 'waiver') fail('--standing applies only to a waiver');
+  if (opts.kind === 'waiver') {
+    if (!opts.check || !body) fail('a waiver needs --waive CHECK and a reason');
+    data.check = opts.check;
+    if (opts.standing) data.standing = true;
+  }
+  if (opts.kind === 'phase') {
+    if (!opts.phase || !opts.phase.trim()) fail('--phase names a phase of the workflow');
+    if (!body) fail('say why the task moves: kuayle-say --to @all --phase ID "reason"');
+    data.phase = opts.phase.trim();
+  }
+  if (opts.kind === 'request' && opts.action === 'split') {
+    if (!opts.issues.length || opts.issues.length > 10) fail('a split needs 1 to 10 --issue TITLE DESCRIPTION pairs');
+    for (const issue of opts.issues) {
+      if (!issue.title || [...issue.title].length > 500) fail('each title needs 1 to 500 characters');
+      if (!issue.description || [...issue.description].length > 1000) fail('each description needs 1 to 1000 characters');
+    }
+    data.issues = opts.issues;
+  } else if (opts.issues.length) {
+    fail('--issue belongs to --request split');
+  }
   if (Object.keys(data).length) message.data = data;
   if (opts.replyTo !== undefined) {
     const n = Number(opts.replyTo);
@@ -103,11 +134,13 @@ function main() {
     message.reply_to = n;
   }
 
+  const serialized = JSON.stringify(message);
+  if (data.action === 'split' && Buffer.byteLength(serialized) > 16384) fail('the whole split request must fit in one 16 KiB outbox file');
   const dir = outboxDir();
   fs.mkdirSync(dir, { recursive: true });
   const name = `room-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`;
   const hidden = path.join(dir, `.${name}`);
-  fs.writeFileSync(hidden, JSON.stringify(message), { mode: 0o644 });
+  fs.writeFileSync(hidden, serialized, { mode: 0o644 });
   fs.renameSync(hidden, path.join(dir, name));
   process.stdout.write(`${path.join(dir, name)}\n`);
 }

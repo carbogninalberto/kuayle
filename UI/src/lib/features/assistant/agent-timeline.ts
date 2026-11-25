@@ -161,7 +161,7 @@ export function workflowTimeline(view: View, task: Task): TimelineStep[] {
 	});
 }
 
-type Attempt = Pick<AgentRun, 'id' | 'provider_id' | 'status' | 'created_at' | 'started_at' | 'completed_at'> & RunUsage & {
+type Attempt = Pick<AgentRun, 'id' | 'provider_id' | 'status' | 'created_at' | 'started_at' | 'completed_at' | 'summary'> & RunUsage & {
 	model?: string;
 	result?: { replies_unknown?: boolean } | null;
 };
@@ -176,6 +176,7 @@ export function attemptTimeline(task: Task, attempts: Attempt[]): TimelineStep[]
 			model: run.model ?? '',
 			status: run.status,
 			replies_unknown: run.result?.replies_unknown || undefined,
+			summary: run.summary,
 			input_tokens: run.input_tokens,
 			output_tokens: run.output_tokens,
 			cache_read_tokens: run.cache_read_tokens,

@@ -4,7 +4,8 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import { agentTasks } from '$lib/api/agent-tasks';
-	import { diffTotals, lineMatches, parseDiff, searchDiff, type DiffFile } from './diff';
+	import { diffTotals, parseDiff, searchDiff, type DiffFile } from './diff';
+	import DiffLines from './DiffLines.svelte';
 	import { m } from '$lib/features/i18n/messages';
 
 	// Layout decision (KUA-67): the aggregate total lives in the header; search and
@@ -74,14 +75,6 @@
 			})
 			.catch(() => (status = 'error'));
 	});
-
-	const lineClass = {
-		add: 'bg-[var(--status-success)]/10 text-[var(--status-success)]',
-		del: 'bg-[var(--status-error)]/10 text-[var(--status-error)]',
-		hunk: 'bg-muted text-muted-foreground',
-		meta: 'text-muted-foreground',
-		context: 'text-foreground'
-	};
 </script>
 
 <section class="flex h-full min-w-0 flex-col bg-background" aria-label={m['tasks.diff_title']()}>
@@ -173,11 +166,7 @@
 							<span class="shrink-0 text-[var(--status-error)]">−{file.deletions}</span>
 						</Collapsible.Trigger>
 						<Collapsible.Content>
-							<pre class="overflow-x-auto text-xs leading-5"><code
-									>{#each file.lines as line, index (index)}<span
-											class="block px-3 whitespace-pre {lineClass[line.kind]} {searching && lineMatches(line.text, query) ? 'bg-[var(--status-warning)]/25' : ''}">{line.text || ' '}</span
-										>{/each}</code
-								></pre>
+							<DiffLines lines={file.lines} {query} />
 						</Collapsible.Content>
 					</Collapsible.Root>
 				{/each}

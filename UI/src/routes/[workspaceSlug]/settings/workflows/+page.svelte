@@ -3,7 +3,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Copy, Info, Pencil, Plus, RotateCcw, Star, Trash2, Workflow } from '@lucide/svelte';
+	import { Copy, Info, ListChecks, Pencil, Plus, RotateCcw, Star, Trash2, Workflow } from '@lucide/svelte';
 	import * as Popover from '$lib/components/ui/popover/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import * as Item from '$lib/components/ui/item/index.js';
@@ -11,7 +11,7 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
-	import { workflows, type WorkflowList, type WorkflowSummary } from '$lib/api/workflows';
+	import { isPipeline, workflows, type WorkflowList, type WorkflowSummary } from '$lib/api/workflows';
 	import { getWorkspace } from '$lib/api/workspaces';
 	import { listTeams } from '$lib/api/teams';
 	import { listProjects } from '$lib/api/projects';
@@ -156,6 +156,7 @@
 								{#if workflow.customized}<Badge variant="outline">{m['workflows.customized']()}</Badge>{/if}
 							{:else}<Badge variant="outline">{m['workflows.version']({ version: workflow.latest_version })}</Badge
 								>{/if}
+							{#if isPipeline(workflow.graph)}<Badge variant="secondary">{m['workflows.pipeline']()}</Badge>{/if}
 							{#if defaultId === workflow.id}<Badge>{m['workflows.default_badge']()}</Badge>{/if}
 							{#if workflow.archived}<Badge variant="outline">{m['workflows.archived']()}</Badge>{/if}
 						</Item.Title>
@@ -178,6 +179,14 @@
 									aria-label={m['workflows.set_default_named']({ name })}
 									title={m['workflows.set_default']()}
 									onclick={() => setDefault(workflow)}><Star /></Button
+								>{/if}
+							{#if list.pipelines_enabled && !workflow.archived && !isPipeline(workflow.graph)}<Button
+									size="icon-sm"
+									variant="ghost"
+									href="{editorHref(workflow.id)}/pipeline-draft"
+									aria-label={m['workflows.pipeline_editor.draft_named']({ name })}
+									title={m['workflows.pipeline_editor.draft']()}
+									data-testid="workflow-draft-pipeline"><ListChecks /></Button
 								>{/if}
 							<Button
 								size="icon-sm"
@@ -212,6 +221,7 @@
 {#if creating}
 	<NewWorkflowDialog
 		{slug}
+		pipelines={!!list?.pipelines_enabled}
 		onclose={() => (creating = false)}
 		oncreated={(created) => {
 			creating = false;

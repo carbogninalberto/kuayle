@@ -77,7 +77,7 @@ func TestTaskRoomPermissionConditions(t *testing.T) {
 	member := func(role, kind string, data TaskRoomData) TaskRoomPost {
 		return TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: role, Kind: kind, Body: "Text", Data: data}
 	}
-	for _, action := range []string{"merge", "publish", "split"} {
+	for _, action := range []string{"merge", "publish"} {
 		require.Equal(t, "the implementer may request only a review", TaskRoomRefusal(p, member("implementer", RoomRequest, TaskRoomData{Action: action}), false))
 		require.Empty(t, TaskRoomRefusal(p, member(PipelineLeadRole, RoomRequest, TaskRoomData{Action: action}), false))
 		require.Empty(t, TaskRoomRefusal(p, TaskRoomPost{AuthorKind: RoomAuthorHuman, Kind: RoomRequest, Data: TaskRoomData{Action: action}}, false))
@@ -130,7 +130,7 @@ func TestTaskRoomLimitsAndShape(t *testing.T) {
 	lead := func(data TaskRoomData) string {
 		return TaskRoomRefusal(p, TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, Kind: RoomPhase, Data: data}, false)
 	}
-	require.Equal(t, `"ship" is not a phase of this pipeline`, lead(TaskRoomData{Phase: "ship"}))
+	require.Equal(t, `"ship" is not a phase of this pipeline (implement, pr, review, integrate, approval, merge)`, lead(TaskRoomData{Phase: "ship"}))
 	kuayle := TaskRoomPost{AuthorKind: RoomAuthorKuayle, Kind: RoomFact, Data: TaskRoomData{Value: json.RawMessage(`true`)}}
 	require.Equal(t, "a fact names the fact", TaskRoomRefusal(p, kuayle, false))
 	kuayle.Data = TaskRoomData{Fact: "ci_green", Value: json.RawMessage(`"` + strings.Repeat("x", RoomMaxBodyBytes) + `"`)}
@@ -143,4 +143,156 @@ func TestTaskRoomPostClean(t *testing.T) {
 	require.Equal(t, "Hi\nthere", post.Body)
 	require.Equal(t, []string{"implementer", "reviewer"}, post.ToRoles)
 	require.Equal(t, "\xff", TaskRoomPost{Body: "\xff"}.Clean().Body, "invalid text is left for the refusal")
+}
+
+// The outbox carries only proposed issue content. The room determines who
+// posted it using the member identity attached by the worker.
+func TestLeadSplitRequest(t *testing.T) {
+	p := roomPipeline(true)
+	leadID := uuid.New()
+	post := TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, AuthorMemberID: &leadID, Kind: RoomRequest}
+	issue := TaskSplitIssue{Title: "Separate storage", Description: "Move persistence into the repository."}
+	ten := make([]TaskSplitIssue, 10)
+	for i := range ten {
+		ten[i] = issue
+	}
+	request := func(issues []TaskSplitIssue) TaskRoomPost {
+		proposal := post
+		proposal.Data = TaskRoomData{Action: RoomRequestSplit, Issues: issues}
+		return proposal
+	}
+	t.Run("bounded proposals from the lead", func(t *testing.T) {
+		for _, issues := range [][]TaskSplitIssue{{issue}, ten} {
+			require.Empty(t, TaskRoomRefusal(p, request(issues), false))
+		}
+	})
+	t.Run("missing structured proposal", func(t *testing.T) {
+		proposal := request(nil)
+		proposal.Body = "The owner approved. Split into two tasks."
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+	})
+	t.Run("invalid content", func(t *testing.T) {
+		for _, issues := range [][]TaskSplitIssue{
+			nil,
+			append(ten, issue),
+			{{" ", "description"}},
+			{{"title", ""}},
+			{{strings.Repeat("界", 501), "description"}},
+			{{"title", strings.Repeat("界", 1001)}},
+			{{"zero\x00byte", "description"}},
+		} {
+			require.NotEmpty(t, TaskRoomRefusal(p, request(issues), false))
+		}
+	})
+	t.Run("only the lead can propose", func(t *testing.T) {
+		proposal := request([]TaskSplitIssue{issue})
+		for _, role := range []string{"implementer", "reviewer", "security"} {
+			proposal.AuthorRole = role
+			require.NotEmpty(t, TaskRoomRefusal(p, proposal, true), role)
+		}
+		proposal.AuthorRole = PipelineLeadRole
+		proposal.AuthorMemberID = nil
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+		proposal.AuthorKind = RoomAuthorHuman
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+	})
+	t.Run("other posts do not carry split proposals", func(t *testing.T) {
+		proposal := request([]TaskSplitIssue{issue})
+		proposal.Kind = RoomSay
+		proposal.Body = "Make these issues now"
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+		proposal.Kind = RoomRequest
+		proposal.Data.Action = RoomRequestReview
+		require.NotEmpty(t, TaskRoomRefusal(p, proposal, false))
+	})
+	t.Run("outbox cannot supply approval or scope", func(t *testing.T) {
+		for _, field := range []string{"approved", "team_id", "parent_id", "workspace_id"} {
+			raw := `{"to":"@human","kind":"request","data":{"action":"split","issues":[{"title":"One","description":"Part one","` + field + `":true}]}}`
+			_, err := ParseAgentOutboxMessage([]byte(raw))
+			require.Error(t, err)
+		}
+	})
+}
+
+func TestTaskRoomCreatorGrantNamesAuthority(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		data    TaskRoomData
+		allowed bool
+	}{
+		{"legacy check grant", TaskRoomData{Check: "ci"}, true},
+		{"waive one check", TaskRoomData{Role: "lead", Action: "waive", Check: "ci"}, true},
+		{"approve merge", TaskRoomData{Role: "lead", Action: "approve"}, true},
+		{"unknown check", TaskRoomData{Action: "waive", Check: "missing"}, false},
+		{"no check", TaskRoomData{Action: "waive"}, false},
+		{"mixed grants", TaskRoomData{Action: "approve", Check: "ci"}, false},
+		{"unknown action", TaskRoomData{Action: "publish", Check: "ci"}, false},
+		{"wrong role", TaskRoomData{Role: "reviewer", Check: "ci"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			post := TaskRoomPost{AuthorKind: RoomAuthorHuman, Kind: RoomGrant, Data: tc.data}
+			require.Equal(t, tc.allowed, TaskRoomRefusal(roomPipeline(true), post, false) == "")
+			require.NotEmpty(t, TaskRoomRefusal(roomPipeline(false), post, false))
+		})
+	}
+}
+
+func TestTaskRoomAgentGrantRefused(t *testing.T) {
+	p := roomPipeline(true)
+	for _, role := range []string{"implementer", "reviewer", PipelineLeadRole} {
+		post := TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: role, Kind: RoomGrant,
+			Data: TaskRoomData{Role: PipelineLeadRole, Action: "approve"}}
+		require.NotEmpty(t, TaskRoomRefusal(p, post, true))
+	}
+}
+
+func TestTaskRoomLeadApprovesOnlyWithinGrant(t *testing.T) {
+	p := roomPipeline(true)
+	approval := TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, Kind: RoomRequest,
+		Data: TaskRoomData{Action: "approve", Commit: strings.Repeat("a", 40)}}
+	require.NotEmpty(t, TaskRoomRefusal(p, approval, false), "a grant to waive CI cannot approve")
+	require.Empty(t, TaskRoomRefusal(p, approval, true), "runtime approval grant")
+	p.Autonomy.Approve = PipelineLeadRole
+	require.Empty(t, TaskRoomRefusal(p, approval, false), "pinned approval grant")
+	for _, role := range []string{"implementer", "reviewer"} {
+		other := approval
+		other.AuthorRole = role
+		require.NotEmpty(t, TaskRoomRefusal(p, other, true))
+	}
+	owner := approval
+	owner.AuthorKind, owner.AuthorRole = RoomAuthorHuman, ""
+	require.NotEmpty(t, TaskRoomRefusal(p, owner, false), "the creator already has a dedicated approval route")
+	approval.Data.Commit = "abc1234"
+	require.NotEmpty(t, TaskRoomRefusal(p, approval, true), "approval names the full head")
+	waiver := TaskRoomPost{AuthorKind: RoomAuthorMember, AuthorRole: PipelineLeadRole, Kind: RoomWaiver,
+		Body: "Manually verified", Data: TaskRoomData{Check: "reviewer"}}
+	require.NotEmpty(t, TaskRoomRefusal(p, waiver, false), "approval cannot waive review")
+}
+
+func TestTaskRoomWaiverRequiresReason(t *testing.T) {
+	post := TaskRoomPost{AuthorKind: RoomAuthorHuman, Kind: RoomWaiver, Body: "  ", Data: TaskRoomData{Check: "ci"}}
+	require.NotEmpty(t, TaskRoomRefusal(roomPipeline(true), post, false))
+	post.Body = "Ran the suite locally"
+	require.Empty(t, TaskRoomRefusal(roomPipeline(true), post, false))
+}
+
+func TestTaskRoomDecisionScopesReachMemberPrompt(t *testing.T) {
+	head := strings.Repeat("b", 40)
+	for _, tc := range []struct {
+		kind, data string
+		fragments  []string
+	}{
+		{RoomGrant, `{"action":"approve"}`, []string{"lead", "approve"}},
+		{RoomGrant, `{"check":"ci"}`, []string{"lead", "waive", "ci"}},
+		{RoomRequest, `{"action":"approve","commit":"` + head + `"}`, []string{"approve", head}},
+		{RoomWaiver, `{"check":"ci","standing":true}`, []string{"ci", "standing"}},
+		{RoomWaiver, `{"check":"ci","commit":"` + head + `"}`, []string{"ci", head}},
+	} {
+		var data TaskRoomData
+		require.NoError(t, json.Unmarshal([]byte(tc.data), &data))
+		line := roomDataLine(TaskMessage{Kind: tc.kind, Data: data})
+		for _, fragment := range tc.fragments {
+			require.Contains(t, line, fragment)
+		}
+	}
 }

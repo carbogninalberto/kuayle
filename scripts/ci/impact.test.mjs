@@ -74,8 +74,8 @@ test('Dockerfiles and shared dev-machine inputs fan out only to their consumers'
   assert.deepEqual(ids(planForPaths(['devmachine/common/patch-npm-security.cjs']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-say.cjs']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
   assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-service-entrypoint']).devImages), ['ide', 'headless', 'browser', 'collector', 'egress']);
-  assert.equal(planForPaths(['devmachine/ide/checkout.sh']).backend, true);
-  assert.equal(planForPaths(['devmachine/ide/checkout.sh', 'BE/Dockerfile.updater']).runtime, true);
+  assert.equal(planForPaths(['devmachine/ide/shell.sh']).backend, true);
+  assert.equal(planForPaths(['devmachine/ide/shell.sh', 'BE/Dockerfile.updater']).runtime, true);
   assert.equal(planForPaths(['devmachine/security/apparmor.profile']).runtime, true);
 });
 

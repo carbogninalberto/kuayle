@@ -81,7 +81,13 @@ hover and keyboard focus, before declaring a migration done.
   with heavy data; add new routes there.
 - Keep requests in [UI API modules](../../../UI/src/lib/api) using the shared
   [client](../../../UI/src/lib/api/client.ts). Inspect feature `.svelte.ts` state,
-  refresh/realtime handling and API types before changing contracts.
+  refresh/realtime handling and API types before changing contracts. Task workflow
+  views share [TaskRun](../../../UI/src/lib/features/assistant/task-run.svelte.ts)
+  for the pinned version, member runs and paged room history. Use
+  [PipelineEditor](../../../UI/src/lib/features/workflows/PipelineEditor.svelte)
+  for pipeline definitions and [PipelineRunDetails](../../../UI/src/lib/features/workflows/PipelineRunDetails.svelte)
+  for a running pipeline. The task sidebar has separate [Files](../../../UI/src/lib/features/assistant/panels/FilesPanel.svelte)
+  and [Checks](../../../UI/src/lib/features/assistant/panels/ChecksPanel.svelte) panels.
 - Translate new app strings through [message catalogs](../../../UI/messages), adding
   each key to every locale (including `messages/community/`) per
   [translations](../../../docs/development.md#translations). Import `m` and locale

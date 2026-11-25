@@ -369,3 +369,70 @@ func TestPublishScriptsNeverRunProgramsNamedByTheCheckout(t *testing.T) {
 	require.Equal(t, "agent edit", run(worktree, nil, "show", "HEAD:review.txt"))
 	require.Equal(t, "review.txt", run(worktree, nil, "-c", "core.fsmonitor=false", "diff", "--name-only", "--diff-filter=U"))
 }
+
+// A member's worktree is checked out at the commit its turn reads before it
+// is mounted read-only (KUA-289), against real git: the files, the index and
+// HEAD are that commit's, what an earlier turn changed is discarded, and
+// nothing an agent wrote into the checkout's configuration runs.
+func TestPinWorktreeChecksOutTheCommitAndRunsNothingTheAgentConfigured(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is unavailable")
+	}
+	root := t.TempDir()
+	run := func(dir string, args ...string) string {
+		t.Helper()
+		command := exec.Command(realGit, append([]string{"-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"}, args...)...)
+		command.Dir = dir
+		command.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Fixture", "GIT_AUTHOR_EMAIL=fixture@example.invalid", "GIT_COMMITTER_NAME=Fixture", "GIT_COMMITTER_EMAIL=fixture@example.invalid")
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		return strings.TrimSpace(string(output))
+	}
+	seed := filepath.Join(root, "seed")
+	run(root, "init", "-q", "-b", "main", seed)
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "README.md"), []byte("base\n"), 0o644))
+	run(seed, "add", "README.md")
+	run(seed, "commit", "-q", "-m", "base")
+	run(seed, "checkout", "-q", "-b", "kuayle/rec-1")
+	require.NoError(t, os.WriteFile(filepath.Join(seed, "toggle.ts"), []byte("dark\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(seed, ".gitattributes"), []byte("*.ts filter=agent\n"), 0o644))
+	run(seed, "add", "toggle.ts", ".gitattributes")
+	run(seed, "commit", "-q", "-m", "toggle")
+	published := run(seed, "rev-parse", "HEAD")
+	cache := filepath.Join(root, "repos", "acme-app.git")
+	run(root, "clone", "-q", "--bare", seed, cache)
+	worktree := filepath.Join(root, "tasks", "rec-1-reviewer")
+	run(root, "--git-dir="+cache, "worktree", "add", "-q", "-b", "kuayle/rec-1-reviewer", worktree, "main")
+	require.NoError(t, os.WriteFile(filepath.Join(worktree, "README.md"), []byte("changed by an earlier turn\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(worktree, ".kuayle", "outbox"), 0o755))
+
+	marker := filepath.Join(root, "executed")
+	hostile := filepath.Join(root, "hostile")
+	require.NoError(t, os.WriteFile(hostile, []byte("#!/bin/sh\necho \"$0\" >> "+marker+"\ncat\n"), 0o755))
+	hooks := filepath.Join(root, "hooks")
+	require.NoError(t, os.MkdirAll(hooks, 0o755))
+	for _, name := range []string{"post-checkout", "reference-transaction"} {
+		require.NoError(t, os.Symlink(hostile, filepath.Join(hooks, name)))
+	}
+	run(worktree, "config", "core.hooksPath", hooks)
+	run(worktree, "config", "core.fsmonitor", hostile)
+	run(worktree, "config", "filter.agent.smudge", hostile)
+
+	command := exec.Command("sh", "-c", pinWorktreeScript, "kuayle-pin", worktree, "kuayle/rec-1-reviewer", published)
+	command.Env = append(os.Environ(), "HOME="+root)
+	output, err := command.CombinedOutput()
+	require.NoError(t, err, string(output))
+
+	require.Equal(t, published, run(worktree, "rev-parse", "HEAD"), "the worktree is detached at the commit")
+	require.Empty(t, run(worktree, "status", "--porcelain", "--untracked-files=no"), "its index and files are the commit's")
+	content, err := os.ReadFile(filepath.Join(worktree, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, "base\n", string(content), "an earlier turn's change is discarded")
+	content, err = os.ReadFile(filepath.Join(worktree, "toggle.ts"))
+	require.NoError(t, err)
+	require.Equal(t, "dark\n", string(content))
+	require.DirExists(t, filepath.Join(worktree, ".kuayle", "outbox"), "the outbox stays")
+	_, err = os.Stat(marker)
+	require.True(t, os.IsNotExist(err), "a hook, fsmonitor or filter the agent configured ran")
+}

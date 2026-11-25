@@ -395,3 +395,64 @@ func TestNotebookOfAPrivateTeamsTaskIsHiddenFromNonMembers(t *testing.T) {
 	_, err = repo.RunPrompt(ctx, ws, task.ID, task.RunID)
 	require.ErrorIs(t, err, ErrConversationNotFound)
 }
+
+func TestPipelineWriterNotebookDutyFollowsThePinnedLead(t *testing.T) {
+	f := newRoomFixture(t)
+	read := func() *domain.AttemptNotebook {
+		t.Helper()
+		n, err := f.repo.AttemptNotebook(f.ctx, f.task)
+		require.NoError(t, err)
+		return n
+	}
+	require.False(t, read().Required, "the writer owes no update even before the lead takes its first turn")
+
+	implementer, reviewer := builtinIDs(t, NewWorkflowRepository(f.db), f.task.WorkspaceID)
+	pipeline := domain.TeamPipeline(implementer, reviewer)
+	raw, err := json.Marshal(pipeline)
+	require.NoError(t, err)
+	created, err := NewWorkflowRepository(f.db).CreateWorkflow(f.ctx, f.task.WorkspaceID, f.task.CreatorID, "No lead", "", raw, "created")
+	require.NoError(t, err)
+	_, err = f.db.Exec(`UPDATE agent_tasks SET workflow_version_id=(SELECT id FROM workflow_versions WHERE workflow_id=$2) WHERE id=$1`, f.task.ID, created.ID)
+	require.NoError(t, err)
+	require.True(t, read().Required, "without a lead the writer still owes the update")
+}
+
+func TestLeadTurnUpdatesAndFallbackReachTheRootNotebook(t *testing.T) {
+	f := newMemberFixture(t)
+	member, err := f.repo.StartMemberTurn(f.ctx, f.task.ID, domain.PipelineLeadRole, false)
+	require.NoError(t, err)
+	machines := NewDevMachineRepository(f.db)
+	f.runTurn(member, "0c9a6c1e-0000-4000-8000-000000000009", "Coordinated work", func(task domain.AgentTask) {
+		foreign := task
+		foreign.WorkspaceID = uuid.New()
+		_, err := f.repo.AttemptNotebook(f.ctx, foreign)
+		require.ErrorIs(t, err, ErrConversationNotFound)
+		start, err := f.repo.AttemptNotebook(f.ctx, task)
+		require.NoError(t, err)
+		require.True(t, start.Required)
+		require.Equal(t, f.task.Prompt, start.Instructions[0].Text)
+		file := notebookFile("notebook.json", `{"plan":{"steps":[{"title":"Test the change"}]},"done":["Planned work"],"remaining":["Review"]}`)
+		require.NoError(t, machines.recordNotebookUpdates(f.ctx, task.ID, []domain.AgentOutboxFile{file}))
+		state, err := machines.NotebookUpdateState(f.ctx, task.RunID)
+		require.NoError(t, err)
+		require.Equal(t, 1, state.Updates)
+		shown, err := f.repo.Notebook(f.ctx, f.task.WorkspaceID, f.task.ID)
+		require.NoError(t, err)
+		require.Equal(t, []string{"Planned work"}, shown.Notebook.Done)
+		require.Equal(t, []string{"Review"}, shown.Notebook.Remaining)
+		require.Len(t, shown.Notebook.Plan.Steps, 1)
+		require.Equal(t, "Test the change", shown.Notebook.Plan.Steps[0].Title)
+		require.Equal(t, task.RunID, *shown.History[0].RunID)
+	})
+	member, err = f.repo.StartMemberTurn(f.ctx, f.task.ID, domain.PipelineLeadRole, false)
+	require.NoError(t, err)
+	f.runTurn(member, "0c9a6c1e-0000-4000-8000-000000000009", "Coordinated work", func(task domain.AgentTask) {
+		note, err := machines.RecordNotebookFallback(f.ctx, task.RunID, "Coordinated work", "")
+		require.NoError(t, err)
+		require.True(t, domain.IsNotebookNotUpdated(note))
+		shown, err := f.repo.Notebook(f.ctx, f.task.WorkspaceID, f.task.ID)
+		require.NoError(t, err)
+		require.Contains(t, shown.Notebook.Done[len(shown.Notebook.Done)-1], "Coordinated work")
+		require.Equal(t, task.RunID, *shown.History[0].RunID)
+	})
+}
