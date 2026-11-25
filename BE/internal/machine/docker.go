@@ -66,19 +66,7 @@ mkdir -p "$helper_dir"
 old_umask=$(umask)
 umask 077
 cat > "$credential_helper" <<'SCRIPT'
-#!/bin/sh
-case "${1:-get}" in
-  get ) ;;
-  store|erase ) exit 0 ;;
-  * ) exit 0 ;;
-esac
-if [ -z "${GITHUB_TOKEN:-}" ]; then
-  echo "missing active GitHub token" >&2
-  exit 1
-fi
-printf '%s\n' username=x-access-token
-printf '%s\n' "password=$GITHUB_TOKEN"
-SCRIPT
+` + gitCredentialHelperScript + `SCRIPT
 chmod 0700 "$credential_helper"
 umask "$old_umask"
 if command -v git >/dev/null 2>&1; then

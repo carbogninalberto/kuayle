@@ -73,22 +73,11 @@ bare=$workspace_root/repos/$owner/$name.git
 url=https://github.com/$repository
 
 # People's IDE and terminals, never Kuayle, use this helper: it reads the
-# GITHUB_TOKEN of their own environment and stores nothing.
+# GITHUB_TOKEN of their own environment, stores nothing and answers only for
+# https://github.com.
 mkdir -p "${credential_helper%/*}"
 (umask 077; cat > "$credential_helper" <<'SCRIPT'
-#!/bin/sh
-case "${1:-get}" in
-  get ) ;;
-  store|erase ) exit 0 ;;
-  * ) exit 0 ;;
-esac
-if [ -z "${GITHUB_TOKEN:-}" ]; then
-  echo "missing active GitHub token" >&2
-  exit 1
-fi
-printf '%s\n' username=x-access-token
-printf '%s\n' "password=$GITHUB_TOKEN"
-SCRIPT
+` + gitCredentialHelperScript + `SCRIPT
 )
 chmod 0700 "$credential_helper"
 git config --global --add safe.directory "$path" </dev/null
@@ -158,6 +147,36 @@ if [ -z "$existing" ]; then
   g reset -q --hard --no-recurse-submodules
 fi
 ln -sfn "$path" "$workspace_root/current"
+`
+
+// gitCredentialHelperScript is the token-less credential helper of people's
+// IDE and terminals, and of custom agents a person runs to push: it reads
+// GITHUB_TOKEN from their own environment, stores nothing, and answers only
+// for https://github.com. devmachine/common/start-common.sh writes the same
+// helper (TestCredentialHelpersGiveTheTokenOnlyToGitHub keeps them equal).
+const gitCredentialHelperScript = `#!/bin/sh
+case "${1:-get}" in
+  get ) ;;
+  store|erase ) exit 0 ;;
+  * ) exit 0 ;;
+esac
+# Only https://github.com, where Kuayle's repositories live, gets the token:
+# a repository's configuration, which agent runs can write, can send a URL
+# anywhere else.
+protocol= host=
+while IFS= read -r line && [ -n "$line" ]; do
+  case "$line" in
+    protocol=*) protocol=${line#protocol=} ;;
+    host=*) host=${line#host=} ;;
+  esac
+done
+[ "$protocol" = https ] && [ "$host" = github.com ] || exit 0
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "missing active GitHub token" >&2
+  exit 1
+fi
+printf '%s\n' username=x-access-token
+printf '%s\n' "password=$GITHUB_TOKEN"
 `
 
 // PrepareCheckout makes or refreshes a checkout in the developer container

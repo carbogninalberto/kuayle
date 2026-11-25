@@ -20,7 +20,8 @@ const removedCheckoutTokenPath = "/run/kuayle-secrets/github-token"
 
 // A checkout leaves its token nowhere: not in the cache, the worktree or the
 // home, whether its fetch succeeds or fails. People's IDE and terminals get
-// a helper that reads GITHUB_TOKEN from their own environment, and a stale
+// a helper that reads GITHUB_TOKEN from their own environment for GitHub
+// (TestCredentialHelpersGiveTheTokenOnlyToGitHub), and a stale
 // cache configuration that named the removed token file is replaced.
 func TestCheckoutLeavesNoCredentialBehind(t *testing.T) {
 	e := newGitScriptEnv(t)
@@ -43,11 +44,14 @@ func TestCheckoutLeavesNoCredentialBehind(t *testing.T) {
 	helperBytes, err := os.ReadFile(helperPath)
 	require.NoError(t, err)
 	require.Contains(t, string(helperBytes), "GITHUB_TOKEN")
+	github := "protocol=https\nhost=github.com\n\n"
 	missingTokenCmd := exec.Command(helperPath, "get")
 	missingTokenCmd.Env = []string{"PATH=" + os.Getenv("PATH")}
+	missingTokenCmd.Stdin = strings.NewReader(github)
 	require.Error(t, missingTokenCmd.Run())
 	processTokenCmd := exec.Command(helperPath, "get")
 	processTokenCmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GITHUB_TOKEN=process-env-token"}
+	processTokenCmd.Stdin = strings.NewReader(github)
 	processTokenOutput, err := processTokenCmd.Output()
 	require.NoError(t, err)
 	require.Contains(t, string(processTokenOutput), "username=x-access-token")

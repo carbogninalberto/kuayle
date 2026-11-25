@@ -495,7 +495,9 @@ or filter in the cache's configuration applies. A new worktree is added and its
 files written through the same directory, which also borrows the cache's
 worktree records. What Kuayle keeps in the cache's configuration (origin, the
 branch's upstream, the token-less credential helper of people's IDE and
-terminals) is written as data. The diff Kuayle records after a run and the
+terminals) is written as data. That helper hands `GITHUB_TOKEN` only to
+`https://github.com`, so a person's own `git fetch` in a checkout an agent
+redirected sends it nowhere else. The diff Kuayle records after a run and the
 fingerprint taken around a planning step stage the worktree into a throwaway
 index the same way.
 

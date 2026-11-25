@@ -389,7 +389,7 @@ private teams, invite and shared links.
 | KS-36 | Low | Fixed (#184) | Release job upgraded agent CLIs to `latest` with no minimum age | `scripts/ci/upgrade-agent-clis.mjs:35` |
 | KS-37 | Low | Fixed (#190) | GitHub webhook had no replay protection; the write check accepted read-only collaborators | `BE/internal/handler/github.go:265`, `BE/internal/service/github_bot_abilities.go:155` |
 | KS-38 | Low | Fixed (#183) | Root `.gitignore` did not cover `.env.*` | `.gitignore` |
-| KS-39 | Critical | Fixed (KUA-299) | Checkout fetched with the repository token under agent-writable git configuration | `devmachine/ide/checkout.sh` (removed), `BE/internal/machine/docker_checkout.go` |
+| KS-39 | Critical | Fixed (#401) | Checkout fetched with the repository token under agent-writable git configuration; the IDE credential helper answered any host | `devmachine/ide/checkout.sh` (removed), `BE/internal/machine/docker_checkout.go` |
 
 ## Fixed findings
 
@@ -635,6 +635,9 @@ that configuration while `GIT_ASKPASS` handed out the installation token. A
 `url.<host>.insteadOf` rewrite sent the token to another host, and a hook (for
 example `reference-transaction`) ran with the token at hand. A cache an agent
 created before the first checkout of another repository was used the same way.
+The token-less credential helper of people's IDE and terminals (and of custom
+agents a person runs to push) answered with `GITHUB_TOKEN` for any host, so a
+person's own `git fetch` in a checkout an agent redirected leaked that token too.
 
 **Fix.** The checkout script moved into the backend (`checkoutScript`) and runs
 git only in publication's isolated git directory: an empty configuration, no
@@ -642,11 +645,14 @@ hooks, system and global configuration ignored, `file` and `https` only. The
 token is used for one fetch from the fixed GitHub URL and removed before the
 worktree is written. The diff recorded after a run and the planning-step
 fingerprint use the same directory, so no program an agent configured runs in
-the developer container then either.
+the developer container then either. Every copy of the credential helper (one
+Go constant and `start-common.sh`, kept equal by a test) answers only for
+`protocol=https`, `host=github.com`.
 
 **Tests.** `TestCheckoutIgnoresAgentGitConfigurationAndKeepsTheTokenOffOtherHosts`,
 `TestCheckoutLeavesNoCredentialBehind`,
-`TestWorktreeStateAndDiffRunNothingTheAgentConfigured`.
+`TestWorktreeStateAndDiffRunNothingTheAgentConfigured`,
+`TestCredentialHelpersGiveTheTokenOnlyToGitHub`.
 
 ## October findings revisited
 

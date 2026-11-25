@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -141,4 +142,110 @@ func TestCheckoutIgnoresAgentGitConfigurationAndKeepsTheTokenOffOtherHosts(t *te
 	mu.Lock()
 	assert.Empty(t, received)
 	mu.Unlock()
+}
+
+// credentialHelpers are the three copies of the token-less credential helper
+// people's IDE and terminals (and custom agents a person runs with a push)
+// use, as each is written: by the developer start script, by Kuayle's
+// checkout and by the custom agent bootstrap.
+func credentialHelpers(t *testing.T) map[string]string {
+	t.Helper()
+	common, err := os.ReadFile(filepath.Join(repoRootFromCaller(t), "devmachine", "common", "start-common.sh"))
+	require.NoError(t, err)
+	body := func(script string) string {
+		t.Helper()
+		_, rest, ok := strings.Cut(script, `cat > "$credential_helper" <<'SCRIPT'`+"\n")
+		require.True(t, ok)
+		helper, _, ok := strings.Cut(rest, "\nSCRIPT\n")
+		require.True(t, ok)
+		return helper + "\n"
+	}
+	return map[string]string{"start-common.sh": body(string(common)), "checkoutScript": body(checkoutScript), "customAgentBootstrap": body(customAgentBootstrap)}
+}
+
+// The helper hands GITHUB_TOKEN only to https://github.com, the one host
+// Kuayle's repositories live on (KUA-299). A repository's configuration,
+// which agent runs can write, can point a URL anywhere: a person's git fetch
+// in a checkout an agent redirected to another host, over http or over https
+// with certificate checks turned off, must not send the token there.
+func TestCredentialHelpersGiveTheTokenOnlyToGitHub(t *testing.T) {
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is unavailable")
+	}
+	const token = "person-github-token"
+	var mu sync.Mutex
+	var received []string
+	record := func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		received = append(received, r.Host+r.URL.Path+" "+r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.Header().Set("WWW-Authenticate", `Basic realm="elsewhere"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	}
+	plain := httptest.NewServer(http.HandlerFunc(record))
+	defer plain.Close()
+	tls := httptest.NewTLSServer(http.HandlerFunc(record))
+	defer tls.Close()
+
+	for name, helper := range credentialHelpers(t) {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, gitCredentialHelperScript, helper, "every copy is the same helper")
+			root := t.TempDir()
+			path := filepath.Join(root, ".kuayle-git-credential")
+			require.NoError(t, os.WriteFile(path, []byte(helper), 0o700))
+			ask := func(request string) (string, error) {
+				command := exec.Command(path, "get")
+				command.Env = []string{"PATH=" + os.Getenv("PATH"), "GITHUB_TOKEN=" + token}
+				command.Stdin = strings.NewReader(request)
+				output, err := command.Output()
+				return string(output), err
+			}
+
+			// A person's checkout whose configuration an agent rewrote.
+			home := filepath.Join(root, "home")
+			require.NoError(t, os.MkdirAll(home, 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(home, ".gitconfig"), []byte("[credential]\n\thelper = "+path+"\n"), 0o600))
+			env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0", "GITHUB_TOKEN=" + token}
+			git := func(args ...string) (string, error) {
+				command := exec.Command(realGit, args...)
+				command.Env = env
+				output, err := command.CombinedOutput()
+				return string(output), err
+			}
+			checkout := filepath.Join(root, "checkout")
+			_, err := git("init", "-q", checkout)
+			require.NoError(t, err)
+			_, err = git("-C", checkout, "remote", "add", "origin", "https://github.com/octo/app")
+			require.NoError(t, err)
+			for _, elsewhere := range []string{plain.URL, tls.URL} {
+				_, err = git("-C", checkout, "config", "url."+elsewhere+"/octo/.insteadOf", "https://github.com/octo/")
+				require.NoError(t, err)
+				_, err = git("-C", checkout, "config", "http.sslVerify", "false")
+				require.NoError(t, err)
+				output, err := git("-C", checkout, "fetch", "origin")
+				require.Error(t, err, "the other host refuses the fetch: %s", output)
+				_, err = git("-C", checkout, "config", "--unset-all", "url."+elsewhere+"/octo/.insteadOf")
+				require.NoError(t, err)
+			}
+			mu.Lock()
+			sent := received
+			received = nil
+			mu.Unlock()
+			require.NotEmpty(t, sent, "the fetches reached the other host")
+			for _, request := range sent {
+				require.NotContains(t, request, base64.StdEncoding.EncodeToString([]byte("x-access-token:"+token)), "the token went to %s", request)
+			}
+
+			// Asked directly.
+			output, err := ask("protocol=https\nhost=github.com\npath=octo/app.git\n\n")
+			require.NoError(t, err)
+			require.Equal(t, "username=x-access-token\npassword="+token+"\n", output, "GitHub gets the token")
+			for _, request := range []string{"protocol=https\nhost=evil.example\n\n", "protocol=http\nhost=github.com\n\n", "protocol=https\nhost=github.com.evil.example\n\n", "protocol=https\nhost=github.com:8443\n\n", ""} {
+				output, err = ask(request)
+				require.NoError(t, err, "%q", request)
+				require.Empty(t, output, "%q gets nothing", request)
+			}
+		})
+	}
 }

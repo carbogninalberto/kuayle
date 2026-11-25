@@ -257,6 +257,17 @@ case "${1:-get}" in
   store|erase ) exit 0 ;;
   * ) exit 0 ;;
 esac
+# Only https://github.com, where Kuayle's repositories live, gets the token:
+# a repository's configuration, which agent runs can write, can send a URL
+# anywhere else.
+protocol= host=
+while IFS= read -r line && [ -n "$line" ]; do
+  case "$line" in
+    protocol=*) protocol=${line#protocol=} ;;
+    host=*) host=${line#host=} ;;
+  esac
+done
+[ "$protocol" = https ] && [ "$host" = github.com ] || exit 0
 if [ -z "${GITHUB_TOKEN:-}" ]; then
   echo "missing active GitHub token" >&2
   exit 1
