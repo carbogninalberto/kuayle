@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeRoom, roomRead, roomRows } from '../../src/lib/features/assistant/task-room.ts';
+import { mergeRoom, readRoomPages, roomRead, roomRows } from '../../src/lib/features/assistant/task-room.ts';
 
 // The room of a pipeline task as rows: what the owner, Kuayle and each
 // role's turn posted, in the room's order.
@@ -124,4 +124,17 @@ test('a read continues after the unbroken run of posts from the first', () => {
 	// Seq 3 was missed (an event lost): the next read starts after 2.
 	assert.equal(roomRead([owner(1, 'a'), owner(2, 'b'), owner(4, 'd')]), 2);
 	assert.equal(roomRead([owner(2, 'b')]), 0);
+});
+
+test('a pipeline run reads every room page after the last contiguous post', async () => {
+	let room = [owner(1, 'a'), owner(3, 'arrived live')];
+	const afters = [];
+	const messages = Array.from({ length: 201 }, (_, i) => owner(i + 2, String(i + 2)));
+	await readRoomPages(roomRead(room), async (after) => {
+		afters.push(after);
+		return messages.filter((message) => message.seq > after).slice(0, 200);
+	}, (page) => { room = mergeRoom(room, page); });
+	assert.deepEqual(afters, [1, 201]);
+	assert.equal(room.length, 202);
+	assert.equal(room[2].body, 'arrived live');
 });

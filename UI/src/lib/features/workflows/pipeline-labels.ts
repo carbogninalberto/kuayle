@@ -1,5 +1,5 @@
 import { m } from '$lib/features/i18n/messages';
-import type { WorkflowIssue } from '$lib/api/workflows';
+import type { PipelineDefinition, WorkflowIssue } from '$lib/api/workflows';
 import { issueLabel } from './labels';
 import { HUMAN, KUAYLE, LEAD, type PipelineFact } from './pipeline-editor';
 
@@ -55,6 +55,16 @@ export function ownerLabel(owner: string): string {
 	if (owner === HUMAN) return m['workflows.pipeline_editor.owner_human']();
 	if (owner === LEAD) return m['workflows.pipeline_editor.owner_lead']();
 	return owner;
+}
+
+/** The owner and check count shown on an editor or run chart phase. */
+export function phaseCaption(pipeline: PipelineDefinition | null, id: string): string {
+	const phase = pipeline?.phases.find((candidate) => candidate.id === id);
+	if (!phase) return '';
+	const count = phase.checks?.length ?? 0;
+	return [ownerLabel(phase.owner), count ? m['workflows.pipeline_editor.check_count']({ count }) : '']
+		.filter(Boolean)
+		.join(' · ');
 }
 
 /** What the validator says about a pipeline. */

@@ -8,7 +8,7 @@
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as MessageScroller from '$lib/components/ui/message-scroller/index.js';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
-	import { agentTasks, type AgentTask, type TaskMessage } from '$lib/api/agent-tasks';
+	import type { AgentTask, TaskMessage } from '$lib/api/agent-tasks';
 	import type { WorkflowStepRun } from '$lib/api/workflows';
 	import type { ConversationState } from './conversation-state.svelte';
 	import type { TaskRun } from './task-run.svelte';
@@ -16,7 +16,7 @@
 	import AgentStepRun from './AgentStepRun.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import StepStatus from './StepStatus.svelte';
-	import { ROOM_PAGE, roomRead, roomRows, type RoomRow } from './task-room';
+	import { roomRows, type RoomRow } from './task-room';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
 	// The room of a task on a pipeline (KUA-252), plainly, in its order: what
@@ -32,53 +32,6 @@
 
 	const room = $derived(chat.taskRooms[task.id] ?? []);
 	const rows = $derived(roomRows(room));
-	let loaded = $state(false);
-	let failed = $state(false);
-	let loading = false,
-		again = false,
-		disposed = false;
-	$effect(() => () => (disposed = true));
-	// The task has a room: the composer writes to it.
-	$effect(() => untrack(() => chat.acceptRoomMessages(task.id, [])));
-
-	async function load() {
-		if (loading) {
-			again = true;
-			return;
-		}
-		loading = true;
-		try {
-			let after = roomRead(chat.taskRooms[task.id] ?? []);
-			for (let page = 0; page < 50; page++) {
-				const messages = (await agentTasks.room(chat.slug, task.id, after)).messages ?? [];
-				if (disposed) return;
-				chat.acceptRoomMessages(task.id, messages);
-				if (messages.length < ROOM_PAGE) break;
-				after = messages[messages.length - 1].seq;
-			}
-			loaded = true;
-			failed = false;
-		} catch {
-			if (!disposed) failed = true;
-		} finally {
-			loading = false;
-			if (again && !disposed) {
-				again = false;
-				void load();
-			}
-		}
-	}
-	$effect(() => {
-		void run.view;
-		untrack(() => void load());
-	});
-	$effect(() => {
-		void chat.taskRoomCursor[task.id];
-		untrack(() => {
-			if (roomRead(room) < (room.at(-1)?.seq ?? 0)) void load();
-		});
-	});
-
 	// A turn opens the run that wrote it. Runs are read with the task's run;
 	// one the room names before that read has it read again, once.
 	const runs = $derived(new Map((run.view?.runs ?? []).map((item) => [item.id, item])));
@@ -284,10 +237,10 @@
 		</MessageScroller.Item>
 	{/each}
 </ol>
-{#if !rows.length && !failed}<p class="text-sm text-muted-foreground" role="status">
-		{loaded ? m['tasks.room_empty']() : m['assistant.loading']()}
+{#if !rows.length && !run.roomFailed}<p class="text-sm text-muted-foreground" role="status">
+		{run.roomLoaded ? m['tasks.room_empty']() : m['assistant.loading']()}
 	</p>{/if}
-{#if failed}<div class="flex flex-wrap items-center gap-2">
+{#if run.roomFailed}<div class="flex flex-wrap items-center gap-2">
 		<p role="alert" class="text-sm text-destructive">{m['tasks.load_error']()}</p>
-		<Button variant="ghost" size="sm" onclick={() => void load()}><RefreshCw />{m['tasks.refresh']()}</Button>
+		<Button variant="ghost" size="sm" onclick={() => void run.loadRoom()}><RefreshCw />{m['tasks.refresh']()}</Button>
 	</div>{/if}

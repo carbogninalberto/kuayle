@@ -3,11 +3,12 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Kbd } from '$lib/components/ui/kbd/index.js';
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-	import type { AgentProfile, WorkflowGraph } from '$lib/api/workflows';
+	import type { AgentProfile, PipelineDefinition, WorkflowGraph } from '$lib/api/workflows';
 	import { m } from '$lib/features/i18n/messages';
 	import { cn } from '$lib/utils.js';
 	import WorkflowCanvas from './WorkflowCanvas.svelte';
 	import type { FlowApi } from './FlowBridge.svelte';
+	import { phaseCaption } from './pipeline-labels';
 	import { centreOn, isCentred, type runOverlay } from './workflow-graph';
 
 	// A task's workflow on a canvas its viewer pans and zooms, with
@@ -18,6 +19,7 @@
 	// input and the editor have their own).
 	let {
 		graph,
+		pipeline = null,
 		profiles,
 		run,
 		label,
@@ -28,6 +30,7 @@
 		class: className
 	}: {
 		graph: WorkflowGraph;
+		pipeline?: PipelineDefinition | null;
 		profiles: AgentProfile[];
 		run: ReturnType<typeof runOverlay>;
 		label: string;
@@ -102,7 +105,19 @@
 	data-testid={testid}
 	{onkeydown}
 >
-	<WorkflowCanvas {graph} {profiles} {run} {label} {minimap} navigable={zoom} class="h-full" bind:api bind:view />
+	<WorkflowCanvas
+		{graph}
+		{profiles}
+		{run}
+		{label}
+		{minimap}
+		describe={pipeline ? (node) => phaseCaption(pipeline, node.id) : undefined}
+		edgeLabels={!pipeline}
+		navigable={zoom}
+		class="h-full"
+		bind:api
+		bind:view
+	/>
 
 	<Tooltip.Provider delayDuration={300}>
 		<div

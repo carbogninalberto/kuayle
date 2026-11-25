@@ -99,7 +99,7 @@
 	const run = useTaskRun(
 		untrack(() => chat),
 		() => task,
-		untrack(() => ({ notebook: mine && task.kind !== 'review' }))
+		untrack(() => ({ room: true, notebook: mine && task.kind !== 'review' }))
 	);
 	const steps = $derived(run.steps);
 	const missed = $derived(missedNotebook(run.notebook));

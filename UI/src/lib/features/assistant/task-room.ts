@@ -79,3 +79,19 @@ export function roomRead(messages: readonly TaskMessage[]): number {
 	}
 	return seq;
 }
+
+/** Catch up from a contiguous cursor, merging each page with any live posts. */
+export async function readRoomPages(
+	after: number,
+	read: (after: number) => Promise<TaskMessage[]>,
+	accept: (messages: TaskMessage[]) => void
+) {
+	for (;;) {
+		const messages = await read(after);
+		accept(messages);
+		if (messages.length < ROOM_PAGE) return;
+		const next = messages[messages.length - 1].seq;
+		if (next <= after) throw new Error('Room cursor did not advance');
+		after = next;
+	}
+}

@@ -735,7 +735,9 @@ role keeps one session for the task: a turn resumes it (`claude --resume`,
 succeeded on the same machine, and otherwise starts with the handoff. Other
 reviews still start cold. The roles and Kuayle talk in the task's room
 (migrations 206 and 207), and a tick on the task worker, not the graph
-runner, moves the task from the facts it reads (migration 208).
+runner, moves the task from the facts it reads (migration 208). The workflow
+panel reads the same task room as the thread to show check results alongside
+the pinned phase chart and the roles with a running turn.
 
 A failed CI suite on a task's pull request carries what GitHub reported about
 its failed checks ([CI and review feedback](BE/docs/agent-tasks.md#ci-and-review-feedback),

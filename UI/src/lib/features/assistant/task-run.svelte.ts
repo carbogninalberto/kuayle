@@ -9,6 +9,7 @@ import {
 } from '$lib/api/workflows';
 import type { AgentRun, RunUsage } from '$lib/types/dev-machine';
 import type { ConversationState } from './conversation-state.svelte';
+import { readRoomPages, roomRead } from './task-room';
 import { attemptTimeline, workflowTimeline, type TimelineStep } from './agent-timeline';
 
 // How long after a failed read it is tried once more.
@@ -56,6 +57,11 @@ export class TaskRun {
 	users = 0;
 	private request = 0;
 	private key = '';
+	roomLoaded = $state(false);
+	roomFailed = $state(false);
+	private wantsRoom = false;
+	private readingRoom = false;
+	private roomAgain = false;
 	private history = false;
 	private chart = false;
 	private notes = false;
@@ -70,7 +76,7 @@ export class TaskRun {
 	private knownUntil = '';
 
 	constructor(
-		private readonly slug: string,
+		private readonly chat: ConversationState,
 		task: AgentTask
 	) {
 		this.task = task;
@@ -87,10 +93,13 @@ export class TaskRun {
 		// A view that asks for the notebook after the task was read (the path
 		// in the sidebar came first) reads the notebook alone.
 		const notes = !!wants.notebook && !this.notes;
+		const room = !!wants.room && !this.wantsRoom;
+		this.wantsRoom ||= !!wants.room;
 		this.history ||= !!wants.history;
 		this.chart ||= !!wants.chart;
 		this.notes ||= !!wants.notebook;
 		if (notes && key === this.key && !more) void this.loadNotebook();
+		if (room && key === this.key && !more) void this.loadRoom();
 		if (key !== this.key || more) {
 			this.key = key;
 			void this.load();
@@ -110,7 +119,7 @@ export class TaskRun {
 		if (this.notes) void this.loadNotebook();
 		try {
 			if (this.followsWorkflow) {
-				const loaded = await workflows.task(this.slug, this.task.id, this.knownUntil || undefined);
+				const loaded = await workflows.task(this.chat.slug, this.task.id, this.knownUntil || undefined);
 				if (current !== this.request) return;
 				// Anything but a workflow view is a failed load, not a path.
 				if (!Array.isArray(loaded?.steps) || !loaded.graph) throw new Error('not a workflow view');
@@ -122,12 +131,13 @@ export class TaskRun {
 				});
 				this.view = { ...loaded, runs };
 				this.usage = loaded.usage ?? null;
+				if (this.wantsRoom && this.pipeline) void this.loadRoom();
 			} else {
 				// The attempts, the Standard chart and the state changes are
 				// read side by side: one that fails takes none of the others.
 				if (this.chart) void this.loadChart(current);
 				if (this.history) void this.loadHistory();
-				const loaded = await agentTasks.runs(this.slug, this.task.id);
+				const loaded = await agentTasks.runs(this.chat.slug, this.task.id);
 				if (current !== this.request) return;
 				this.attempts = loaded.runs;
 				this.usage = loaded.usage ?? null;
@@ -152,7 +162,7 @@ export class TaskRun {
 		if (!this.notes) return;
 		const current = ++this.notesRequest;
 		try {
-			const loaded = await agentTasks.notebook(this.slug, this.task.id);
+			const loaded = await agentTasks.notebook(this.chat.slug, this.task.id);
 			// The same revision is the same notebook: views keep what they show.
 			if (current === this.notesRequest && loaded?.notebook && loaded.revision !== this.notebook?.revision)
 				this.notebook = loaded;
@@ -161,9 +171,37 @@ export class TaskRun {
 		}
 	}
 
+	// The task thread and run chart use the same room history and live posts.
+	async loadRoom() {
+		if (!this.users || !this.pipeline) return;
+		if (this.readingRoom) {
+			this.roomAgain = true;
+			return;
+		}
+		this.readingRoom = true;
+		const id = this.task.id;
+		this.chat.acceptRoomMessages(id, []);
+		try {
+			do {
+				this.roomAgain = false;
+				await readRoomPages(
+					roomRead(this.chat.taskRooms[id] ?? []),
+					async (after) => this.users ? (await agentTasks.room(this.chat.slug, id, after)).messages : [],
+					(messages) => { if (this.users) this.chat.acceptRoomMessages(id, messages); }
+				);
+			} while (this.roomAgain && this.users);
+			this.roomLoaded = true;
+			this.roomFailed = false;
+		} catch {
+			this.roomFailed = true;
+		} finally {
+			this.readingRoom = false;
+		}
+	}
+
 	private async loadChart(current: number) {
 		try {
-			const chart = await workflows.task(this.slug, this.task.id);
+			const chart = await workflows.task(this.chat.slug, this.task.id);
 			if (current !== this.request) return;
 			if (!chart?.graph) throw new Error('not a workflow view');
 			this.view = chart;
@@ -181,7 +219,7 @@ export class TaskRun {
 			try {
 				let after = this.transitions.at(-1)?.sequence ?? 0;
 				for (let page = 0; page < 10; page++) {
-					const events = await agentTasks.history(this.slug, this.task.id, after);
+					const events = await agentTasks.history(this.chat.slug, this.task.id, after);
 					const known = new Set(this.transitions.map((change) => change.sequence));
 					this.transitions = [...this.transitions, ...events.transitions.filter((change) => !known.has(change.sequence))];
 					if (!events.next_after || events.next_after === after) break;
@@ -224,6 +262,7 @@ export class TaskRun {
 
 export interface TaskRunWants {
 	history?: boolean;
+	room?: boolean;
 	chart?: boolean;
 	/** The task's notebook, which only its creator can read. */
 	notebook?: boolean;
@@ -242,7 +281,7 @@ export function useTaskRun(
 ): TaskRun {
 	const id = untrack(() => task().id);
 	let run = chat.taskRuns.get(id);
-	if (!run) chat.taskRuns.set(id, (run = new TaskRun(chat.slug, untrack(task))));
+	if (!run) chat.taskRuns.set(id, (run = new TaskRun(chat, untrack(task))));
 	const shared = run;
 	shared.users++;
 	// The task moving (state, attempt, workflow step) or one of its reviews
@@ -262,6 +301,14 @@ export function useTaskRun(
 			chat.taskReviewCursor[id]
 		].join('|');
 		untrack(() => shared.sync(current, key, wants));
+	});
+	$effect(() => {
+		if (!wants.room) return;
+		void chat.taskRoomCursor[id];
+		untrack(() => {
+			const room = chat.taskRooms[id];
+			if (room && roomRead(room) < (room.at(-1)?.seq ?? 0)) void shared.loadRoom();
+		});
 	});
 	$effect(() => () => {
 		if (shared.release() && chat.taskRuns.get(id) === shared) chat.taskRuns.delete(id);

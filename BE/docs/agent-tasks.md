@@ -3398,8 +3398,11 @@ refused post is muted with its reason. The room is read once, kept by
 `task.room_message` events (`ConversationState.taskRooms`, once per `seq`)
 and read on from the last unbroken `seq` when the task's run is read again or
 a post arrives after a gap. The composer posts a `say` there (text only, with
-a `request_id`). The side panel names the pipeline, draws no graph and offers
-approve, continue and stop.
+a `request_id`). The workflow panel draws the pinned phases from left to right
+and highlights the task's current phase. Below the chart it lists the roster,
+marks roles with a running turn, and shows each check with the reason and
+timestamp available from the room. The panel offers approve, continue and stop
+when the task allows them.
 
 **Limits of this first version.**
 
