@@ -26,9 +26,69 @@ test('UI runtime changes select browser, audit and both dependent application im
     assert.equal(plan.backend, false);
     assert.equal(plan.web, false);
     assert.deepEqual(ids(plan.releaseImages), ['all-in-one', 'web']);
-    assert.deepEqual(plan.required.security, ['frontend-security']);
+    assert.deepEqual(plan.required.security, []);
     assert.deepEqual(plan.devImages, []);
   }
+});
+
+const settingsPage = (name) => `UI/src/routes/[workspaceSlug]/settings/${name}/+page.svelte`;
+const frontendJobs = ['frontend-fast', 'frontend-browser', 'frontend-check'];
+
+test('mapped PR pages and edited specs select the union of dedicated and cross-page browser coverage', () => {
+  const paths = [settingsPage('tokens'), settingsPage('slack'), 'UI/tests/e2e/slack-settings.test.ts', 'docs/setup.md'];
+  const plan = planForPaths(paths);
+  assert.deepEqual(plan.frontendSpecs, ['mcp-settings.test.ts', 'page-height.test.ts', 'slack-settings.test.ts', 'tokens.test.ts']);
+  assert.deepEqual(plan.required.tests, ['agent-harness', ...frontendJobs]);
+  assert.deepEqual(planForPaths(['UI/tests/e2e/issue-navigation.test.ts']).frontendSpecs, ['issue-navigation.test.ts']);
+  assert.deepEqual(planForPaths(['UI/src/routes/integrations/slack/callback/+page.svelte']).frontendSpecs, ['slack-settings.test.ts']);
+  assert.deepEqual(planForPaths(['BE/internal/service/issue.go']).frontendSpecs, []);
+});
+
+test('any shared, unknown or cross-language frontend input overrides a narrower PR selection', () => {
+  for (const path of [
+    'UI/src/routes/[workspaceSlug]/settings/+layout.svelte', 'UI/src/routes/+page.svelte',
+    'UI/src/lib/api/client.ts', 'UI/src/lib/components/ui/button/button.svelte', 'UI/src/app.html',
+    'UI/playwright.config.ts', 'UI/package.json', 'UI/package-lock.json', 'UI/tests/helpers/fixture.ts',
+    'UI/tests/e2e/-ambiguous.test.ts', settingsPage('brand-new'), 'scripts/ci/impact.mjs',
+    'BE/pkg/sanitize/editor_classes.go', 'BE/assistant-tools/fetch_url.py', 'new.config'
+  ]) {
+    assert.equal(planForPaths([settingsPage('tokens'), path]).frontendSpecs, null, path);
+    assert.equal(planForPaths([path, settingsPage('tokens')]).frontendSpecs, null, path);
+  }
+});
+
+test('main pushes and frontend-only scheduled, manual and integration runs cover the full browser suite', () => {
+  const main = detectPlan({ event: 'push' });
+  assert.equal(main.frontendSpecs, null);
+  assert.ok(main.required.tests.includes('backend-test'));
+  for (const event of ['schedule', 'workflow_dispatch', 'push']) {
+    const plan = detectPlan({ event, frontendOnly: true });
+    assert.deepEqual(plan.required.tests, frontendJobs, event);
+    assert.deepEqual(plan.required.security, [], event);
+    assert.equal(plan.frontendSpecs, null, event);
+  }
+});
+
+test('release-integration head or base runs all browser specs even on a documentation PR', (t) => {
+  const { cwd, base } = repository(t);
+  for (const ref of [{ headRef: 'team/release-integration/v4' }, { baseRef: 'v4-release-integration' }]) {
+    const plan = detectPlan({ cwd, event: 'pull_request', base, head: base, ...ref });
+    assert.deepEqual(plan.required.tests, ['agent-harness', ...frontendJobs]);
+    assert.equal(plan.frontendSpecs, null);
+  }
+});
+
+test('spec routing uses the PR head for newly added and deleted spec files', (t) => {
+  const repo = repository(t);
+  const old = 'UI/tests/e2e/old.test.ts', added = 'UI/tests/e2e/added.test.ts';
+  repo.file(old, 'test spec');
+  const base = repo.commit(old);
+  assert.deepEqual(detectPlan({ cwd: repo.cwd, event: 'pull_request', base: repo.base, head: base }).frontendSpecs, ['old.test.ts']);
+  renameSync(join(repo.cwd, old), join(repo.cwd, added));
+  const head = repo.commit(old, added);
+  assert.equal(detectPlan({ cwd: repo.cwd, event: 'pull_request', base, head }).frontendSpecs, null);
+  // The working tree has moved, but routing for the old PR head still uses its tests.
+  assert.deepEqual(detectPlan({ cwd: repo.cwd, event: 'pull_request', base: repo.base, head: base }).frontendSpecs, ['old.test.ts']);
 });
 
 test('backend runtime and dependency changes include API, all-in-one and Go runtime images', () => {
@@ -199,6 +259,7 @@ test('mixed changes union their coverage; non-PR events retain the full original
     const expected = event === 'workflow_dispatch' ? releaseJobs : ['release-source', ...releaseJobs];
     assert.deepEqual(plan.required.build, expected, event);
     assert.ok(plan.required.security.includes('docker-security'));
+    assert.ok(plan.required.security.includes('frontend-security'));
   }
   const pr = planForPaths(['.github/workflows/build.yml']);
   assert.deepEqual(pr.required.build, ['dev-machine-images'], 'PRs build and scan without publishing');
@@ -280,12 +341,12 @@ test('missing or invalid comparison data falls back to broad verification', () =
 test('gates allow intentional omissions but reject failed detection or selected skipped/cancelled jobs', () => {
   const plan = planForPaths(['UI/src/app.css']);
   const needs = { changes: { result: 'success', outputs: { plan: JSON.stringify(plan) } } };
-  for (const job of ['agent-harness', 'backend-test', 'frontend-check', 'web-check', 'docker-integration', 'selfhosting-check', 'ci-validation', 'cli-check']) {
+  for (const job of ['agent-harness', 'backend-test', ...frontendJobs, 'web-check', 'docker-integration', 'selfhosting-check', 'ci-validation', 'cli-check']) {
     needs[job] = { result: plan.required.tests.includes(job) ? 'success' : 'skipped' };
   }
   assert.deepEqual(checkResults('tests', needs), []);
   for (const result of ['failure', 'cancelled', 'skipped']) {
-    assert.ok(checkResults('tests', { ...needs, 'frontend-check': { result } }).length);
+    for (const job of frontendJobs) assert.ok(checkResults('tests', { ...needs, [job]: { result } }).length, job);
   }
   assert.ok(checkResults('tests', { ...needs, changes: { result: 'failure', outputs: {} } }).length);
   assert.ok(checkResults('tests', { ...needs, changes: { result: 'success', outputs: {} } }).length);

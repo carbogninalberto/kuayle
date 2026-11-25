@@ -679,6 +679,10 @@ does not block the run; success records `attachments.copied`.
 
 ## CI and review feedback
 
+For Kuayle frontend PRs, the failed browser shard carries the spec annotations.
+The Tests run also publishes the [merged Playwright report](../../scripts/ci/README.md#frontend-browser-coverage)
+with traces for debugging follow-up attempts.
+
 Migration 62 adds `agent_task_signals`. Completed `check_suite` events and
 submitted `pull_request_review` events for a linked, active repository are
 recorded for each task whose **current** attempt recorded that pull request; CI

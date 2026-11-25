@@ -1,0 +1,74 @@
+name: Set up frontend dependencies
+description: Install locked npm dependencies and optionally Chromium on an Ubuntu runner.
+
+inputs:
+  directory:
+    description: Frontend package directory (UI or WEB)
+    required: false
+    default: UI
+  chromium:
+    description: Install the browser and its system dependencies
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v6.4.0
+      id: node
+      with:
+        node-version: 22
+        cache: npm
+        cache-dependency-path: ${{ inputs.directory }}/package-lock.json
+
+    - name: Identify runner image for native dependencies
+      id: runner-image
+      shell: bash
+      run: echo "image=${ImageOS:?expected a hosted Ubuntu runner}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore installed packages
+      id: modules
+      uses: actions/cache/restore@v6.1.0
+      with:
+        path: ${{ inputs.directory }}/node_modules
+        key: modules-${{ steps.runner-image.outputs.image }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ inputs.directory }}-${{ hashFiles(format('{0}/package-lock.json', inputs.directory), format('{0}/package.json', inputs.directory), format('{0}/.npmrc', inputs.directory)) }}
+
+    - name: Install locked dependencies
+      if: steps.modules.outputs.cache-hit != 'true'
+      shell: bash
+      working-directory: ${{ inputs.directory }}
+      run: npm ci
+
+    # Save the installed packages before Vite or Svelte writes build caches into them.
+    - name: Save installed packages
+      if: steps.modules.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6.1.0
+      with:
+        path: ${{ inputs.directory }}/node_modules
+        key: ${{ steps.modules.outputs.cache-primary-key }}
+
+    - name: Run the package prepare hook for this checkout
+      if: steps.modules.outputs.cache-hit == 'true'
+      shell: bash
+      working-directory: ${{ inputs.directory }}
+      run: npm run prepare --if-present
+
+    - name: Read installed browser version
+      if: inputs.chromium == 'true'
+      id: playwright
+      shell: bash
+      working-directory: ${{ inputs.directory }}
+      run: node -p '"version=" + require("playwright-core/package.json").version' >> "$GITHUB_OUTPUT"
+
+    - name: Cache Playwright browsers
+      if: inputs.chromium == 'true'
+      uses: actions/cache@v6.1.0
+      with:
+        path: ~/.cache/ms-playwright
+        key: chromium-${{ steps.runner-image.outputs.image }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
+    - name: Install Chromium and host libraries
+      if: inputs.chromium == 'true'
+      shell: bash
+      working-directory: ${{ inputs.directory }}
+      run: npx --no-install playwright install --with-deps chromium

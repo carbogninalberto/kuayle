@@ -3,6 +3,11 @@ name: CI Impact
 on:
   workflow_call:
     inputs:
+      frontend_only:
+        description: Run the full frontend suite in the Tests workflow
+        required: false
+        type: boolean
+        default: false
       include_arm64:
         description: Also select ARM64 image builds and scans
         required: false
@@ -38,5 +43,6 @@ jobs:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          FRONTEND_ONLY: ${{ inputs.frontend_only }}
           INCLUDE_ARM64: ${{ inputs.include_arm64 }}
         run: node scripts/ci/impact.mjs

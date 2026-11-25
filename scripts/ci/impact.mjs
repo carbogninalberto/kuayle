@@ -37,25 +37,70 @@ export function platformSensitive(path) {
     (path.startsWith('devmachine/') && !path.startsWith('devmachine/security/'));
 }
 
+// Only leaf pages whose browser coverage is known can narrow a runtime change.
+// The page-height spec also visits each of these settings pages in several viewports.
+const settingsSpecs = {
+  backups: ['backups'],
+  forges: ['forges-settings'],
+  import: ['settings-import'],
+  lessons: ['lessons'],
+  mcp: ['mcp-settings'],
+  push: ['push-settings'],
+  slack: ['slack-settings'],
+  telegram: ['telegram'],
+  templates: ['issue-templates'],
+  tokens: ['mcp-settings', 'tokens'],
+  voice: ['voice'],
+  webhooks: ['webhooks-settings']
+};
+
+function specsForUIPath(path) {
+  const spec = /^UI\/tests\/e2e\/([a-z0-9][a-z0-9-]*\.test\.ts)$/.exec(path);
+  if (spec) return [spec[1]];
+  const settings = /^UI\/src\/routes\/\[workspaceSlug\]\/settings\/([a-z-]+)\/\+page\.svelte$/.exec(path);
+  if (settings && Object.hasOwn(settingsSpecs, settings[1])) {
+    return ['page-height', ...settingsSpecs[settings[1]]].map(name => `${name}.test.ts`);
+  }
+  if (path === 'UI/src/routes/integrations/slack/callback/+page.svelte') return ['slack-settings.test.ts'];
+  if (path === 'UI/src/routes/[workspaceSlug]/insights/+page.svelte') return ['insights.test.ts', 'page-height.test.ts'];
+  return null;
+}
+
 // Match actual consumers, not every file in a broad Docker COPY context.
 // Unknown inputs and changes to the routing/workflow implementation run broadly.
-export function planForPaths(paths, event = 'pull_request', includeArm64 = false) {
+export function planForPaths(paths, event = 'pull_request', includeArm64 = false, { frontendOnly = false, integration = false } = {}) {
   const pr = event === 'pull_request';
   const flags = { harness: true, backend: false, frontend: false, web: false, runtime: false, selfhosting: false, ci: false, cli: false };
   const release = new Set(), dev = new Set(), security = new Set();
+  const fullRun = !pr && !frontendOnly;
   let reason = pr ? 'PR merge-base diff' : `full ${event} coverage`;
   // Automatic releases build amd64 only; the manual include_arm64 input adds
   // arm64. PRs still add arm64 for inputs that can behave differently there.
-  let arm = !pr && includeArm64;
+  let arm = fullRun && includeArm64;
   const add = (set, values) => values.forEach((value) => set.add(value));
+  let frontendSpecs = new Set();
+  const selectFrontend = (specs = null) => {
+    flags.frontend = true;
+    if (specs === null) frontendSpecs = null;
+    else if (frontendSpecs) add(frontendSpecs, specs);
+  };
   const all = () => {
+    selectFrontend();
     for (const key of Object.keys(flags)) flags[key] = true;
     if (pr) arm = true;
     add(release, releaseImages.map((image) => image.id));
     add(dev, devImages.map((image) => image.id));
     security.add('updater');
   };
-  if (!pr) all();
+  if (fullRun) all();
+  else if (frontendOnly) {
+    flags.harness = false;
+    selectFrontend();
+    reason = `full frontend suite for ${event}`;
+  } else if (integration) {
+    selectFrontend();
+    reason = 'PR merge-base diff with full frontend coverage on release-integration';
+  }
   for (const path of pr ? paths : []) {
     if (path === 'AGENTS.md' || path.startsWith('AGENTS/')) continue;
     if (isDocumentation(path)) continue;
@@ -81,20 +126,20 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
     }
     if (path.startsWith('WEB/')) { flags.web = true; continue; }
     if (path.startsWith('UI/')) {
-      flags.frontend = true;
+      selectFrontend(specsForUIPath(path));
       if (!path.startsWith('UI/tests/') && !/^UI\/playwright.*\.ts$/.test(path)) add(release, ['all-in-one', 'web']);
       continue;
     }
     if (path.startsWith('BE/')) {
       flags.backend = true;
       if (path.startsWith('BE/assistant-tools/')) {
-        if (['BE/assistant-tools/fetch_url.json', 'BE/assistant-tools/fetch_url.py'].includes(path)) flags.frontend = true;
+        if (['BE/assistant-tools/fetch_url.json', 'BE/assistant-tools/fetch_url.py'].includes(path)) selectFrontend();
         continue;
       }
       // The UI PAT scope contract test reads these backend definitions.
-      if (['BE/internal/domain/personal_access_token.go', 'BE/internal/domain/permission.go'].includes(path)) flags.frontend = true;
+      if (['BE/internal/domain/personal_access_token.go', 'BE/internal/domain/permission.go'].includes(path)) selectFrontend();
       // The UI sanitizer tests read the class allowlist contract shared with the Go sanitizer.
-      if (['BE/pkg/sanitize/editor_classes.go', 'BE/pkg/sanitize/testdata/editor_html_contract.json'].includes(path)) flags.frontend = true;
+      if (['BE/pkg/sanitize/editor_classes.go', 'BE/pkg/sanitize/testdata/editor_html_contract.json'].includes(path)) selectFrontend();
       if (path.endsWith('_test.go')) {
         if (path === 'BE/internal/machine/docker_integration_test.go') flags.runtime = true;
       } else {
@@ -144,16 +189,16 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
     all();
     reason = 'broad coverage for shared or unmapped inputs';
   }
-  const plan = { ...flags, reason, architectures: arm ? ['amd64', 'arm64'] : ['amd64'], releaseImages: releaseImages.filter((image) => release.has(image.id)), devImages: devImages.filter((image) => dev.has(image.id)), securityImages: pr ? [updater].filter((image) => security.has(image.id)) : [updater, ...devImages] };
+  const plan = { ...flags, reason, frontendSpecs: frontendSpecs && [...frontendSpecs].sort(), architectures: arm ? ['amd64', 'arm64'] : ['amd64'], releaseImages: releaseImages.filter((image) => release.has(image.id)), devImages: devImages.filter((image) => dev.has(image.id)), securityImages: fullRun ? [updater, ...devImages] : [updater].filter((image) => security.has(image.id)) };
   const enabled = (jobs) => Object.entries(jobs).filter(([, run]) => run).map(([id]) => id);
   const jobs = {
-    tests: { 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci, 'cli-check': plan.cli },
-    security: { 'go-security': plan.backend, 'frontend-security': plan.frontend, 'docker-security': !pr, 'dev-machine-security': plan.securityImages.length > 0, 'cli-security': plan.cli },
+    tests: { 'agent-harness': plan.harness, 'backend-test': plan.backend, 'frontend-fast': plan.frontend, 'frontend-browser': plan.frontend, 'frontend-check': plan.frontend, 'web-check': plan.web, 'docker-integration': plan.runtime, 'selfhosting-check': plan.selfhosting, 'ci-validation': plan.ci, 'cli-check': plan.cli },
+    security: { 'go-security': plan.backend, 'frontend-security': fullRun, 'docker-security': fullRun, 'dev-machine-security': plan.securityImages.length > 0, 'cli-security': plan.cli },
     // Build & Push runs for PRs, releases and manual republishes. A release
     // builds, scans and publishes every runtime image once in
     // dev-machine-publish instead. Manual dispatch reuses an existing tag, so
     // it skips the release-source version bump.
-    build: { 'release-source': !pr, 'release-context': !pr, build: !pr, 'promote-latest': !pr, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': !pr, 'dev-machine-manifests': !pr },
+    build: { 'release-source': fullRun, 'release-context': fullRun, build: fullRun, 'promote-latest': fullRun, 'dev-machine-images': pr && plan.devImages.length > 0, 'dev-machine-publish': fullRun, 'dev-machine-manifests': fullRun },
     readiness: { images: plan.releaseImages.length > 0 }
   };
   plan.jobs = Object.fromEntries(Object.entries(jobs).map(([scope, entries]) => [scope, Object.keys(entries)]));
@@ -182,11 +227,20 @@ export function cliReleasePlan() {
   return plan;
 }
 
-export function detectPlan({ cwd = process.cwd(), event, base, head, releaseTag = '', includeArm64 = false }) {
+export function detectPlan({ cwd = process.cwd(), event, base, head, releaseTag = '', includeArm64 = false, frontendOnly = false, headRef = '', baseRef = '' }) {
   if (event === 'release' && releaseTag.startsWith('cli-v')) return cliReleasePlan();
-  if (event !== 'pull_request') return planForPaths([], event || 'unknown', includeArm64);
+  if (event !== 'pull_request') return planForPaths([], event || 'unknown', includeArm64, { frontendOnly });
   try {
-    return planForPaths(changedPaths(cwd, base, head), 'pull_request', includeArm64);
+    const integration = [headRef, baseRef].some(ref => ref.includes('release-integration'));
+    const plan = planForPaths(changedPaths(cwd, base, head), event, includeArm64, { integration });
+    if (plan.frontendSpecs?.length) {
+      // Product tests run at the PR head, while the planner runs at its merge
+      // commit. A deletion, rename or missing mapped spec needs the full suite.
+      const paths = execFileSync('git', ['ls-tree', '-r', '-z', '--name-only', head, '--', 'UI/tests/e2e/'], { cwd, encoding: 'utf8' });
+      const files = new Set(paths.split('\0'));
+      if (!plan.frontendSpecs.every(spec => files.has(`UI/tests/e2e/${spec}`))) plan.frontendSpecs = null;
+    }
+    return plan;
   } catch (error) {
     const plan = planForPaths(['unknown-input'], 'pull_request', includeArm64);
     plan.reason = `fallback to broad PR verification: ${error.message.split('\n')[0]}`;
@@ -200,10 +254,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     base: process.env.PR_BASE_SHA,
     head: process.env.PR_HEAD_SHA,
     releaseTag: process.env.RELEASE_TAG,
+    headRef: process.env.GITHUB_HEAD_REF,
+    baseRef: process.env.GITHUB_BASE_REF,
+    frontendOnly: process.env.FRONTEND_ONLY === 'true',
     includeArm64: process.env.INCLUDE_ARM64 === 'true'
   });
   const json = JSON.stringify(plan);
   console.log(JSON.stringify(plan, null, 2));
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `plan=${json}\n`);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## CI impact\n\n${plan.reason}\n\n\`\`\`json\n${JSON.stringify(plan.required, null, 2)}\n\`\`\`\n`);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## CI impact\n\n${plan.reason}\n\n\`\`\`json\n${JSON.stringify({ ...plan.required, frontendSpecs: plan.frontendSpecs ?? 'full suite' }, null, 2)}\n\`\`\`\n`);
 }
