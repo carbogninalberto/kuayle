@@ -65,7 +65,7 @@ export interface MemberRow {
 }
 
 // A run that has not ended; a task that runs or is about to.
-const activeRun = new Set(['queued', 'starting', 'running', 'waiting_input']);
+export const activeRun = new Set(['queued', 'starting', 'running', 'waiting_input']);
 const activeTask = new Set<AgentTask['state']>(['queued', 'preparing', 'waiting_for_disk', 'running']);
 
 /**

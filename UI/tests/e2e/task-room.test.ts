@@ -251,10 +251,12 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	await expect(rows.nth(3).getByRole('article', { name: 'reviewer' })).toContainText('Yes, ignore case.');
 	await expect(rows.nth(4).getByRole('article', { name: 'Kuayle' })).toContainText('CI passed');
 	const verdict = rows.nth(5).getByRole('article', { name: 'reviewer' });
-	await expect(verdict.getByRole('button')).toContainText('Approves');
-	await expect(verdict.getByRole('button')).toContainText('Looks good to me.');
-	await expect(verdict.getByRole('img', { name: 'Running' })).toBeVisible();
-	await verdict.getByRole('button').click();
+	const verdictLine = verdict.getByRole('button').first();
+	await expect(verdictLine).toContainText('Approves');
+	await expect(verdictLine).toContainText('Looks good to me.');
+	await expect(verdictLine.getByRole('img', { name: 'Running' })).toBeVisible();
+	// Its run has not ended, so the turn starts open (KUA-321).
+	await expect(verdictLine).toHaveAttribute('aria-expanded', 'true');
 	await expect(verdict).toContainText('Commit abc1234');
 	await page.screenshot({ path: testInfo.outputPath('task-room-desktop.png'), fullPage: true });
 
@@ -301,6 +303,50 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	await page.setViewportSize({ width: 320, height: 720 });
 	await expect.poll(() => room.evaluate((list) => list.scrollWidth <= list.clientWidth)).toBe(true);
 	await page.screenshot({ path: testInfo.outputPath('task-room-phone.png') });
+});
+
+// KUA-321: a turn that is running but has not posted yet has a row, open on
+// its live stream, and the row folds when the turn ends.
+test('a running turn that has not posted shows a working row with its live output, which folds when the turn ends', async ({ page }) => {
+	const started = new Date(Date.now() - 5 * 60_000).toISOString();
+	const workflow = {
+		...view,
+		runs: [{ ...run('run-impl-1', 'task-1', 'claude-code', 'claude-opus-5-5', 'running', 1), role: 'implementer', started_at: started }]
+	};
+	const { state, emit } = await fixture(page, workflow);
+	state.room = [];
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const room = page.getByRole('list', { name: 'Task room' });
+	await expect(room.locator(':scope > li')).toHaveCount(1);
+	const turn = room.getByRole('article', { name: 'implementer' });
+	const line = turn.getByRole('button').first();
+	await expect(line).toContainText('implementer');
+	await expect(line).toContainText('Working');
+	await expect(line).toContainText('5m');
+	await expect(line.getByRole('img', { name: 'Running' })).toBeVisible();
+	// It starts open on the run's live output, though it posted nothing.
+	await expect(line).toHaveAttribute('aria-expanded', 'true');
+	await expect(turn.getByText('Starting with the endpoint.')).toBeVisible();
+	await expect(page.getByTestId('task-workflow')).toContainText('Working');
+	await expect(room.getByText('Nothing here yet')).toHaveCount(0);
+
+	// Its first post joins the same row.
+	const first = member(1, 'implementer', 'run-impl-1', 'say', 'Starting on the endpoint.');
+	state.room.push(first);
+	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+	emit('task.room_message', first);
+	await expect(room.locator(':scope > li')).toHaveCount(1);
+	await expect(turn.getByText('Starting on the endpoint.').first()).toBeVisible();
+	await expect(line).toHaveAttribute('aria-expanded', 'true');
+
+	// When the turn ends the row folds, like the others.
+	workflow.runs = [{ ...workflow.runs[0], status: 'succeeded', completed_at: new Date().toISOString() }];
+	emit('task.workflow_updated', { task_id: 'task-1', sequence: 2, node: 'implement', status: 'running' });
+	await expect(line).toHaveAttribute('aria-expanded', 'false');
+	await expect(line.getByRole('img', { name: 'Done' })).toBeVisible();
+	await expect(turn.getByText('Starting with the endpoint.')).toHaveCount(0);
+	await expect(room.locator(':scope > li')).toHaveCount(1);
 });
 
 test('the room shows who may approve a merge and which commits a waiver covers', async ({ page }, testInfo) => {
