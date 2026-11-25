@@ -191,22 +191,32 @@ func (t *tickPass) postDigests(ctx context.Context) error {
 }
 
 // budgetUsed is the share of the budget used, in percent: the larger of the
-// turns charged and the working time, each against its allowance since the
-// last extension a person granted.
+// turns charged against the turn allowance (extensions included, as the
+// budget's own end counts them) and the working time since the time budget
+// last started (the clock held while a person is awaited).
 func (t *tickPass) budgetUsed() int {
 	b, cursor := t.p.Budget, t.task.Cursor()
 	used := 0
 	if allowance := b.Workflow().IterationAllowance(cursor); allowance > 0 {
 		used = (cursor.Iterations + t.turns) * 100 / allowance
 	}
-	if from := cmp.Or(cursor.BudgetFrom, cursor.StartedAt); b.MaxMinutes > 0 && !from.IsZero() {
-		until := t.now
-		if !cursor.HeldSince.IsZero() {
-			until = cursor.HeldSince
-		}
-		used = max(used, int(until.Sub(from)*100/(time.Duration(b.MaxMinutes)*time.Minute)))
+	if b.MaxMinutes > 0 {
+		used = max(used, int(t.workedSince()*100/(time.Duration(b.MaxMinutes)*time.Minute)))
 	}
 	return used
+}
+
+// workedSince is the working time since the time budget last started.
+func (t *tickPass) workedSince() time.Duration {
+	cursor := t.task.Cursor()
+	from, until := cmp.Or(cursor.BudgetFrom, cursor.StartedAt), t.now
+	if !cursor.HeldSince.IsZero() {
+		until = cursor.HeldSince
+	}
+	if from.IsZero() {
+		return 0
+	}
+	return until.Sub(from)
 }
 
 // postBudget tells the lead when the budget passes a mark it was not told
@@ -227,10 +237,7 @@ func (t *tickPass) postBudget(ctx context.Context) error {
 		return nil
 	}
 	b := t.p.Budget
-	minutes := 0
-	if from := cmp.Or(cursor.BudgetFrom, cursor.StartedAt); !from.IsZero() {
-		minutes = int(t.now.Sub(from).Minutes())
-	}
+	minutes := int(t.workedSince().Minutes())
 	value, err := json.Marshal(map[string]int{"percent": mark, "turns": cursor.Iterations + t.turns, "max_turns": b.Workflow().IterationAllowance(cursor), "minutes": minutes, "max_minutes": b.MaxMinutes})
 	if err != nil {
 		return err
