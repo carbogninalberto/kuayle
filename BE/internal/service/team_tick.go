@@ -101,6 +101,8 @@ type tickState struct {
 	// the repository records both when a writer's turn starts.
 	Writer string          `json:"writer,omitempty"`
 	Moves  json.RawMessage `json:"moves,omitempty"`
+	// Lead is what Kuayle last told the lead (team_lead.go).
+	Lead tickLead `json:"lead,omitzero"`
 }
 
 type tickWait struct {
@@ -259,7 +261,7 @@ func (s *AgentTaskService) pipelineTick(ctx context.Context, task domain.AgentTa
 	}
 	index, unmet := t.phase()
 	phase := p.Phases[index]
-	if err = t.postChecks(ctx); err != nil {
+	if err = t.tellLead(ctx); err != nil {
 		return err
 	}
 	// Without a lead Kuayle names the phase; with one, the lead does.
@@ -925,10 +927,11 @@ func (t *tickPass) wait(why string, poll bool) repository.WorkflowEntry {
 	if poll {
 		wake = ptr(t.now.Add(tickPoll))
 	}
-	// The time budget also ends a wait; one that has passed (a pass that
-	// could not read GitHub could not stop the task) is looked at again
-	// after a poll, not at once.
-	if deadline := (domain.WorkflowGraph{Budget: t.p.Budget.Workflow()}).BudgetDeadline(t.task.Cursor()); deadline != nil && !t.person {
+	// The time budget also ends a wait (and, with a lead, passing a mark of
+	// it, budgetWake); one that has passed (a pass that could not read
+	// GitHub could not stop the task) is looked at again after a poll, not
+	// at once.
+	if deadline := t.budgetWake(); deadline != nil && !t.person {
 		if !deadline.After(t.now) {
 			deadline = ptr(t.now.Add(tickPoll))
 		}

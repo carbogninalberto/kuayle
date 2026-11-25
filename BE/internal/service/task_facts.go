@@ -602,11 +602,20 @@ func (s *AgentTaskService) readScriptFacts(ctx context.Context, task domain.Agen
 // runScriptChecks runs, in the task's worktree through the manual check
 // runner, the checks that have no run for the head (or could not run), on
 // commit. A check that cannot start now (actionFact) is unavailable and
-// tried again at the next pass. It reports whether it changed any run.
+// tried again at the next pass. One that already ran on commit is not run
+// again: the head is then a commit someone else pushed, which the writer's
+// worktree does not hold, so the check is unavailable until Kuayle publishes
+// the head (a run queued at every pass kept the writer, who publishes it,
+// from starting; TestTickLiveness seed 9). It reports whether it changed any
+// run.
 func (s *AgentTaskService) runScriptChecks(ctx context.Context, task domain.AgentTask, checks []domain.PipelineCheck, facts map[string]ScriptFact, runs map[string]*scriptRun, commit string) (bool, error) {
 	changed := false
 	for _, check := range checks {
 		if state := facts[check.ID].State; state != "pending" && state != "unavailable" {
+			continue
+		}
+		if ran := runs[check.ID]; ran != nil && ran.Commit == commit && ran.Step == nil && ran.Exit != nil {
+			facts[check.ID] = ScriptFact{State: "unavailable", Why: fmt.Sprintf("it ran on %s, the newest commit Kuayle published, and the head is another commit; it runs once the head is published", shortSHA(commit))}
 			continue
 		}
 		run := &scriptRun{Commit: commit}

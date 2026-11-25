@@ -145,3 +145,58 @@ func TestALeadTurnPromptSaysHowToMoveTheTask(t *testing.T) {
 	require.Contains(t, prompt, `kuayle-say --to @all --phase <id> "why"`)
 	require.Contains(t, prompt, "every required check of the phases up to the merge")
 }
+
+// The lead wakes (KUA-302) for the owner, a question addressed to it, and
+// what Kuayle sends it: a member's turn that ended (a summary), a change in
+// a required check, a stall (a summary) and the budget. Talk between roles,
+// the advisory checks, Kuayle's facts to everyone and its own refused posts
+// wait for its next turn.
+func TestTheLeadWakesForItsSources(t *testing.T) {
+	lead := PipelineMember{Role: PipelineLeadRole}
+	fact := func(name string, to ...string) TaskMessage {
+		m := roomPost(5, RoomFact, RoomAuthorKuayle, "", to, name)
+		m.Data.Fact = name
+		return m
+	}
+	refused := roomPost(9, RoomPhase, RoomAuthorMember, PipelineLeadRole, nil, "")
+	reason := "a phase move says why"
+	refused.RejectReason = &reason
+	waits := []TaskMessage{
+		roomPost(1, RoomSay, RoomAuthorMember, "implementer", nil, "Pushed the fix."),
+		roomPost(2, RoomAsk, RoomAuthorMember, "implementer", nil, "Anyone?"),
+		roomPost(3, RoomSay, RoomAuthorMember, "reviewer", []string{PipelineLeadRole}, "FYI: looks fine."),
+		roomPost(4, RoomRequest, RoomAuthorMember, "implementer", []string{"reviewer"}, ""),
+		fact("advisory", PipelineLeadRole),
+		fact("ci_green"),
+		fact("script", PipelineLeadRole),
+		roomPost(6, RoomVerdict, RoomAuthorMember, "reviewer", nil, "approve"),
+		refused,
+	}
+	require.False(t, LeadWakes(RoomInbox(PipelineLeadRole, waits)))
+	require.False(t, RoomWakes(lead, RoomInbox(PipelineLeadRole, waits)), "the room asks LeadWakes for the lead")
+	for name, post := range map[string]TaskMessage{
+		"the owner to everyone":      roomPost(10, RoomSay, RoomAuthorHuman, "", nil, "Keep it small."),
+		"the owner to the lead":      roomPost(10, RoomAsk, RoomAuthorHuman, "", []string{PipelineLeadRole}, "Where are we?"),
+		"a question addressed to it": roomPost(10, RoomAsk, RoomAuthorMember, "implementer", []string{PipelineLeadRole}, "Shall I split it?"),
+		"a turn that ended":          roomPost(10, RoomSummary, RoomAuthorKuayle, "", []string{PipelineLeadRole}, "The @reviewer's turn ended."),
+		"a required check changed":   fact("checks", PipelineLeadRole),
+		"the budget":                 fact("budget", PipelineLeadRole),
+	} {
+		require.True(t, LeadWakes(RoomInbox(PipelineLeadRole, append(waits, post))), name)
+		require.True(t, RoomWakes(lead, RoomInbox(PipelineLeadRole, append(waits, post))), name)
+	}
+}
+
+// A digest of a member's turn is its outcome, its verdict and the first
+// lines of its final message, never the whole of it.
+func TestATurnDigestHoldsTheFirstLinesAndTheVerdict(t *testing.T) {
+	final := "Verdict: request_changes\n\nThe toggle is not persisted.\n- app.go:12 handle the error\n- app.go:40 test it\n- line 5\n- line 6\n- line 7\n- line 8"
+	digest := TurnDigest("reviewer", "succeeded", final, "request_changes", strings.Repeat("a", 40))
+	require.True(t, strings.HasPrefix(digest, "The @reviewer's turn ended: request_changes on aaaaaaaa.\n"))
+	require.Contains(t, digest, "The toggle is not persisted.")
+	require.NotContains(t, digest, "line 8", "the first lines only")
+	require.Equal(t, "The @implementer's turn failed: the harness crashed.", TurnDigest("implementer", "failed", "the harness crashed", "", ""))
+	require.Equal(t, "The @implementer's turn ended.", TurnDigest("implementer", "succeeded", "", "", ""))
+	long := TurnDigest("implementer", "succeeded", strings.Repeat("é", 3000), "", "")
+	require.LessOrEqual(t, len([]rune(long)), 1000)
+}

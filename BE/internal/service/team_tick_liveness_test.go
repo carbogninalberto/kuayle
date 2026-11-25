@@ -294,6 +294,10 @@ func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 		if other := l.otherWriter(role); other != "" && r.IntN(6) == 0 {
 			played.posts = append(played.posts, `{"to":"@`+other+`","kind":"ask","body":"Can you take the styling?"}`)
 		}
+		if l.p.Lead != nil && r.IntN(5) == 0 {
+			// A question for the lead wakes it (KUA-302); a message waits.
+			played.posts = append(played.posts, []string{`{"to":"@lead","kind":"ask","body":"Shall I split the settings page off?"}`, `{"to":"@lead","body":"The toggle is done."}`}[r.IntN(2)])
+		}
 	} else {
 		switch x := r.IntN(10); {
 		case x < 4:

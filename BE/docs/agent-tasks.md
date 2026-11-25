@@ -3168,6 +3168,20 @@ so its runs, session, handoff, logs and transcripts are the existing ones:
   whose turn is queued or running, or whose task waits on a usage limit, is
   not started again. Any member turn's end, failed or cancelled too, wakes
   the root's tick.
+- **When the lead wakes** (KUA-302, `domain.LeadWakes`): for a post from
+  the owner (to everyone or to it), a question (`ask`) addressed to it, and
+  what Kuayle sends it: a digest of each member's turn that ended (a
+  `summary` per run, the writer's and every other role's: how it ended, the
+  verdict it gave and the first five lines, at most 800 characters, of its
+  final message, never the transcript), a change in the required checks
+  (the `checks` fact), a stall summary, and the budget passing 50, 80 and
+  100 percent (a `budget` fact, once per mark and again after each
+  extension; the larger of the turns charged and the working time; with a
+  lead, the tick also wakes at the next mark of the time budget). Talk
+  between roles, a message (not a question) addressed to it, the
+  `advisory` fact, facts to everyone and its own refused posts wait for its
+  next turn. A pass starts at most one turn of the lead, and that turn
+  reads everything that came since its last one, so events are batched.
 - **A role becomes a member at its first turn.** Before that it has no
   `task_members` row, no task and no runs: an on-call role that nobody
   addresses costs nothing. Its first turn reads the newest page of the room
@@ -3241,7 +3255,10 @@ run is under way the check waits, and its end wakes the tick. Exit 0 meets
 the check; another exit leaves it unmet with the end of its output (at most
 2,000 bytes, fenced as data) as the reason. A check that cannot run (no
 ready worktree on a running machine, the machine busy with an attempt) is
-`unknown`, never unmet, and is tried again at the next pass. Each result is
+`unknown`, never unmet, and is tried again at the next pass. A check that
+already ran on the newest published commit is not run on it again when the
+head is a commit someone else pushed (the writer's worktree does not hold
+it): it is `unknown` until Kuayle publishes the head. Each result is
 posted once as a `script` fact (check, commit, exit code); a failed advisory
 check is posted to its phase's owner and never holds the task up.
 
@@ -3286,7 +3303,9 @@ person decides. One pass:
    lead when they change: a `checks` fact for the required ones and an
    `advisory` fact for the others (each a map from check ID to `met`,
    `unmet`, `waiting` or `waived`, with the reasons of those that do not
-   hold; a check that cannot be read keeps its last state);
+   hold; a check that cannot be read keeps its last state), a digest of each
+   member's turn that ended and the budget's marks (below, "When the lead
+   wakes");
 4. completes the task when the pull request is merged, and publishes a
    finished turn of the writer that was not published yet;
 5. starts the script checks of the phases up to the current one that have no
@@ -3350,11 +3369,12 @@ happens around a pipeline task (pushes, CI results, base moves and conflicts,
 verdicts, the owner's approvals, decisions and posts, member turns that
 finish, fail or are cancelled, GitHub failing or answering too slowly, script
 check results, merges refused, the budget running out, and in half the seeds
-a lead that moves the task at random and posts what it may not; KUA-301)
-through the scenario tests' worker, tick, repository and room. After every worker step the task
-must be working (a turn under way), waiting on a fact that changes by itself
-with a wake at most one poll away, waiting on a person (paused, or the clock
-held for a person), or ended with no member's turn left running; after the
+a lead that moves the task at random and posts what it may not, and that
+writers ask questions or send messages; KUA-301, KUA-302) through the
+scenario tests' worker, tick, repository and room. After every worker step
+the task must be working (a turn under way), waiting on a fact that changes
+by itself with a wake at most one poll away, waiting on a person (paused, or
+the clock held for a person), or ended with no member's turn left running; after the
 sequence, with everyone cooperating, it must end, needing at most one
 Continue beyond its budget's. A failure prints its seed
 and events: `TICK_LIVENESS_SEED=<n>` replays one sequence,
@@ -3422,9 +3442,8 @@ approve, continue and stop.
 
 **Limits of this first version.**
 
-- The lead takes a turn only when its unread posts call for one, as a role
-  that is not on call does (the checks Kuayle posts to it, a stall summary,
-  a post addressed to it, or talk to everyone). `autonomy` is not read:
+- The lead's `summary` posts stay in the room; they do not reach the
+  owner's notifications yet (P5.4). `autonomy` is not read:
   approving is a person's decision and waiving the creator's, and a `grant`
   is stored but grants nothing until there is a lead.
 - Writers write one at a time, on the root task; the other roles never
