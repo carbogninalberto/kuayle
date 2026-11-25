@@ -1,7 +1,7 @@
 <script lang="ts">
 	import ChatComposer from './ChatComposer.svelte';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
-	import { onMount, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import {
@@ -289,6 +289,13 @@
 		taskColumnOpen = !taskColumnOpen;
 		keepChoice(taskColumnKey, taskColumnOpen ? 'open' : 'closed');
 	}
+	// Closed from its own header, the column takes the focus with it: the
+	// top bar's toggle, which opens it again, gets it.
+	let taskToggle = $state<HTMLElement | null>(null);
+	function hideTaskColumn() {
+		if (taskColumnOpen) toggleTaskColumn();
+		void tick().then(() => taskToggle?.focus());
+	}
 	$effect(() => {
 		if (wide.current || !agentView) untrack(() => (taskSheet = false));
 	});
@@ -561,6 +568,7 @@
 				onclick={showSidebar}><PanelLeft /></Button
 			>{/if}
 		{#if agentView && agentTask}<Button
+				bind:ref={taskToggle}
 				variant="ghost"
 				size="icon-sm"
 				aria-label={m['assistant.task_column']()}
@@ -949,7 +957,7 @@
 			<Resizable.PaneGroup direction="horizontal" autoSaveId="kuayle-assistant-panel" class="min-h-0 flex-1">
 				{#if taskColumnInline}
 					<Resizable.Pane id="assistant-task-column" order={1} defaultSize={22} minSize={15} maxSize={35} class="min-w-0"
-						>{@render taskColumn(toggleTaskColumn)}</Resizable.Pane
+						>{@render taskColumn(hideTaskColumn)}</Resizable.Pane
 					>
 					<Resizable.Handle withHandle aria-label={m['assistant.resize_task_column']()} />
 				{/if}

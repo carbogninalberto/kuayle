@@ -326,6 +326,7 @@ test('the side panes close, open and keep their sizes across reloads', async ({ 
 	await column(page).getByRole('button', { name: 'Hide task overview' }).click();
 	await expect(column(page)).toHaveCount(0);
 	await expect(toggle(page)).toHaveAttribute('aria-pressed', 'false');
+	await expect(toggle(page)).toBeFocused();
 	await page.reload();
 	await expect(page.getByTestId('agent-thread')).toBeVisible();
 	await expect(column(page)).toHaveCount(0);
