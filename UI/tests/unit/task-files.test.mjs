@@ -4,42 +4,60 @@ import { common, createLowlight } from 'lowlight';
 import {
 	diffOf,
 	fileError,
+	findEntry,
 	folderOpen,
-	matchFiles,
 	nextPage,
-	previousPage
+	previousPage,
+	treeNodes
 } from '../../src/lib/features/assistant/task-files.ts';
 import { parseDiff } from '../../src/lib/features/assistant/diff.ts';
 import { highlightCap, languageFor, tokenLines } from '../../src/lib/features/assistant/code-highlight.ts';
 
-const entries = [
-	{ path: 'BE/internal/handler/agent_task.go', changed: true },
-	{ path: 'UI/src/lib/api/agent-tasks.ts', changed: false },
-	{ path: 'UI/src/lib/features/assistant/Files.svelte', changed: true },
-	{ path: 'README.md', changed: false }
-];
+const dir = (...entries) => ({ status: 'ready', entries, truncated: false });
+const folder = (path, changed = false) => ({ name: path.split('/').pop(), path, kind: 'tree', sha: 'a'.repeat(40), changed });
+const file = (path, changed = false) => ({ name: path.split('/').pop(), path, kind: 'blob', sha: 'b'.repeat(40), size: 10, changed });
 
-test('a filter matches paths case-insensitively and caps the matches', () => {
-	assert.deepEqual(matchFiles(entries, ''), { files: entries, count: 4 });
-	assert.deepEqual(
-		matchFiles(entries, '  agent ').files.map((f) => f.path),
-		['BE/internal/handler/agent_task.go', 'UI/src/lib/api/agent-tasks.ts']
-	);
-	assert.deepEqual(matchFiles(entries, 'FILES').files, [entries[2]]);
-	// The query is text, never a pattern.
-	assert.deepEqual(matchFiles(entries, '.*').files, []);
-	const capped = matchFiles(entries, 'ui/', 1);
-	assert.equal(capped.files.length, 1);
-	assert.equal(capped.count, 2);
+test('the tree is built from the directories read so far, one level at a time', () => {
+	// Only the root was read: its folders are closed leaves without children.
+	const root = dir(folder('src', true), folder('docs'), file('README.md'), file('main.go', true));
+	assert.deepEqual(treeNodes({ '': root }), [
+		{ type: 'folder', name: 'src', path: 'src', children: [], changed: true },
+		{ type: 'folder', name: 'docs', path: 'docs', children: [] },
+		{ type: 'file', name: 'README.md', path: 'README.md' },
+		{ type: 'file', name: 'main.go', path: 'main.go', changed: true }
+	]);
+	// A folder read later fills in its own place; one being read or failed says so.
+	const nodes = treeNodes({
+		'': root,
+		src: dir(folder('src/lib'), file('src/app.go', true)),
+		'src/lib': { status: 'loading' },
+		docs: { status: 'error', error: 'busy' }
+	});
+	assert.deepEqual(nodes[0].children, [
+		{ type: 'folder', name: 'lib', path: 'src/lib', children: [], state: 'loading' },
+		{ type: 'file', name: 'app.go', path: 'src/app.go', changed: true }
+	]);
+	assert.equal(nodes[1].state, 'error');
+	// Nothing is shown until the root is read, and a cut folder says how many entries it lists.
+	assert.deepEqual(treeNodes({}), []);
+	assert.deepEqual(treeNodes({ '': { status: 'loading' } }), []);
+	const cut = treeNodes({ '': dir(folder('gen')), gen: { status: 'ready', entries: [file('gen/a.txt')], truncated: true } });
+	assert.equal(cut[0].truncated, 1);
 });
 
-test('first-level folders start open, deeper ones closed; a filter opens all; a toggle wins', () => {
-	assert.equal(folderOpen('src', 0, {}, false), true);
-	assert.equal(folderOpen('src/lib', 1, {}, false), false);
-	assert.equal(folderOpen('src/lib', 1, {}, true), true);
-	assert.equal(folderOpen('src', 0, { src: false }, false), false);
-	assert.equal(folderOpen('src/lib', 1, { 'src/lib': true }, false), true);
-	assert.equal(folderOpen('src/lib', 1, { 'src/lib': false }, true), false);
+test('an entry is found in the directory that holds it', () => {
+	const dirs = { '': dir(folder('src'), file('main.go', true)), src: dir(file('src/app.go', true)) };
+	assert.equal(findEntry(dirs, 'main.go')?.changed, true);
+	assert.equal(findEntry(dirs, 'src/app.go')?.name, 'app.go');
+	assert.equal(findEntry(dirs, 'src/missing.go'), undefined);
+	assert.equal(findEntry(dirs, 'docs/readme.md'), undefined, 'a directory not read yet');
+});
+
+test('folders start closed, reading one is a request; a filter opens all; a toggle wins', () => {
+	assert.equal(folderOpen('src', {}, false), false);
+	assert.equal(folderOpen('src/lib', {}, true), true);
+	assert.equal(folderOpen('src', { src: true }, false), true);
+	assert.equal(folderOpen('src/lib', { 'src/lib': false }, true), false);
 });
 
 test('errors map to what the reader can do about them', () => {

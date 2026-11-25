@@ -268,7 +268,11 @@ func ValidateWorktreeScanRequest(req domain.WorktreeScanRequest) error {
 			return ErrConversationInvalid
 		}
 	case domain.WorktreeScanTree:
-		if !validWorktreeScanRef(req.Ref) || req.Limit > domain.TaskFilesMax {
+		// One directory (the root when Path is empty), or, with a Pattern, a
+		// search of every path; never both.
+		searching := req.Pattern != ""
+		if !validWorktreeScanRef(req.Ref) || req.Limit > domain.TaskFilesMax || !domain.ValidTaskDirPath(req.Path) ||
+			(searching && (req.Path != "" || !validWorktreeScanText(req.Pattern, 1, domain.TaskFileQueryMax))) {
 			return ErrConversationInvalid
 		}
 	case domain.WorktreeScanShow:

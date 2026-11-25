@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { filesAnswer } from './task-files-api';
 
 // The Phase 3 checkpoint (KUA-296): on a desktop and at phone width, with the
 // keyboard only, the owner answers from the task page who is working, which
@@ -175,17 +176,13 @@ const diff = [
 	'@@ -0,0 +1,3 @@',
 	...search.trimEnd().split('\n').map((line) => `+${line}`)
 ].join('\n');
-const listing = {
-	commit: HEAD,
-	files: [
-		{ path: 'README.md', changed: false },
-		{ path: 'docs/notes.md', changed: true },
-		{ path: 'src/lib/search.ts', changed: true },
-		{ path: 'src/lib/util/strings.ts', changed: false },
-		{ path: 'src/main.go', changed: false }
-	],
-	truncated: false
-};
+const tracked = [
+	{ path: 'README.md', changed: false },
+	{ path: 'docs/notes.md', changed: true },
+	{ path: 'src/lib/search.ts', changed: true },
+	{ path: 'src/lib/util/strings.ts', changed: false },
+	{ path: 'src/main.go', changed: false }
+];
 
 async function fixture(page: Page) {
 	const requests: string[] = [];
@@ -214,7 +211,9 @@ async function fixture(page: Page) {
 			if (rest === '/workflow') return route.fulfill({ json: view });
 			if (rest === '/room')
 				return route.fulfill({ json: { messages: room.filter((message) => message.seq > Number(url.searchParams.get('after') ?? 0)) } });
-			if (rest === '/files') return route.fulfill({ json: listing });
+			if (rest === '/files') {
+				return route.fulfill(filesAnswer(tracked, HEAD, url));
+			}
 			if (rest === '/files/content') {
 				const file = url.searchParams.get('path') ?? '';
 				const content = file === 'src/lib/search.ts' ? search : `# ${file}\n`;
@@ -305,8 +304,15 @@ async function expectBlocks(page: Page) {
 // What changed: the changed files marked in the tree; one opened by keyboard
 // and toggled to its diff and back.
 async function expectChanges(page: Page) {
-	await expect(page.getByTestId('files-summary')).toHaveText('5 files · 2 changed · at abc1234');
+	await expect(page.getByTestId('files-summary')).toHaveText('at abc1234');
 	await expect(tree(page).getByRole('button', { name: 'docs Contains changed files' })).toBeVisible();
+	// Folders start closed and are read when opened: src, then the lib folder inside it.
+	const src = tree(page).getByRole('button', { name: 'src Contains changed files' });
+	await expect(src).toHaveAttribute('aria-expanded', 'false');
+	await expect(tree(page).getByRole('button', { name: 'lib Contains changed files' })).toHaveCount(0);
+	await tabTo(page, src);
+	await page.keyboard.press('Enter');
+	await expect(src).toHaveAttribute('aria-expanded', 'true');
 	const lib = tree(page).getByRole('button', { name: 'lib Contains changed files' });
 	await expect(lib).toHaveAttribute('aria-expanded', 'false');
 	await tabTo(page, lib);

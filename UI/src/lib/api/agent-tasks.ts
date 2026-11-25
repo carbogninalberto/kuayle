@@ -294,15 +294,32 @@ export interface NotebookChange {
 	summary: string;
 	created_at: string;
 }
-/** One file a commit of the task tracks; changed: the task changed it. */
+/**
+ * One entry of a directory a commit of the task tracks (KUA-319), or one file
+ * a search found: kind tree (a folder) or blob (a file), its git object id and
+ * a file's size when known. changed: the task changed the file, or a file below
+ * the folder. path is the whole path; name the entry's own.
+ */
 export interface TaskFileEntry {
+	name: string;
 	path: string;
+	kind: 'tree' | 'blob';
+	sha?: string;
+	size?: number;
 	changed: boolean;
 }
-/** The files one commit of the task tracks, sorted by path; truncated: the listing stops at a bound. */
+/**
+ * One directory of the files a commit of the task tracks (path, empty for the
+ * root), folders first then files by name, or the files whose path contains
+ * `query`, with `matches` counting them all. truncated: the listing stops at a bound.
+ */
 export interface TaskFiles {
 	commit: string;
-	files: TaskFileEntry[];
+	path: string;
+	tree?: string;
+	query?: string;
+	entries: TaskFileEntry[];
+	matches?: number;
 	truncated: boolean;
 }
 /**
@@ -547,10 +564,14 @@ export const agentTasks = {
 	debugTrace: (slug: string, id: string) => api.blob(`${task(slug, id)}/debug`),
 	diff: (slug: string, id: string, run: string) =>
 		api.get<{ diff: string; truncated: boolean }>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/diff`),
-	// The files a commit of the task tracks (the head by default) and one page
-	// of a file's lines; creator only. Untracked and ignored files are never served.
-	files: (slug: string, id: string, ref?: string) =>
-		api.get<TaskFiles>(`${task(slug, id)}/files${ref ? `?${new URLSearchParams({ ref })}` : ''}`),
+	// One directory (path, the root by default) of the files a commit of the task
+	// tracks (the head by default), or a search of their paths (query), and one
+	// page of a file's lines; creator only. Untracked and ignored files are never served.
+	files: (slug: string, id: string, options: { ref?: string; path?: string; query?: string } = {}) => {
+		const query = new URLSearchParams();
+		for (const [key, value] of Object.entries(options)) if (value) query.set(key, value);
+		return api.get<TaskFiles>(`${task(slug, id)}/files${query.size ? `?${query}` : ''}`);
+	},
 	fileContent: (slug: string, id: string, path: string, page: { ref?: string; start?: number; end?: number } = {}) => {
 		const query = new URLSearchParams({ path });
 		if (page.ref) query.set('ref', page.ref);

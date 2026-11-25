@@ -1,37 +1,58 @@
-// The rules of a task's files panel (KUA-285): filtering the listing, which
-// folders start open, what an error means for the reader, paging through a
-// long file, and a changed file's part of the stored diff.
+// The rules of a task's files panel (KUA-285, KUA-319): which folders are
+// open, the tree built from the directories read so far, what an error means
+// for the reader, paging through a long file, and a changed file's part of
+// the stored diff.
+import type { TaskFileEntry } from '$lib/api/agent-tasks';
 import type { DiffFile } from './diff';
+import type { FileNode } from './agent-trace';
 
-export interface FileEntry {
-	path: string;
-	changed: boolean;
+/** One directory of the commit as the panel knows it: being read, failed, or read. */
+export type DirState =
+	| { status: 'loading' }
+	| { status: 'error'; error: FileError }
+	| { status: 'ready'; entries: TaskFileEntry[]; truncated: boolean };
+
+/**
+ * The tree of the directories read so far, from `path` (the root by
+ * default). A folder that was not read yet, or is being read, has no
+ * children; one that failed or is loading says so, and one the server cut
+ * says how many entries it lists.
+ */
+export function treeNodes(dirs: Record<string, DirState>, path = ''): FileNode[] {
+	const dir = dirs[path];
+	if (dir?.status !== 'ready') return [];
+	return dir.entries.map((entry): FileNode => {
+		if (entry.kind !== 'tree')
+			return entry.changed
+				? { type: 'file', name: entry.name, path: entry.path, changed: true }
+				: { type: 'file', name: entry.name, path: entry.path };
+		const child = dirs[entry.path];
+		const folder: Extract<FileNode, { type: 'folder' }> = {
+			type: 'folder',
+			name: entry.name,
+			path: entry.path,
+			children: treeNodes(dirs, entry.path)
+		};
+		if (entry.changed) folder.changed = true;
+		if (child?.status === 'loading' || child?.status === 'error') folder.state = child.status;
+		if (child?.status === 'ready' && child.truncated) folder.truncated = child.entries.length;
+		return folder;
+	});
 }
 
-/** How many filter matches the tree shows at once; a filter is refined, not scrolled. */
-export const matchCap = 500;
-
-/** Entries whose path contains the query (text, case-insensitive); a blank query matches all. */
-export function matchFiles<T extends FileEntry>(entries: T[], query: string, cap = matchCap): { files: T[]; count: number } {
-	const needle = query.trim().toLowerCase();
-	if (!needle) return { files: entries, count: entries.length };
-	const files: T[] = [];
-	let count = 0;
-	for (const entry of entries) {
-		if (!entry.path.toLowerCase().includes(needle)) continue;
-		count++;
-		if (files.length < cap) files.push(entry);
-	}
-	return { files, count };
+/** The entry at `path` among the directories read so far. */
+export function findEntry(dirs: Record<string, DirState>, path: string): TaskFileEntry | undefined {
+	const dir = dirs[path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''];
+	return dir?.status === 'ready' ? dir.entries.find((entry) => entry.path === path) : undefined;
 }
 
 /**
  * Whether a folder is open: the reader's own toggle wins; otherwise folders
- * on the first level (depth 0) start open and deeper ones closed, and while a
- * filter is active every folder is open so the matches show.
+ * start closed (reading one is a request) and, while a filter is active, the
+ * folders of its matches are open so the matches show.
  */
-export function folderOpen(path: string, depth: number, toggled: Record<string, boolean>, filtering: boolean): boolean {
-	return toggled[path] ?? (filtering || depth === 0);
+export function folderOpen(path: string, toggled: Record<string, boolean>, filtering: boolean): boolean {
+	return toggled[path] ?? filtering;
 }
 
 /**

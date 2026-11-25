@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { filesAnswer } from './task-files-api';
 
 // A task's files panel (KUA-285): the tree of the files the task's head
 // commit tracks, the files the task changed marked, a path filter, a preview
@@ -60,27 +61,28 @@ const logPage = (start: number) => {
 	return { content: `${lines.join('\n')}\n`, start, end, total_lines: 12000, truncated: end < 12000 };
 };
 
-const listing = (over: Record<string, unknown> = {}) => ({
-	commit,
-	files: [
-		{ path: '.github/workflows/ci.yml', changed: false },
-		{ path: 'README.md', changed: false },
-		{ path: 'assets/logo.png', changed: false },
-		{ path: 'docs/build.log', changed: false },
-		{ path: 'src/lib/search.ts', changed: true },
-		{ path: 'src/lib/util/strings.ts', changed: false },
-		{ path: 'src/main.go', changed: false }
-	],
-	truncated: false,
-	...over
-});
+// What the commit tracks, as a flat list; the mocked API answers one folder at a time.
+const tracked = [
+	{ path: '.github/workflows/ci.yml', changed: false },
+	{ path: 'README.md', changed: false },
+	{ path: 'assets/logo.png', changed: false },
+	{ path: 'docs/build.log', changed: false },
+	{ path: 'src/lib/search.ts', changed: true },
+	{ path: 'src/lib/util/strings.ts', changed: false },
+	{ path: 'src/main.go', changed: false }
+];
 
 type Failure = { status: number; code: string };
 async function fixture(page: Page, theme: 'light' | 'dark' = 'light') {
 	const conversation = { id: 'chat-1', workspace_id: 'workspace-1', creator_id: 'user-1', issue_id: 'issue-1', team_id: 'team-1', title: 'Search', created_at: time, updated_at: time };
 	const issue = { id: 'issue-1', identifier: 'ENG-1', title: 'Search', status: 'todo', description: '' };
 	const state = {
-		listing: listing() as Record<string, unknown>,
+		files: tracked,
+		// What the server says when it cuts a folder's listing.
+		truncated: false,
+		// Paths whose listing fails, and the search cap.
+		folderFailures: {} as Record<string, Failure>,
+		searchCap: 500,
 		listingFailure: null as Failure | null,
 		contentFailures: {} as Record<string, Failure>,
 		requests: [] as string[]
@@ -112,7 +114,12 @@ async function fixture(page: Page, theme: 'light' | 'dark' = 'light') {
 				route.fulfill({ status: failure.status, json: { error: { code: failure.code, message: failure.code } } });
 			if (rest === '/files') {
 				state.requests.push(`files${url.search}`);
-				return state.listingFailure ? fail(state.listingFailure) : route.fulfill({ json: state.listing });
+				const folder = url.searchParams.get('path') ?? '';
+				if (state.listingFailure) return fail(state.listingFailure);
+				if (state.folderFailures[folder]) return fail(state.folderFailures[folder]);
+				const answer = filesAnswer(state.files, commit, url, state.searchCap);
+				if (answer.status !== 200) return route.fulfill(answer);
+				return route.fulfill({ json: { ...answer.json, truncated: answer.json.truncated || state.truncated } });
 			}
 			if (rest === '/files/content') {
 				const file = url.searchParams.get('path') ?? '';
@@ -203,40 +210,57 @@ const scrolling = (page: Page) =>
 		};
 	});
 
-test('desktop: the tree marks changes, filters by path and opens a file with its diff', async ({ page }) => {
+const filesRequests = (state: { requests: string[] }) => state.requests.filter((request) => request.startsWith('files'));
+
+test('desktop: the root loads first, a folder when opened; the tree marks changes, filters on the server and opens a file with its diff', async ({ page }) => {
 	const state = await fixture(page);
 	await page.setViewportSize({ width: 1280, height: 900 });
 	const panel = await openFiles(page);
-	await expect(panel.getByTestId('files-summary')).toHaveText('7 files · 1 changed · at abc1234');
-	// The head by default: no ref.
-	expect(state.requests.filter((request) => request.startsWith('files'))).toEqual(['files']);
+	await expect(panel.getByTestId('files-summary')).toHaveText('at abc1234');
+	// Opening the panel reads the root alone, at the head: no ref, no path, no archive.
+	expect(filesRequests(state)).toEqual(['files']);
 
-	// First-level folders are open; deeper ones closed. The changed file's folders say so.
+	// Folders start closed; the changed file's folders say so. Nothing below them is read yet.
 	const src = tree(page).getByRole('button', { name: 'src Contains changed files' });
-	const lib = tree(page).getByRole('button', { name: 'lib Contains changed files' });
-	await expect(src).toHaveAttribute('aria-expanded', 'true');
-	await expect(lib).toHaveAttribute('aria-expanded', 'false');
-	await expect(tree(page).getByRole('button', { name: 'workflows' })).toHaveAttribute('aria-expanded', 'false');
-	await expect(tree(page).getByRole('button', { name: 'main.go' })).toBeVisible();
-	await expect(tree(page).getByRole('button', { name: /^search\.ts/ })).toHaveCount(0);
+	await expect(src).toHaveAttribute('aria-expanded', 'false');
+	await expect(tree(page).getByRole('button', { name: 'workflows' })).toHaveCount(0);
+	await expect(tree(page).getByRole('button', { name: 'main.go' })).toHaveCount(0);
 	await expect(panel.getByText('Choose a file to preview it.')).toBeVisible();
 
-	// A filter opens the folders holding its matches; no match offers to clear it.
+	// Opening a folder reads that folder only, at the commit the root was read at.
+	await src.click();
+	await expect(src).toHaveAttribute('aria-expanded', 'true');
+	await expect(tree(page).getByRole('button', { name: 'main.go' })).toBeVisible();
+	const lib = tree(page).getByRole('button', { name: 'lib Contains changed files' });
+	await expect(lib).toHaveAttribute('aria-expanded', 'false');
+	await expect(tree(page).getByRole('button', { name: /^search\.ts/ })).toHaveCount(0);
+	expect(filesRequests(state)).toEqual(['files', `files?ref=${commit}&path=src`]);
+	// Closing and opening it again does not read it again.
+	await src.click();
+	await src.click();
+	await expect(tree(page).getByRole('button', { name: 'main.go' })).toBeVisible();
+	expect(filesRequests(state)).toHaveLength(2);
+
+	// A filter is answered by the server over the whole commit and lists its matches;
+	// no match offers to clear it.
 	const filter = panel.getByRole('searchbox', { name: 'Filter files' });
 	await filter.fill('SEARCH');
 	await expect(tree(page).getByRole('button', { name: 'search.ts Changed' })).toBeVisible();
 	await expect(tree(page).getByRole('button', { name: 'main.go' })).toHaveCount(0);
+	expect(filesRequests(state).at(-1)).toBe(`files?ref=${commit}&query=SEARCH`);
 	await filter.fill('nothing-like-this');
 	await expect(tree(page).getByText('No files match “nothing-like-this”.')).toBeVisible();
 	await tree(page).getByRole('button', { name: 'Clear filter' }).click();
 	await expect(filter).toHaveValue('');
 	// The reader's folders come back as they were.
+	await expect(src).toHaveAttribute('aria-expanded', 'true');
 	await expect(lib).toHaveAttribute('aria-expanded', 'false');
 
 	// Keyboard only: open the folder and the file with the primitives' own keys.
 	await lib.focus();
 	await page.keyboard.press('Enter');
 	await expect(lib).toHaveAttribute('aria-expanded', 'true');
+	await expect(tree(page).getByRole('button', { name: 'util' })).toBeVisible();
 	await page.keyboard.press('Tab');
 	await expect(tree(page).getByRole('button', { name: 'util' })).toBeFocused();
 	await page.keyboard.press('Tab');
@@ -244,6 +268,7 @@ test('desktop: the tree marks changes, filters by path and opens a file with its
 	await expect(file).toBeFocused();
 	await page.keyboard.press('Enter');
 	await expect(file).toHaveAttribute('aria-current', 'true');
+	expect(filesRequests(state).at(-1)).toBe(`files?ref=${commit}&path=src%2Flib`);
 
 	// The preview numbers and highlights the file read at the listed commit.
 	const preview = page.getByRole('region', { name: 'src/lib/search.ts' });
@@ -273,13 +298,37 @@ test('desktop: the tree marks changes, filters by path and opens a file with its
 	expect(await fits(page)).toBe(true);
 });
 
-test('a long file pages by line range, plain above the highlighting cap; a truncated listing says so', async ({ page }) => {
+test('a folder that fails to read says so and is read again on request; a capped filter says so', async ({ page }) => {
 	const state = await fixture(page);
-	state.listing = listing({ truncated: true });
+	state.folderFailures['src'] = { status: 502, code: 'FILES_FAILED' };
+	state.searchCap = 1;
 	await page.setViewportSize({ width: 1280, height: 900 });
 	const panel = await openFiles(page);
-	await expect(tree(page).getByRole('note')).toHaveText('Only the first 7 files are listed; this commit tracks more.');
+	await tree(page).getByRole('button', { name: 'src Contains changed files' }).click();
+	const error = tree(page).getByRole('alert');
+	await expect(error).toContainText('Could not load the files.');
+	// The rest of the tree still works.
+	await tree(page).getByRole('button', { name: 'docs' }).click();
+	await expect(tree(page).getByRole('button', { name: 'build.log' })).toBeVisible();
+	delete state.folderFailures['src'];
+	await error.getByRole('button', { name: 'Try again' }).click();
+	await expect(tree(page).getByRole('button', { name: 'main.go' })).toBeVisible();
+	await expect(tree(page).getByRole('alert')).toHaveCount(0);
 
+	// The server caps a filter's matches and counts them all.
+	await panel.getByRole('searchbox', { name: 'Filter files' }).fill('s');
+	await expect(tree(page).getByRole('status')).toHaveText('Showing the first 1 of 6 matches; refine the filter to see the rest.');
+});
+
+test('a long file pages by line range, plain above the highlighting cap; a truncated listing says so', async ({ page }) => {
+	const state = await fixture(page);
+	state.truncated = true;
+	await page.setViewportSize({ width: 1280, height: 900 });
+	const panel = await openFiles(page);
+	await expect(tree(page).getByRole('note')).toHaveText('Only the first 5 entries of this folder are listed; it holds more.');
+
+	await tree(page).getByRole('button', { name: 'docs' }).click();
+	await expect(tree(page).getByRole('button', { name: 'docs' })).toHaveAttribute('aria-expanded', 'true');
 	await tree(page).getByRole('button', { name: 'docs' }).click();
 	await expect(tree(page).getByRole('button', { name: 'docs' })).toHaveAttribute('aria-expanded', 'false');
 	await tree(page).getByRole('button', { name: 'docs' }).click();
@@ -308,9 +357,9 @@ test('a long file pages by line range, plain above the highlighting cap; a trunc
 	await expect(pages).toContainText('Lines 5,001–10,000 of 12,000');
 	await pages.getByRole('button', { name: 'Previous lines' }).click();
 	await expect(pages).toContainText('Lines 1–5,000 of 12,000');
-
-	// A binary file is listed, never shown.
+	await tree(page).getByRole('button', { name: 'assets' }).click();
 	await tree(page).getByRole('button', { name: 'logo.png' }).click();
+	// A binary file is listed, never shown.
 	await expect(page.getByRole('region', { name: 'assets/logo.png' })).toContainText(
 		'This is a binary file; its content is not shown.'
 	);
@@ -334,6 +383,7 @@ test('another member is told the files are the creator’s; failures offer the w
 	await expect(error).toContainText('Start the machine to browse its files.');
 	state.listingFailure = null;
 	await error.getByRole('button', { name: 'Try again' }).click();
+	await tree(page).getByRole('button', { name: 'src Contains changed files' }).click();
 	await expect(tree(page).getByRole('button', { name: 'main.go' })).toBeVisible();
 
 	// The head moved on: the file is no longer at the listed commit.
@@ -352,6 +402,7 @@ test('phone: the panel is a sheet; the tree and the preview fit its width', asyn
 	await openFiles(page);
 	const sheet = page.getByRole('dialog');
 	await expect(sheet.getByTestId('files-panel')).toBeVisible();
+	await tree(page).getByRole('button', { name: 'src Contains changed files' }).click();
 	await tree(page).getByRole('button', { name: 'lib Contains changed files' }).click();
 	await tree(page).getByRole('button', { name: 'search.ts Changed' }).click();
 	const preview = page.getByRole('region', { name: 'src/lib/search.ts' });
@@ -376,6 +427,7 @@ test('dark theme screenshots', async ({ page }) => {
 	]) {
 		await page.setViewportSize({ width: size.width, height: size.height });
 		await openFiles(page);
+		await tree(page).getByRole('button', { name: 'src Contains changed files' }).click();
 		await tree(page).getByRole('button', { name: 'lib Contains changed files' }).click();
 		await tree(page).getByRole('button', { name: 'search.ts Changed' }).click();
 		await expect(page.locator('.hljs-keyword').first()).toBeVisible();

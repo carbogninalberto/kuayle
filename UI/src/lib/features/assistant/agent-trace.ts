@@ -10,7 +10,17 @@ export interface PlanStep {
 // changed (set only when true): the task changed the file, or a file below the folder.
 export type FileNode =
 	| { type: 'file'; name: string; path: string; changed?: true }
-	| { type: 'folder'; name: string; path: string; changed?: true; children: FileNode[] };
+	| {
+			type: 'folder';
+			name: string;
+			path: string;
+			changed?: true;
+			children: FileNode[];
+			/** A task's lazily read folder: being read, or failed to read. */
+			state?: 'loading' | 'error';
+			/** The folder lists only this many of its entries. */
+			truncated?: number;
+	  };
 type FolderNode = Extract<FileNode, { type: 'folder' }>;
 
 const maxLineLength = 64 * 1024;
