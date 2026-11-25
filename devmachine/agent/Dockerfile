@@ -13,7 +13,7 @@ ARG PROVIDER
 ARG TARGETARCH
 ARG NPM_VERSION=12.2.0
 ARG CLAUDE_CODE_VERSION=2.1.330
-ARG OPENCODE_VERSION=2.4.0
+ARG OPENCODE_VERSION=2.4.1
 ARG CODEX_VERSION=0.171.0
 
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
