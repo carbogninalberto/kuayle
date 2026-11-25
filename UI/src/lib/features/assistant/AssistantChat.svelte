@@ -17,6 +17,7 @@
 		Pencil,
 		SquarePen,
 		FileDiff,
+		ListChecks,
 		Workflow as WorkflowIcon
 	} from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -50,6 +51,8 @@
 	import { indicatorDot } from './task-tone';
 	import { taskLabel } from './task-labels';
 	import AssistantSidebar from './AssistantSidebar.svelte';
+	import AssistantRail from './AssistantRail.svelte';
+	import TaskColumn from './TaskColumn.svelte';
 	import SidePanelHost from './panels/SidePanelHost.svelte';
 	import OverviewPanel from './panels/OverviewPanel.svelte';
 	import AgentPanel from './panels/AgentPanel.svelte';
@@ -64,6 +67,7 @@
 		type TaskIndicator
 	} from './shell-rules';
 	import { readRecents, recentsKey, writeRecents } from './recents-cache';
+	import { keepChoice, readChoice } from './layout-choice';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
@@ -76,8 +80,10 @@
 	// sidebar (places, search, folders and recents); centre, the conversation
 	// with the orchestrator assistant, tool and task steps, and pending approvals
 	// above the composer; right, a resizable side panel host
-	// (details, the coding agents' threads, a diff, and future panels). Below
-	// the breakpoints the sidebars become drawers.
+	// (details, the coding agents' threads, a diff, and future panels). While a
+	// task is open (the agent view) the sidebar folds to a rail and the task's
+	// column (phases, members, budget) sits left of its room. Below the
+	// breakpoints the sidebars and the task column become drawers.
 	let { slug, conversationId }: { slug: string; conversationId: string | null } = $props();
 	// This component is keyed by workspace, conversation and authenticated user.
 	const chat = untrack(() => new ConversationState(slug, conversationId ?? ''));
@@ -143,27 +149,28 @@
 	});
 
 	// ── Layout: fixed sidebar from lg, inline side panel from xl, drawers below.
+	// The URL names the task the agent view shows (?agent=, see below).
+	const agentParam = $derived(page.url.searchParams.get('agent'));
+	const agentView = $derived(!!agentParam && !!conversationId);
 	const large = new MediaQuery('min-width: 1024px');
 	const wide = new MediaQuery('min-width: 1280px');
 	const sidebarKey = untrack(() => `assistant-sidebar:${userKey}`);
-	let sidebarCollapsed = $state(
-		untrack(() => {
-			try {
-				return localStorage.getItem(sidebarKey) === 'collapsed';
-			} catch {
-				return false;
-			}
-		})
-	);
+	let sidebarCollapsed = $state(untrack(() => readChoice(sidebarKey) === 'collapsed'));
+	// While a task is open the sidebar folds to its rail unless the person
+	// opens it there; that choice is kept apart from the chat's (KUA-281).
+	const taskSidebarKey = untrack(() => `assistant-sidebar-task:${userKey}`);
+	let taskSidebarOpen = $state(untrack(() => readChoice(taskSidebarKey) === 'open'));
 	let sidebarDrawer = $state(false);
-	const sidebarInline = $derived(large.current && !sidebarCollapsed);
+	const sidebarRail = $derived(large.current && agentView && !taskSidebarOpen);
+	const sidebarInline = $derived(large.current && (agentView ? taskSidebarOpen : !sidebarCollapsed));
 	function setSidebarCollapsed(value: boolean) {
-		sidebarCollapsed = value;
-		try {
-			localStorage.setItem(sidebarKey, value ? 'collapsed' : 'open');
-		} catch {
-			/* Collapsing still works without storage. */
+		if (agentView) {
+			taskSidebarOpen = !value;
+			keepChoice(taskSidebarKey, value ? 'rail' : 'open');
+			return;
 		}
+		sidebarCollapsed = value;
+		keepChoice(sidebarKey, value ? 'collapsed' : 'open');
 	}
 	function showSidebar() {
 		if (large.current) setSidebarCollapsed(false);
@@ -203,7 +210,11 @@
 		const target = `${page.url.searchParams.get('agent') ?? ''}${page.url.hash}`;
 		if (target === pathTarget) return;
 		pathTarget = target;
-		if (target && !wide.current) untrack(() => (host.active = null));
+		if (target && !wide.current)
+			untrack(() => {
+				host.active = null;
+				taskSheet = false;
+			});
 	});
 	// A diff asked for from a task, a step or the overview opens in the panel.
 	$effect(() => {
@@ -222,7 +233,6 @@
 				(a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id.localeCompare(a.id)
 			)
 	);
-	const agentParam = $derived(page.url.searchParams.get('agent'));
 	// A review a workflow step started is a task of its own that the
 	// conversation does not list: its step links to it, so it is read by id
 	// (the server decides who may) and again whenever a review changes.
@@ -252,7 +262,6 @@
 			? agentTasksList[0]
 			: undefined;
 	});
-	const agentView = $derived(!!agentParam && !!conversationId);
 	const assistantHref = $derived(
 		conversationId ? `/${slug}/assistant?conversation=${encodeURIComponent(conversationId)}` : `/${slug}/assistant`
 	);
@@ -265,6 +274,26 @@
 	function closeAgent() {
 		void goto(assistantHref, { reset: false });
 	}
+	// ── Task column (KUA-281): left of the task's room on wide screens, a
+	// drawer below. Whether it shows is the person's choice and is kept;
+	// narrowing the window never pops the drawer open.
+	const taskColumnKey = untrack(() => `assistant-task-column:${userKey}`);
+	let taskColumnOpen = $state(untrack(() => readChoice(taskColumnKey) !== 'closed'));
+	let taskSheet = $state(false);
+	const taskColumnInline = $derived(wide.current && taskColumnOpen && !!agentTask);
+	function toggleTaskColumn() {
+		if (!wide.current) {
+			taskSheet = !taskSheet;
+			return;
+		}
+		taskColumnOpen = !taskColumnOpen;
+		keepChoice(taskColumnKey, taskColumnOpen ? 'open' : 'closed');
+	}
+	$effect(() => {
+		if (wide.current || !agentView) untrack(() => (taskSheet = false));
+	});
+	// The room takes the width while no side panel sits beside it.
+	const roomWide = $derived(agentView && !panelInline);
 	const requestedTask = untrack(() => page.url.searchParams.get('task'));
 	$effect(() => {
 		const wanted = page.url.searchParams.get('task') ?? requestedTask;
@@ -523,13 +552,23 @@
 
 {#snippet topBar()}
 	<header class="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
-		{#if !sidebarInline}<Button
+		{#if !sidebarInline && !sidebarRail}<Button
 				variant="ghost"
 				size="icon-sm"
 				aria-label={m['assistant.show_sidebar']()}
 				title={m['assistant.show_sidebar']()}
 				aria-expanded={sidebarDrawer}
 				onclick={showSidebar}><PanelLeft /></Button
+			>{/if}
+		{#if agentView && agentTask}<Button
+				variant="ghost"
+				size="icon-sm"
+				aria-label={m['assistant.task_column']()}
+				title={m['assistant.task_column']()}
+				aria-pressed={wide.current ? taskColumnInline : undefined}
+				aria-expanded={wide.current ? undefined : taskSheet}
+				class={taskColumnInline ? 'bg-muted text-foreground' : ''}
+				onclick={toggleTaskColumn}><ListChecks /></Button
 			>{/if}
 		<div class="flex min-w-0 flex-1 items-center gap-1.5">
 			{#if renaming !== null}
@@ -764,7 +803,9 @@
 				<ScrollerHandle bind:scroller />
 				<MessageScroller.Root>
 					<MessageScroller.Viewport aria-label={m['assistant.messages']()}>
-						{#if agentView}<MessageScroller.Content class="mx-auto w-full max-w-3xl gap-6 px-4 pb-6 md:px-6">
+						{#if agentView}<MessageScroller.Content
+								class="mx-auto w-full {roomWide ? '' : 'max-w-3xl'} gap-6 px-4 pb-6 md:px-6"
+							>
 								<section aria-label={m['assistant.agent_view_label']({ identifier: chat.issue?.identifier ?? '' })}>
 									{#if agentTask}{#key agentTask.id}<AgentThread
 												{chat}
@@ -859,15 +900,21 @@
 		</div>
 		{#if !agentView || (agentTask && sendOptions(agentTask, authState.user?.id).open)}
 			<ChatComposer bind:this={composer} {chat} {conversationId} {status} {initialized}
-				{targetTask} {messageable} {chooseTarget} {followLatest} bind:sending bind:error
+				{targetTask} {messageable} {chooseTarget} {followLatest} bind:sending bind:error wide={roomWide}
 				reveal={() => { if (!wide.current) host.close(); }} />
 		{/if}
 
 	</section>
 {/snippet}
 
+{#snippet taskColumn(onclose: () => void)}
+	{#if agentTask}{#key agentTask.id}<TaskColumn {chat} task={agentTask} {onclose} />{/key}{/if}
+{/snippet}
+
 <div class="flex h-full min-h-0 min-w-0 flex-1 bg-background text-foreground" data-testid="assistant-shell">
-	{#if sidebarInline}
+	{#if sidebarRail}
+		<AssistantRail {slug} onexpand={showSidebar} />
+	{:else if sidebarInline}
 		<div class="w-[272px] shrink-0 border-r" data-testid="assistant-sidebar">
 			<AssistantSidebar
 				{...sidebarProps}
@@ -895,27 +942,45 @@
 		</Sheet.Root>
 	{/if}
 	<div class="flex min-h-0 min-w-0 flex-1">
-		{#if panelInline && activePanel}
+		{#if wide.current}
+			<!-- One pane group, so the room stays mounted while the side panes
+			     open and close. Each set of panes keeps its own sizes
+			     (autoSaveId); every pane needs its order for that. -->
 			<Resizable.PaneGroup direction="horizontal" autoSaveId="kuayle-assistant-panel" class="min-h-0 flex-1">
-				<Resizable.Pane minSize={40} class="flex min-w-0">{@render center()}</Resizable.Pane>
-				<Resizable.Handle withHandle aria-label={m['assistant.resize_panel']()} />
-				<Resizable.Pane defaultSize={32} minSize={22} maxSize={60} class="min-w-0 border-l"
-					><SidePanelHost panels={availablePanels} active={activePanel} context={panelContext} /></Resizable.Pane
-				>
+				{#if taskColumnInline}
+					<Resizable.Pane id="assistant-task-column" order={1} defaultSize={22} minSize={15} maxSize={35} class="min-w-0"
+						>{@render taskColumn(toggleTaskColumn)}</Resizable.Pane
+					>
+					<Resizable.Handle withHandle aria-label={m['assistant.resize_task_column']()} />
+				{/if}
+				<Resizable.Pane id="assistant-room" order={2} minSize={40} class="flex min-w-0">{@render center()}</Resizable.Pane>
+				{#if panelInline && activePanel}
+					<Resizable.Handle withHandle aria-label={m['assistant.resize_panel']()} />
+					<Resizable.Pane id="assistant-side-panel" order={3} defaultSize={32} minSize={22} maxSize={60} class="min-w-0 border-l"
+						><SidePanelHost panels={availablePanels} active={activePanel} context={panelContext} /></Resizable.Pane
+					>
+				{/if}
 			</Resizable.PaneGroup>
 		{:else}
 			{@render center()}
-			{#if !wide.current}
-				<Sheet.Root open={!!activePanel} onOpenChange={(open) => !open && closePanel()}>
-					<Sheet.Content side="right" class="w-full gap-0 p-0 sm:max-w-xl" showCloseButton={false}>
-						<Sheet.Header class="sr-only">
-							<Sheet.Title>{activePanel?.label() ?? m['assistant.panels']()}</Sheet.Title>
-							<Sheet.Description>{m['assistant.panel_description']()}</Sheet.Description>
-						</Sheet.Header>
-						{#if activePanel}<SidePanelHost panels={availablePanels} active={activePanel} context={panelContext} />{/if}
-					</Sheet.Content>
-				</Sheet.Root>
-			{/if}
+			<Sheet.Root bind:open={taskSheet}>
+				<Sheet.Content side="left" class="w-[min(88vw,340px)] gap-0 p-0" showCloseButton={false}>
+					<Sheet.Header class="sr-only">
+						<Sheet.Title>{m['assistant.task_column']()}</Sheet.Title>
+						<Sheet.Description>{m['assistant.task_column_description']()}</Sheet.Description>
+					</Sheet.Header>
+					{@render taskColumn(() => (taskSheet = false))}
+				</Sheet.Content>
+			</Sheet.Root>
+			<Sheet.Root open={!!activePanel} onOpenChange={(open) => !open && closePanel()}>
+				<Sheet.Content side="right" class="w-full gap-0 p-0 sm:max-w-xl" showCloseButton={false}>
+					<Sheet.Header class="sr-only">
+						<Sheet.Title>{activePanel?.label() ?? m['assistant.panels']()}</Sheet.Title>
+						<Sheet.Description>{m['assistant.panel_description']()}</Sheet.Description>
+					</Sheet.Header>
+					{#if activePanel}<SidePanelHost panels={availablePanels} active={activePanel} context={panelContext} />{/if}
+				</Sheet.Content>
+			</Sheet.Root>
 		{/if}
 	</div>
 </div>

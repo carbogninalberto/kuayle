@@ -61,7 +61,8 @@
 		reveal,
 		followLatest,
 		sending = $bindable(false),
-		error = $bindable('')
+		error = $bindable(''),
+		wide = false
 	}: {
 		chat: ConversationState;
 		conversationId: string | null;
@@ -74,6 +75,9 @@
 		followLatest: () => void;
 		sending?: boolean;
 		error?: string;
+		// As wide as the column instead of the reading width (a task's room
+		// with the side panel closed).
+		wide?: boolean;
 	} = $props();
 	const slug = $derived(chat.slug);
 	const draftKey = untrack(() => assistantDraftKey(authState.user?.id, slug, conversationId));
@@ -437,7 +441,7 @@
 </script>
 
 <div class="shrink-0 px-3 pt-1 pb-3 md:px-6 md:pb-4" data-testid={toAgent ? 'agent-composer' : 'assistant-composer'}>
-	<div class="mx-auto w-full max-w-3xl">
+	<div class="mx-auto w-full {wide ? '' : 'max-w-3xl'}">
 		{#if error || chat.failed}<p role="alert" class="mb-2 text-sm text-destructive">
 				{error || m['assistant.error']()}
 			</p>{/if}

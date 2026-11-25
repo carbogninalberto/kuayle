@@ -256,6 +256,58 @@ const taskWorkflow = {
 	task_generation: 1
 };
 
+// A task on a pipeline with a long list of phases and a large roster, and a long room, so
+// its agent view's task column and room each scroll (KUA-281).
+const teamTask = {
+	...codingTasks[0],
+	id: 'task-team',
+	run_id: 'run-team-0',
+	pipeline: true,
+	workflow_version_id: 'version-team',
+	workflow_node: 'phase-12',
+	workflow_status: 'running',
+	reason: longParagraph
+};
+const teamWorkflow = {
+	...taskWorkflow,
+	name: 'Team',
+	graph: {
+		kind: 'pipeline',
+		phases: Array.from({ length: 40 }, (_, index) => ({ id: `phase-${index}`, label: `Phase ${index}`, owner: 'implementer' })),
+		roster: Array.from({ length: 16 }, (_, index) => ({ role: `role-${index}`, profile_id: `profile-${index}`, writer: index === 0 })),
+		budget: { max_turns: 40 }
+	},
+	node: 'phase-12',
+	iterations: 12,
+	runs: Array.from({ length: 16 }, (_, index) => ({
+		id: `run-team-${index}`,
+		task_id: index ? `member-${index}` : 'task-team',
+		role: `role-${index}`,
+		provider: 'codex',
+		model: 'gpt-5',
+		status: index % 3 ? 'succeeded' : 'running',
+		created_at: createdAt
+	})),
+	usage: { input_tokens: 1_200_000, output_tokens: 90_000, cost_usd: 12.5 }
+};
+const teamRoom = Array.from({ length: 60 }, (_, index) => ({
+	id: `room-${index + 1}`,
+	task_id: 'task-team',
+	seq: index + 1,
+	author_kind: 'human',
+	author_role: null,
+	author_user_id: userId,
+	author_member_id: null,
+	run_id: null,
+	to_roles: [],
+	kind: 'say',
+	body: `Room post ${index + 1}. ${longParagraph}`,
+	data: {},
+	reply_to: null,
+	reject_reason: null,
+	created_at: createdAt
+}));
+
 const machine = (number: number) => ({
 	id: number === 0 ? machineId : id(51, number),
 	workspace_id: workspace.id,
@@ -547,11 +599,15 @@ async function mockApi(page: Page, theme: 'light' | 'dark') {
 			return json({ data: machines, total_count: machines.length, page: 1, per_page: 50, has_more: false });
 		if (path === `${w}/dev-machines/${machineId}`) return json(machines[0]);
 		if (path === `${w}/agent-tasks`) return json(queue);
-		const taskRest = path.match(/^\/api\/workspaces\/test\/agent-tasks\/[^/]+(\/.*)?$/);
+		const taskRest = path.match(/^\/api\/workspaces\/test\/agent-tasks\/([^/]+)(\/.*)?$/);
 		if (taskRest) {
-			if (taskRest[1] === '/workflow') return json(taskWorkflow);
-			if (taskRest[1] === '/history') return json({ transitions: [] });
-			if (taskRest[1] === '/runs') return json({ runs: [] });
+			const [, taskId, rest] = taskRest;
+			if (rest === '/workflow') return json(taskId === teamTask.id ? teamWorkflow : taskWorkflow);
+			if (rest === '/history') return json({ transitions: [] });
+			if (rest === '/runs') return json({ runs: [] });
+			if (rest === '/room') return json({ messages: url.searchParams.get('after') === '0' ? teamRoom : [] });
+			if (rest === '/live-messages') return json({ messages: [] });
+			if (rest === '/sessions') return json({ sessions: [] });
 		}
 		if (path === `${w}/agent-messages`) return json([]);
 		if (path === `${w}/workflows`) return json({ workflows: [workflowSummary], defaults: [], can_manage: true });
@@ -580,7 +636,7 @@ async function mockApi(page: Page, theme: 'light' | 'dark') {
 		if (conversation) {
 			const [, conversationId, rest = ''] = conversation;
 			if (rest === '/events') return json([]);
-			if (rest === '/tasks') return json({ tasks: conversationId === 'chat-1' ? codingTasks : [] });
+			if (rest === '/tasks') return json({ tasks: conversationId === 'chat-1' ? [...codingTasks, teamTask] : [] });
 			if (rest === '/task-options') return json({ providers: [], model_servers: [] });
 			if (rest === '')
 				return json({
@@ -789,6 +845,8 @@ type Route = {
 	panel?: boolean;
 	/** Runs after the route has loaded, e.g. to open a side panel through the UI. */
 	afterLoad?: (page: Page) => Promise<void>;
+	/** A region, by data-testid, that is a column of its own from 1280px and must scroll there. */
+	scrolls?: string;
 };
 
 // On a wide screen the panel starts as 'auto': Details until the conversation's issue has
@@ -876,6 +934,22 @@ const routes: Route[] = [
 		path: '/test/assistant?conversation=chat-1',
 		long: 'wide',
 		afterLoad: closePanels
+	},
+	{
+		name: 'assistant task page with the task column and side panel',
+		path: '/test/assistant?conversation=chat-1&agent=task-team',
+		long: true,
+		ready: 'Room post 2.',
+		afterLoad: openPanel('Workflow'),
+		scrolls: 'task-column-scroll'
+	},
+	{
+		name: 'assistant task page with the side panel closed',
+		path: '/test/assistant?conversation=chat-1&agent=task-team',
+		long: true,
+		ready: 'Room post 2.',
+		afterLoad: closePanels,
+		scrolls: 'task-column-scroll'
 	},
 	{ name: 'machines', path: '/test/machines', ready: 'task-machine-2', long: true },
 	{ name: 'machine', path: `/test/machines/${machineId}` },
@@ -1024,6 +1098,13 @@ for (const { route, theme, viewport } of cases) {
 			expectOverflow: !!route.long && (route.long !== 'wide' || viewport.width >= 640)
 		});
 		if (route.panel) await expectNoPanelHorizontalScroll(page);
+		if (route.scrolls && viewport.width >= 1280)
+			expect(
+				await page
+					.getByTestId(route.scrolls)
+					.evaluate((element) => getComputedStyle(element).overflowY === 'auto' && element.scrollHeight > element.clientHeight + 1),
+				`${route.scrolls} scrolls`
+			).toBe(true);
 		expect(pageErrors).toEqual([]);
 	});
 }

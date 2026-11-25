@@ -256,6 +256,23 @@ as what the message answers (dismissable); the message is then sent as
 `In answer to your question "…":` followed by the answer, so the agent knows
 which question it is, and its own reply names that message's number.
 
+**Task page layout** (KUA-281). While the agent view is open the assistant's
+sidebar folds to a rail of icons ([AssistantRail](../../UI/src/lib/features/assistant/AssistantRail.svelte));
+the person can open it again, and that choice is kept apart from the chat's.
+From 1280 px a task column ([TaskColumn](../../UI/src/lib/features/assistant/TaskColumn.svelte))
+sits left of the room, on the same resizable pane group as the side panel: a
+pipeline task's phases with the current one and what it waits for, its roster
+with who works now and each member's turns, and the budget used (turns or
+iterations against the workflow's limit and its extensions, and the runs'
+tokens and cost); any other task shows the path it took. It is derived from
+the task and its workflow view ([task-column.ts](../../UI/src/lib/features/assistant/task-column.ts));
+nothing is read for it alone. The task column and the side panel each close
+from their own header or the top bar and the choice is kept; their sizes
+persist for each set of open panes (paneforge `autoSaveId`), and the room stays
+mounted while they open and close. The room keeps its reading width beside an
+open side panel and takes the column's width when it is closed. Below 1280 px
+the page is one column and the task column and the panels open as sheets.
+
 The conversation lives in the timeline
 ([agent-conversation.ts](../../UI/src/lib/features/assistant/agent-conversation.ts),
 from `GET /agent-tasks/:taskId/live-messages`, reloaded on each

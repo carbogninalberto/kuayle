@@ -58,6 +58,8 @@ export interface AgentTask {
 	workflow_node?: string | null;
 	workflow_status?: string | null;
 	workflow_iterations?: number;
+	// Each extension a person granted adds the workflow's budget once more.
+	workflow_budget_extensions?: number;
 	// Set while its creator's pause holds the workflow; a request is a pause
 	// that takes effect when the current step has an outcome.
 	workflow_paused_at?: string | null;
