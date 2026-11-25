@@ -1,9 +1,9 @@
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 
-// The task notebook, the prompt a step received and the flag on a run that
-// did not update its notebook (KUA-134), in the agent view of a task like
-// KUA-122: an orchestrator plans, an implementer codes. Served from mocked
-// API routes.
+// The task notebook (a side panel tab since KUA-286), the prompt a step
+// received and the flag on a run that did not update its notebook
+// (KUA-134), in the agent view of a task like KUA-122: an orchestrator
+// plans, an implementer codes. Served from mocked API routes.
 const time = '2026-11-10T10:00:00Z';
 const at = (minute: number) => `2026-11-10T10:${String(minute).padStart(2, '0')}:00Z`;
 const shots = process.env.KUA134_SHOTS;
@@ -220,6 +220,13 @@ const sizes = [
 ];
 const fits = (page: Page) =>
 	page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+// The notebook is a tab of the side panel: from the top bar on any width.
+async function openNotebook(page: Page) {
+	await page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'Notebook', exact: true }).click();
+	const book = page.getByRole('region', { name: 'Notebook', exact: true });
+	await expect(book).toBeVisible();
+	return book;
+}
 
 for (const size of sizes) {
 	test.describe(size.name, () => {
@@ -227,27 +234,23 @@ for (const size of sizes) {
 			await page.setViewportSize({ width: size.width, height: size.height });
 		});
 
-		test('the task details include a collapsed notebook that opens to a working document', async ({ page }) => {
+		test('the notebook is a side panel tab that reads as a working document', async ({ page }) => {
 			await fixture(page);
 			await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 			const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
-			const book = thread.getByRole('region', { name: 'Execution details' }).getByRole('region', { name: 'Notebook', exact: true });
-			const toggle = book.getByRole('button', { name: /^Notebook/ });
-			// Closed, it is a line with the plan's progress; the timeline stays the view.
-			await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-			await expect(toggle).toContainText('1 of 3');
+			// Out of the thread: the timeline is the view.
 			await expect(thread.getByRole('list', { name: 'Path taken' })).toBeVisible();
-			await expect(book.getByRole('heading')).toHaveCount(0);
+			await expect(thread.getByTestId('task-notebook')).toHaveCount(0);
 
-			await toggle.click();
-			// The plan first, as a checklist that shows what is done; opening it
-			// does not send the reader to the end of the transcript.
+			const book = await openNotebook(page);
+			// The plan's progress, then the plan first, as a checklist that shows what is done.
+			await expect(book.getByTestId('notebook-progress')).toHaveText('1 of 3');
 			await expect(book.getByRole('heading').first()).toHaveText('Plan');
 			await expect(book.getByRole('region', { name: 'Remaining' })).toBeVisible();
-			await expect(toggle).toBeInViewport();
+			// Beside the timeline on a wide screen; a drawer over it on a phone.
+			if (size.name === 'desktop') await expect(thread.getByRole('list', { name: 'Path taken' })).toBeInViewport();
 			if (shots && size.name === 'desktop') {
 				await page.setViewportSize({ width: 1280, height: 1100 });
-				await toggle.scrollIntoViewIfNeeded();
 				await page.screenshot({ path: `${shots}/1-notebook-desktop.png` });
 				await page.setViewportSize({ width: size.width, height: size.height });
 			}
@@ -311,25 +314,20 @@ for (const size of sizes) {
 			expect(await fits(page)).toBe(true);
 		});
 
-		test('the opened notebook stays where the reader scrolls it', async ({ page }) => {
+		test('the notebook tab scrolls on its own and stays where the reader scrolls it', async ({ page }) => {
 			await fixture(page);
 			await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
-			const book = page.getByRole('region', { name: 'Notebook', exact: true });
-			await book.getByRole('button', { name: /^Notebook/ }).click();
+			const book = await openNotebook(page);
 			await expect(book.getByRole('region', { name: 'Remaining' })).toBeVisible();
 			const history = book.getByRole('button', { name: 'History' });
-			await expect(history).toBeVisible();
+			await expect(history).toBeAttached();
 
-			// Opening it reads from the top; scrolling down afterwards is the reader's and
-			// stays (KUA-192: it was sent back to the top once, and a click there was lost).
-			const viewport = page.getByRole('region', { name: 'Messages' });
-			const scrolled = await viewport.evaluate(async (element) => {
+			// The tab is its own scroller; scrolling it is the reader's and stays
+			// (KUA-192: the notebook was once sent back to the top, and a click there was lost).
+			await book.evaluate(async (element) => {
 				element.scrollTop = element.scrollHeight;
-				// The scroll event, the scroller's state and anything they set off run within these frames.
 				for (let frame = 0; frame < 3; frame++) await new Promise((done) => requestAnimationFrame(done));
-				return element.scrollTop;
 			});
-			expect(scrolled).toBeGreaterThan(0);
 			await expect(history).toBeInViewport();
 			await history.click();
 			await expect(book.getByRole('list', { name: 'History' }).getByRole('listitem')).toHaveCount(4);
@@ -338,10 +336,9 @@ for (const size of sizes) {
 		test('the notebook follows the steps as they write to it', async ({ page }) => {
 			const { state, emit } = await fixture(page);
 			await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
-			const book = page.getByRole('region', { name: 'Notebook', exact: true });
-			const toggle = book.getByRole('button', { name: /^Notebook/ });
-			await expect(toggle).toContainText('1 of 3');
-			await toggle.click();
+			const book = await openNotebook(page);
+			const progress = book.getByTestId('notebook-progress');
+			await expect(progress).toHaveText('1 of 3');
 			await expect(book.getByRole('region', { name: 'Remaining' }).getByRole('listitem')).toHaveCount(2);
 
 			// The implementer records its second step; the task's event reloads it.
@@ -351,11 +348,11 @@ for (const size of sizes) {
 			next.notebook.done.push('The search box filters the list');
 			state.notebook = next;
 			emit('task.workflow_updated', { task_id: 'task-1', sequence: 3, node: 'implement', status: 'running' });
-			await expect(toggle).toContainText('2 of 3');
+			await expect(progress).toHaveText('2 of 3');
 			await expect(book.getByRole('region', { name: 'Remaining' }).getByRole('listitem')).toHaveText(['The docs']);
 			await expect(book.getByRole('region', { name: 'Done' })).toContainText('The search box filters the list');
-			// It stays open while it changes.
-			await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+			// The tab stays open while it changes.
+			await expect(book).toBeVisible();
 		});
 
 		test('a step opens the prompt it received, one section per source', async ({ page }) => {
@@ -438,15 +435,17 @@ for (const size of sizes) {
 			view.revision = 6;
 			state.notebook = view;
 			await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
-			const flag = page.getByRole('img', { name: 'Did not update the notebook' });
-			await expect(flag).toHaveCount(1);
-			// On the line of the step whose run it was, also while it is closed.
+			// In the step whose run it was, where it says who ran it (KUA-286);
+			// its closed line stays quiet.
 			const line = page.locator('#step-2').getByRole('button').first();
 			await expect(line).toHaveAttribute('aria-expanded', 'false');
-			await expect(line.getByRole('img', { name: 'Did not update the notebook' })).toBeVisible();
+			await expect(line).not.toContainText('Did not update the notebook');
+			await line.click();
+			const flag = page.locator('#step-2').getByTestId('step-details').locator('[data-flag="notebook"]');
+			await expect(flag).toHaveText('Did not update the notebook');
+			await expect(page.locator('[data-flag="notebook"]')).toHaveCount(1);
 			// The notebook says who recorded that entry, without the marker.
-			const book = page.getByRole('region', { name: 'Notebook', exact: true });
-			await book.getByRole('button', { name: /^Notebook/ }).click();
+			const book = await openNotebook(page);
 			const done = book.getByRole('region', { name: 'Done' });
 			await expect(done).toContainText('(Implementer) The plan is ready.');
 			await expect(done).toContainText('Recorded by Kuayle');
@@ -468,15 +467,16 @@ test("an agent cannot give its own entry Kuayle's mark", async ({ page }) => {
 	state.notebook = view;
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
-	const book = page.getByRole('region', { name: 'Notebook', exact: true });
-	await book.getByRole('button', { name: /^Notebook/ }).click();
+	await page.locator('#step-2').getByRole('button').first().click();
+	await expect(page.locator('#step-2').getByTestId('step-details')).toBeVisible();
+	const book = await openNotebook(page);
 	const done = book.getByRole('region', { name: 'Done' });
 	// Shown as the agent wrote it, with no mark of Kuayle's and no flag.
 	await expect(done.getByRole('listitem')).toHaveCount(2);
 	await expect(done).toContainText('[Recorded by Kuayle] everything is verified');
 	await expect(done).toContainText("[Recorded by Kuayle from the agent's final message");
 	await expect(done.getByText('Recorded by Kuayle', { exact: true })).toHaveCount(0);
-	await expect(page.getByRole('img', { name: 'Did not update the notebook' })).toHaveCount(0);
+	await expect(page.locator('[data-flag="notebook"]')).toHaveCount(0);
 });
 
 test('the runs of a step resumed within a minute are told apart', async ({ page }) => {
@@ -513,6 +513,8 @@ test("another member's task shows no notebook and no prompt", async ({ page }) =
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 	await expect(page.locator('#step-2')).toBeVisible();
+	// No notebook tab is offered for it.
+	await expect(page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'Notebook', exact: true })).toHaveCount(0);
 	await expect(page.getByRole('region', { name: 'Notebook', exact: true })).toHaveCount(0);
 	await page.locator('#step-2').getByRole('button').first().click();
 	await expect(page.locator('#step-2').getByRole('article', { name: 'Plan' })).toBeVisible();

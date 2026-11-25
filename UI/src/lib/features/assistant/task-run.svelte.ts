@@ -29,6 +29,8 @@ export class TaskRun {
 	usage = $state.raw<RunUsage | null>(null);
 	/** The task's notebook, for its creator; null until read or when it cannot be. */
 	notebook = $state.raw<TaskNotebook | null>(null);
+	/** The notebook was asked for at least once, whether or not it could be read. */
+	notebookRead = $state(false);
 	/** What the task did could not be read, also when tried again. */
 	failed = $state(false);
 	/** A task without a workflow: the Standard chart could not be read. */
@@ -158,6 +160,8 @@ export class TaskRun {
 				this.notebook = loaded;
 		} catch {
 			/* Another member's task has no notebook to show; the timeline stands. */
+		} finally {
+			if (current === this.notesRequest) this.notebookRead = true;
 		}
 	}
 

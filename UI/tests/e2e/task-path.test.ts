@@ -781,14 +781,15 @@ test('the sidebar has no composer and no review action; both are in the agent vi
 	await expect(reviews.getByText('handle the empty query')).toBeVisible();
 	await expect(tasks.getByRole('region', { name: 'Review by Claude Code' })).toHaveCount(0);
 
-	// A review is asked for from its header: nothing is started, the request
-	// is written for the assistant, which asks for approval.
+	// A review is asked for from its header's menu: nothing is started, the
+	// request is written for the assistant, which asks for approval.
 	const sent: string[] = [];
 	page.on('request', (request) => {
 		if (request.method() !== 'GET') sent.push(request.url());
 	});
-	await thread.getByRole('button', { name: 'Request review', exact: true }).click();
-	const items = page.getByRole('menu').getByRole('menuitem');
+	await thread.getByRole('button', { name: 'More actions', exact: true }).click();
+	await page.getByRole('menuitem', { name: 'Request review', exact: true }).click();
+	const items = page.getByRole('menu').last().getByRole('menuitem');
 	await expect(items).toHaveText([/OpenCode\s*Same agent$/, /Claude Code$/, /Codex$/]);
 	await page.getByRole('menuitem', { name: 'Claude Code' }).click();
 	await expect(page).not.toHaveURL(/agent=/);

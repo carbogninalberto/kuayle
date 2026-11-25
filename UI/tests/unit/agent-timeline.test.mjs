@@ -203,7 +203,7 @@ test('with nothing running the last agent step is the open one', () => {
 	assert.equal(openStep(workflowTimeline(waiting, task({ state: 'awaiting_review' }))), 'step-3');
 });
 
-test('an attempt carries what its harness reported it spent', () => {
+test('an attempt carries what its harness reported it spent, and its final message', () => {
 	const runs = [
 		{
 			id: 'run-1',
@@ -213,7 +213,8 @@ test('an attempt carries what its harness reported it spent', () => {
 			completed_at: at(5),
 			input_tokens: 315,
 			output_tokens: 122,
-			cache_read_tokens: 24448
+			cache_read_tokens: 24448,
+			summary: 'Search is added.\n\nTests pass.'
 		},
 		{ id: 'run-2', provider_id: 'claude-code', status: 'succeeded', created_at: at(6), completed_at: at(9), cost_usd: 0.42 }
 	];
@@ -223,6 +224,9 @@ test('an attempt carries what its harness reported it spent', () => {
 		[315, 122, 24448, undefined]
 	);
 	assert.equal(second.runs[0].cost_usd, 0.42);
+	// Its final message gives the attempt's line its summary.
+	assert.equal(first.runs[0].summary, 'Search is added.\n\nTests pass.');
+	assert.equal(second.runs[0].summary, undefined);
 });
 
 test('a task without a workflow is one step per attempt, oldest first', () => {

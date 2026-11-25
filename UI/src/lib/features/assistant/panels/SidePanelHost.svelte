@@ -18,14 +18,18 @@
 	<div class="flex h-12 shrink-0 items-center gap-1 border-b px-2">
 		<div class="flex min-w-0 flex-1 items-center gap-0.5" role="toolbar" aria-label={m['assistant.panels']()}>
 			{#each panels as panel (panel.id)}
-				<!-- Labelled buttons, no tooltip: a drawer focuses the first one on open. -->
+				<!-- Labelled buttons, no tooltip: a drawer focuses the first one on open. The
+				     open panel shows its name; the others their icon, so many panels fit. -->
 				<Button
 					variant={panel.id === active.id ? 'secondary' : 'ghost'}
 					size="sm"
-					class="h-8 gap-1.5 px-2 text-xs"
+					class="h-8 shrink-0 gap-1.5 px-2 text-xs"
 					aria-pressed={panel.id === active.id}
+					title={panel.label()}
 					onclick={() => context.open(panel.id)}
-					><panel.icon class="size-3.5" /><span class="max-[420px]:sr-only">{panel.label()}</span></Button
+					><panel.icon class="size-3.5" /><span class={panel.id === active.id ? 'max-[420px]:sr-only' : 'sr-only'}
+						>{panel.label()}</span
+					></Button
 				>
 			{/each}
 		</div>

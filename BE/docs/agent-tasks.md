@@ -3302,16 +3302,44 @@ task route):
 - `task.room_message` carries each stored post to the conversation; the
   task's transitions and workflow events are the existing ones.
 
-**The view** (KUA-268). The agent view of a task marked `pipeline` shows its
-room instead of a timeline (`TaskRoom.svelte`, rows from `task-room.ts`): the
-creator's posts, Kuayle's facts and phase moves, and each role's turn (its
-posts with one `run_id`) as one row that opens the run's transcript; a
-refused post is muted with its reason. The room is read once, kept by
-`task.room_message` events (`ConversationState.taskRooms`, once per `seq`)
-and read on from the last unbroken `seq` when the task's run is read again or
-a post arrives after a gap. The composer posts a `say` there (text only, with
-a `request_id`). The side panel names the pipeline, draws no graph and offers
-approve, continue and stop.
+**The view** (KUA-268, KUA-286). The agent view of a task marked `pipeline`
+shows its room instead of a timeline (`TaskRoom.svelte`, rows from
+`task-room.ts`), one line per event: the creator's posts; Kuayle's facts in a
+row folded into one line ("CI running, then CI passed") that opens to each
+fact with Kuayle's reason, while its phase moves, the `approved` fact and a
+fact addressed to the owner stand alone; and each role's turn (its posts with
+one `run_id`) as one line with the role, the first line of the run's final
+message (`summary`, else of its newest post), the duration, the tokens it
+worked through (input plus output) and its status, with its verdict and a
+question marked. The line opens to the harness and model, the turn's posts (a
+refused one muted with its reason) and the run's transcript. The thread is
+filtered by role (lines a role wrote or that are addressed to it) or to the
+decisions (phase moves, verdicts, waivers, grants, the approval). The room is
+read once, kept by `task.room_message` events (`ConversationState.taskRooms`,
+once per `seq`) and read on from the last unbroken `seq` when the task's run
+is read again or a post arrives after a gap. The composer posts a `say` there
+(text only, with a `request_id`). The side panel names the pipeline, draws no
+graph and offers approve, continue and stop.
+
+**Checks tab** (KUA-286, `TaskChecks.svelte`, `task-checks.ts`). A side panel
+tab lists each check of each phase with its state for the head (met, not met,
+waiting, not known yet, waived), Kuayle's reason and since when, read from the
+room only: the facts Kuayle posted when they changed, the roles' verdicts and
+the creator's waivers, judged as `TaskFacts.judge` does (every check needs the
+pull request; a verdict or script result counts for the head it names; a
+waiver for the head the room last named). Without a lead, the required checks
+of a phase before the current one are shown met, since the tick only moved
+past it when they held or were waived. A verdict that covers the head through
+Kuayle's base merges alone (`verifyUpdate`) is not known to the view and reads
+as one for an earlier commit. The creator approves there, through the
+workflow decision route the tick reads (the room has no approval kind; Kuayle
+posts the `approved` fact afterwards), and waives a required check that does
+not hold by posting a `waiver` to the room through `POST /agent-tasks/:taskId/room`
+(session-only, creator-only through `lockAgentTask`, with a `request_id`).
+The tab is offered for a pipeline task; the server decides who may use it.
+Browser coverage: `UI/tests/e2e/task-thread.test.ts` (filters, folding, a graph
+workflow's steps, the Checks tab), with the models in
+`UI/tests/unit/thread-rows.test.mjs`, `task-room.test.mjs` and `task-checks.test.mjs`.
 
 **Limits of this first version.**
 

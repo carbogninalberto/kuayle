@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { ChevronRight, CircleHelp, CircleSlash, Flag, Info, RefreshCw, ScrollText } from '@lucide/svelte';
+	import { CheckCheck, ChevronRight, CircleHelp, CircleSlash, Flag, Info, RefreshCw } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
@@ -8,30 +8,54 @@
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as MessageScroller from '$lib/components/ui/message-scroller/index.js';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
+	import { agentInfo } from '$lib/features/agents/agents';
 	import { agentTasks, type AgentTask, type TaskMessage } from '$lib/api/agent-tasks';
 	import type { WorkflowStepRun } from '$lib/api/workflows';
 	import type { ConversationState } from './conversation-state.svelte';
 	import type { TaskRun } from './task-run.svelte';
-	import type { StepStatus as Status } from './agent-timeline';
+	import { stepDuration, type StepStatus as Status } from './agent-timeline';
 	import AgentStepRun from './AgentStepRun.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
-	import StepStatus from './StepStatus.svelte';
-	import { ROOM_PAGE, roomRead, roomRows, type RoomRow } from './task-room';
+	import TurnLine from './TurnLine.svelte';
+	import { ROOM_PAGE, factLabel, foldText, roomRead, roomRows, rowRoles, type FactLabel, type RoomRow } from './task-room';
+	import { shownRows, turnSummary, workTokens, type ThreadFilter } from './thread-rows';
+	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
-	// The room of a task on a pipeline (KUA-252), plainly, in its order: what
-	// the owner wrote, what Kuayle posted (facts, phase moves) and each role's
-	// turn as one row that opens the run's transcript. The room is read whole
-	// once and kept by its events (ConversationState); it is read on from the
-	// last unbroken post when the task's run is read again (its events and
-	// poll) or when a post arrives after a gap. Text from roles is untrusted
-	// and shown as plain text only. A post the room refused is muted, with
-	// the reason.
-	let { chat, task, run }: { chat: ConversationState; task: AgentTask; run: TaskRun } = $props();
+	// The room of a task on a pipeline (KUA-252), one line per event
+	// (KUA-286): what the owner wrote, Kuayle's facts in a row folded into one
+	// line that opens to each with its reason, Kuayle's phase moves, and each
+	// role's turn as one line (role, what it ended with, how long, the tokens,
+	// how it went) that opens to the harness, what the turn posted and the
+	// run's transcript. The thread's filter keeps one role's lines or the
+	// decisions. The room is read whole once and kept by its events
+	// (ConversationState); it is read on from the last unbroken post when the
+	// task's run is read again (its events and poll) or when a post arrives
+	// after a gap. Text from roles is untrusted and shown as plain text only.
+	// A post the room refused is muted, with the reason.
+	let {
+		chat,
+		task,
+		run,
+		filter = { role: '', decisions: false },
+		now = Date.now(),
+		onreset
+	}: {
+		chat: ConversationState;
+		task: AgentTask;
+		run: TaskRun;
+		filter?: ThreadFilter;
+		// The current time, ticking while a turn runs.
+		now?: number;
+		// Shows every line again when the filter keeps none.
+		onreset?: () => void;
+	} = $props();
 	type Turn = Extract<RoomRow, { type: 'member' }>;
+	type Facts = Extract<RoomRow, { type: 'facts' }>;
 
 	const room = $derived(chat.taskRooms[task.id] ?? []);
 	const rows = $derived(roomRows(room));
+	const shown = $derived(shownRows(rows, filter, rowRoles, (row) => !!row.decision));
 	let loaded = $state(false);
 	let failed = $state(false);
 	let loading = false,
@@ -103,12 +127,21 @@
 	const turnStatus = (status: string): Status | undefined =>
 		({
 			queued: 'waiting',
+			starting: 'running',
 			running: 'running',
+			waiting_input: 'running',
 			succeeded: 'done',
 			failed: 'failed',
 			timeout: 'failed',
 			cancelled: 'stopped'
 		})[status] as Status | undefined;
+	function turnTime(item: WorkflowStepRun, status: Status | undefined) {
+		const ms = stepDuration(
+			{ startedAt: item.started_at ?? item.created_at, finishedAt: item.completed_at ?? undefined, status: status ?? 'done' },
+			now
+		);
+		return ms === undefined || ms < 1000 ? '' : formatDuration(ms);
+	}
 	let opened = $state<Record<string, boolean>>({});
 
 	const phaseLabel = (id = '') => run.pipeline?.phases.find((phase) => phase.id === id)?.label || id;
@@ -117,6 +150,39 @@
 		request_changes: m['tasks.review_verdict_request_changes'],
 		comment: m['tasks.review_verdict_comment']
 	};
+	// What a fact of Kuayle's means, in a few words.
+	const words: Record<string, (label: FactLabel) => string> = {
+		pr_opened: () => m['tasks.fact_pr_opened'](),
+		pr_missing: () => m['tasks.fact_pr_missing'](),
+		pr_draft: () => m['tasks.fact_pr_draft'](),
+		pr_ready: () => m['tasks.fact_pr_ready'](),
+		pr_open: () => m['tasks.fact_pr_open'](),
+		merged: () => m['tasks.fact_merged'](),
+		closed: () => m['tasks.fact_closed'](),
+		up_to_date: () => m['tasks.fact_up_to_date'](),
+		behind: () => m['tasks.fact_behind'](),
+		conflict: () => m['tasks.fact_conflict'](),
+		no_conflict: () => m['tasks.fact_no_conflict'](),
+		collision: () => m['tasks.fact_collision'](),
+		no_collision: () => m['tasks.fact_no_collision'](),
+		ci_running: () => m['tasks.fact_ci_running'](),
+		ci_passed: () => m['tasks.fact_ci_passed'](),
+		ci_failed: () => m['tasks.fact_ci_failed'](),
+		ci_waiting: () => m['tasks.fact_ci_waiting'](),
+		ci_unknown: () => m['tasks.fact_ci_unknown'](),
+		approved: () => m['tasks.fact_approved'](),
+		not_approved: () => m['tasks.fact_not_approved'](),
+		no_overlap: () => m['tasks.fact_no_overlap'](),
+		head: (label) => m['tasks.fact_head']({ commit: (label as { commit: string }).commit }),
+		base: (label) => m['tasks.fact_base']({ branch: (label as { branch: string }).branch }),
+		overlap: (label) => m['tasks.fact_overlap']({ issues: (label as { issues: string }).issues }),
+		script_passed: (label) => m['tasks.fact_script_passed']({ check: (label as { check: string }).check }),
+		script_failed: (label) => m['tasks.fact_script_failed']({ check: (label as { check: string }).check }),
+		text: (label) => (label as { text: string }).text
+	};
+	const say = (label: FactLabel) => words[label.kind](label);
+	const then = (first: string, next: string) => m['tasks.fact_then']({ first, next });
+
 	// What a structured post says besides its text; a refused post keeps
 	// only its text.
 	function headline(message: TaskMessage): string {
@@ -132,7 +198,7 @@
 			case 'grant':
 				return m['tasks.room_grant']({ check: data.check ?? '' });
 			case 'fact':
-				return message.body ? '' : `${data.fact ?? ''}: ${JSON.stringify(data.value ?? null)}`;
+				return message.body ? '' : say(factLabel(message));
 		}
 		return '';
 	}
@@ -144,6 +210,14 @@
 
 {#snippet when(value: string)}
 	<time datetime={value} title={full(value)} class="shrink-0 tabular-nums">{clock(value)}</time>
+{/snippet}
+
+{#snippet chevron()}
+	<ChevronRight
+		size={13}
+		aria-hidden="true"
+		class="shrink-0 text-muted-foreground/60 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none"
+	/>
 {/snippet}
 
 {#snippet footer(message: TaskMessage)}
@@ -186,11 +260,11 @@
 		<Message.Content>
 			<Bubble.Root variant="ghost" class="max-w-full"
 				><Bubble.Content class="flex min-w-0 items-start gap-2 text-xs text-muted-foreground">
-					{#if message.kind === 'phase'}<Flag size={13} aria-hidden="true" class="mt-px shrink-0" />{:else}<Info
+					{#if message.kind === 'phase'}<Flag size={13} aria-hidden="true" class="mt-px shrink-0" />{:else if message.kind === 'fact' && message.data?.fact === 'approved'}<CheckCheck
 							size={13}
 							aria-hidden="true"
-							class="mt-px shrink-0"
-						/>{/if}
+							class="mt-px shrink-0 text-[var(--status-success)]"
+						/>{:else}<Info size={13} aria-hidden="true" class="mt-px shrink-0" />{/if}
 					<span class="min-w-0 flex-1 break-words" data-selectable="text"
 						><span class="font-medium text-foreground">{m['tasks.room_kuayle']()}</span>
 						· {#if head}{head}{/if}{#if head && message.body}<br />{/if}<span class="whitespace-pre-wrap"
@@ -201,6 +275,50 @@
 				</Bubble.Content></Bubble.Root
 			>
 		</Message.Content>
+	</Message.Root>
+{/snippet}
+
+{#snippet facts(row: Facts)}
+	{@const last = row.messages[row.messages.length - 1]}
+	<Message.Root align="start" role="article" aria-label={m['tasks.room_kuayle']()} data-row="facts">
+		<Collapsible.Root
+			class="min-w-0 flex-1"
+			bind:open={() => opened[row.key] ?? false, (open) => (opened[row.key] = open)}
+		>
+			<Collapsible.Trigger
+				class="group flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-md py-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+			>
+				<Info size={13} aria-hidden="true" class="shrink-0" />
+				<span class="min-w-0 flex-1 truncate"
+					><span class="font-medium text-foreground">{m['tasks.room_kuayle']()}</span> · {foldText(
+						row.messages,
+						say,
+						then
+					)}</span
+				>
+				{@render when(last.created_at)}
+				{@render chevron()}
+			</Collapsible.Trigger>
+			<Collapsible.Content>
+				{#if opened[row.key]}<ol
+						class="mt-1 ml-1.5 flex min-w-0 flex-col gap-2 border-l py-1.5 pl-4 text-xs sm:pl-5"
+						aria-label={m['tasks.room_facts']()}
+					>
+						{#each row.messages as message (message.seq)}<li class="min-w-0" data-seq={message.seq}>
+								<p class="flex min-w-0 items-baseline gap-2">
+									<span class="min-w-0 flex-1 break-words text-foreground">{say(factLabel(message))}</span>
+									<span class="text-muted-foreground">{@render when(message.created_at)}</span>
+								</p>
+								{#if message.body}<p class="break-words whitespace-pre-wrap text-muted-foreground" data-selectable="text">
+										{message.body}
+									</p>{/if}
+								{#if message.to_roles?.length}<p class="text-muted-foreground">
+										{m['tasks.room_to']({ roles: message.to_roles.join(', ') })}
+									</p>{/if}
+							</li>{/each}
+					</ol>{/if}
+			</Collapsible.Content>
+		</Collapsible.Root>
 	</Message.Root>
 {/snippet}
 
@@ -230,60 +348,74 @@
 {/snippet}
 
 {#snippet turn(row: Turn)}
-	{@const turnRunValue = turnRun(row)}
-	{@const status = turnRunValue ? turnStatus(turnRunValue.status) : undefined}
+	{@const item = turnRun(row)}
+	{@const status = item ? turnStatus(item.status) : undefined}
+	{@const known = item && runs.has(item.id) ? item : undefined}
+	{#snippet marks()}
+		{#if row.verdict}<Badge variant="outline" class="h-5 shrink-0 px-1.5 text-[11px] font-normal"
+				>{verdictLabel[row.verdict]?.() ?? row.verdict}</Badge
+			>{/if}
+		{#if row.asks}<span
+				role="img"
+				aria-label={m['assistant.agent_question']()}
+				title={m['assistant.agent_question']()}
+				class="inline-flex shrink-0 text-[var(--status-warning)]"><CircleHelp size={14} aria-hidden="true" /></span
+			>{/if}
+	{/snippet}
 	<Message.Root align="start" role="article" aria-label={row.role} data-row="turn">
-		<Message.Content class="gap-1.5">
-			<Message.Header class="gap-1.5 px-1">
-				{#if turnRunValue?.provider}<AgentLogo agent={turnRunValue.provider} size="sm" />{/if}
-				<span class="shrink-0 capitalize text-foreground">{row.role}</span>
-				{#if turnRunValue?.model}<span class="min-w-0 truncate font-normal">· {turnRunValue.model}</span>{/if}
-			</Message.Header>
-			{#each row.messages as message (message.seq)}{@render memberPost(message)}{/each}
-			{#if turnRunValue}
-				<Collapsible.Root bind:open={() => opened[row.key] ?? false, (open) => (opened[row.key] = open)}>
-					<Collapsible.Trigger
-						class="group flex w-fit max-w-full cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-						aria-label="{m['tasks.transcript_title']()} · {row.role}"
-					>
-						<ChevronRight
-							size={13}
-							aria-hidden="true"
-							class="shrink-0 transition-transform group-aria-expanded:rotate-90 motion-reduce:transition-none"
-						/>
-						<ScrollText size={13} aria-hidden="true" class="shrink-0" />
-						<span>{m['tasks.transcript_title']()}</span>
-						{#if status}<StepStatus {status} size={13} />{/if}
-					</Collapsible.Trigger>
-					<Collapsible.Content>
-						{#if opened[row.key]}<div class="mt-1 ml-2 border-l py-2 pl-4 sm:pl-5">
-								<AgentStepRun
-									{chat}
-									run={turnRunValue}
-									active={turnRunValue.status === 'running'}
-									pending={turnRunValue.status === 'running' || turnRunValue.status === 'queued'}
-								/>
-							</div>{/if}
-					</Collapsible.Content>
-				</Collapsible.Root>
-			{/if}
-		</Message.Content>
+		<Collapsible.Root class="min-w-0 flex-1" bind:open={() => opened[row.key] ?? false, (open) => (opened[row.key] = open)}>
+			<Collapsible.Trigger
+				class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+			>
+				<TurnLine
+					role={row.role}
+					summary={turnSummary(known, row.messages)}
+					duration={known ? turnTime(known, status) : ''}
+					startedAt={known?.started_at ?? known?.created_at}
+					tokens={known ? workTokens([known]) : undefined}
+					{status}
+					{marks}
+				/>
+			</Collapsible.Trigger>
+			<Collapsible.Content>
+				{#if opened[row.key]}<div class="ml-2.5 flex min-w-0 flex-col gap-3 border-l py-3 pl-4 sm:pl-5">
+						{#if known}<p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground" data-testid="turn-details">
+								{#if known.provider}<AgentLogo agent={known.provider} size="sm" class="size-4" /><span
+										>{agentInfo(known.provider).name}</span
+									>{/if}
+								{#if known.model}<span class="min-w-0 truncate">· {known.model}</span>{/if}
+								<span>·</span>{@render when(known.started_at ?? known.created_at)}
+							</p>{/if}
+						{#each row.messages as message (message.seq)}{@render memberPost(message)}{/each}
+						{#if item}<AgentStepRun
+								{chat}
+								run={item}
+								active={item.status === 'running'}
+								pending={item.status === 'running' || item.status === 'queued'}
+							/>{/if}
+					</div>{/if}
+			</Collapsible.Content>
+		</Collapsible.Root>
 	</Message.Root>
 {/snippet}
 
-<ol aria-label={m['tasks.room']()} class="flex min-w-0 flex-col gap-4 py-2" data-testid="task-room">
-	{#each rows as row (row.key)}
+<ol aria-label={m['tasks.room']()} class="flex min-w-0 flex-col gap-2 py-2" data-testid="task-room">
+	{#each shown as row (row.key)}
 		<MessageScroller.Item messageId={row.key}>
 			{#snippet child({ props })}
 				<li {...props}>
 					{#if row.type === 'owner'}{@render ownerPost(row.message)}{:else if row.type === 'kuayle'}{@render kuaylePost(
 							row.message
-						)}{:else if row.type === 'member'}{@render turn(row)}{/if}
+						)}{:else if row.type === 'facts'}{@render facts(row)}{:else if row.type === 'member'}{@render turn(row)}{/if}
 				</li>
 			{/snippet}
 		</MessageScroller.Item>
 	{/each}
 </ol>
+{#if rows.length && !shown.length}<div class="flex flex-wrap items-center gap-2" role="status">
+		<p class="text-sm text-muted-foreground">{m['tasks.filter_empty']()}</p>
+		{#if onreset}<Button variant="ghost" size="sm" onclick={onreset}>{m['tasks.filter_reset']()}</Button>{/if}
+	</div>{/if}
 {#if !rows.length && !failed}<p class="text-sm text-muted-foreground" role="status">
 		{loaded ? m['tasks.room_empty']() : m['assistant.loading']()}
 	</p>{/if}

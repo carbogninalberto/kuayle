@@ -429,7 +429,7 @@ test('a message sent from the running step is shown inline with its state, and t
 	await expect(page.locator('#step-3').getByRole('img', { name: 'Replied' })).toBeVisible();
 });
 
-test('a message the agent never answered is flagged while the work goes on, also on a closed step', async ({ page }) => {
+test('a message the agent never answered is flagged while the work goes on, inside its step', async ({ page }) => {
 	const { state } = await fixture(page);
 	// The attempt succeeded and its work was published: a missing reply never fails it.
 	state.task = baseTask({ state: 'awaiting_review', reason: 'Pull request opened; waiting for review', workflow_status: 'waiting' });
@@ -466,11 +466,13 @@ test('a message the agent never answered is flagged while the work goes on, also
 	await expect(message.getByRole('img', { name: 'No reply' })).toBeVisible();
 	await expect(step).toHaveAttribute('data-status', 'done');
 	await expect(thread(page).getByRole('status').filter({ hasText: 'Awaiting review' })).toBeVisible();
-	// Closed, the step still says a message went unanswered.
+	// The step says so where it shows who ran it (KUA-286); its line stays quiet.
+	await expect(step.getByTestId('step-details').locator('[data-flag="reply"]')).toHaveText('No reply');
 	const header = step.getByRole('button').first();
 	await header.click();
 	await expect(message).toHaveCount(0);
-	await expect(header.getByRole('img', { name: 'No reply' })).toBeVisible();
+	await expect(header).not.toContainText('No reply');
+	await expect(header.getByRole('img', { name: 'No reply' })).toHaveCount(0);
 });
 
 test('interrupt and send stops the turn and the message is taken up in the same step', async ({ page }, testInfo) => {

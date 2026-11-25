@@ -322,7 +322,9 @@ test('requested reviews join the path in order and open with the keyboard', asyn
 	await expect(rows.last()).toContainText('Review by OpenCode');
 	const review = path.getByRole('button', { name: /Review by Claude Code/ });
 	await expect(review).toHaveAttribute('aria-expanded', 'false');
-	await expect(path.getByText('Check the query.')).toHaveCount(0);
+	await expect(rows.nth(3).getByText('Check the query.')).toHaveCount(0);
+	// The workflow's review step is one line that says what it found (KUA-286).
+	await expect(stepButton(page, 5)).toContainText('Review · Reviewer — Check the query.');
 	await review.press('Enter');
 	await expect(review).toHaveAttribute('aria-expanded', 'true');
 	await expect(rows.nth(3).locator('strong')).toHaveText('Check the query.');
@@ -333,7 +335,8 @@ test('requested reviews join the path in order and open with the keyboard', asyn
 	await workflowReview.click();
 	await expect(rows.nth(5).locator('strong')).toHaveText('Check the query.');
 	await expect(rows.nth(5).getByText('Commit 0123456 of pull request #12')).toBeVisible();
-	await expect(path.getByText('Check the query.')).toHaveCount(1);
+	// Opened, its findings show once.
+	await expect(rows.nth(5).locator('strong').filter({ hasText: 'Check the query.' })).toHaveCount(1);
 	await page.screenshot({ path: testInfo.outputPath('agent-review-timeline.png') });
 });
 
@@ -349,15 +352,16 @@ test('a workflow task reads as a timeline: one labelled section per step, the ru
 	await expect(timeline.getByRole('listitem')).toHaveCount(6);
 	// No dropdown of runs: each agent is a section of its own, named by its
 	// step and the profile that ran it.
-	await expect(thread.getByRole('combobox')).toHaveCount(0);
+	await expect(timeline.getByRole('combobox')).toHaveCount(0);
 	await expect(thread.getByRole('region', { name: 'Plan · Orchestrator' })).toHaveCount(1);
 	await expect(thread.getByRole('region', { name: 'Implement · Cheap Implementer' })).toHaveCount(2);
 	await expect(thread.getByRole('region', { name: 'Review · Reviewer' })).toHaveCount(1);
 
-	// A step is one line: what, who, model, how long and how it went.
+	// A step is one line (KUA-286): what, who, what it ended with, how long
+	// and how it went. The model is inside, with the harness.
 	const plan = stepButton(page, 2);
-	await expect(plan).toContainText('Plan · Orchestrator');
-	await expect(plan).toContainText('claude-opus-5-5');
+	await expect(plan).toContainText('Plan · Orchestrator — Add a search box, then:');
+	await expect(plan).not.toContainText('claude-opus-5-5');
 	await expect(plan).toContainText('4m 0s');
 	await expect(plan.getByRole('img', { name: 'Done' })).toBeVisible();
 	await expect(plan).toHaveAttribute('aria-expanded', 'false');
@@ -435,8 +439,9 @@ test('a workflow task reads as a timeline: one labelled section per step, the ru
 	await expect(implement).toHaveAttribute('aria-expanded', 'false');
 	await expect(stepButton(page, 6)).toHaveAttribute('aria-expanded', 'true');
 
-	// A planning step shows its plan, once.
+	// A planning step shows its plan, once, below who ran it.
 	await plan.click();
+	await expect(page.locator('#step-2').getByTestId('step-details')).toContainText('Claude Code · claude-opus-5-5');
 	const planned = page.locator('#step-2').getByRole('article', { name: 'Plan' });
 	await expect(planned.locator('strong')).toHaveText('search');
 	await expect(planned.getByRole('listitem')).toHaveText(['the endpoint', 'the tests']);
@@ -653,7 +658,8 @@ test('a task without a workflow is one step per attempt', async ({ page }) => {
 	const { state } = await fixture(page);
 	state.task = baseTask({ state: 'awaiting_review', reason: 'Ready for review', provider: 'codex', model: 'gpt-5', run_id: 'run-2', generation: 2 });
 	state.runs = [
-		{ id: 'run-2', provider_id: 'codex', model: 'gpt-5', status: 'succeeded', created_at: at(9), started_at: at(10), completed_at: at(13) },
+		{ id: 'run-2', provider_id: 'codex', model: 'gpt-5', status: 'succeeded', created_at: at(9), started_at: at(10), completed_at: at(13),
+			summary: 'Fixed the **build**.' },
 		{ id: 'run-1', provider_id: 'claude-code', model: '', status: 'failed', created_at: at(1), started_at: at(2), completed_at: at(5) }
 	];
 	state.logs = {
@@ -674,7 +680,10 @@ test('a task without a workflow is one step per attempt', async ({ page }) => {
 	await expect(older.getByRole('button').first()).toContainText('3m 0s');
 	await expect(latest.getByRole('region', { name: 'Codex' })).toBeVisible();
 	await expect(latest.getByRole('button').first()).toHaveAttribute('aria-expanded', 'true');
-	await expect(latest.getByRole('button').first()).toContainText('gpt-5');
+	// Its line says what it ended with; the model is inside (KUA-286).
+	await expect(latest.getByRole('button').first()).toContainText('Codex — Fixed the build.');
+	await expect(latest.getByRole('button').first()).not.toContainText('gpt-5');
+	await expect(latest.getByTestId('step-details')).toContainText('Codex · gpt-5');
 	await expect(latest.getByRole('article', { name: 'Agent' }).locator('strong')).toHaveText('build');
 	await expect(thread.getByText('The build is broken.')).toHaveCount(0);
 	await older.getByRole('button').first().click();
@@ -699,6 +708,9 @@ test('each attempt and the task say what the harness reported they spent', async
 	const steps = thread.getByRole('list', { name: 'Path taken' }).getByRole('listitem');
 	await expect(steps).toHaveCount(2);
 	await expect(steps.nth(1).getByTestId('usage-line')).toHaveText('Usage · 315 input · 122 output · 24.4K cache read');
+	// The line says the tokens the attempt worked through: input and output.
+	await expect(steps.nth(1).getByRole('button').first()).toContainText('437 tokens');
+	await expect(steps.nth(0).getByRole('button').first()).not.toContainText('tokens');
 	// An attempt whose harness reported nothing says nothing about it.
 	await steps.nth(0).getByRole('button').first().click();
 	await expect(steps.nth(0).getByText('The build is broken.')).toBeVisible();
@@ -720,7 +732,7 @@ test('the timeline fits a phone', async ({ page }, testInfo) => {
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
 	const header = thread.getByTestId('agent-thread-header');
-	const controls = ['Expand', 'Download trace', 'Stop'].map((name) => header.getByRole('button', { name, exact: true }));
+	const controls = ['Expand', 'Stop', 'More actions'].map((name) => header.getByRole('button', { name, exact: true }));
 	const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
 	expect(new Set(boxes.map((box) => box?.y)).size).toBe(1);
 	expect((await header.boundingBox())!.height).toBeLessThanOrEqual(42);
@@ -747,7 +759,7 @@ test('the timeline fits a phone', async ({ page }, testInfo) => {
 		await page.screenshot({ path: testInfo.outputPath(`timeline-390-${dark ? 'dark' : 'light'}.png`), fullPage: true });
 	}
 	await page.setViewportSize({ width: 320, height: 740 });
-	await expect(header.getByRole('button', { name: 'Download trace' })).toBeInViewport();
+	await expect(header.getByRole('button', { name: 'More actions' })).toBeInViewport();
 	expect(await header.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
 

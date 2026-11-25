@@ -1151,9 +1151,11 @@ test('downloads the task trace from the card menu and the agent view', async ({ 
 
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+	// In the agent view it is in the header's menu (KUA-286).
+	await thread.getByRole('button', { name: 'More actions', exact: true }).click();
 	const [fromThread] = await Promise.all([
 		page.waitForEvent('download'),
-		thread.getByRole('button', { name: 'Download trace', exact: true }).click()
+		page.getByRole('menuitem', { name: 'Download trace', exact: true }).click()
 	]);
 	expect(fromThread.suggestedFilename()).toBe('kuayle-trace-ENG-1.json');
 	expect(state.traceDownloads).toBe(2);
@@ -1939,7 +1941,9 @@ test('requests an agent review from the agent view, through the chat, and shows 
 	const toggle = page.getByRole('button', { name: /^Agent · ENG-1/ });
 	await toggle.click();
 	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
-	await thread.getByRole('button', { name: 'Request review', exact: true }).click();
+	// It is in the header's menu (KUA-286).
+	await thread.getByRole('button', { name: 'More actions', exact: true }).click();
+	await page.getByRole('menuitem', { name: 'Request review', exact: true }).click();
 	const items = page.getByRole('menu').last().getByRole('menuitem');
 	await expect(items).toHaveText([/Codex\s*Same agent$/, /Claude Code$/]);
 	await page.getByRole('menuitem', { name: 'Claude Code' }).click();
