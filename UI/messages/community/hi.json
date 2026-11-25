@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "जाँच {check} से छूट दी",
 	"tasks.room_grant": "लीड को जाँच {check} से छूट देने देता है",
 	"tasks.room_grant_approval": "लीड को मर्ज की मंज़ूरी देने की अनुमति देता है",
+	"tasks.room_grant_split": "लीड को बिना पूछे सब-इश्यू बनाने की अनुमति देता है",
 	"tasks.room_waiver_standing": "सभी कमिट के लिए {check} जाँच से छूट दी",
 	"tasks.room_merge_approved": "{commit} को मर्ज करने की मंज़ूरी दी",
 	"tasks.room_to": "{roles} को",

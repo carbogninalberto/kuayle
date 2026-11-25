@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "{check} denetiminden muaf tutuldu",
 	"tasks.room_grant": "Liderin {check} denetiminden muaf tutmasına izin verir",
 	"tasks.room_grant_approval": "Liderin birleştirmeleri onaylamasına izin verir",
+	"tasks.room_grant_split": "Liderin sormadan alt issue’lar oluşturmasına izin verir",
 	"tasks.room_waiver_standing": "Tüm commit’leri {check} denetiminden muaf tuttu",
 	"tasks.room_merge_approved": "{commit} için birleştirmeyi onayladı",
 	"tasks.room_to": "Alıcılar: {roles}",

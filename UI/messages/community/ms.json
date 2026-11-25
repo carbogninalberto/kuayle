@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Mengecualikan semakan {check}",
 	"tasks.room_grant": "Membenarkan ketua mengecualikan semakan {check}",
 	"tasks.room_grant_approval": "Membenarkan ketua meluluskan penggabungan",
+	"tasks.room_grant_split": "Membenarkan ketua mencipta sub-isu tanpa bertanya",
 	"tasks.room_waiver_standing": "Mengecualikan semua komit daripada semakan {check}",
 	"tasks.room_merge_approved": "Meluluskan penggabungan {commit}",
 	"tasks.room_to": "Kepada {roles}",

@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Παραιτήθηκε από τον έλεγχο {check}",
 	"tasks.room_grant": "Επιτρέπει στον επικεφαλής να παραιτηθεί από τον έλεγχο {check}",
 	"tasks.room_grant_approval": "Επιτρέπει στον επικεφαλής να εγκρίνει συγχωνεύσεις",
+	"tasks.room_grant_split": "Επιτρέπει στον επικεφαλής να δημιουργεί υπο-ζητήματα χωρίς να ρωτά",
 	"tasks.room_waiver_standing": "Παρέκαμψε τον έλεγχο {check} για όλα τα commit",
 	"tasks.room_merge_approved": "Ενέκρινε τη συγχώνευση του {commit}",
 	"tasks.room_to": "Προς {roles}",

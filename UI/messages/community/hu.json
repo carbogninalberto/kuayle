@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Eltekintett a(z) {check} ellenőrzéstől",
 	"tasks.room_grant": "Engedi, hogy a vezető eltekintsen a(z) {check} ellenőrzéstől",
 	"tasks.room_grant_approval": "Engedélyezi a vezetőnek az egyesítések jóváhagyását",
+	"tasks.room_grant_split": "Engedélyezi a vezetőnek, hogy kérdezés nélkül részfeladatokat hozzon létre",
 	"tasks.room_waiver_standing": "Minden commitot felmentett a(z) {check} ellenőrzés alól",
 	"tasks.room_merge_approved": "Jóváhagyta a(z) {commit} egyesítését",
 	"tasks.room_to": "Címzett: {roles}",

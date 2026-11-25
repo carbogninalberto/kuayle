@@ -3030,7 +3030,7 @@ who may post what:
 | `request` (`review`, `merge`, `publish` or `split`) | except `split` | `review` only | no | yes | no |
 | `request` with action `approve` | no | no | no | with approval authority | no |
 | `waiver` (of a check) | yes | no | no | checks granted to it | no |
-| `grant` (approve or waive one check) | yes | no | no | no | no |
+| `grant` (approve, split, or waive one check) | yes | no | no | no | no |
 | `fact` | no | no | no | no | yes |
 | `summary` | no | no | no | yes | yes |
 
@@ -3052,6 +3052,8 @@ authority for this task through the session-only
 `POST /agent-tasks/:taskId/room` route. Send one post for each permission.
 
 - Merge approval uses `{"kind":"grant","data":{"role":"lead","action":"approve"}}`.
+- Splitting without approval uses `{"kind":"grant","data":{"role":"lead","action":"split"}}`
+  (KUA-313, below).
 - Waiving the CI check uses `{"kind":"grant","data":{"role":"lead","action":"waive","check":"ci"}}`.
 
 The existing `{"kind":"grant","data":{"check":"ci"}}` form grants the lead
@@ -3082,6 +3084,23 @@ creator, request sequence, parent and child IDs, and posts a Kuayle
 `split_approved` fact replying to the proposal. Approving the same request again
 returns success and preserves the original children. Each child can later be
 delegated as its own task with its own working branch.
+
+**A granted split** (KUA-313). When the creator posted a `grant` with
+`data.action = "split"` for the lead (only the creator's session route posts
+one; text and agents' posts never grant it), a split request the lead makes
+after it needs no approval: the tick's next pass, which the accepted request
+wakes, creates the children for the creator, exactly as the approval would
+(`AgentTaskRepository.CarryOutGrantedSplits`, before the pass reads GitHub).
+Its `split_approved` audit event has no actor and names the
+`grant_sequence`, the lead's role and run; the same `split_approved` fact
+replies to the request, and the created issues reach the workspace and its
+webhooks as an approved split's do. A request is carried out once, by
+either path. The grant never widens the creator's rights: issue:create on
+the parent's team is applied at the write; while the creator no longer
+reaches the task nothing is done; a request that cannot be carried out (a
+child with no visible text once sanitized, for example) gets a
+`split_refused` fact and audit event once, and the creator can still approve
+it. A request made before the grant waits for the creator's approval.
 
 **Agents post through the outbox** (KUA-267). An outbox file whose `to` is
 `@role`, `@human` or `@all` is a room post (`domain.ParseAgentOutboxMessage`:

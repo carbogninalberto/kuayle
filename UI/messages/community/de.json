@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Prüfung {check} erlassen",
 	"tasks.room_grant": "Lässt den Lead die Prüfung {check} erlassen",
 	"tasks.room_grant_approval": "Erlaubt dem Lead, Merges zu genehmigen",
+	"tasks.room_grant_split": "Erlaubt dem Lead, Sub-Issues ohne Rückfrage zu erstellen",
 	"tasks.room_waiver_standing": "Hat die Prüfung {check} für alle Commits erlassen",
 	"tasks.room_merge_approved": "Hat den Merge von {commit} genehmigt",
 	"tasks.room_to": "An {roles}",

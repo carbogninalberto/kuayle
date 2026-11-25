@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Waived the check {check}",
 	"tasks.room_grant": "Lets the lead waive the check {check}",
 	"tasks.room_grant_approval": "Lets the lead approve merges",
+	"tasks.room_grant_split": "Lets the lead create sub-issues without asking",
 	"tasks.room_waiver_standing": "Waived the check {check} for all commits",
 	"tasks.room_merge_approved": "Approved merging {commit}",
 	"tasks.room_to": "To {roles}",

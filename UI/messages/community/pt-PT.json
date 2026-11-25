@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Dispensou a verificação {check}",
 	"tasks.room_grant": "Permite que o líder dispense a verificação {check}",
 	"tasks.room_grant_approval": "Permite que o líder aprove fusões",
+	"tasks.room_grant_split": "Permite que o líder crie subtarefas sem perguntar",
 	"tasks.room_waiver_standing": "Dispensou a verificação {check} em todos os commits",
 	"tasks.room_merge_approved": "Aprovou a fusão de {commit}",
 	"tasks.room_to": "Para {roles}",

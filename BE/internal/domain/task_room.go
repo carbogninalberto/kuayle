@@ -273,14 +273,14 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 			return "a grant names the lead of this pipeline"
 		}
 		switch d.Action {
-		case RoomActionApprove:
+		case RoomActionApprove, RoomRequestSplit:
 			if d.Check != "" {
-				return "an approval grant cannot name a check"
+				return "an approval or split grant cannot name a check"
 			}
 			return ""
 		case "", RoomActionWaive: // A check-only grant delegates waiving that check.
 		default:
-			return "a grant delegates approval or waiving a named check"
+			return "a grant delegates approval, a split or waiving a named check"
 		}
 		fallthrough
 	case RoomWaiver:

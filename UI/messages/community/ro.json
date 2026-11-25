@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "A renunțat la verificarea {check}",
 	"tasks.room_grant": "Îi permite liderului să renunțe la verificarea {check}",
 	"tasks.room_grant_approval": "Îi permite liderului să aprobe îmbinările",
+	"tasks.room_grant_split": "Îi permite liderului să creeze subprobleme fără să întrebe",
 	"tasks.room_waiver_standing": "A acordat o derogare de la verificarea {check} pentru toate commiturile",
 	"tasks.room_merge_approved": "A aprobat îmbinarea commitului {commit}",
 	"tasks.room_to": "Către {roles}",

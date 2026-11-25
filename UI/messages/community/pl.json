@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Odstąpiono od kontroli {check}",
 	"tasks.room_grant": "Pozwala liderowi odstąpić od kontroli {check}",
 	"tasks.room_grant_approval": "Pozwala liderowi zatwierdzać scalenia",
+	"tasks.room_grant_split": "Pozwala liderowi tworzyć podzgłoszenia bez pytania",
 	"tasks.room_waiver_standing": "Zwolniono wszystkie commity z kontroli {check}",
 	"tasks.room_merge_approved": "Zatwierdzono scalenie {commit}",
 	"tasks.room_to": "Do {roles}",

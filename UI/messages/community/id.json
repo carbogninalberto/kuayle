@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Mengecualikan pemeriksaan {check}",
 	"tasks.room_grant": "Mengizinkan lead mengecualikan pemeriksaan {check}",
 	"tasks.room_grant_approval": "Mengizinkan lead menyetujui penggabungan",
+	"tasks.room_grant_split": "Mengizinkan lead membuat sub-issue tanpa bertanya",
 	"tasks.room_waiver_standing": "Membebaskan semua commit dari pemeriksaan {check}",
 	"tasks.room_merge_approved": "Menyetujui penggabungan {commit}",
 	"tasks.room_to": "Untuk {roles}",

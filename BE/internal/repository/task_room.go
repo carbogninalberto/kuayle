@@ -380,7 +380,10 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 			return nil, err
 		}
 	}
-	if delegated && rejected == nil {
+	// A lead's split request wakes the tick too, which carries it out at
+	// once when the creator granted the split (KUA-313).
+	split := post.Kind == domain.RoomRequest && post.Data.Action == domain.RoomRequestSplit
+	if (delegated || split) && rejected == nil {
 		if err = wakeRoomTick(ctx, tx, task); err != nil {
 			return nil, err
 		}

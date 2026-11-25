@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Dispensó la comprobación {check}",
 	"tasks.room_grant": "Permite al responsable dispensar la comprobación {check}",
 	"tasks.room_grant_approval": "Permite que el responsable apruebe fusiones",
+	"tasks.room_grant_split": "Permite que el responsable cree subincidencias sin preguntar",
 	"tasks.room_waiver_standing": "Ha eximido a todos los commits de la comprobación {check}",
 	"tasks.room_merge_approved": "Ha aprobado la fusión de {commit}",
 	"tasks.room_to": "Para {roles}",

@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "از بررسی {check} صرف‌نظر شد",
 	"tasks.room_grant": "به سرپرست اجازه می‌دهد از بررسی {check} صرف‌نظر کند",
 	"tasks.room_grant_approval": "به سرپرست اجازه می‌دهد ادغام‌ها را تأیید کند",
+	"tasks.room_grant_split": "به سرپرست اجازه می‌دهد بدون پرسیدن زیرمسئله ایجاد کند",
 	"tasks.room_waiver_standing": "برای همهٔ کامیت‌ها از بررسی {check} صرف‌نظر کرد",
 	"tasks.room_merge_approved": "ادغام {commit} را تأیید کرد",
 	"tasks.room_to": "به {roles}",

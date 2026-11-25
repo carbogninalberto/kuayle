@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Đã miễn kiểm tra {check}",
 	"tasks.room_grant": "Cho phép trưởng nhóm miễn kiểm tra {check}",
 	"tasks.room_grant_approval": "Cho phép trưởng nhóm phê duyệt việc hợp nhất",
+	"tasks.room_grant_split": "Cho phép trưởng nhóm tạo issue con mà không cần hỏi",
 	"tasks.room_waiver_standing": "Đã miễn kiểm tra {check} cho mọi commit",
 	"tasks.room_merge_approved": "Đã phê duyệt việc hợp nhất {commit}",
 	"tasks.room_to": "Gửi {roles}",

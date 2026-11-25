@@ -158,6 +158,7 @@
 			}
 			case 'grant':
 				if (data.action === 'approve' && !data.check) return m['tasks.room_grant_approval']();
+				if (data.action === 'split') return m['tasks.room_grant_split']();
 				return m['tasks.room_grant']({ check: data.check ?? '' });
 			case 'fact':
 				return message.body ? '' : `${data.fact ?? ''}: ${JSON.stringify(data.value ?? null)}`;

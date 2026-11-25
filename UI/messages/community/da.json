@@ -3002,6 +3002,7 @@
 	"tasks.room_waiver": "Fritog tjekket {check}",
 	"tasks.room_grant": "Lader lederen frafalde tjekket {check}",
 	"tasks.room_grant_approval": "Lader lederen godkende fletninger",
+	"tasks.room_grant_split": "Lader lederen oprette underissues uden at spørge",
 	"tasks.room_waiver_standing": "Har givet dispensation fra kontrollen {check} for alle commits",
 	"tasks.room_merge_approved": "Godkendte fletning af {commit}",
 	"tasks.room_to": "Til {roles}",
