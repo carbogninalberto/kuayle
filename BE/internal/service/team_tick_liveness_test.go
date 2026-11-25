@@ -26,10 +26,10 @@ import (
 // what happens around a pipeline task (pushes, CI results, base moves and
 // conflicts, verdicts, the owner's approvals, decisions and posts, member
 // turns that finish, fail or are cancelled, publications under way for a
-// pass or two, GitHub failing or answering too slowly, script checks, the
-// budget running out) play through the scenario tests' world (tickWorld):
-// the real worker, tick, repository and room, with GitHub and the machines
-// faked. After every step the worker takes, the task must be
+// pass or two or failing, GitHub failing or answering too slowly, script
+// checks, the budget running out) play through the scenario tests' world
+// (tickWorld): the real worker, tick, repository and room, with GitHub and
+// the machines faked. After every step the worker takes, the task must be
 //
 //   - working: the writer's turn, or a member's, is under way;
 //   - waiting on a fact that changes by itself, named in its reason, with a
@@ -38,8 +38,9 @@ import (
 //     owner's approval, a phase a person owns);
 //   - or ended, with no member's turn left running;
 //
-// never idle without a pending wake, and the room never told of a
-// publication still under way. After the sequence everyone cooperates
+// never idle without a pending wake; the room never told of a publication
+// still under way; and the writer never started more than tickStallLimit
+// turns in a row with nothing changed. After the sequence everyone cooperates
 // (GitHub answers, CI passes, the roles commit and approve, the owner
 // approves and continues) and the task must end within tickLivenessSettle
 // rounds, with at most one Continue beyond its budget's: a task that only
@@ -112,6 +113,10 @@ type liveWorld struct {
 	// checkoutFor counts the events left while the task's worktree is not on
 	// a running machine (its script checks cannot run).
 	checkoutFor int
+	// stuck counts the writer's turns in a row that started on the same
+	// head and unmet checks (the tick's stall key) since a person decided.
+	stuck    int
+	stuckKey string
 }
 
 func playTickLiveness(t *testing.T, seed uint64) {
@@ -221,6 +226,9 @@ func (l *liveWorld) commit(resolves bool) string {
 
 // agent plays a role's turn: at random, or cooperating.
 func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
+	if role == l.writer {
+		l.writerStarts()
+	}
 	if l.cooperative {
 		return l.cooperate(role)
 	}
@@ -243,13 +251,15 @@ func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 		if r.IntN(7) == 0 {
 			played.posts = []string{`{"to":"@reviewer","kind":"ask","body":"Is the toggle in the right place?"}`}
 		}
-		// Its publication is under way for a pass or two before it ends
-		// (KUA-297). A randomness of its own keeps the seeds' turns as
-		// they were.
-		if p := l.turnRand(role+" publication", turn); p.IntN(3) == 0 {
+		// Its publication is under way for a pass or two before it ends,
+		// and sometimes fails (KUA-297). A randomness of its own keeps the
+		// seeds' turns as they were.
+		p := l.turnRand(role+" publication", turn)
+		if p.IntN(3) == 0 {
 			queued, running := domain.DevMachineAgentRunStepStatusQueued, domain.DevMachineAgentRunStepStatusRunning
 			played.publishing = [][]domain.DevMachineAgentRunStepStatus{{queued}, {running}, {queued, running}}[p.IntN(3)]
 		}
+		played.unpublished = p.IntN(6) == 0
 	} else {
 		switch x := r.IntN(10); {
 		case x < 4:
@@ -298,6 +308,9 @@ func describeTurn(turn tickTurn) string {
 	}
 	if len(turn.publishing) > 0 {
 		parts = append(parts, fmt.Sprintf("its publication is under way for %d pass(es)", len(turn.publishing)))
+	}
+	if turn.unpublished {
+		parts = append(parts, "its publication fails")
 	}
 	return strings.Join(parts, ", ")
 }
@@ -617,6 +630,29 @@ func (l *liveWorld) turnCancelled() string {
 	err := l.f.tasks.Repo.RequestCancel(l.f.ctx, l.f.ws, members[role].ID)
 	l.drain()
 	return fmt.Sprintf("the owner cancels the @%s's turn (%s): %v", role, members[role].State, err)
+}
+
+// writerStarts is the invariant on the writer's turns: a turn that leaves
+// the head and the unmet checks as they were makes no progress, however it
+// was asked for, and tickStallLimit of them pause for a person (KUA-297). So
+// the writer never starts more than tickStallLimit turns in a row on the
+// same ones unless a person decided in between.
+func (l *liveWorld) writerStarts() {
+	l.t.Helper()
+	key := readTickState(l.task()).Stall.Key
+	if key == "" || key != l.stuckKey || strings.HasSuffix(key, "|") {
+		l.stuck, l.stuckKey = 0, key
+		return
+	}
+	if l.stuck++; l.stuck >= tickStallLimit {
+		l.violation("the writer starts its turn %d in a row with nothing changed (%s)", l.stuck+1, key)
+	}
+}
+
+// decide is a person's decision, which starts the writer's count again.
+func (l *liveWorld) decide(decision string) error {
+	l.stuck, l.stuckKey = 0, ""
+	return l.tickWorld.decide(decision)
 }
 
 func (l *liveWorld) decision(decision string) string {

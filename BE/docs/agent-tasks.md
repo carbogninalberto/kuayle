@@ -3256,9 +3256,13 @@ person decides. One pass:
    itself (CI running, a check run under way, a fact not readable) is
    awaited, and read again every minute, for at most `mergeWaitTimeout` on
    the same head and checks; after that it is sent on like any unmet check,
-   so checks that never report stall too. The third such summary pass on the
-   same head, phase and unmet checks pauses instead (`blocked`, status
-   `paused`) and asks a person;
+   so checks that never report stall too. The stall counts rounds without
+   progress on the same head, phase and unmet checks: such a summary pass,
+   and a turn of the writer that ended (and was published) without changing
+   them, whoever's post started it (the summary pass right after that turn
+   is the same round); a turn that publishes a new head or changes the unmet
+   checks starts the count again (KUA-297). The third round pauses instead
+   (`blocked`, status `paused`) and asks a person;
 10. starts the writer's turn when its unread posts call for one (a summary
     addressed to it does);
 11. charges every turn it starts, writer's or member's, and the working time
@@ -3283,8 +3287,10 @@ refused, the budget running out) through the scenario tests' worker, tick,
 repository and room. After every worker step the task must be working (a
 turn or its publication under way), waiting on a fact that changes by itself
 with a wake at most one poll away, waiting on a person (paused, or the clock
-held for a person), or ended with no member's turn left running, and the
-room must never have heard of a publication still under way; after the
+held for a person), or ended with no member's turn left running; the room
+must never have heard of a publication still under way; and the writer never
+starts more than `tickStallLimit` turns in a row on the same stall key unless
+a person decided in between; after the
 sequence, with everyone cooperating, it must end, needing at most one
 Continue beyond its budget's. A failure prints its seed
 and events: `TICK_LIVENESS_SEED=<n>` replays one sequence,

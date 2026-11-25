@@ -1580,3 +1580,59 @@ func TestTickThePublicationKeepsItsAuthorityOnTheMachine(t *testing.T) {
 	require.Equal(t, 1, w.runtime.turns["implementer"])
 	require.Equal(t, sha(1), *w.member("reviewer").PinnedCommit)
 }
+
+// chatting plays KUA-295's loop: the writer commits every turn and asks the
+// reviewer to look, the reviewer answers the writer, and the publication of
+// the writer's turn fails unless publishes says otherwise.
+func (w *tickWorld) chatting(publishes func(turn int) bool) func(string, int, domain.AgentTask) tickTurn {
+	return func(role string, turn int, _ domain.AgentTask) tickTurn {
+		if role == "reviewer" {
+			return tickTurn{final: "I looked at the branch.", posts: []string{`{"to":"@implementer","body":"I still see nothing new on the branch."}`}}
+		}
+		return tickTurn{commit: sha(turn), final: "Committed.", unpublished: !publishes(turn), posts: []string{`{"to":"@reviewer","body":"I committed the fix; please look."}`}}
+	}
+}
+
+// KUA-297: writer turns that the room's posts start, and that leave the same
+// head and the same unmet checks, make no progress however they were asked
+// for: after tickStallLimit of them the task pauses for the owner, instead
+// of turning until its budget runs out.
+func TestTickWriterTurnsWithoutProgressPauseForTheOwner(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.chatting(func(int) bool { return false })
+	said := false
+	w.afterStep = func(domain.AgentTask) {
+		if !said && w.runtime.turns["implementer"] == 2 {
+			said = true
+			_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Please install the missing library.", ToRoles: []string{"implementer"}})
+			require.NoError(t, err)
+		}
+	}
+	w.drain()
+	paused := w.task()
+	require.Equal(t, "blocked", paused.State)
+	require.Equal(t, domain.WorkflowStatusPaused, deref(paused.WorkflowStatus))
+	require.Contains(t, paused.Reason, "Nobody made progress on")
+	require.Contains(t, paused.Reason, "pr-exists")
+	require.Equal(t, 1+tickStallLimit, w.runtime.turns["implementer"], "the first turn, then tickStallLimit that changed nothing")
+	require.Len(t, w.facts("publication"), 1+tickStallLimit)
+	require.Empty(t, w.posts(domain.RoomSummary), "the room's posts, not stall summaries, started the turns")
+
+	// Continuing counts again from nothing.
+	require.NoError(t, w.decide(WorkflowDecisionContinue))
+	w.drain()
+	require.Equal(t, domain.WorkflowStatusPaused, deref(w.task().WorkflowStatus))
+	require.Equal(t, 1+2*tickStallLimit, w.runtime.turns["implementer"])
+}
+
+// A writer's turn that publishes a new head starts the count again.
+func TestTickAWriterTurnThatPublishesStartsTheCountAgain(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.chatting(func(turn int) bool { return turn == tickStallLimit })
+	w.drain()
+	paused := w.task()
+	require.Equal(t, domain.WorkflowStatusPaused, deref(paused.WorkflowStatus))
+	require.Contains(t, paused.Reason, "Nobody made progress on "+shortSHA(sha(tickStallLimit)))
+	require.Equal(t, sha(tickStallLimit), *w.member("reviewer").PinnedCommit, "the turn that published was reviewed")
+	require.Equal(t, 2*tickStallLimit, w.runtime.turns["implementer"], "tickStallLimit turns that changed nothing after the one that published, not counting those before it")
+}
