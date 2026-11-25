@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Belum ada apa-apa. Yang Anda tulis sampai ke semua yang mengerjakan tugas ini.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Pindah ke {phase}",
+	"tasks.room_create_sub_issues": "Buat sub-issue",
 	"tasks.room_request": "Meminta: {action}",
 	"tasks.room_waiver": "Mengecualikan pemeriksaan {check}",
 	"tasks.room_grant": "Mengizinkan lead mengecualikan pemeriksaan {check}",

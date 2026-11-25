@@ -121,7 +121,8 @@ func LeadTurnPrompt(turn LeadTurn) string {
 
 	b.WriteString("\nPost in the room with kuayle-say (see \"The task room\" in kuayle-agents):\n")
 	b.WriteString("- kuayle-say --to @implementer --ask \"...\": a question or a message to a role, @human or @all;\n")
-	b.WriteString("- kuayle-say --to @reviewer --request review: a request (review, merge, publish or split);\n")
+	b.WriteString("- kuayle-say --to @reviewer --request review: a request (review, merge or publish);\n")
+	b.WriteString("- kuayle-say --to @human --request split --issue \"Title\" \"Short description\": propose up to 10 sub-issues by repeating --issue. The owner approves the proposal in the room.\n")
 	b.WriteString("- kuayle-say --to @human --kind summary \"...\": a short report for the owner.\n")
 	b.WriteString("Kuayle refuses a verdict, a fact or a grant from you, and a waiver of a check the owner did not grant you, and tells you why at your next turn.\n")
 	instructions := strings.TrimSpace(turn.Instructions)

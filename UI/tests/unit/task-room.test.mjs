@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergeRoom, roomRead, roomRows } from '../../src/lib/features/assistant/task-room.ts';
+import { mergeRoom, roomRead, roomRows, roomSplits } from '../../src/lib/features/assistant/task-room.ts';
 
 // The room of a pipeline task as rows: what the owner, Kuayle and each
 // role's turn posted, in the room's order.
@@ -124,4 +124,22 @@ test('a read continues after the unbroken run of posts from the first', () => {
 	// Seq 3 was missed (an event lost): the next read starts after 2.
 	assert.equal(roomRead([owner(1, 'a'), owner(2, 'b'), owner(4, 'd')]), 2);
 	assert.equal(roomRead([owner(2, 'b')]), 0);
+});
+
+test('only accepted lead proposals offer a split, until Kuayle confirms that exact request', () => {
+	const issues = [{ title: 'Search by identifier', description: 'Add exact identifier matching.' }];
+	const proposal = (seq, role, extra = {}) => member(seq, role, null, 'request', '', {
+		data: { action: 'split', issues }, ...extra
+	});
+	const messages = [
+		proposal(1, 'lead'),
+		proposal(2, 'implementer'),
+		proposal(3, 'lead', { reject_reason: 'refused' }),
+		proposal(4, 'lead', { data: { action: 'split' } }),
+		proposal(5, 'lead'),
+		member(6, 'lead', null, 'say', 'Approved the split.', { reply_to: 5 }),
+		member(7, 'lead', null, 'fact', '', { reply_to: 5, data: { fact: 'split_approved' } }),
+		{ ...kuayle(8, 'fact', { fact: 'split_approved' }), reply_to: 1 }
+	];
+	assert.deepEqual([...roomSplits(messages)], [[1, { issues, approved: true }], [5, { issues, approved: false }]]);
 });

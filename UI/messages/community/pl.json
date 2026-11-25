@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Na razie nic tu nie ma. To, co napiszesz, trafi do wszystkich pracujących nad zadaniem.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Przejście do {phase}",
+	"tasks.room_create_sub_issues": "Utwórz podzgłoszenia",
 	"tasks.room_request": "Prosi o: {action}",
 	"tasks.room_waiver": "Odstąpiono od kontroli {check}",
 	"tasks.room_grant": "Pozwala liderowi odstąpić od kontroli {check}",

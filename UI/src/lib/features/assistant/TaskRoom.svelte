@@ -7,6 +7,8 @@
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as MessageScroller from '$lib/components/ui/message-scroller/index.js';
+	import { authState } from '$lib/features/auth/auth.state.svelte';
+	import { appToast } from '$lib/features/toast/toast';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentTasks, type AgentTask, type TaskMessage } from '$lib/api/agent-tasks';
 	import type { WorkflowStepRun } from '$lib/api/workflows';
@@ -16,7 +18,7 @@
 	import AgentStepRun from './AgentStepRun.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import StepStatus from './StepStatus.svelte';
-	import { ROOM_PAGE, roomRead, roomRows, type RoomRow } from './task-room';
+	import { ROOM_PAGE, roomRead, roomRows, roomSplits, type RoomRow } from './task-room';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
 	// The room of a task on a pipeline (KUA-252), plainly, in its order: what
@@ -32,6 +34,22 @@
 
 	const room = $derived(chat.taskRooms[task.id] ?? []);
 	const rows = $derived(roomRows(room));
+	const splits = $derived(roomSplits(room));
+	let approving = $state<number | null>(null);
+
+	async function approveSplit(seq: number) {
+		if (approving !== null) return;
+		approving = seq;
+		try {
+			await agentTasks.approveSplit(chat.slug, task.id, seq);
+			await load();
+		} catch (error) {
+			appToast.apiError(error, m['issue.toast.failed_sub_issues']());
+		} finally {
+			approving = null;
+		}
+	}
+
 	let loaded = $state(false);
 	let failed = $state(false);
 	let loading = false,
@@ -126,7 +144,9 @@
 			case 'phase':
 				return m['tasks.room_phase']({ phase: phaseLabel(data.phase) });
 			case 'request':
-				return m['tasks.room_request']({ action: data.action ?? '' });
+				return m['tasks.room_request']({
+					action: data.action === 'split' ? m['sharedComponents.filter_builder.sub_issues']() : data.action ?? ''
+				});
 			case 'waiver':
 				return m['tasks.room_waiver']({ check: data.check ?? '' });
 			case 'grant':
@@ -207,6 +227,7 @@
 {#snippet memberPost(message: TaskMessage)}
 	{@const head = headline(message)}
 	{@const refused = !!message.reject_reason}
+	{@const split = splits.get(message.seq)}
 	<div class="flex min-w-0 flex-col gap-1" data-seq={message.seq} data-refused={refused || undefined}>
 		{#if message.kind === 'verdict' && !refused && message.data?.verdict}<div class="flex flex-wrap items-center gap-1.5 px-1">
 				<Badge variant="outline">{verdictLabel[message.data.verdict]?.() ?? message.data.verdict}</Badge>
@@ -225,6 +246,20 @@
 				>
 				<CopyMessageButton text={message.body} />
 			</Bubble.Root>{/if}
+		{#if split}
+			<ol class="ms-5 list-decimal space-y-2 text-sm" data-selectable="text">
+				{#each split.issues as issue}
+					<li class="break-words">
+						<span class="font-medium">{issue.title}</span>
+						<p class="whitespace-pre-wrap text-muted-foreground">{issue.description}</p>
+					</li>
+				{/each}
+			</ol>
+			{#if !split.approved && task.creator_id === authState.user?.id}
+				<Button variant="outline" size="sm" class="w-fit" disabled={approving !== null}
+					onclick={() => void approveSplit(message.seq)}>{m['tasks.room_create_sub_issues']()}</Button>
+			{/if}
+		{/if}
 		{@render footer(message)}
 	</div>
 {/snippet}

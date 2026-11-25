@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Encara no hi ha res. El que escriguis arriba a tothom qui treballa en la tasca.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Ha passat a {phase}",
+	"tasks.room_create_sub_issues": "Crea les subincidències",
 	"tasks.room_request": "Demana: {action}",
 	"tasks.room_waiver": "Ha eximit la comprovació {check}",
 	"tasks.room_grant": "Permet al responsable eximir la comprovació {check}",

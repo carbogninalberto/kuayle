@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "यहाँ अभी कुछ नहीं है। आप जो लिखेंगे, वह कार्य पर काम कर रहे सभी लोगों तक पहुँचेगा।",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "{phase} पर गया",
+	"tasks.room_create_sub_issues": "सब-इश्यू बनाएँ",
 	"tasks.room_request": "अनुरोध: {action}",
 	"tasks.room_waiver": "जाँच {check} से छूट दी",
 	"tasks.room_grant": "लीड को जाँच {check} से छूट देने देता है",

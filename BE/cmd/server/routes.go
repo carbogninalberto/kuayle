@@ -679,6 +679,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	}
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/live-messages", h.agentTask.SendLiveMessage)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/room", h.agentTask.PostRoom)
+	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/room/:seq/approve-split", h.agentTask.ApproveSplit, mw.RequireTeamResourcePermission(domain.PermIssueCreate))
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/cancel", h.agentTask.Cancel)
 	sessionOnly(dm, http.MethodPost, "/agent-tasks/:taskId/retry", h.agentTask.Retry)
 	// A task paused by its agent's usage limit: resume now, or don't resume.

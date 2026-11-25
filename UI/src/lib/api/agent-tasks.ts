@@ -349,6 +349,7 @@ export interface TaskRoomData {
 	check?: string;
 	/** request: review, merge, publish or split. */
 	action?: string;
+	issues?: { title: string; description: string }[];
 	/** fact: its name and value. */
 	fact?: string;
 	value?: unknown;
@@ -464,6 +465,7 @@ export const agentTasks = {
 	// first; a task on no pipeline answers 409 ROOM_UNAVAILABLE.
 	room: (slug: string, id: string, after = 0) =>
 		api.get<{ messages: TaskMessage[] }>(`${task(slug, id)}/room?after=${after}`),
+	approveSplit: (slug: string, id: string, seq: number) => api.post<void>(`${task(slug, id)}/room/${seq}/approve-split`),
 	postRoom: (slug: string, id: string, post: TaskRoomPost) => api.post<TaskMessage>(`${task(slug, id)}/room`, post),
 	// Opens a terminal on the task's machine running Claude Code on the task's
 	// own session, in its worktree; only for its creator, while it is stopped.

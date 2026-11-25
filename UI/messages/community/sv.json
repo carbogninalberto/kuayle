@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Inget här än. Det du skriver når alla som arbetar med uppgiften.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Flyttad till {phase}",
+	"tasks.room_create_sub_issues": "Skapa underärenden",
 	"tasks.room_request": "Ber om: {action}",
 	"tasks.room_waiver": "Efterskänkte kontrollen {check}",
 	"tasks.room_grant": "Låter ledaren efterskänka kontrollen {check}",

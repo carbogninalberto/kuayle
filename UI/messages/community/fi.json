@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Täällä ei ole vielä mitään. Kirjoittamasi tavoittaa kaikki tehtävän parissa työskentelevät.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Siirtyi vaiheeseen {phase}",
+	"tasks.room_create_sub_issues": "Luo aliissuet",
 	"tasks.room_request": "Pyytää: {action}",
 	"tasks.room_waiver": "Ohitti tarkistuksen {check}",
 	"tasks.room_grant": "Antaa vetäjän ohittaa tarkistuksen {check}",

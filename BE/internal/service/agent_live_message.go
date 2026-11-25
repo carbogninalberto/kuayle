@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kuayle/kuayle-backend/internal/domain"
+	"github.com/kuayle/kuayle-backend/internal/realtime"
 )
 
 // QueueLiveMessage sends text from the task's creator (sender "user") or from
@@ -47,4 +48,25 @@ func (s *AgentTaskService) PostRoomMessage(ctx context.Context, ws, id uuid.UUID
 		return nil, err
 	}
 	return s.Repo.PostRoomMessage(ctx, ws, id, post)
+}
+
+// ApproveTaskSplit announces the children created by a committed approval.
+// Replaying the same approval returns no new children to announce.
+func (s *AgentTaskService) ApproveTaskSplit(ctx context.Context, ws, id uuid.UUID, seq int64) error {
+	if err := s.requireMachineUse(ctx); err != nil {
+		return err
+	}
+	issues, err := s.Repo.ApproveTaskSplit(ctx, ws, id, seq)
+	if err != nil || len(issues) == 0 {
+		return err
+	}
+	if s.events != nil {
+		for i := range issues {
+			s.events.Broadcast(ws, realtime.Event{Type: WebhookEventIssueCreated, Payload: &issues[i]})
+		}
+	}
+	if s.webhooks != nil {
+		s.webhooks.IssueEvents(ctx, ws, WebhookEventIssueCreated, issues, issues[0].CreatorID)
+	}
+	return nil
 }

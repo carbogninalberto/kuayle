@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "لا شيء هنا بعد. ما تكتبه يصل إلى كل من يعمل على المهمة.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "انتقل إلى {phase}",
+	"tasks.room_create_sub_issues": "إنشاء مشكلات فرعية",
 	"tasks.room_request": "يطلب: {action}",
 	"tasks.room_waiver": "تم التنازل عن الفحص {check}",
 	"tasks.room_grant": "يسمح للقائد بالتنازل عن الفحص {check}",

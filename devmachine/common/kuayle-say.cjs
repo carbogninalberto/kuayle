@@ -16,7 +16,8 @@ const REQUESTS = ['review', 'merge', 'publish', 'split'];
 const MAX_RUNES = 4000;
 const USAGE = `usage: kuayle-say --to @role|@all [--ask | --kind KIND] [--reply-to N] [--file PATH] [TEXT...]
        kuayle-say --to @role --verdict approve|request_changes|comment [--commit SHA] [--file FINDINGS]
-       kuayle-say --to @role --request review|merge|publish|split [TEXT...]
+       kuayle-say --to @role --request review|merge|publish [TEXT...]
+       kuayle-say --to @human --request split --issue TITLE DESCRIPTION [--issue TITLE DESCRIPTION ...]
 The text is the remaining arguments, or --file, or standard input with "-".`;
 
 function fail(message) {
@@ -25,7 +26,7 @@ function fail(message) {
 }
 
 function parse(argv) {
-  const opts = { kind: 'say', text: [] };
+  const opts = { kind: 'say', text: [], issues: [] };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => {
@@ -41,6 +42,7 @@ function parse(argv) {
       case '--verdict': opts.kind = 'verdict'; opts.verdict = value(); break;
       case '--commit': opts.commit = value(); break;
       case '--request': opts.kind = 'request'; opts.action = value(); break;
+      case '--issue': opts.issues.push({ title: value().trim(), description: value().trim() }); break;
       case '--phase': opts.kind = 'phase'; opts.phase = value(); break;
       case '-h': case '--help': process.stdout.write(`${USAGE}\n`); process.exit(0); break;
       case '--': opts.text.push(...argv.slice(i + 1)); i = argv.length; break;
@@ -95,6 +97,16 @@ function main() {
     if (!REQUESTS.includes(opts.action)) fail(`--request is one of ${REQUESTS.join(', ')}`);
     data.action = opts.action;
   }
+  if (opts.kind === 'request' && opts.action === 'split') {
+    if (!opts.issues.length || opts.issues.length > 10) fail('a split needs 1 to 10 --issue TITLE DESCRIPTION pairs');
+    for (const issue of opts.issues) {
+      if (!issue.title || [...issue.title].length > 500) fail('each title needs 1 to 500 characters');
+      if (!issue.description || [...issue.description].length > 1000) fail('each description needs 1 to 1000 characters');
+    }
+    data.issues = opts.issues;
+  } else if (opts.issues.length) {
+    fail('--issue belongs to --request split');
+  }
   if (opts.kind === 'phase') data.phase = opts.phase;
   if (Object.keys(data).length) message.data = data;
   if (opts.replyTo !== undefined) {
@@ -103,11 +115,13 @@ function main() {
     message.reply_to = n;
   }
 
+  const serialized = JSON.stringify(message);
+  if (data.action === 'split' && Buffer.byteLength(serialized) > 16384) fail('the whole split request must fit in one 16 KiB outbox file');
   const dir = outboxDir();
   fs.mkdirSync(dir, { recursive: true });
   const name = `room-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.json`;
   const hidden = path.join(dir, `.${name}`);
-  fs.writeFileSync(hidden, JSON.stringify(message), { mode: 0o644 });
+  fs.writeFileSync(hidden, serialized, { mode: 0o644 });
   fs.renameSync(hidden, path.join(dir, name));
   process.stdout.write(`${path.join(dir, name)}\n`);
 }

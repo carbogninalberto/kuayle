@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Ingenting her ennå. Det du skriver, når alle som jobber med oppgaven.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Flyttet til {phase}",
+	"tasks.room_create_sub_issues": "Opprett undersaker",
 	"tasks.room_request": "Ber om: {action}",
 	"tasks.room_waiver": "Fritok kontrollen {check}",
 	"tasks.room_grant": "Lar lederen frafalle kontrollen {check}",

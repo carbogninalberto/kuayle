@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Тут поки нічого немає. Те, що ви напишете, отримають усі, хто працює над завданням.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Перехід до {phase}",
+	"tasks.room_create_sub_issues": "Створити підзавдання",
 	"tasks.room_request": "Просить: {action}",
 	"tasks.room_waiver": "Перевірку {check} скасовано",
 	"tasks.room_grant": "Дозволяє провідному скасувати перевірку {check}",

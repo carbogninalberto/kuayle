@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Τίποτα ακόμη εδώ. Ό,τι γράψετε φτάνει σε όλους όσοι δουλεύουν στην εργασία.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Μετάβαση σε {phase}",
+	"tasks.room_create_sub_issues": "Δημιουργία υπο-ζητημάτων",
 	"tasks.room_request": "Ζητά: {action}",
 	"tasks.room_waiver": "Παραιτήθηκε από τον έλεγχο {check}",
 	"tasks.room_grant": "Επιτρέπει στον επικεφαλής να παραιτηθεί από τον έλεγχο {check}",

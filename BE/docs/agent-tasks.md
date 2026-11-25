@@ -3027,7 +3027,7 @@ who may post what:
 | `say`, `ask` | yes | yes | yes | yes | no |
 | `verdict` (`approve`, `request_changes` or `comment`, for a commit) | no | no | for its own role | no | no |
 | `phase` | no | no | no | yes | only without a lead |
-| `request` (`review`, `merge`, `publish` or `split`) | yes | `review` only | no | yes | no |
+| `request` (`review`, `merge`, `publish` or `split`) | except `split` | `review` only | no | yes | no |
 | `waiver` (of a check) | yes | no | no | checks granted to it | no |
 | `grant` (of a check) | yes | no | no | no | no |
 | `fact` | no | no | no | no | yes |
@@ -3043,6 +3043,20 @@ is stored with its `reject_reason` (200 characters), without recipients or
 data, is never delivered and is shown to its sender at its next turn. Every
 stored post writes a `task.room_message` conversation event in its
 transaction, and a person's post wakes the task's tick.
+
+**Splitting an issue.** The lead proposes 1–10 children in a `request`
+with `data.action = "split"` and `data.issues`, an array of objects with
+a title (1–500 characters) and a description (1–1,000 characters).
+The task creator reviews the list in the room and selects **Create sub-issues**.
+Only that session action authorizes Kuayle to create the children. Room text,
+including an affirmative reply from the creator, has no effect on approval.
+
+Kuayle creates all children under the task’s issue, in its workspace and team.
+The same transaction writes a `split_approved` workflow audit event with the
+creator, request sequence, parent and child IDs, and posts a Kuayle
+`split_approved` fact replying to the proposal. Approving the same request again
+returns success and preserves the original children. Each child can later be
+delegated as its own task with its own working branch.
 
 **Agents post through the outbox** (KUA-267). An outbox file whose `to` is
 `@role`, `@human` or `@all` is a room post (`domain.ParseAgentOutboxMessage`:
@@ -3386,6 +3400,9 @@ task route):
   `reply_to` and a `request_id` that makes a repeated post return the first)
   are the creator's (`lockAgentTask`). A task not pinned to a pipeline answers
   `409 ROOM_UNAVAILABLE`.
+- `POST /agent-tasks/:taskId/room/:seq/approve-split` approves the stored
+  proposal at that sequence. It takes no body, requires the creator’s session
+  and issue creation permission in the parent’s team, and returns `204`.
 - `GET /agent-tasks/:taskId/workflow` (`StepRuns`) lists the runs of the
   members' tasks with the `role` each played (the root's own runs are the
   writer's); a member run's transcript is read through its `task_id`, the
@@ -3419,8 +3436,9 @@ approve, continue and stop.
 - No `deny`: a person approves the head or, where the tick paused, continues
   or stops it.
 - The owner's composer posts only `say`; `ask`, `request`, `waiver`, `grant`
-  and `reply_to` are API only. A `request` for `merge`, `publish` or `split`
-  is stored and can start a role's turn, but Kuayle does not act on it.
+  and `reply_to` are API only. Requests for `merge` or `publish` are stored and
+  can start a role’s turn. A lead’s `split` request offers the creator the
+  approval action in the room.
 - A member has no task card of its own: its turns are rows of the root's
   room and runs of the root's workflow view, with their role.
 - The board the tick reads is the creator's (the board's visibility), so

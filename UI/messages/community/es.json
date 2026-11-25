@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Aún no hay nada. Lo que escribas llega a todos los que trabajan en la tarea.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Pasó a {phase}",
+	"tasks.room_create_sub_issues": "Crear subincidencias",
 	"tasks.room_request": "Pide: {action}",
 	"tasks.room_waiver": "Dispensó la comprobación {check}",
 	"tasks.room_grant": "Permite al responsable dispensar la comprobación {check}",

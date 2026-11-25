@@ -17,11 +17,16 @@ func beginConversationTransaction(ctx context.Context, db *sqlx.DB) (*sqlx.Tx, e
 	if err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`); err != nil {
+	if err := lockConversationPrivacy(ctx, tx); err != nil {
 		tx.Rollback()
 		return nil, err
 	}
 	return tx, nil
+}
+
+func lockConversationPrivacy(ctx context.Context, tx *sqlx.Tx) error {
+	_, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock_shared(610046,0)`)
+	return err
 }
 
 // Lock the issue before its conversation, matching issue deletion's cascade.

@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Rien pour l'instant. Ce que vous écrivez parvient à tous ceux qui travaillent sur la tâche.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Passé à {phase}",
+	"tasks.room_create_sub_issues": "Créer les sous-tickets",
 	"tasks.room_request": "Demande : {action}",
 	"tasks.room_waiver": "A levé la vérification {check}",
 	"tasks.room_grant": "Permet au responsable de lever la vérification {check}",

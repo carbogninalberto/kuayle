@@ -2997,6 +2997,7 @@
 	"tasks.room_empty": "Intet her endnu. Det du skriver, når alle der arbejder på opgaven.",
 	"tasks.room_kuayle": "Kuayle",
 	"tasks.room_phase": "Flyttet til {phase}",
+	"tasks.room_create_sub_issues": "Opret underissues",
 	"tasks.room_request": "Beder om: {action}",
 	"tasks.room_waiver": "Fritog tjekket {check}",
 	"tasks.room_grant": "Lader lederen frafalde tjekket {check}",

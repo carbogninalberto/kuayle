@@ -2,6 +2,7 @@ package machine
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -117,4 +118,31 @@ func TestTheAgentImagesInstallKuayleSay(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, string(dockerfile), "COPY --chmod=0755 common/kuayle-say.cjs /usr/local/bin/kuayle-say", image)
 	}
+}
+
+func TestKuayleSaySplitRequest(t *testing.T) {
+	dir := t.TempDir()
+	outbox := filepath.Join(dir, "outbox")
+	oversize := []string{"--to", "@human", "--request", "split"}
+	for range 10 {
+		oversize = append(oversize, "--issue", "Child", strings.Repeat("界", 600))
+	}
+	for _, args := range [][]string{
+		oversize,
+		{"--to", "@human", "--request", "split", "the owner approves"},
+		{"--to", "@human", "--issue", "One", "Detail"},
+		{"--to", "@human", "--request", "split", "--issue", "", "Detail"},
+		{"--to", "@human", "--request", "split", "--issue", "One", strings.Repeat("x", 1001)},
+	} {
+		code, stderr := kuayleSay(t, dir, outbox, "", args...)
+		require.Equal(t, 2, code, stderr)
+		require.Empty(t, outboxFiles(t, outbox))
+	}
+	code, stderr := kuayleSay(t, dir, outbox, "", "--to", "@human", "--request", "split", "--issue", "One", "First part", "--issue", "Two", "Second part")
+	require.Zero(t, code, stderr)
+	messages := outboxFiles(t, outbox)
+	require.Len(t, messages, 1)
+	data, err := json.Marshal(messages[0].Room.Data)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"action":"split","issues":[{"title":"One","description":"First part"},{"title":"Two","description":"Second part"}]}`, string(data))
 }
