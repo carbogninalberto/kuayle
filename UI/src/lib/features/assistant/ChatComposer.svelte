@@ -577,7 +577,7 @@
 					<div class="flex min-w-0 items-center gap-1">
 						<InputGroup.Button
 							size="icon-sm"
-							class="attachment-actions motion-reduce:transition-none"
+							class="attachment-button"
 							aria-label={m['assistant.attach']()}
 							title={m['assistant.attach']()}
 							disabled={!attachable}
