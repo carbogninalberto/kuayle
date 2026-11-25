@@ -233,7 +233,9 @@ func (w *tickWorld) exec(query string, args ...any) {
 	require.NoError(w.t, err)
 }
 
-// drain runs the worker until no task has anything to do now.
+// drain runs the worker until the tasks are quiescent: once every wake that
+// has come by the tick's own clock is due for the worker too, the worker can
+// claim no task.
 func (w *tickWorld) drain() {
 	w.t.Helper()
 	for range 300 {
@@ -245,6 +247,7 @@ func (w *tickWorld) drain() {
 		}
 		w.exec(`UPDATE agent_tasks SET next_poll_at=CASE WHEN run_id::text=ANY($1) AND state<>'cancelling' THEN now()+interval '1 hour'
  WHEN state='publishing' AND EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.agent_run_id=agent_tasks.run_id AND o.action='publish_agent' AND o.status IN ('pending','leased')) THEN now()+interval '1 hour' ELSE now() END`, pq.Array(held))
+		w.wakeDue()
 		ctx, cancel := context.WithTimeout(context.Background(), w.step)
 		task, err := w.f.tasks.Repo.Claim(ctx)
 		require.NoError(w.t, err)
@@ -265,6 +268,20 @@ func (w *tickWorld) drain() {
 		}
 	}
 	w.t.Fatal("the tasks did not settle")
+}
+
+// wakeDue makes every wake that has come by the tick's clock due for the
+// worker too (KUA-303). The tick writes a wake with its own clock (a wait
+// "at once" is its now), and Claim compares it with the database's now().
+// The database runs in a container whose clock can lag the test's (about a
+// millisecond on a loaded developer Mac), so a wake that was due could look
+// future to Claim and drain stopped early. A wake is compared here only with
+// the clock that set it; one the database set with its own now() is due for
+// Claim already. It runs right before Claim, so Claim finding nothing means
+// nothing is due by either clock.
+func (w *tickWorld) wakeDue() {
+	w.t.Helper()
+	w.exec(`UPDATE agent_tasks SET workflow_wake_at=now() WHERE workflow_wake_at>now() AND workflow_wake_at<=$1`, w.f.tasks.Workflow().now())
 }
 
 // later lets the time pass that the waiting tasks wait for, and drains.
@@ -557,6 +574,21 @@ func TestTickScenario01HappyPath(t *testing.T) {
 	require.NotEmpty(t, w.facts("pr_exists"))
 	require.Len(t, w.facts("approved"), 2, "not approved, then approved")
 	require.Equal(t, 1, w.member("reviewer").Turns)
+}
+
+// The tick writes a wake "at once" with its own clock and Claim compares it
+// with the database's now(). Those are two clocks, and when the database's
+// runs behind, a wake that is due looks future: drain used to stop early
+// (KUA-303). A tick clock two seconds ahead makes that deterministic.
+func TestTickDrainDoesNotDependOnTheDatabaseClock(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.f.tasks.Workflow().now = func() time.Time { return time.Now().Add(2 * time.Second) }
+	w.agent = w.writesAndApproves
+	w.throughReview()
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	w.drain()
+	require.Equal(t, "completed", w.task().State, "the approval's wake is due at once")
+	require.Equal(t, []string{sha(1)}, w.github.merged)
 }
 
 func TestTickScenario02ChangesRequestedThenReviewedAgain(t *testing.T) {
