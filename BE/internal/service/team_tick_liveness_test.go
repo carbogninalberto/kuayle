@@ -26,7 +26,7 @@ import (
 // conflicts, verdicts, the owner's approvals, decisions and posts, member
 // turns that finish, fail or are cancelled, GitHub failing or answering too
 // slowly, script checks, the budget running out, another task on the board
-// moving) play through the scenario
+// moving, an on-call role addressed or not) play through the scenario
 // tests' world (tickWorld): the real worker, tick, repository and room, with
 // GitHub and the machines faked. After every step the worker takes, the task
 // must be
@@ -38,7 +38,8 @@ import (
 //     owner's approval, a phase a person owns);
 //   - or ended, with no member's turn left running;
 //
-// never idle without a pending wake. After the sequence everyone cooperates
+// never idle without a pending wake; and an on-call role nobody addressed
+// by name is never a member. After the sequence everyone cooperates
 // (GitHub answers, CI passes, the roles commit and approve, the owner
 // approves and continues) and the task must end within tickLivenessSettle
 // rounds, with at most one Continue beyond its budget's: a task that only
@@ -122,6 +123,12 @@ func playTickLiveness(t *testing.T, seed uint64) {
 	var p domain.Pipeline
 	w := newTickWorld(t, func(pipeline *domain.Pipeline) {
 		tickLivenessVariant(rng, pipeline)
+		// Its own stream, so the sequences without an on-call role play as
+		// before it was added.
+		if rand.New(rand.NewPCG(seed, 0x6f6e2d63616c6c)).IntN(3) == 0 {
+			pipeline.Roster = append(pipeline.Roster, domain.PipelineMember{Role: "uiux", ProfileID: pipeline.Roster[1].ProfileID, OnCall: true})
+			pipeline.Phases[2].Checks = append(pipeline.Phases[2].Checks, domain.PipelineCheck{ID: "uiux", Fact: domain.PipelineFactVerdict, Role: "uiux"})
+		}
 		p = *pipeline
 	})
 	writer, _ := p.Writer()
@@ -192,7 +199,23 @@ func tickLivenessDescribe(p domain.Pipeline) string {
 		}
 		phases = append(phases, fmt.Sprintf("%s(@%s %s)", phase.ID, phase.Owner, strings.Join(checks, ",")))
 	}
-	return fmt.Sprintf("%s; budget %d turns, %s", strings.Join(phases, " "), p.Budget.MaxTurns, p.Budget.Workflow().Policy())
+	var onCall []string
+	for _, member := range p.Roster {
+		if member.OnCall {
+			onCall = append(onCall, "@"+member.Role)
+		}
+	}
+	return fmt.Sprintf("%s; budget %d turns, %s; on call: %v", strings.Join(phases, " "), p.Budget.MaxTurns, p.Budget.Workflow().Policy(), onCall)
+}
+
+// onCall is the on-call role of the sequence's pipeline, or "".
+func (l *liveWorld) onCall() string {
+	for _, member := range l.p.Roster {
+		if member.OnCall {
+			return member.Role
+		}
+	}
+	return ""
 }
 
 func (l *liveWorld) note(format string, args ...any) {
@@ -245,6 +268,12 @@ func (l *liveWorld) agent(role string, turn int, _ domain.AgentTask) tickTurn {
 		}
 		if r.IntN(7) == 0 {
 			played.posts = []string{`{"to":"@reviewer","kind":"ask","body":"Is the toggle in the right place?"}`}
+		}
+		if role := l.onCall(); role != "" && r.IntN(9) == 0 {
+			played.posts = append(played.posts, `{"to":"@all","kind":"ask","body":"Does anyone know the brand's palette?"}`)
+			if r.IntN(2) == 0 {
+				played.posts = append(played.posts, `{"to":"@`+role+`","kind":"ask","body":"Is the contrast right?"}`)
+			}
 		}
 	} else {
 		switch x := r.IntN(10); {
@@ -390,6 +419,7 @@ func (l *liveWorld) dropCheck() {
 // the worker settled, none of its members still working).
 func (l *liveWorld) check(settled bool) {
 	l.t.Helper()
+	l.checkOnCall()
 	root := l.task()
 	roles, members := l.memberTasks()
 	busy := ""
@@ -429,6 +459,29 @@ func (l *liveWorld) check(settled bool) {
 		return
 	}
 	l.violation("the task is in state %s", root.State)
+}
+
+// checkOnCall: an on-call role is a member only once a post the room took
+// addressed it by name, or a required check asked for its verdict.
+func (l *liveWorld) checkOnCall() {
+	l.t.Helper()
+	role := l.onCall()
+	if role == "" {
+		return
+	}
+	for _, phase := range l.p.Phases {
+		for _, check := range phase.Checks {
+			if check.Role == role && check.Required {
+				return
+			}
+		}
+	}
+	var member, addressed bool
+	require.NoError(l.t, l.f.db.Get(&member, `SELECT EXISTS(SELECT 1 FROM task_members WHERE task_id=$1 AND role=$2)`, l.root, role))
+	require.NoError(l.t, l.f.db.Get(&addressed, `SELECT EXISTS(SELECT 1 FROM task_messages WHERE task_id=$1 AND $2=ANY(to_roles) AND reject_reason IS NULL)`, l.root, role))
+	if member && !addressed {
+		l.violation("the on-call @%s became a member, but nobody addressed it", role)
+	}
 }
 
 func (l *liveWorld) violation(format string, args ...any) {
@@ -475,6 +528,8 @@ var liveEvents = []liveEvent{
 	{"the owner approves", 6, (*liveWorld).ownerApproves},
 	{"the owner continues", 6, (*liveWorld).ownerContinues},
 	{"the owner says something", 6, (*liveWorld).ownerSays},
+	{"the owner talks to everyone", 3, (*liveWorld).ownerTalksToEveryone},
+	{"the owner calls the on-call role", 2, (*liveWorld).ownerCallsOnCall},
 	{"the owner waives a check", 3, (*liveWorld).ownerWaives},
 	{"the owner stops", 1, (*liveWorld).ownerStops},
 	{"GitHub fails", 6, (*liveWorld).githubFails},
@@ -626,6 +681,26 @@ func (l *liveWorld) ownerSays() string {
 	_, err := l.f.tasks.Repo.PostRoomMessage(l.f.ctx, l.f.ws, l.root, domain.TaskRoomPost{Kind: domain.RoomSay, Body: "Also follow the system theme.", ToRoles: []string{role}})
 	l.drain()
 	return fmt.Sprintf("the owner tells the @%s something: %v", role, err)
+}
+
+// ownerTalksToEveryone posts to everyone: it calls every role that is not
+// on call, and no on-call role.
+func (l *liveWorld) ownerTalksToEveryone() string {
+	_, err := l.f.tasks.Repo.PostRoomMessage(l.f.ctx, l.f.ws, l.root, domain.TaskRoomPost{Kind: domain.RoomAsk, Body: "Is anyone blocked?"})
+	l.drain()
+	return fmt.Sprintf("the owner asks everyone something: %v", err)
+}
+
+// ownerCallsOnCall addresses the on-call role by name: its first address
+// makes it a member and starts its turn.
+func (l *liveWorld) ownerCallsOnCall() string {
+	role := l.onCall()
+	if role == "" {
+		return ""
+	}
+	_, err := l.f.tasks.Repo.PostRoomMessage(l.f.ctx, l.f.ws, l.root, domain.TaskRoomPost{Kind: domain.RoomAsk, Body: "Is the contrast right?", ToRoles: []string{role}})
+	l.drain()
+	return fmt.Sprintf("the owner asks the on-call @%s something: %v", role, err)
 }
 
 func (l *liveWorld) ownerWaives() string {
