@@ -604,6 +604,7 @@ authentication.
 | PUT | `/api/workspaces/:slug/workflows/:workflowId` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | POST | `/api/workspaces/:slug/workflows/:workflowId/archive` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | GET | `/api/workspaces/:slug/workflows/:workflowId/audit` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
+| POST | `/api/workspaces/:slug/workflows/:workflowId/draft-pipeline` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | POST | `/api/workspaces/:slug/workflows/:workflowId/duplicate` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | POST | `/api/workspaces/:slug/workflows/validate` | session only | Agent profiles, workflows and memory are authored with AI and audited as person decisions. |
 | GET | `/api/workspaces/:slug/ws` | session only | The realtime WebSocket connection carries live assistant events for a browser session. |

@@ -186,6 +186,16 @@ func (h *WorkflowHandler) Duplicate(c *echo.Context) error {
 	return response.Success(c, http.StatusCreated, result)
 }
 
+// DraftPipeline answers a pipeline drafted from the workflow, or the reasons
+// it has none; both are answers, so both are 200. Nothing is saved.
+func (h *WorkflowHandler) DraftPipeline(c *echo.Context) error {
+	result, err := h.svc.DraftPipeline(c.Request().Context(), workspaceID(c), c.Param("workflowId"))
+	if err != nil {
+		return workflowError(c, err)
+	}
+	return response.Success(c, http.StatusOK, result)
+}
+
 func (h *WorkflowHandler) Archive(c *echo.Context) error {
 	if err := h.svc.Archive(c.Request().Context(), workspaceID(c), c.Param("workflowId")); err != nil {
 		return workflowError(c, err)
