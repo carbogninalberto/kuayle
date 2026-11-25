@@ -224,7 +224,8 @@ func (w *tickWorld) exec(query string, args ...any) {
 	require.NoError(w.t, err)
 }
 
-// drain runs the worker until no task has anything to do now.
+// drain runs the worker until the tasks are quiescent: the worker can claim
+// none, and none waits for a time that has come by the tick's own clock.
 func (w *tickWorld) drain() {
 	w.t.Helper()
 	for range 300 {
@@ -239,6 +240,9 @@ func (w *tickWorld) drain() {
 		require.NoError(w.t, err)
 		if task == nil {
 			cancel()
+			if w.dueByTheTicksClock() {
+				continue
+			}
 			return
 		}
 		if os.Getenv("TICK_TRACE") != "" {
@@ -254,6 +258,23 @@ func (w *tickWorld) drain() {
 		}
 	}
 	w.t.Fatal("the tasks did not settle")
+}
+
+// dueByTheTicksClock makes the wakes that have come by the tick's clock due
+// for the worker too, and reports whether there were any (KUA-303). The tick
+// writes a wake with its own clock (a wait "at once" is its now), and Claim
+// compares it with the database's now(). The database runs in a container
+// whose clock can lag the test's (about a millisecond on a loaded developer
+// Mac), so a wake that was due looked future and drain stopped early. A wake
+// is compared here only with the clock that set it; one the database set
+// with its own now() is due for Claim already.
+func (w *tickWorld) dueByTheTicksClock() bool {
+	w.t.Helper()
+	result, err := w.f.db.Exec(`UPDATE agent_tasks SET workflow_wake_at=now() WHERE workflow_wake_at>now() AND workflow_wake_at<=$1`, w.f.tasks.Workflow().now())
+	require.NoError(w.t, err)
+	woken, err := result.RowsAffected()
+	require.NoError(w.t, err)
+	return woken > 0
 }
 
 // later lets the time pass that the waiting tasks wait for, and drains.
@@ -509,6 +530,21 @@ func TestTickScenario01HappyPath(t *testing.T) {
 	require.NotEmpty(t, w.facts("pr_exists"))
 	require.Len(t, w.facts("approved"), 2, "not approved, then approved")
 	require.Equal(t, 1, w.member("reviewer").Turns)
+}
+
+// The tick writes a wake "at once" with its own clock and Claim compares it
+// with the database's now(). Those are two clocks, and when the database's
+// runs behind, a wake that is due looks future: drain used to stop early
+// (KUA-303). A tick clock two seconds ahead makes that deterministic.
+func TestTickDrainDoesNotDependOnTheDatabaseClock(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.f.tasks.Workflow().now = func() time.Time { return time.Now().Add(2 * time.Second) }
+	w.agent = w.writesAndApproves
+	w.throughReview()
+	require.NoError(t, w.decide(WorkflowDecisionApprove))
+	w.drain()
+	require.Equal(t, "completed", w.task().State, "the approval's wake is due at once")
+	require.Equal(t, []string{sha(1)}, w.github.merged)
 }
 
 func TestTickScenario02ChangesRequestedThenReviewedAgain(t *testing.T) {
