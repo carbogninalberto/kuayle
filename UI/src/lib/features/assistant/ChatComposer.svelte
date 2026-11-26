@@ -32,6 +32,7 @@
 	import { ComposerAttachments } from './composer-attachments.svelte';
 	import ComposerAttachmentList from './ComposerAttachments.svelte';
 	import ComposerVoice from './ComposerVoice.svelte';
+	import RoomRecipient from './RoomRecipient.svelte';
 	import ComposerContext from './ComposerContext.svelte';
 	import { appendTranscript } from '$lib/features/voice/voice-rules';
 	import { ATTACHMENT_TYPES } from './attachment-rules';
@@ -86,10 +87,11 @@
 	let textarea = $state<HTMLTextAreaElement | null>(null);
 	const options = $derived(targetTask && sendOptions(targetTask, authState.user?.id));
 	const toAgent = $derived(!!options?.open);
-	// A task on a pipeline is written to in its room (KUA-252), which
-	// everyone working on it reads: text only, and no "now" to send it with.
-	// The task says it runs one; a room already loaded says so too.
+	// Pipeline tasks use addressed room posts. An already-loaded room also identifies older tasks.
 	const room = $derived(toAgent && !!targetTask && (!!targetTask.pipeline || !!chat.taskRooms[targetTask.id]));
+	const recipient = $derived(chat.roomRecipient?.taskId === targetTask?.id ? chat.roomRecipient?.role : undefined);
+	const reply = $derived(room && chat.roomReply?.task_id === targetTask?.id ? chat.roomReply : null);
+	const destination = $derived(reply?.author_role ?? recipient ?? 'all');
 	const now = $derived(room ? null : (options?.now ?? null));
 	const question = $derived(
 		!room && targetTask && chat.agentQuestion?.taskId === targetTask.id ? chat.agentQuestion : null
@@ -306,23 +308,26 @@
 		if (options?.confirm) confirming = true;
 		else void sendToAgent(targetTask, now);
 	}
-	// A post sent again after it failed keeps its request id while its text
-	// is the same, so the room keeps one of them.
-	let roomRequest: { body: string; id: string } | null = null;
+	// Retry the same addressed post with its original idempotency key.
+	let roomRequest: { key: string; id: string } | null = null;
 	async function postToRoom(task: AgentTask) {
 		if (!canSend) return;
 		const typed = text,
 			body = agentBody;
-		if (roomRequest?.body !== body) roomRequest = { body, id: crypto.randomUUID() };
+		const addressed = destination === 'all' ? [] : [destination];
+		const answered = reply;
+		const key = JSON.stringify([task.id, body, addressed, answered?.seq]);
+		if (roomRequest?.key !== key) roomRequest = { key, id: crypto.randomUUID() };
 		const request = roomRequest.id;
 		sending = true;
 		error = '';
 		notice = '';
 		followLatest();
 		try {
-			const message = await agentTasks.postRoom(slug, task.id, { kind: 'say', body, request_id: request });
+			const message = await agentTasks.postRoom(slug, task.id, { kind: 'say', body, to: addressed, reply_to: answered?.seq, request_id: request });
 			chat.acceptRoomMessages(task.id, [message]);
 			if (roomRequest?.id === request) roomRequest = null;
+			if (answered && chat.roomReply?.id === answered.id) chat.roomReply = null;
 			if (disposed) return;
 			if (text === typed) text = '';
 			if (targetTask?.id !== task.id) return;
@@ -503,6 +508,13 @@
 					? 'ring-2 ring-ring'
 					: ''}"
 			>
+				{#if reply}
+					<InputGroup.Addon align="block-start" class="gap-1.5 text-xs font-normal">
+						<CornerDownRight size={13} aria-hidden="true" />
+						<span class="min-w-0 flex-1 truncate">#{reply.seq} · {reply.body || reply.data.action}</span>
+						<InputGroup.Button size="icon-xs" aria-label={m['common.dismiss']()} onclick={() => (chat.roomReply = null)}><X /></InputGroup.Button>
+					</InputGroup.Addon>
+				{/if}
 				{#if question}<InputGroup.Addon
 						align="block-start"
 						class="gap-1.5 text-xs font-normal"
@@ -525,7 +537,7 @@
 					aria-label={room ? m['tasks.room_composer']() : toAgent ? m['tasks.live_composer']() : m['assistant.message']()}
 					aria-invalid={agentTooLong || undefined}
 					placeholder={room
-						? m['tasks.room_placeholder']({ identifier: chat.issue?.identifier ?? '' })
+						? m['tasks.room_placeholder']({ recipient: '@' + destination })
 						: toAgent && targetTask
 							? m['assistant.placeholder_agent']({
 									identifier: chat.issue?.identifier ?? '',
@@ -575,14 +587,18 @@
 				/>
 				<InputGroup.Addon align="block-end" class="justify-between gap-2">
 					<div class="flex min-w-0 items-center gap-1">
-						<InputGroup.Button
+						{#if room && targetTask}
+							{#key targetTask.id}
+								<RoomRecipient {chat} task={targetTask} disabled={sending}
+									bind:value={() => destination, (role) => { chat.roomRecipient = { taskId: targetTask!.id, role }; chat.roomReply = null; }} />
+							{/key}
+						{:else}<InputGroup.Button
 							size="icon-sm"
 							class="attachment-button"
 							aria-label={m['assistant.attach']()}
 							title={m['assistant.attach']()}
 							disabled={!attachable}
-							onclick={() => fileInput?.click()}><Plus size={16} /></InputGroup.Button
-						>
+							onclick={() => fileInput?.click()}><Plus size={16} /></InputGroup.Button>{/if}
 						{#if messageable.length || toAgent}
 							<DropdownMenu.Root>
 								<DropdownMenu.Trigger>

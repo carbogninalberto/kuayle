@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { factLabel, foldText, mergeRoom, openByDefault, readRoomPages, roomRead, roomRows, roomSplits, rowRoles } from '../../src/lib/features/assistant/task-room.ts';
+import { factLabel, foldText, mergeRoom, readRoomPages, roomBlocker, roomRead, roomRows, roomSplits, rowRoles } from '../../src/lib/features/assistant/task-room.ts';
 
 // The room of a pipeline task as rows: what the owner, Kuayle and each
 // role's turn posted, in the room's order.
@@ -262,7 +262,9 @@ test('only accepted lead proposals offer a split, until Kuayle confirms that exa
 		member(7, 'lead', null, 'fact', '', { reply_to: 5, data: { fact: 'split_approved' } }),
 		{ ...kuayle(8, 'fact', { fact: 'split_approved' }), reply_to: 1 }
 	];
-	assert.deepEqual([...roomSplits(messages)], [[1, { issues, approved: true }], [5, { issues, approved: false }]]);
+	assert.deepEqual([...roomSplits(messages)], [[1, { issues, pending: false }], [5, { issues, pending: true }]]);
+	messages.push({ ...kuayle(9, 'fact', { fact: 'split_refused' }), reply_to: 5 });
+	assert.equal(roomSplits(messages).get(5).pending, false);
 });
 
 test('a pipeline run reads every room page after the last contiguous post', async () => {
@@ -278,21 +280,6 @@ test('a pipeline run reads every room page after the last contiguous post', asyn
 	assert.equal(room[2].body, 'arrived live');
 });
 
-test('a turn holding a split the owner has not approved opens by default, so its approval is in view', () => {
-	const issues = [{ title: 'Search by identifier', description: 'Add exact identifier matching.' }];
-	const proposal = { ...member(1, 'lead', 'run-lead', 'request', 'Two parts'), data: { action: 'split', issues } };
-	const talk = member(2, 'reviewer', 'run-rev', 'say', 'Looks right.');
-	let room = [proposal, talk];
-	let rows = roomRows(room);
-	assert.equal(openByDefault(rows[0], roomSplits(room)), true);
-	assert.equal(openByDefault(rows[1], roomSplits(room)), false, 'other turns stay folded');
-	room = [...room, { ...kuayle(3, 'fact', { fact: 'split_approved' }), reply_to: 1 }];
-	rows = roomRows(room);
-	assert.equal(openByDefault(rows[0], roomSplits(room)), false, 'once approved it folds like any turn');
-});
-
-// A turn that has not posted yet is still a turn (KUA-321): its row comes
-// from its run, and a run whose turn posted joins that turn's row.
 const turn = (id, role, minute) => ({ id, role, at: at(minute) });
 
 test('a turn that is running and has not posted is a row of its own, with no messages', () => {
@@ -335,9 +322,34 @@ test('a room without runs keeps its rows', () => {
 	assert.deepEqual(shape(roomRows([owner(1, 'Go.')])), [['owner', 1]]);
 });
 
-test('a turn that is running starts open and a finished one folds', () => {
-	const rows = roomRows([], [turn('run-impl-1', 'implementer', 1)]);
-	assert.equal(openByDefault(rows[0], roomSplits([]), new Set(['run-impl-1'])), true);
-	assert.equal(openByDefault(rows[0], roomSplits([]), new Set()), false, 'finished: folded like the others');
-	assert.equal(openByDefault(rows[0], roomSplits([])), false);
+test('duplicate stall reports separated by conversation appear once in system activity', () => {
+	const stall = 'Nobody is working, and the phase Implement waits on:\n- review';
+	const posts = [kuayle(1, 'summary', {}, stall), owner(2, 'Hello'), kuayle(3, 'summary', {}, stall), kuayle(4, 'summary', {}, stall + ' 2')];
+	assert.deepEqual(roomRows(posts).map(row => row.key), ['seq-1', 'seq-2', 'seq-4']);
+});
+
+test('a pause points to an open owner request until its receipt, even after a conversational reply', () => {
+	const ask = member(1, 'reviewer', 'r1', 'ask', 'Which branch?', { to_roles: ['human'] });
+	const split = member(2, 'lead', 'r2', 'request', '', { data: { action: 'split', issues: [{title: 'Search', description: 'Add search.'}] } });
+	const posts = [ask, split, owner(3, 'I will read it.', { reply_to: 2 })];
+	assert.equal(roomBlocker(posts)?.seq, 2);
+	posts.push(post(4, 'kuayle', 'fact', '', { reply_to: 2, data: {fact: 'split_approved'} }));
+	assert.equal(roomBlocker(posts)?.seq, 1);
+	posts.push(owner(5, 'Main.', { reply_to: 1 }));
+	assert.equal(roomBlocker(posts), undefined);
+});
+
+test('a paused role-to-role question stays open until an accepted reply from its recipient or the owner', () => {
+	const ask = member(1, 'lead', 'a', 'ask', 'Can search ignore case?', { to_roles: ['reviewer'] });
+	const posts = [ask, member(2, 'implementer', 'b', 'say', 'Maybe.', { reply_to: 1 }),
+		member(3, 'reviewer', 'c', 'say', 'Yes.', { reply_to: 1, reject_reason: 'rate limited' })];
+	assert.equal(roomBlocker(posts)?.seq, 1);
+	posts.push(member(4, 'reviewer', 'c', 'say', 'Yes.', { reply_to: 1 }));
+	assert.equal(roomBlocker(posts), undefined);
+});
+
+test('a verdict answers the review request for that role', () => {
+	const review = member(1, 'lead', 'a', 'request', '', { to_roles: ['reviewer'], data: { action: 'review' } });
+	assert.equal(roomBlocker([review])?.seq, 1);
+	assert.equal(roomBlocker([review, member(2, 'reviewer', 'b', 'verdict', 'Ready.', { data: { verdict: 'approve' } })]), undefined);
 });

@@ -338,7 +338,7 @@ test('desktop, keyboard only: who works, which phase, what blocks it and what ch
 	const { requests } = await fixture(page);
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto(agentView);
-	await expect(roomRows(page)).toHaveCount(7);
+	await expect(roomRows(page)).toHaveCount(4);
 
 	// The header says it in one line: the phase, the task's state and how many work.
 	const header = page.getByTestId('agent-thread-header');
@@ -379,7 +379,7 @@ test('phone, keyboard only: the same answers from the top bar and its sheets', a
 	await fixture(page);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto(agentView);
-	await expect(roomRows(page)).toHaveCount(7);
+	await expect(roomRows(page)).toHaveCount(4);
 	await expect(page.getByTestId('agent-thread-header').getByRole('status')).toHaveText('Integrate · Running');
 	expect(await fits(page)).toBe(true);
 	await shots(page, testInfo, 'checkpoint-phone');

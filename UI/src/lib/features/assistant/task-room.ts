@@ -1,14 +1,7 @@
 import type { TaskMessage } from '$lib/api/agent-tasks';
 
-// The room of a task on a pipeline (KUA-252) as the rows of its agent view,
-// in the room's order (seq), one line per event (KUA-286). What the owner
-// posts is a row each. Kuayle's facts in a row fold into one row; its phase
-// moves, the owner's approval and what it tells the owner stand alone. A
-// role's turn is one run of its agent: everything the turn posted is one
-// row, where its first post is, and opens the run's transcript. A turn that
-// has not posted yet is a row too, from its run, where it started (KUA-321),
-// so a running turn is never missing. The server decides who may read the
-// room and orders it; this only shapes what it returned.
+// Posts stay in sequence in the conversation. The activity lane groups facts
+// and turns, including runs that have not posted yet.
 
 /** The most posts one read of the room returns. */
 export const ROOM_PAGE = 200;
@@ -42,7 +35,7 @@ export type RoomRow =
 
 const taken = (message: TaskMessage) => !message.reject_reason;
 const approval = (message: TaskMessage) => message.kind === 'fact' && message.data?.fact === 'approved' && message.data.value === true;
-const decides = (message: TaskMessage) =>
+export const decides = (message: TaskMessage) =>
 	taken(message) && (['phase', 'verdict', 'waiver', 'grant'].includes(message.kind) || approval(message));
 
 // A fact Kuayle folds with the ones around it: not the owner's approval, and
@@ -73,8 +66,13 @@ const rowTime = (row: RoomRow) =>
  */
 export function roomRows(messages: readonly TaskMessage[], turns: readonly RoomTurn[] = []): RoomRow[] {
 	const rows: RoomRow[] = [];
+	const stalls = new Set<string>();
 	const named = new Map<string, Extract<RoomRow, { type: 'member' }>>();
 	for (const message of [...messages].sort((a, b) => a.seq - b.seq)) {
+		if (message.author_kind === 'kuayle' && message.kind === 'summary' && message.body.startsWith('Nobody is working, and the phase ')) {
+			if (stalls.has(message.body)) continue;
+			stalls.add(message.body);
+		}
 		if (message.author_kind !== 'member') {
 			const last = rows.at(-1);
 			if (!folds(message)) {
@@ -126,28 +124,6 @@ export function roomRows(messages: readonly TaskMessage[], turns: readonly RoomT
 		rows.splice(after < 0 ? rows.length : after, 0, row);
 	}
 	return rows;
-}
-
-/**
- * Whether a row starts open: a role's turn that holds a split the owner has
- * not approved yet (roomSplits), so the proposal and its approval are in view
- * in the folded thread (KUA-309), or one still running (`live`, the ids of
- * the runs that have not ended), so its stream is in view (KUA-321). Every
- * other turn starts folded, and a running one folds when it ends.
- */
-export function openByDefault(
-	row: RoomRow,
-	splits: ReturnType<typeof roomSplits>,
-	live: ReadonlySet<string> = new Set()
-): boolean {
-	return (
-		row.type === 'member' &&
-		((!!row.runId && live.has(row.runId)) ||
-			row.messages.some((message) => {
-				const split = splits.get(message.seq);
-				return !!split && !split.approved;
-			}))
-	);
 }
 
 /** The roles a row concerns: the role that wrote it, or the roles it was addressed to. */
@@ -294,26 +270,53 @@ export function roomRead(messages: readonly TaskMessage[]): number {
 	return seq;
 }
 
-/** Accepted lead proposals in room order. Only Kuayle's receipt confirms the request it replies to. */
+const splitReceipt = (post: TaskMessage) => post.author_kind === 'kuayle' && post.kind === 'fact' &&
+	['split_approved', 'split_refused'].includes(post.data.fact ?? '');
+
+/** Accepted lead proposals stay actionable until the platform settles the exact request. */
 export function roomSplits(messages: readonly TaskMessage[]) {
-	const splits = new Map<number, { issues: NonNullable<TaskMessage['data']['issues']>; approved: boolean }>();
+	const splits = new Map<number, { issues: NonNullable<TaskMessage['data']['issues']>; pending: boolean }>();
 	for (const post of messages) {
 		if (post.reject_reason) continue;
 		if (
 			post.author_kind === 'member' && post.author_role === 'lead' &&
 			post.kind === 'request' && post.data.action === 'split' && post.data.issues?.length
 		) {
-			splits.set(post.seq, { issues: post.data.issues, approved: false });
+			splits.set(post.seq, { issues: post.data.issues, pending: true });
 		}
-		if (
-			post.author_kind === 'kuayle' && post.kind === 'fact' &&
-			post.data.fact === 'split_approved' && post.reply_to != null
-		) {
+		if (splitReceipt(post) && post.reply_to != null) {
 			const proposal = splits.get(post.reply_to);
-			if (proposal) proposal.approved = true;
+			if (proposal) proposal.pending = false;
 		}
 	}
 	return splits;
+}
+
+/** Split requests require a platform receipt. An owner can answer other posts in the room. */
+export function roomBlocker(messages: readonly TaskMessage[]): TaskMessage | undefined {
+	const pending = new Map<number, TaskMessage>();
+	const verdicts = new Map<string, number>();
+	for (const post of messages) {
+		if (post.reject_reason) continue;
+		const parent = post.reply_to == null ? undefined : pending.get(post.reply_to);
+		if (parent) {
+			const split = parent.kind === 'request' && parent.data.action === 'split';
+			const addressedReply = post.author_kind === 'human' || (post.author_role && post.author_role !== parent.author_role &&
+				(!parent.to_roles?.length || parent.to_roles.includes(post.author_role)));
+			if (split ? splitReceipt(post) : addressedReply) pending.delete(parent.seq);
+		}
+		if (post.author_kind !== 'member') continue;
+		if (post.kind === 'verdict' && post.author_role) verdicts.set(post.author_role, post.seq);
+		if (post.kind === 'ask' || (post.kind === 'say' && post.to_roles?.includes('human')) ||
+			(post.kind === 'request' && post.data.action !== 'approve')) pending.set(post.seq, post);
+	}
+	const open = [...pending.values()];
+	return open.findLast((post) => post.data.action === 'split') ?? open.findLast((post) => {
+		if (post.data.action !== 'review') return true;
+		return post.to_roles?.length
+			? post.to_roles.some((role) => (verdicts.get(role) ?? 0) < post.seq)
+			: ![...verdicts.values()].some((seq) => seq > post.seq);
+	});
 }
 
 /** Catch up from a contiguous cursor, merging each page with any live posts. */
