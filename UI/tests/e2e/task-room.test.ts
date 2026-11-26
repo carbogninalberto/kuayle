@@ -205,6 +205,22 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 	return { state, emit };
 }
 
+test('a room post just over the preview height stays fully readable', async ({ page }) => {
+	const { state } = await fixture(page);
+	const lines = Array.from({ length: 11 }, (_, i) => `Check ${i + 1}`);
+	state.room = [member(1, 'reviewer', 'run-rev-2', 'say', lines.join('  \n'))];
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const post = page.getByTestId('task-room').locator('[data-seq="1"]');
+	const paragraph = post.locator('p').filter({ hasText: 'Check 11' });
+	await expect(paragraph).toBeVisible();
+	const bounds = (await paragraph.boundingBox())!;
+	expect(bounds.height).toBeGreaterThan(256);
+	expect(bounds.height).toBeLessThan(304);
+	await expect(post.getByRole('button', { name: 'Show more' })).toHaveCount(0);
+	const bubble = (await post.locator('[data-slot="bubble-content"]').boundingBox())!;
+	expect(bounds.y + bounds.height).toBeLessThanOrEqual(bubble.y + bubble.height);
+});
+
 test('the room post body renders semantic Markdown and neutralizes untrusted markup', async ({ page }) => {
 	const { state } = await fixture(page);
 	const source = audit + '\n\n<script>void 0</script> [unsafe](javascript:void(0))';

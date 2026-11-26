@@ -8,18 +8,19 @@
 	const previewHeight = 256;
 	let expanded = $state(false);
 	let contentHeight = $state(0);
-	const long = $derived(contentHeight > previewHeight);
+	const long = $derived(contentHeight > previewHeight + 48);
+	const collapsed = $derived(long && !expanded);
 </script>
 
 <div
 	{id}
-	class={['min-w-0', long && !expanded && 'mask-b-from-[calc(100%-1rem)] mask-b-to-100%']}
-	class:overflow-clip={!expanded}
-	style:max-height={expanded ? undefined : `${previewHeight}px`}
+	class={['min-w-0', collapsed && 'mask-b-from-[calc(100%-1rem)] mask-b-to-100%']}
+	class:overflow-clip={collapsed}
+	style:max-height={collapsed ? `${previewHeight}px` : undefined}
 	onfocusin={(event) => {
 		// Tabbing to a link below the preview should reveal it.
 		if (
-			long && !expanded && event.target instanceof HTMLElement &&
+			collapsed && event.target instanceof HTMLElement &&
 			event.target.getBoundingClientRect().bottom > event.currentTarget.getBoundingClientRect().bottom
 		) {
 			expanded = true;
