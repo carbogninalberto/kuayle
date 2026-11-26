@@ -221,11 +221,14 @@
 					<div class="space-y-px">
 						{#each group.items as section}
 							{@const Icon = section.icon}
+							{@const current = currentItem(section.href, section.exact)}
 							<a
 								href={section.href}
 								onclick={() => (showMobileNav = false)}
-								aria-current={currentItem(section.href, section.exact)}
-								class="nav-link flex items-center gap-2 rounded-md px-2 py-1 text-sm text-[var(--color-text-secondary)]"
+								aria-current={current}
+								class="nav-link flex items-center gap-2 rounded-md px-2 py-1 text-sm {current
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 							>
 								<Icon size={16} class="shrink-0" />
 								<span class="min-w-0 wrap-anywhere">{section.label}</span>
@@ -255,12 +258,16 @@
 						<span class="min-w-0 wrap-anywhere">{team.name}</span>
 					</Button>
 					{#if expanded}
+						{@const generalCurrent = currentItem(teamPath, true)}
+						{@const statusesCurrent = currentItem(`${teamPath}/statuses`)}
 						<div transition:slideFade>
 							<a
 								href={teamPath}
 								onclick={() => (showMobileNav = false)}
-								aria-current={currentItem(teamPath, true)}
-								class="nav-link ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)]"
+								aria-current={generalCurrent}
+								class="nav-link ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {generalCurrent
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 							>
 								<SlidersHorizontal size={13} />
 								{m['settings.nav.general']()}
@@ -268,8 +275,10 @@
 							<a
 								href="{teamPath}/statuses"
 								onclick={() => (showMobileNav = false)}
-								aria-current={currentItem(`${teamPath}/statuses`)}
-								class="nav-link ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs text-[var(--color-text-tertiary)]"
+								aria-current={statusesCurrent}
+								class="nav-link ml-7 flex items-center gap-2 rounded-md px-2 py-1 text-xs {statusesCurrent
+									? 'bg-[var(--color-bg-hover)]/50 text-[var(--color-text-primary)]'
+									: 'text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 							>
 								<CircleDot size={13} />
 								{m['settings.nav.issue_statuses']()}
@@ -336,15 +345,5 @@
 
 	.mobile-sheet .nav-link {
 		min-height: 44px;
-	}
-
-	.nav-link:hover, .nav-link[aria-current] {
-		background: var(--color-bg-hover);
-		color: var(--color-text-primary);
-	}
-
-	.nav-link[aria-current] {
-		font-weight: 600;
-		box-shadow: inset 3px 0 var(--app-accent);
 	}
 </style>
