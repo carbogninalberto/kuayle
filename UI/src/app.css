@@ -753,8 +753,12 @@ html.pipboy :focus-visible {
 }
 
 @utility mobile-touch-targets {
-	@media (width < 48rem) {
-		& :where(button, a[href], summary, input:not([type="hidden"], [type="checkbox"], [type="radio"]), [role="menuitem"]) {
+	@media (width < 48rem), (pointer: coarse) {
+		:is(&, & *):is(
+			button, a[href], a[aria-haspopup], summary,
+			input:not([type="hidden"], [type="checkbox"], [type="radio"]),
+			[data-slot="button"], [data-slot="select-trigger"], [role="combobox"], [role^="menuitem"]
+		) {
 			min-width: 44px;
 			min-height: 44px;
 		}
@@ -767,8 +771,7 @@ html.pipboy :focus-visible {
 
 @media (width < 48rem), (pointer: coarse) {
 	.settings-page :where([data-slot="button"], [data-slot="select-trigger"], [data-slot="popover-trigger"], [data-slot="tooltip-trigger"]),
-	.settings-action,
-	.touch-controls :where(button, [data-slot="button"], a[aria-haspopup], input[type="search"], [role="combobox"], [role^="menuitem"]) {
+	.settings-action {
 		min-width: 44px;
 		min-height: 44px;
 	}
@@ -784,7 +787,7 @@ html.pipboy :focus-visible {
 @media (prefers-reduced-motion: reduce) {
 	.assistant-surface,
 	.assistant-surface *,
-	.touch-controls[data-slot="dropdown-menu-content"],
+	.mobile-touch-targets[data-slot="dropdown-menu-content"],
 	.workflow-canvas * {
 		animation: none !important;
 		transition: none !important;

@@ -761,7 +761,7 @@
 				<!-- On touch screens the toolbar has its own row outside the pan surface. -->
 				<Tooltip.Provider delayDuration={300}>
 					<div
-						class="workflow-editor-tools touch-controls absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur"
+						class="workflow-editor-tools mobile-touch-targets absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur"
 						role="toolbar"
 						aria-label={m['workflows.editor.toolbar']()}
 						data-testid="workflow-toolbar"
@@ -772,7 +772,7 @@
 										><Plus />{m['workflows.editor.palette']()}</Button
 									>{/snippet}
 							</DropdownMenu.Trigger>
-							<DropdownMenu.Content side="top" align="start" class="touch-controls w-72">
+							<DropdownMenu.Content side="top" align="start" class="mobile-touch-targets w-72">
 								{#each BLOCKS as type (type)}
 									{@const Icon = blockIcon(type)}
 									<DropdownMenu.Item onclick={() => addAt(type)} class="gap-3 py-2" data-testid="workflow-add-{type}">

@@ -761,6 +761,19 @@ test('the timeline fits a phone', async ({ page }, testInfo) => {
 	await page.setViewportSize({ width: 320, height: 740 });
 	await expect(header.getByRole('button', { name: 'More actions' })).toBeInViewport();
 	expect(await header.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+	await page.setViewportSize({ width: 360, height: 800 });
+	const filters = thread.getByTestId('thread-filters');
+	await filters.scrollIntoViewIfNeeded();
+	const latest = page.getByRole('button', { name: 'Scroll to latest' });
+	await expect(latest).toHaveAttribute('data-active', 'true');
+	for (const control of [filters.getByRole('combobox'), filters.getByRole('button', { name: 'Decisions only' }), latest]) {
+		await expect.poll(async () => {
+			const box = (await control.boundingBox())!;
+			return Math.min(box.width, box.height);
+		}).toBeGreaterThanOrEqual(44);
+	}
+	expect((await header.boundingBox())!.height).toBeLessThanOrEqual(42);
+	await page.screenshot({ path: testInfo.outputPath('timeline-controls-360.png'), animations: 'disabled' });
 });
 
 const count = (requests: string[], pattern: RegExp) => requests.filter((request) => pattern.test(request)).length;

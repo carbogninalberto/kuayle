@@ -629,7 +629,7 @@
 <PageTitle parts={[m['assistant.title']()]} />
 
 {#snippet topBar()}
-	<header class="touch-controls flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
+	<header class="mobile-touch-targets flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
 		{#if !sidebarInline && !sidebarRail}<Button
 				variant="ghost"
 				size="icon-sm"
@@ -685,7 +685,7 @@
 								>
 							{/snippet}
 						</DropdownMenu.Trigger>
-						<DropdownMenu.Content align="start" class="touch-controls w-64">
+						<DropdownMenu.Content align="start" class="mobile-touch-targets w-64">
 							{#if conversationId && !chat.unavailable}<DropdownMenu.Item
 									onSelect={() => (renaming = chat.conversation?.title ?? '')}
 									><Pencil />{m['assistant.rename_conversation']()}</DropdownMenu.Item
@@ -790,7 +790,7 @@
 					>
 				{/snippet}
 			</DropdownMenu.Trigger>
-			<DropdownMenu.Content align="start" class="touch-controls w-72">
+			<DropdownMenu.Content align="start" class="mobile-touch-targets w-72">
 				<DropdownMenu.Label class="text-xs font-normal text-muted-foreground"
 					>{m['assistant.agent_view_choose']()}</DropdownMenu.Label
 				>
@@ -896,7 +896,7 @@
 {#snippet center()}
 	<section class="flex h-full min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
 		{@render topBar()}
-		<div class="min-h-0 flex-1" class:touch-controls={!agentView}>
+		<div class="min-h-0 flex-1" class:mobile-touch-targets={!agentView}>
 			<MessageScroller.Provider autoScroll>
 				<ScrollerHandle bind:scroller />
 				<MessageScroller.Root>
@@ -993,7 +993,7 @@
 						</MessageScroller.Content>
 						{/if}
 					</MessageScroller.Viewport>
-					<MessageScroller.Button behavior={prefersReducedMotion.current ? 'auto' : 'smooth'} aria-label={m['assistant.latest']()}
+				<MessageScroller.Button class="mobile-touch-targets" behavior={prefersReducedMotion.current ? 'auto' : 'smooth'} aria-label={m['assistant.latest']()}
 						><ArrowDown size={16} /><span class="sr-only">{m['assistant.latest']()}</span></MessageScroller.Button
 					>
 				</MessageScroller.Root>
@@ -1027,7 +1027,7 @@
 		</div>
 	{:else}
 		<Sheet.Root bind:open={sidebarDrawer}>
-			<Sheet.Content side="left" class="assistant-surface touch-controls w-[min(88vw,300px)] gap-0 p-0" showCloseButton={false}>
+			<Sheet.Content side="left" class="assistant-surface mobile-touch-targets w-[min(88vw,300px)] gap-0 p-0" showCloseButton={false}>
 				<Sheet.Header class="sr-only">
 					<Sheet.Title>{m['assistant.sidebar']()}</Sheet.Title>
 					<Sheet.Description>{m['assistant.sidebar_description']()}</Sheet.Description>
@@ -1065,7 +1065,7 @@
 		{:else}
 			{@render center()}
 			<Sheet.Root bind:open={taskSheet}>
-				<Sheet.Content side="left" class="assistant-surface touch-controls w-[min(88vw,340px)] gap-0 p-0" showCloseButton={false}>
+				<Sheet.Content side="left" class="assistant-surface mobile-touch-targets w-[min(88vw,340px)] gap-0 p-0" showCloseButton={false}>
 					<Sheet.Header class="sr-only">
 						<Sheet.Title>{m['assistant.task_column']()}</Sheet.Title>
 						<Sheet.Description>{m['assistant.task_column_description']()}</Sheet.Description>

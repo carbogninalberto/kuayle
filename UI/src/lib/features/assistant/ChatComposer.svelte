@@ -440,7 +440,7 @@
 	}
 </script>
 
-<div class="touch-controls shrink-0 px-3 pt-1 pb-[calc(0.75rem+env(safe-area-inset-bottom))] max-md:max-h-[calc(100%-3rem)] max-md:overflow-y-auto md:px-6 md:pb-[calc(1rem+env(safe-area-inset-bottom))]" data-testid={toAgent ? 'agent-composer' : 'assistant-composer'}>
+<div class="mobile-touch-targets shrink-0 px-3 pt-1 pb-[calc(0.75rem+env(safe-area-inset-bottom))] max-md:max-h-[calc(100%-3rem)] max-md:overflow-y-auto md:px-6 md:pb-[calc(1rem+env(safe-area-inset-bottom))]" data-testid={toAgent ? 'agent-composer' : 'assistant-composer'}>
 	<div class="mx-auto w-full {wide ? '' : 'max-w-3xl'}">
 		{#if error || chat.failed}<p role="alert" class="mb-2 text-sm text-destructive">
 				{error || m['assistant.error']()}
@@ -602,7 +602,7 @@
 										>
 									{/snippet}
 								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="start" class="touch-controls w-64">
+								<DropdownMenu.Content align="start" class="mobile-touch-targets w-64">
 									<DropdownMenu.Label class="text-xs font-normal text-muted-foreground"
 										>{m['assistant.target_heading']()}</DropdownMenu.Label
 									>

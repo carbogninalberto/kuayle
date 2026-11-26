@@ -386,7 +386,7 @@
 	</section>
 
 	{#if filterable}<div
-			class="flex min-w-0 flex-wrap items-center gap-1.5"
+			class="mobile-touch-targets flex min-w-0 flex-wrap items-center gap-1.5"
 			role="group"
 			aria-label={m['tasks.filter_label']()}
 			data-testid="thread-filters"
@@ -423,12 +423,12 @@
 		</ol>
 		{#if filtered && stepRows.length && !shownSteps.length}<div class="flex flex-wrap items-center gap-2" role="status">
 				<p class="text-sm text-muted-foreground">{m['tasks.filter_empty']()}</p>
-				<Button variant="ghost" size="sm" onclick={resetFilter}>{m['tasks.filter_reset']()}</Button>
+				<Button class="mobile-touch-targets" variant="ghost" size="sm" onclick={resetFilter}>{m['tasks.filter_reset']()}</Button>
 			</div>{/if}{/if}
 	{#if run.failed}<div class="flex flex-wrap items-center gap-2">
 			<p role="alert" class="text-sm text-destructive">
 				{run.followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}
 			</p>
-			<Button variant="ghost" size="sm" onclick={() => void run.load()}><RefreshCw />{m['tasks.refresh']()}</Button>
+			<Button class="mobile-touch-targets" variant="ghost" size="sm" onclick={() => void run.load()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>{/if}
 </Collapsible.Root>

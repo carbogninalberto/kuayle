@@ -121,7 +121,7 @@
 
 	<Tooltip.Provider delayDuration={300}>
 		<div
-			class="touch-controls absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg border bg-background/95 p-0.5 shadow-sm backdrop-blur"
+			class="mobile-touch-targets absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg border bg-background/95 p-0.5 shadow-sm backdrop-blur"
 			role="toolbar"
 			aria-label={m['workflows.task.chart_tools']()}
 		>
