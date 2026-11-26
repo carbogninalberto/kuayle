@@ -275,16 +275,18 @@ mounted while they open and close. The room keeps its reading width beside an
 open side panel and takes the column's width when it is closed. Below 1280 px
 the page is one column and the task column and the panels open as sheets.
 
-**Panel switchers** (KUA-296). Both follow the width they get, not the
-window's, through container queries. The top bar shows a button per panel
-while it is at least 36rem wide; narrower (a phone, or the room between the
-task column and an open side panel) and with more than two panels, it shows
-the open panel's button and a "More panels" menu that lists every panel,
-checks the open one and opens or closes it, so the conversation's title keeps
-its room. The side panel's own switcher shows every tab's icon and the open
-tab's name from 18rem, icons only below that (the phone's sheet), and below
-13rem, where even seven icons do not fit, the open tab and the same menu.
-Names stay for screen readers and hover. Browser coverage:
+**Panel switchers** (KUA-296, KUA-331). The top bar has one panel toggle and no
+per-panel icons: the side panel's own tab bar is the only switcher between its
+panels. The toggle opens the panel on the last tab used (kept per person, also
+across reloads) and closes it; with the panel closed it carries a badge, a count
+of what waits on the owner (pending approvals, tasks asking for input or a
+review) or a dot while an agent works, and the same words are in its accessible
+name. Anything that asks for a tab (a task link, a diff, a step) opens the panel
+on that tab. On a phone the toggle opens the panel as a sheet with the same tab
+bar. The side panel's switcher follows the width it gets through container
+queries: every tab's icon and the open tab's name from 18rem, icons only below
+that (the phone's sheet), and below 13rem, where even seven icons do not fit,
+the open tab and a "More panels" menu that lists every panel. Names stay for screen readers and hover. Browser coverage:
 `UI/tests/e2e/task-layout.test.ts`; the Phase 3 checkpoint (who works, which
 phase, what blocks it, what changed, a file and its diff, keyboard only at
 1280 px and 390 px) is `UI/tests/e2e/task-page-checkpoint.test.ts`.

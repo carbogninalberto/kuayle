@@ -185,8 +185,8 @@ const graphView = {
 	task_generation: 2
 };
 
-async function fixture(page: Page) {
-	const tasks = [pipelineTask, graphTask];
+async function fixture(page: Page, options: { approvals?: unknown[]; tasks?: unknown[] } = {}) {
+	const tasks = options.tasks ?? [pipelineTask, graphTask];
 	const views: Record<string, unknown> = { 'task-1': pipelineView, 'task-2': graphView };
 	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
 	await page.routeWebSocket('**/conversations/chat-1/stream*', () => {});
@@ -205,7 +205,7 @@ async function fixture(page: Page) {
 		if (path.endsWith('/conversations/chat-1/tasks')) return route.fulfill({ json: { tasks } });
 		if (path.endsWith('/events')) return route.fulfill({ json: [] });
 		if (path.endsWith('/conversations/chat-1'))
-			return route.fulfill({ json: { conversation, issue, messages: [], agent_messages: [], cursor: 0, has_more: false } });
+			return route.fulfill({ json: { conversation, issue, messages: [], agent_messages: [], approvals: options.approvals ?? [], cursor: 0, has_more: false } });
 		const match = path.match(/\/agent-tasks\/([^/]+)(\/.*)?$/);
 		if (match) {
 			const [, id, rest = ''] = match;
@@ -216,7 +216,7 @@ async function fixture(page: Page) {
 			if (rest === '/sessions') return route.fulfill({ json: { sessions: [] } });
 			if (rest === '/notebook') return route.fulfill({ status: 404, json: { error: { code: 'NOT_FOUND' } } });
 			if (rest.endsWith('/logs')) return route.fulfill({ json: { logs: [] } });
-			const found = tasks.find((task) => task.id === id);
+			const found = (tasks as { id: string }[]).find((task) => task.id === id);
 			if (found && rest === '') return route.fulfill({ json: found });
 			return route.fulfill({ json: [] });
 		}
@@ -227,7 +227,8 @@ async function fixture(page: Page) {
 const agentView = (id = 'task-1') => `/test/assistant?conversation=chat-1&agent=${id}`;
 const column = (page: Page) => page.getByTestId('task-column');
 const toggle = (page: Page) => page.getByRole('button', { name: 'Task overview', exact: true });
-const panels = (page: Page) => page.getByRole('group', { name: 'Side panels' });
+const panelToggle = (page: Page) => page.getByTestId('panel-toggle');
+const tabs = (page: Page) => page.getByTestId('side-panel').getByRole('toolbar', { name: 'Side panels' });
 const width = async (page: Page, testId: string) => (await page.getByTestId(testId).boundingBox())?.width ?? 0;
 
 async function dark(page: Page) {
@@ -296,7 +297,7 @@ test('the room takes the width the closed side panel leaves', async ({ page }, t
 	// A wide screen opens the agents panel by itself: the room keeps its reading width.
 	await expect(page.getByTestId('side-panel')).toBeVisible();
 	expect(await width(page, 'agent-thread')).toBeLessThanOrEqual(768);
-	await panels(page).getByRole('button', { pressed: true }).click();
+	await panelToggle(page).click();
 	await expect(page.getByTestId('side-panel')).toHaveCount(0);
 	await expect.poll(() => width(page, 'agent-thread')).toBeGreaterThan(800);
 	await expect.poll(() => width(page, 'agent-composer')).toBeGreaterThan(800);
@@ -336,7 +337,7 @@ test('the side panes close, open and keep their sizes across reloads', async ({ 
 
 	// The side panel closes and stays closed; the task column is not touched by it.
 	await expect(page.getByTestId('side-panel')).toBeVisible();
-	await panels(page).getByRole('button', { pressed: true }).click();
+	await panelToggle(page).click();
 	await expect(page.getByTestId('side-panel')).toHaveCount(0);
 	await page.reload();
 	await expect(column(page)).toBeVisible();
@@ -344,7 +345,7 @@ test('the side panes close, open and keep their sizes across reloads', async ({ 
 	// The room stays mounted while a pane opens: what is typed is kept.
 	const composer = page.getByRole('textbox', { name: 'Write to the room' });
 	await composer.fill('Keep this draft');
-	await panels(page).getByRole('button', { name: 'Workflow' }).click();
+	await panelToggle(page).click();
 	await expect(page.getByTestId('side-panel')).toBeVisible();
 	await column(page).getByRole('button', { name: 'Hide task overview' }).click();
 	await expect(composer).toHaveValue('Keep this draft');
@@ -382,8 +383,8 @@ test('at phone width the page is one column and the panes open as sheets', async
 	await expect(sheet).toHaveCount(0);
 	await expect(toggle(page)).toBeFocused();
 
-	await morePanels(page).click();
-	await page.getByRole('menuitemcheckbox', { name: 'Workflow' }).click();
+	await panelToggle(page).click();
+	await tabs(page).getByRole('button', { name: 'Workflow', exact: true }).click();
 	await expect(page.getByRole('dialog', { name: 'Workflow' })).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -393,7 +394,7 @@ test('at phone width the page is one column and the panes open as sheets', async
 	// The narrowest phone keeps the top bar's controls in the window.
 	await page.setViewportSize({ width: 320, height: 700 });
 	await expect(toggle(page)).toBeInViewport();
-	await expect(morePanels(page)).toBeInViewport();
+	await expect(panelToggle(page)).toBeInViewport();
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
 	// Widening the window shows the column without popping a sheet open.
@@ -402,66 +403,211 @@ test('at phone width the page is one column and the panes open as sheets', async
 	await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-// Six panels (Details, Agents, Workflow, Files, Notebook, Checks) as icons
-// would leave a narrow top bar's title a few letters wide: below its width
-// threshold the bar shows the open panel and one "More panels" menu.
-const morePanels = (page: Page) => panels(page).getByRole('button', { name: 'More panels', exact: true });
+// The top bar has one panel toggle (KUA-331); the side panel's own tab bar is the only
+// switcher between its six panels, inline on a wide screen and in a sheet on a phone.
 const titleMenu = (page: Page) => page.getByRole('button', { name: 'Implement search: rename or switch conversation' });
 const allPanels = ['Details', 'Agents', 'Workflow', 'Files', 'Notebook', 'Checks'];
+const topBar = (page: Page) => page.locator('header').filter({ has: panelToggle(page) });
+const pendingApproval = {
+	id: 'approval-1',
+	conversation_id: 'chat-1',
+	tool_call_id: 'call-1',
+	actor_id: 'user-1',
+	issue_id: 'issue-1',
+	status: 'pending',
+	action: 'bulk_update_issues',
+	payload: { changes: [] },
+	expires_at: '2099-01-01T00:00:00Z',
+	created_at: at(9),
+	updated_at: at(9)
+};
 
-test('a narrow top bar keeps its title and lists the panels in one menu', async ({ page }) => {
+test('the top bar has one panel toggle and no per-panel icons; the tabs live in the side panel', async ({ page }, testInfo) => {
+	await fixture(page);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(agentView());
+	const side = page.getByTestId('side-panel');
+	await expect(side).toBeVisible();
+
+	// Exactly one panel button in the bar, and none of the six panels' names or a menu of them.
+	const bar = topBar(page);
+	await expect(bar.getByRole('button', { name: 'Side panel', exact: true })).toHaveCount(1);
+	for (const name of [...allPanels, 'More panels', 'Diff']) await expect(bar.getByRole('button', { name, exact: true })).toHaveCount(0);
+	await expect(page.getByRole('group', { name: 'Side panels' })).toHaveCount(0);
+	// Each tab exists once on the page: inside the side panel.
+	for (const name of allPanels) {
+		await expect(page.getByRole('button', { name, exact: true })).toHaveCount(1);
+		await expect(side.getByRole('toolbar', { name: 'Side panels' }).getByRole('button', { name, exact: true })).toHaveCount(1);
+	}
+
+	// The toggle is a real button that says what it controls and whether it is open.
+	const toggle = panelToggle(page);
+	await expect(toggle).toHaveJSProperty('tagName', 'BUTTON');
+	await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+	await expect(toggle).toHaveAttribute('aria-controls', 'assistant-panel-region');
+	await expect(page.locator('#assistant-panel-region')).toHaveAttribute('data-testid', 'side-panel');
+	await shot(page, testInfo, 'task-header-desktop-light');
+	await dark(page);
+	await shot(page, testInfo, 'task-header-desktop-dark');
+
+	// Closed from the toggle: nothing is controlled, the room has the width, the focus stays.
+	await toggle.click();
+	await expect(side).toHaveCount(0);
+	await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+	await expect(toggle).not.toHaveAttribute('aria-controls', /.+/);
+	await expect(toggle).toBeFocused();
+	// Closed from the panel's own header, the focus goes back to the toggle.
+	await toggle.click();
+	await side.getByRole('button', { name: 'Close panel' }).click();
+	await expect(side).toHaveCount(0);
+	await expect(toggle).toBeFocused();
+});
+
+test('the toggle reopens the side panel on the last tab used, also after a reload', async ({ page }) => {
+	await fixture(page);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(agentView());
+	const side = page.getByTestId('side-panel');
+	await expect(side).toBeVisible();
+	// A wide screen starts on Agents; the person switches to Workflow from the tab bar and closes.
+	await expect(tabs(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Agents');
+	await tabs(page).getByRole('button', { name: 'Workflow', exact: true }).click();
+	await expect(tabs(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Workflow');
+	await panelToggle(page).click();
+	await expect(side).toHaveCount(0);
+	await panelToggle(page).click();
+	await expect(side).toBeVisible();
+	await expect(tabs(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Workflow');
+
+	// Closed, reloaded, opened: still Workflow.
+	await panelToggle(page).click();
+	await expect(side).toHaveCount(0);
+	await page.reload();
+	await expect(page.getByTestId('agent-thread')).toBeVisible();
+	await expect(side).toHaveCount(0);
+	await panelToggle(page).click();
+	await expect(tabs(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Workflow');
+});
+
+test('a task asked for opens the side panel on its tab even when the panel is closed', async ({ page }) => {
+	await fixture(page);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(agentView());
+	await tabs(page).getByRole('button', { name: 'Workflow', exact: true }).click();
+	await panelToggle(page).click();
+	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+	// A link that names a task opens the agents panel, not the last tab.
+	await page.goto('/test/assistant?conversation=chat-1&task=task-1');
+	await expect(page.getByTestId('side-panel')).toBeVisible();
+	await expect(tabs(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Agents');
+});
+
+test('the toggle carries a badge while the panel is closed: a count when something waits on the owner, a dot while an agent works', async ({
+	page
+}, testInfo) => {
+	await fixture(page, { approvals: [pendingApproval], tasks: [pipelineTask] });
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(agentView());
+	const toggle = panelToggle(page);
+	const badge = page.getByTestId('panel-toggle-badge');
+	await expect(page.getByTestId('side-panel')).toBeVisible();
+	// Open, the panel says it itself.
+	await expect(badge).toHaveCount(0);
+	await toggle.click();
+	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+	await expect(badge).toHaveText('1');
+	// Not by colour alone: the words are in the button's name.
+	await expect(toggle).toHaveAccessibleName('Side panel, 1 waiting on you');
+	await expect(topBar(page).getByRole('button', { name: /^Side panel/ })).toHaveCount(1);
+	await shot(page, testInfo, 'task-header-badge-light');
+	await dark(page);
+	await shot(page, testInfo, 'task-header-badge-dark');
+	await toggle.click();
+	await expect(badge).toHaveCount(0);
+	await expect(toggle).toHaveAccessibleName('Side panel');
+});
+
+test('the toggle shows a dot while an agent works and nothing waits on the owner', async ({ page }) => {
+	await fixture(page, { tasks: [graphTask] });
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(agentView('task-2'));
+	await expect(page.getByTestId('agent-thread')).toBeVisible();
+	await panelToggle(page).click();
+	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+	await expect(page.getByTestId('panel-toggle-badge')).toHaveText('');
+	await expect(panelToggle(page)).toHaveAccessibleName('Side panel, an agent is working');
+});
+
+test('without a signal the closed toggle has no badge', async ({ page }) => {
+	await fixture(page, { tasks: [pipelineTask] });
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto(agentView());
+	await panelToggle(page).click();
+	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+	await expect(page.getByTestId('panel-toggle-badge')).toHaveCount(0);
+	await expect(panelToggle(page)).toHaveAccessibleName('Side panel');
+});
+
+test('on a phone the toggle opens the side panel as a sheet with the same tabs, and the title keeps its room', async ({
+	page
+}, testInfo) => {
 	await fixture(page);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto(agentView());
 	await expect(page.getByTestId('agent-thread')).toBeVisible();
-	await expect(morePanels(page)).toBeVisible();
-	await expect(panels(page).getByRole('button')).toHaveCount(1);
-	expect((await titleMenu(page).boundingBox())!.width).toBeGreaterThan(100);
+	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+	const bar = topBar(page);
+	await expect(bar.getByRole('button', { name: /^Side panel/ })).toHaveCount(1);
+	for (const name of [...allPanels, 'More panels']) await expect(bar.getByRole('button', { name, exact: true })).toHaveCount(0);
+	// The freed width goes to the title.
+	expect((await titleMenu(page).boundingBox())!.width).toBeGreaterThan(80);
+	await shot(page, testInfo, 'task-header-phone-light');
 
-	// Keyboard only: the menu names every panel, says which is open and opens one as a sheet.
-	await morePanels(page).focus();
+	// Keyboard only: the toggle opens the sheet, which holds the whole tab bar.
+	await panelToggle(page).focus();
 	await page.keyboard.press('Enter');
-	const menu = page.getByRole('menu');
-	await expect(menu.getByRole('menuitemcheckbox')).toHaveText(allPanels);
-	await expect(menu.getByRole('menuitemcheckbox', { checked: true })).toHaveCount(0);
-	await expect(menu.getByRole('menuitemcheckbox', { name: 'Details' })).toBeFocused();
-	await page.keyboard.press('ArrowDown');
-	await page.keyboard.press('ArrowDown');
-	await expect(menu.getByRole('menuitemcheckbox', { name: 'Workflow' })).toBeFocused();
-	await page.keyboard.press('Enter');
-	const sheet = page.getByRole('dialog', { name: 'Workflow' });
+	const sheet = page.getByRole('dialog');
 	await expect(sheet).toBeVisible();
+	const sheetTabs = sheet.getByRole('toolbar', { name: 'Side panels' });
+	await expect(sheetTabs.getByRole('button')).toHaveCount(allPanels.length);
+	for (const name of allPanels) await expect(sheetTabs.getByRole('button', { name, exact: true })).toHaveCount(1);
+	await dark(page);
+	await shot(page, testInfo, 'task-header-phone-sheet-dark');
+	await sheetTabs.getByRole('button', { name: 'Workflow', exact: true }).click();
+	await expect(page.getByRole('dialog', { name: 'Workflow' })).toBeVisible();
 	await page.keyboard.press('Escape');
-	await expect(sheet).toHaveCount(0);
-	await expect(morePanels(page)).toBeFocused();
+	await expect(page.getByRole('dialog')).toHaveCount(0);
+	await expect(panelToggle(page)).toBeFocused();
+	// Reopened on the last tab used.
+	await panelToggle(page).click();
+	await expect(page.getByRole('dialog', { name: 'Workflow' })).toBeVisible();
+	await page.keyboard.press('Escape');
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
-	// A wide bar shows every panel and no menu.
-	await page.setViewportSize({ width: 1280, height: 900 });
-	await expect(column(page)).toBeVisible();
-	await column(page).getByRole('button', { name: 'Hide task overview' }).click();
-	for (const name of allPanels) await expect(panels(page).getByRole('button', { name, exact: true })).toBeVisible();
-	await expect(morePanels(page)).toHaveCount(0);
-	await panels(page).getByRole('button', { name: 'Workflow', exact: true }).click();
-	await expect(page.getByTestId('side-panel')).toBeVisible();
-	for (const name of allPanels) await expect(panels(page).getByRole('button', { name, exact: true })).toBeVisible();
+	// The narrowest phone keeps the title, the identifier-less bar and every control inside the window.
+	await page.setViewportSize({ width: 320, height: 700 });
+	await expect(panelToggle(page)).toBeInViewport();
+	await expect(toggle(page)).toBeInViewport();
+	await expect(titleMenu(page)).toBeVisible();
+	expect((await titleMenu(page).boundingBox())!.width).toBeGreaterThan(50);
+	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
 
-	// Beside the task column and the side panel the bar is narrow again: the open
-	// panel stays one press away, the others are in the menu, where it is checked.
-	await toggle(page).click();
-	await expect(column(page)).toBeVisible();
-	await expect(morePanels(page)).toBeVisible();
-	await expect(panels(page).getByRole('button')).toHaveCount(2);
-	await expect(panels(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Workflow');
-	await morePanels(page).click();
-	await expect(menu.getByRole('menuitemcheckbox', { checked: true })).toHaveText('Workflow');
-	await menu.getByRole('menuitemcheckbox', { name: 'Checks' }).click();
-	await expect(page.getByTestId('side-panel').getByRole('region', { name: 'Checks', exact: true })).toBeVisible();
-	await expect(panels(page).getByRole('button', { pressed: true })).toHaveAccessibleName('Checks');
-	// Choosing the open panel again closes it.
-	await morePanels(page).click();
-	await menu.getByRole('menuitemcheckbox', { name: 'Checks' }).click();
-	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+test('a tablet width keeps the identifier, the agent switch and the toggle apart', async ({ page }) => {
+	await fixture(page, { tasks: [pipelineTask] });
+	await page.setViewportSize({ width: 768, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await expect(panelToggle(page)).toBeVisible();
+	const bar = topBar(page);
+	const boxes = await bar.getByRole('button').evaluateAll((buttons) =>
+		buttons.map((button) => {
+			const box = button.getBoundingClientRect();
+			return { left: box.left, right: box.right, visible: box.width > 0 };
+		})
+	);
+	const shown = boxes.filter((box) => box.visible).sort((a, b) => a.left - b.left);
+	for (let i = 1; i < shown.length; i++) expect(shown[i].left).toBeGreaterThanOrEqual(shown[i - 1].right - 0.5);
+	await expect(panelToggle(page)).toBeInViewport();
 });
 
 // One rule for the side panel's own switcher, by its width: every tab shows
@@ -515,10 +661,11 @@ test('the side panel names its open tab and its tabs fit at any width', async ({
 
 	// The phone's sheet has room for every icon, not for a name.
 	await page.setViewportSize({ width: 390, height: 844 });
-	await morePanels(page).click();
-	await page.getByRole('menuitemcheckbox', { name: 'Checks' }).click();
-	const sheet = page.getByRole('dialog', { name: 'Checks' });
+	await expect(page.getByTestId('side-panel')).toHaveCount(0);
+	await panelToggle(page).click();
+	const sheet = page.getByRole('dialog');
 	await expect(sheet).toBeVisible();
+	await sheet.getByRole('button', { name: 'Checks', exact: true }).click();
 	const sheetTabs = sheet.getByRole('toolbar', { name: 'Side panels' });
 	await expect(sheetTabs.getByRole('button', { pressed: true })).toHaveAccessibleName('Checks');
 	await expect(sheetTabs.getByRole('button')).toHaveCount(allPanels.length);

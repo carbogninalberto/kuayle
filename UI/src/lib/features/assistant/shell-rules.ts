@@ -72,6 +72,34 @@ export function conversationIndicator(
 	return undefined;
 }
 
+const ownerStates = ['waiting_input', 'blocked'];
+
+export interface PanelSignal {
+	/** Decisions and tasks that wait on the owner: pending approvals, tasks asking for input, a review or a resume. */
+	needs: number;
+	/** An agent is working (or the assistant is answering) and nothing waits on the owner. */
+	working: boolean;
+}
+
+/**
+ * What the side panel's toggle reports while the panel is closed. Needs the
+ * owner outranks working. TODO(KUA-328): fold in its "needs the owner" tracking
+ * (e.g. a workflow step's pending decision) once it is on main; until then the
+ * signal is the conversation's pending approvals and its tasks' states.
+ */
+export function panelSignal(
+	approvals: { status: string }[],
+	tasks: { state: string; pipeline?: boolean }[],
+	busy = false
+): PanelSignal {
+	// A pipeline task's review is its reviewer agent's turn; any other review is the owner's.
+	const waits = (task: { state: string; pipeline?: boolean }) =>
+		ownerStates.includes(task.state) || (task.state === 'awaiting_review' && !task.pipeline);
+	const needs = approvals.filter((approval) => approval.status === 'pending').length + tasks.filter(waits).length;
+	const working = busy || tasks.some((task) => taskIndicator(task.state) === 'running' && task.state !== 'cancelling');
+	return { needs, working: needs === 0 && working };
+}
+
 /**
  * Collapsing earlier history keeps the latest `keep` messages and reports how
  * many earlier ones are folded away behind "Show N earlier messages".

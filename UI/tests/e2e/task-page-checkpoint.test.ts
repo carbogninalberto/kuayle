@@ -249,8 +249,7 @@ async function fixture(page: Page) {
 
 const agentView = '/test/assistant?conversation=chat-1&agent=task-1';
 const roomRows = (page: Page) => page.getByRole('list', { name: 'Task room' }).locator(':scope > li');
-const morePanels = (page: Page) =>
-	page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'More panels', exact: true });
+const toggle = (page: Page) => page.getByRole('button', { name: /^Side panel/ });
 const tree = (page: Page) => page.getByRole('region', { name: 'File tree' });
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
@@ -348,18 +347,20 @@ test('desktop, keyboard only: who works, which phase, what blocks it and what ch
 	// The task column beside the room says who and where.
 	await expectWhoAndWhere(page.getByTestId('task-column'));
 
-	// The checks, from the top bar's panel menu (the bar is narrow beside two columns).
-	await tabTo(page, morePanels(page));
+	// The side panel opens from the top bar's one toggle; its own switcher picks the checks.
+	const side = page.getByTestId('side-panel');
+	const switcher = side.getByRole('toolbar', { name: 'Side panels' });
+	if (!(await side.isVisible())) {
+		await tabTo(page, toggle(page));
+		await page.keyboard.press('Enter');
+	}
+	await expect(side).toBeVisible();
+	await tabTo(page, switcher.getByRole('button', { name: 'Checks', exact: true }));
 	await page.keyboard.press('Enter');
-	await expect(page.getByRole('menuitemcheckbox', { name: 'Details' })).toBeFocused();
-	await page.keyboard.press('End');
-	await expect(page.getByRole('menuitemcheckbox', { name: 'Checks' })).toBeFocused();
-	await page.keyboard.press('Enter');
-	await expect(page.getByTestId('side-panel')).toBeVisible();
+	await expect(switcher.getByRole('button', { pressed: true })).toHaveAccessibleName('Checks');
 	await expectBlocks(page);
 
-	// The files, from the side panel's own switcher.
-	const switcher = page.getByTestId('side-panel').getByRole('toolbar', { name: 'Side panels' });
+	// The files, from the same switcher.
 	await tabTo(page, switcher.getByRole('button', { name: 'Files', exact: true }));
 	await page.keyboard.press('Enter');
 	await expect(switcher.getByRole('button', { pressed: true })).toHaveAccessibleName('Files');
@@ -394,25 +395,24 @@ test('phone, keyboard only: the same answers from the top bar and its sheets', a
 	await expect(sheet).toHaveCount(0);
 	await expect(overview).toBeFocused();
 
-	// What blocks it: the Checks sheet, from the top bar's one panel menu.
-	await tabTo(page, morePanels(page));
+	// What blocks it: the side panel's sheet, from the top bar's one toggle, on its Checks tab.
+	await tabTo(page, toggle(page));
 	await page.keyboard.press('Enter');
-	await page.keyboard.press('End');
-	await expect(page.getByRole('menuitemcheckbox', { name: 'Checks' })).toBeFocused();
+	const panel = page.getByRole('dialog');
+	await expect(panel).toBeVisible();
+	const tabs = panel.getByRole('toolbar', { name: 'Side panels' });
+	await tabTo(page, tabs.getByRole('button', { name: 'Checks', exact: true }));
 	await page.keyboard.press('Enter');
-	await expect(page.getByRole('dialog', { name: 'Checks' })).toBeVisible();
+	await expect(panel.getByRole('region', { name: 'Checks', exact: true })).toBeVisible();
 	await expectBlocks(page);
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog')).toHaveCount(0);
-	await expect(morePanels(page)).toBeFocused();
+	await expect(toggle(page)).toBeFocused();
 
-	// What changed: the Files sheet, a file and its diff.
+	// What changed: the same sheet reopens on the last tab; the Files tab, a file and its diff.
 	await page.keyboard.press('Enter');
-	await expect(page.getByRole('menuitemcheckbox', { name: 'Details' })).toBeFocused();
-	for (const name of ['Agents', 'Workflow', 'Files']) {
-		await page.keyboard.press('ArrowDown');
-		await expect(page.getByRole('menuitemcheckbox', { name })).toBeFocused();
-	}
+	await expect(page.getByRole('dialog').getByRole('region', { name: 'Checks', exact: true })).toBeVisible();
+	await tabTo(page, page.getByRole('dialog').getByRole('button', { name: 'Files', exact: true }));
 	await page.keyboard.press('Enter');
 	const files = page.getByRole('dialog', { name: 'Files' });
 	await expect(files.getByTestId('files-panel')).toBeVisible();

@@ -14,6 +14,8 @@
 		ChevronsUpDown,
 		PanelLeft,
 		PanelRight,
+		PanelRightClose,
+		PanelRightOpen,
 		Pencil,
 		SquarePen,
 		FileDiff,
@@ -21,10 +23,10 @@
 		Workflow as WorkflowIcon,
 		NotebookText,
 		ClipboardCheck,
-		FolderTree,
-		EllipsisVertical
+		FolderTree
 	} from '@lucide/svelte';
 	import { cn } from '$lib/utils.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
@@ -69,6 +71,7 @@
 	import { PanelHost, type PanelContext, type PanelDefinition } from './panels/panel-host.svelte';
 	import {
 		conversationIndicator,
+		panelSignal,
 		placeByTime,
 		taskIndicator,
 		visibleHistory,
@@ -207,20 +210,29 @@
 		{ id: 'checks', label: m['assistant.panel_checks'], icon: ClipboardCheck, component: ChecksPanel, available: () => !!agentTask?.pipeline }
 	];
 	const availablePanels = $derived(panels.filter((panel) => panel.available?.() ?? true));
-	// The top bar's panel buttons (a diff opens from a file, not from the bar).
-	// More than two do not fit beside the title in a narrow bar: there it shows
-	// the open panel and a "More panels" menu (KUA-296).
-	const panelToggles = $derived(availablePanels.filter((panel) => panel.id !== 'diff'));
-	const panelsOverflow = $derived(panelToggles.length > 2);
 	const activePanel = $derived.by(() => {
 		if (!host.active) return null;
 		const id = host.active === 'auto' ? (chat.issue ? 'agent' : 'details') : host.active;
 		return availablePanels.find((panel) => panel.id === id) ?? availablePanels[0];
 	});
 	const panelInline = $derived(wide.current && !!activePanel);
+	// The top bar has one panel toggle (KUA-331); the panel's own tab bar is the only
+	// place that switches between its panels. Opening restores the last tab used when it
+	// is still available (a diff opens from a file, never from the toggle), otherwise the
+	// default for the conversation.
+	let panelToggle = $state<HTMLElement | null>(null);
 	function closePanel() {
 		if (activePanel?.id === 'diff') chat.diffView = null;
 		host.close();
+		// An inline panel closed from its own header takes the focus with it; the sheet
+		// returns it by itself.
+		if (wide.current) void tick().then(() => panelToggle?.focus());
+	}
+	function togglePanel() {
+		if (activePanel) return closePanel();
+		const last = availablePanels.find((panel) => panel.id !== 'diff' && panel.id === host.last);
+		const fallback = availablePanels.find((panel) => panel.id === (chat.issue ? 'agent' : 'details')) ?? availablePanels[0];
+		if (last ?? fallback) host.open((last ?? fallback).id);
 	}
 	// Narrowing the window never pops a drawer open: the inline panel closes
 	// (without forgetting the person's choice for wide screens).
@@ -278,6 +290,18 @@
 			.catch(() => {});
 		return () => (stale = true);
 	});
+	// What the toggle reports while the panel is closed, so the signal survives it.
+	const signal = $derived(panelSignal(Object.values(chat.approvals), agentTasksList, chat.busy));
+	const panelOpen = $derived(!!activePanel);
+	const toggleLabel = $derived(
+		panelOpen
+			? m['assistant.panel_toggle']()
+			: signal.needs
+				? m['assistant.panel_toggle_needs']({ count: signal.needs })
+				: signal.working
+					? m['assistant.panel_toggle_working']()
+					: m['assistant.panel_toggle']()
+	);
 	const agentTask = $derived.by(() => {
 		if (!agentParam) return undefined;
 		const byId = chat.liveTasks[agentParam] ?? (reviewTask?.id === agentParam ? reviewTask : undefined);
@@ -585,9 +609,7 @@
 <PageTitle parts={[m['assistant.title']()]} />
 
 {#snippet topBar()}
-	<!-- A container: the panel buttons fold into a menu below 36rem of the bar's own width
-	     (a phone, or the room between the task column and an open side panel). -->
-	<header class="@container/topbar flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
+	<header class="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
 		{#if !sidebarInline && !sidebarRail}<Button
 				variant="ghost"
 				size="icon-sm"
@@ -676,47 +698,37 @@
 				busy={chat.busy}
 				offline={chat.failed || chat.unavailable}
 			/>{/if}
-		<div class="flex shrink-0 items-center gap-0.5" role="group" aria-label={m['assistant.panels']()}>
-			{#each panelToggles as panel (panel.id)}
-				{@const open = activePanel?.id === panel.id}
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					aria-label={panel.label()}
-					title={panel.label()}
-					aria-pressed={open}
-					class={cn(open && 'bg-muted text-foreground', panelsOverflow && !open && 'hidden @xl/topbar:inline-flex')}
-					onclick={() => (open ? closePanel() : host.open(panel.id))}
-					><panel.icon /></Button
+		<!-- The one panel toggle (KUA-331): the panel's own tab bar switches panels. While the
+		     panel is closed a badge says that something waits on the owner (a count) or that an
+		     agent works (a dot); the same words are in the label, never colour alone. -->
+		<Button
+			bind:ref={panelToggle}
+			variant="ghost"
+			size="icon-sm"
+			class={cn('relative shrink-0', panelOpen && 'bg-muted text-foreground')}
+			aria-label={toggleLabel}
+			title={m['assistant.panel_toggle']()}
+			aria-expanded={panelOpen}
+			aria-controls={panelOpen ? 'assistant-panel-region' : undefined}
+			data-testid="panel-toggle"
+			onclick={togglePanel}
+		>
+			{#if panelOpen}<PanelRightClose />{:else}<PanelRightOpen />{/if}
+			{#if !panelOpen && signal.needs}
+				<Badge
+					aria-hidden="true"
+					data-testid="panel-toggle-badge"
+					class="pointer-events-none absolute -top-1 -right-1 h-4 min-w-4 justify-center px-1 text-[10px] leading-none"
+					>{signal.needs > 9 ? '9+' : signal.needs}</Badge
 				>
-			{/each}
-			{#if panelsOverflow}
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button
-								{...props}
-								variant="ghost"
-								size="icon-sm"
-								class="@xl/topbar:hidden"
-								aria-label={m['assistant.more_panels']()}
-								title={m['assistant.more_panels']()}><EllipsisVertical /></Button
-							>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="end" class="w-48">
-						<DropdownMenu.Label class="text-xs font-normal text-muted-foreground">{m['assistant.panels']()}</DropdownMenu.Label>
-						{#each panelToggles as panel (panel.id)}
-							<DropdownMenu.CheckboxItem
-								checked={activePanel?.id === panel.id}
-								onCheckedChange={(checked) => (checked ? host.open(panel.id) : closePanel())}
-								><panel.icon />{panel.label()}</DropdownMenu.CheckboxItem
-							>
-						{/each}
-					</DropdownMenu.Content>
-				</DropdownMenu.Root>
+			{:else if !panelOpen && signal.working}
+				<span
+					aria-hidden="true"
+					data-testid="panel-toggle-badge"
+					class="pointer-events-none absolute top-0.5 right-0.5 size-2 rounded-full bg-primary ring-2 ring-background"
+				></span>
 			{/if}
-		</div>
+		</Button>
 	</header>
 {/snippet}
 

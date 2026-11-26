@@ -1,4 +1,5 @@
 import { test, expect, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
+import { openPanel } from './side-panel';
 
 async function fixture(page: Page) {
 	const time = '2026-10-26T10:00:00Z';
@@ -566,26 +567,10 @@ test('delegates from an issue conversation and shows real execution updates', as
 });
 
 // The coding agents live in the side panel: inline on wide screens, a drawer
-// that the top bar's Agents button opens on narrow ones.
-// The top bar shows a button per panel when it has room; a narrow bar (a phone,
-// or the room beside an open side panel) shows the open one and lists them all
-// under "More panels" (KUA-296).
-async function openPanel(page: Page, name: string) {
-	const bar = page.getByRole('group', { name: 'Side panels' });
-	const button = bar.getByRole('button', { name, exact: true });
-	const more = bar.getByRole('button', { name: 'More panels', exact: true });
-	await expect(button.or(more).first()).toBeVisible();
-	if (await button.isVisible()) {
-		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
-		return;
-	}
-	await more.click();
-	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
-}
+// that the top bar's panel toggle opens on narrow ones.
 async function showAgents(page: Page) {
 	const tasks = page.getByRole('region', { name: 'Coding tasks' });
-	const bar = page.getByRole('group', { name: 'Side panels' });
-	await expect(bar.getByRole('button').first()).toBeVisible();
+	await expect(page.getByTestId('panel-toggle')).toBeVisible();
 	if (await tasks.isVisible()) return;
 	await openPanel(page, 'Agents');
 	await expect(tasks).toBeVisible();

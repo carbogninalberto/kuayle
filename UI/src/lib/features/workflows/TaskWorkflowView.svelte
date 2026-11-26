@@ -5,11 +5,12 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Dialog from '$lib/components/ui/dialog/index.js';
 	import type { AgentTask } from '$lib/api/agent-tasks';
-	import { workflows, type WorkflowDecision } from '$lib/api/workflows';
+	import { workflows, type TaskWorkflow, type WorkflowDecision } from '$lib/api/workflows';
 	import type { ConversationState } from '$lib/features/assistant/conversation-state.svelte';
 	import { useTaskRun } from '$lib/features/assistant/task-run.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
+	import PipelineAgentOverview from './PipelineAgentOverview.svelte';
 	import PipelineRunDetails from './PipelineRunDetails.svelte';
 	import RunChart from './RunChart.svelte';
 	import { taskRunChart } from './task-run-chart';
@@ -25,11 +26,13 @@
 	let {
 		chat,
 		task,
-		compact = false
+		compact = false,
+		onopenworkflow
 	}: {
 		chat: ConversationState;
 		task: AgentTask;
 		compact?: boolean;
+		onopenworkflow?: () => void;
 	} = $props();
 	const slug = $derived(chat.slug);
 	const taskId = $derived(task.id);
@@ -65,12 +68,61 @@
 	}
 </script>
 
+{#snippet decisionCard(run: TaskWorkflow)}
+	{#if decision}
+		<div class="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3" role="group" aria-label={nodeLabel(run.node)} data-testid="task-workflow-decision">
+			<p class="text-sm">
+				{decision.kind === 'approval'
+					? m['workflows.task.waiting_approval']({ question: decision.question || nodeLabel(run.node) })
+					: m['workflows.task.paused_note']()}
+			</p>
+			{#if decision.kind === 'approval' && run.ship_merge}
+				<!-- The ship approval: approving merges (KUA-209, KUA-216). -->
+				<p class="text-xs text-muted-foreground" data-testid="task-workflow-ship-merge">
+					{m['workflows.task.ship_merge_note']()}
+				</p>
+			{/if}
+			<div class="flex flex-wrap gap-2">
+				{#if decision.kind === 'approval'}
+					<Button size="sm" disabled={deciding} onclick={() => decide('approve')}>{m['workflows.task.approve']()}</Button>
+					{#if !shared.pipeline}<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('deny')}
+							>{m['workflows.task.deny']()}</Button
+						>{/if}
+				{:else}
+					<Button size="sm" disabled={deciding} onclick={() => decide('continue')}
+						>{m['workflows.task.continue']()}</Button
+					>
+					<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('stop')}
+						>{m['workflows.task.stop']()}</Button
+					>
+				{/if}
+			</div>
+		</div>
+	{/if}
+{/snippet}
+
 <section class="min-w-0 space-y-3" aria-labelledby="task-workflow-{taskId}" data-testid="task-workflow">
 	{#if failed && !run}
 		<div class="flex items-center justify-between gap-2" role="alert">
 			<p class="text-sm text-destructive">{m['workflows.task.load_failed']()}</p>
 			<Button variant="ghost" size="sm" onclick={() => void load()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>
+	{:else if run && pipeline && onopenworkflow}
+		<PipelineAgentOverview
+			{run}
+			{pipeline}
+			{task}
+			room={chat.taskRooms[taskId] ?? []}
+			{onopenworkflow}
+		>
+			{@render decisionCard(run)}
+		</PipelineAgentOverview>
+		{#if shared.roomFailed}
+			<div class="flex items-center justify-between gap-2" role="alert">
+				<p class="text-sm text-destructive">{m['tasks.load_error']()}</p>
+				<Button variant="ghost" size="sm" onclick={() => void shared.loadRoom()}><RefreshCw />{m['tasks.refresh']()}</Button>
+			</div>
+		{/if}
 	{:else if run}
 		<div class="flex flex-wrap items-center justify-between gap-2">
 			<div class="min-w-0">
@@ -101,36 +153,7 @@
 
 		{#if run.builtin}<p class="text-xs text-muted-foreground">{m['workflows.task.standard_note']()}</p>{/if}
 
-		{#if decision}
-			<div class="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3" role="group" aria-label={nodeLabel(run.node)} data-testid="task-workflow-decision">
-				<p class="text-sm">
-					{decision.kind === 'approval'
-						? m['workflows.task.waiting_approval']({ question: decision.question || nodeLabel(run.node) })
-						: m['workflows.task.paused_note']()}
-				</p>
-				{#if decision.kind === 'approval' && run.ship_merge}
-					<!-- The ship approval: approving merges (KUA-209, KUA-216). -->
-					<p class="text-xs text-muted-foreground" data-testid="task-workflow-ship-merge">
-						{m['workflows.task.ship_merge_note']()}
-					</p>
-				{/if}
-				<div class="flex flex-wrap gap-2">
-					{#if decision.kind === 'approval'}
-						<Button size="sm" disabled={deciding} onclick={() => decide('approve')}>{m['workflows.task.approve']()}</Button>
-						{#if !shared.pipeline}<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('deny')}
-								>{m['workflows.task.deny']()}</Button
-							>{/if}
-					{:else}
-						<Button size="sm" disabled={deciding} onclick={() => decide('continue')}
-							>{m['workflows.task.continue']()}</Button
-						>
-						<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('stop')}
-							>{m['workflows.task.stop']()}</Button
-						>
-					{/if}
-				</div>
-			</div>
-		{/if}
+		{@render decisionCard(run)}
 
 		{#if overlay && chart}
 			<!-- No minimap in the side panel's short chart: it would cover most of it. -->

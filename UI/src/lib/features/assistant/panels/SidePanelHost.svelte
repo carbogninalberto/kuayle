@@ -16,7 +16,7 @@
 	}: { panels: PanelDefinition[]; active: PanelDefinition; context: PanelContext } = $props();
 </script>
 
-<div class="flex h-full min-h-0 min-w-0 flex-col bg-background" data-testid="side-panel">
+<div id="assistant-panel-region" class="flex h-full min-h-0 min-w-0 flex-col bg-background" data-testid="side-panel">
 	<div class="flex h-12 shrink-0 items-center gap-1 border-b px-2">
 		<!-- One rule for the switcher (KUA-296), by its own width: from 18rem every tab shows
 		     its icon and the open one its name too (shortened if it must); narrower, icons

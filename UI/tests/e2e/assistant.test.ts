@@ -1514,10 +1514,10 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	]);
 	expect(left!.x + left!.width).toBeLessThanOrEqual(middle!.x + 1);
 	expect(middle!.x + middle!.width).toBeLessThanOrEqual(right!.x + 1);
-	// The side panel can be closed and reopened from the conversation's top bar.
+	// The side panel can be closed and reopened from the conversation's top bar toggle.
 	await page.getByRole('button', { name: 'Close panel' }).click();
 	await expect(panel).toHaveCount(0);
-	await page.getByRole('button', { name: 'Details', exact: true }).click();
+	await page.getByTestId('panel-toggle').click();
 	await expect(page.getByTestId('side-panel')).toBeVisible();
 
 	await page.setViewportSize({ width: 390, height: 844 });
@@ -1532,7 +1532,7 @@ test('three columns on desktop; both sidebars become drawers on narrow screens',
 	expect(await drawer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
 	await page.keyboard.press('Escape');
 	await expect(drawer).toHaveCount(0);
-	await page.getByRole('button', { name: 'Details', exact: true }).click();
+	await page.getByTestId('panel-toggle').click();
 	const details = page.getByRole('dialog', { name: 'Details' });
 	await expect(details.getByText('Context', { exact: true })).toHaveCount(0);
 	await details.getByRole('button', { name: 'Close panel' }).click();

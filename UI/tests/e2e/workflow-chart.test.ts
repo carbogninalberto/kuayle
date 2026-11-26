@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
+import { openPanel } from './side-panel';
 
 // The workflow chart runs left to right: in Settings → Workflows (a new
 // workflow from each template, one saved top to bottom, and "Tidy up" after
@@ -663,26 +664,11 @@ for (const size of sizes) {
 	});
 }
 
-// The top bar shows a button per panel when it has room; a narrow bar (a phone,
-// or the room beside an open side panel) shows the open one and lists them all
-// under "More panels" (KUA-296).
-async function openPanel(page: Page, name: string) {
-	const bar = page.getByRole('group', { name: 'Side panels' });
-	const button = bar.getByRole('button', { name, exact: true });
-	const more = bar.getByRole('button', { name: 'More panels', exact: true });
-	await expect(button.or(more).first()).toBeVisible();
-	if (await button.isVisible()) {
-		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
-		return;
-	}
-	await more.click();
-	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
-}
 // Opens the issue conversation's agent panel on the task's running chart.
 async function openTaskChart(page: Page, options?: Parameters<typeof mockTask>[1]) {
 	const { advance } = await mockTask(page, options);
 	await page.goto('/test/assistant?conversation=chat-1');
-	await expect(page.getByRole('group', { name: 'Side panels' }).getByRole('button').first()).toBeVisible();
+	await expect(page.getByTestId('panel-toggle')).toBeVisible();
 	const view = page.getByTestId('task-workflow');
 	if (!(await view.isVisible())) await openPanel(page, 'Agents');
 	await expect(view).toBeVisible();
@@ -948,7 +934,7 @@ for (const shipMerge of [true, false]) {
 	test(`an approval ${shipMerge ? 'that ships says it merges' : 'that does not ship says nothing of a merge'}`, async ({ page }) => {
 		await mockTask(page, { at: 'ship', decide: true, shipMerge });
 		await page.goto('/test/assistant?conversation=chat-1');
-		await expect(page.getByRole('group', { name: 'Side panels' }).getByRole('button').first()).toBeVisible();
+		await expect(page.getByTestId('panel-toggle')).toBeVisible();
 		const view = page.getByTestId('task-workflow');
 		if (!(await view.isVisible())) await openPanel(page, 'Agents');
 		await expect(view).toBeVisible();

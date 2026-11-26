@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, type Page, type TestInfo, type WebSocketRoute } from '@playwright/test';
+import { openPanel } from './side-panel';
 
 // The sidebar's task card shows the path the task took (KUA-133): compact by
 // default, one control for the whole path, each step linking to its section
@@ -289,24 +290,9 @@ const tasksRegion = (page: Page) => page.getByRole('region', { name: 'Coding tas
 const pathOf = (page: Page) => tasksRegion(page).getByRole('list', { name: 'Path taken' });
 const count = (requests: string[], wanted: string) => requests.filter((request) => request === wanted).length;
 
-// The top bar shows a button per panel when it has room; a narrow bar (a phone,
-// or the room beside an open side panel) shows the open one and lists them all
-// under "More panels" (KUA-296).
-async function openPanel(page: Page, name: string) {
-	const bar = page.getByRole('group', { name: 'Side panels' });
-	const button = bar.getByRole('button', { name, exact: true });
-	const more = bar.getByRole('button', { name: 'More panels', exact: true });
-	await expect(button.or(more).first()).toBeVisible();
-	if (await button.isVisible()) {
-		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
-		return;
-	}
-	await more.click();
-	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
-}
 async function showAgents(page: Page) {
 	const tasks = tasksRegion(page);
-	await expect(page.getByRole('group', { name: 'Side panels' }).getByRole('button').first()).toBeVisible();
+	await expect(page.getByTestId('panel-toggle')).toBeVisible();
 	if (!(await tasks.isVisible())) await openPanel(page, 'Agents');
 	await expect(tasks).toBeVisible();
 }
@@ -360,6 +346,7 @@ test('the sidebar shows the path a workflow task took, compact, and opens to its
 	await expect(tasksRegion(page).getByText('Workflow · Review → CI', { exact: false })).toHaveCount(0);
 	// The chart stays above the tasks; the old verbose cards are gone.
 	await expect(page.getByTestId('task-workflow')).toContainText('Plan and review · version 3');
+	await expect(page.getByRole('region', { name: 'Agents', exact: true }).getByTestId('task-workflow-chart')).toBeVisible();
 	await expect(page.getByText('Step 2: Plan')).toHaveCount(0);
 	await expect(page.getByText('Outcome:', { exact: false })).toHaveCount(0);
 
@@ -649,6 +636,7 @@ test('a task without a workflow shows its attempts and state changes the same wa
 	await showAgents(page);
 	const rows = pathOf(page).getByRole('listitem');
 	// Compact: the last outcome and the attempt the task is on.
+	await expect(page.getByRole('region', { name: 'Agents', exact: true }).getByTestId('task-workflow')).toHaveCount(0);
 	await expect(rows.getByRole('link')).toHaveText([/^Codex/, /^Codex/]);
 	await expect(rows.nth(0).getByRole('img', { name: 'Failed' })).toBeVisible();
 	await expect(rows.nth(0).getByRole('link')).toContainText('×2');

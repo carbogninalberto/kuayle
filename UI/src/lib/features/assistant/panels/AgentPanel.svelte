@@ -4,9 +4,6 @@
 	import type { PanelContext } from './panel-host.svelte';
 	import { m } from '$lib/features/i18n/messages';
 
-	// The issue chat's coding tasks. When the newest one follows a
-	// configurable workflow, its graph and current step come first; each task
-	// then shows the path it took.
 	let { context }: { context: PanelContext } = $props();
 	const workflowTask = $derived(context.board?.tasks.find((task) => task.kind !== 'review'));
 </script>
@@ -16,6 +13,7 @@
 		{#if workflowTask?.workflow_version_id}{#key workflowTask.id}<TaskWorkflowView
 					chat={context.chat}
 					task={workflowTask}
+					onopenworkflow={() => context.open('workflow')}
 					compact
 				/>{/key}{/if}
 		<TaskPanel chat={context.chat} board={context.board} />
