@@ -300,7 +300,7 @@
 	{/if}
 {/snippet}
 
-<div class="flex items-center justify-between gap-1 px-4 pt-3 pb-1">
+<div class="flex shrink-0 items-center justify-between gap-1 px-4 pt-3 pb-1">
 	<h2 class="text-[11px] font-medium tracking-wider text-[var(--color-text-tertiary)] uppercase">
 		{m['wiki.pages']()}
 	</h2>
@@ -330,7 +330,7 @@
 	role="tree"
 	aria-label={m['wiki.pages']()}
 	tabindex="-1"
-	class="flex min-h-12 flex-col gap-px px-2 pb-2 {target?.id === null
+	class="min-h-0 space-y-px overflow-y-auto px-2 pb-2 {target?.id === null
 		? 'rounded-md bg-[var(--color-bg-hover)]/40'
 		: ''}"
 	ondragover={(event) => dragOver(event, null)}

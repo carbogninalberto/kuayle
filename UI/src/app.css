@@ -752,6 +752,15 @@ html.pipboy :focus-visible {
 	}
 }
 
+@utility mobile-touch-targets {
+	@media (width < 48rem) {
+		& :where(button, a[href], summary, input, [role="menuitem"]) {
+			min-width: 44px;
+			min-height: 44px;
+		}
+	}
+}
+
 @utility settings-page {
 	overflow-wrap: anywhere;
 }

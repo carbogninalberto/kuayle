@@ -641,10 +641,9 @@
 		} catch { /* ignore */ }
 	}
 
-	function copyToClipboard(text: string, toastKey: string) {
-		navigator.clipboard.writeText(text);
-		const dynamicMessage = m as unknown as Record<string, () => string>;
-		appToast.success(dynamicMessage[toastKey]());
+	function copyIssueValue(value: string, label: string) {
+		navigator.clipboard.writeText(value);
+		appToast.success(m['issue.toast.label_copied']({ label }));
 	}
 
 	async function toggleSubscription() {
@@ -857,6 +856,13 @@
 		return { label, colorClass };
 	}
 
+	const copyActions = $derived([
+		{ icon: Copy, label: m['issue.copy_id'](), run: () => copyIssueValue(issue.identifier, 'ID') },
+		{ icon: LinkIcon, label: m['issue.copy_link'](), run: () => copyIssueValue(window.location.href, 'Link') },
+		{ icon: GitBranch, label: m['issue.copy_branch_move'](), run: copyBranchAndMoveToProgress },
+		{ icon: SquareMousePointer, label: m['issue.copy_ai_prompt'](), run: copyAIPrompt }
+	]);
+
 	let issueCount = $derived(issuesState.issues.length);
 	let currentIndex = $derived(issuesState.issues.findIndex(i => i.identifier === issue.identifier));
 </script>
@@ -909,7 +915,7 @@
 	ondrop={onWikiDrop}
 >
 	<!-- Top bar — matches sidebar h-[49px] -->
-	<div class="flex min-h-[49px] items-center justify-between gap-2 border-b border-[var(--app-border)] px-3 sm:px-4">
+	<div class="flex min-h-[49px] shrink-0 items-center justify-between gap-2 max-md:flex-wrap max-md:gap-y-1 max-md:py-2 border-b border-[var(--app-border)] px-3 sm:px-4">
 		<div class="flex min-w-0 items-center gap-1.5 text-xs">
 			<a
 				href="/{slug}/teams/{issue.team_id}"
@@ -923,7 +929,7 @@
 				<a href="/{slug}/projects/{issueProject.id}" class="ml-1 flex min-w-0 shrink-0 hover:opacity-80"><ProjectChip project={issueProject} /></a>
 			{/if}
 		</div>
-		<div class="no-scrollbar flex shrink-0 items-center gap-0.5 overflow-x-auto">
+		<div class="flex max-w-full flex-wrap items-center gap-0.5 max-md:w-full max-md:[&_button>svg:only-child]:mx-auto max-md:[&_button]:min-h-9 max-md:[&_button]:min-w-9 md:flex-nowrap">
 			<!-- Actions -->
 			<OpenIssueChatButton {slug} issueId={issue.id} class="mr-1" />
 			<Button variant="plain" onclick={toggleSubscription}
@@ -934,30 +940,11 @@
 			>
 				<Bell size={14} />
 			</Button>
-			<Button variant="plain" onclick={() => { navigator.clipboard.writeText(issue.identifier); appToast.success(m['issue.toast.label_copied']({ label: 'ID' })) }}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-				title={m['issue.copy_id']()}
-			>
-				<Copy size={14} />
-			</Button>
-			<Button variant="plain" onclick={() => { navigator.clipboard.writeText(window.location.href); appToast.success(m['issue.toast.label_copied']({ label: 'Link' })) }}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-				title={m['issue.copy_link']()}
-			>
-				<LinkIcon size={14} />
-			</Button>
-			<Button variant="plain" onclick={copyBranchAndMoveToProgress}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-				title={m['issue.copy_branch_move']()}
-			>
-				<GitBranch size={14} />
-			</Button>
-			<Button variant="plain" onclick={copyAIPrompt}
-				class="rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
-				title={m['issue.copy_ai_prompt']()}
-			>
-				<SquareMousePointer size={14} />
-			</Button>
+			{#each copyActions as action}
+				<Button variant="plain" onclick={action.run} class="hidden md:inline-flex rounded p-1.5 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors" title={action.label}>
+					<action.icon size={14} />
+				</Button>
+			{/each}
 			<Popover.Root bind:open={issueActionsOpen}>
 				<Popover.Trigger>
 					{#snippet child({ props })}
@@ -970,7 +957,15 @@
 						</Button>
 					{/snippet}
 				</Popover.Trigger>
-				<Popover.Content class="w-64 max-w-[calc(100vw-1rem)] p-1" align="end">
+				<Popover.Content class="w-64 max-w-[calc(100vw-1rem)] p-1 max-md:max-h-(--bits-popover-content-available-height) max-md:overflow-y-auto" align="end">
+					<div class="mb-1 border-b border-[var(--app-border)] pb-1 md:hidden">
+						{#each copyActions as action}
+							<Button variant="plain" class="flex min-h-[44px] w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--color-bg-hover)]"
+								onclick={() => { issueActionsOpen = false; action.run(); }}>
+								<action.icon size={14} class="shrink-0" />{action.label}
+							</Button>
+						{/each}
+					</div>
 					<IssueMachineActions {slug} {issue} bind:repositoryOpen={issueActionsRepositoryOpen} bind:pickerOpen={issueActionsMachinePickerOpen} bind:pickerIntent={issueActionsMachineIntent} onaction={() => (issueActionsOpen = false)} />
 					<div class="my-1 h-px bg-[var(--app-border)]"></div>
 					<Button variant="plain" type="button"
@@ -1041,7 +1036,7 @@
 			{/if}
 
 			{#if onnavigate && issueCount > 0}
-				<div class="ml-1 flex items-center gap-0.5 border-l border-[var(--app-border)] pl-2">
+				<div class="ml-auto flex items-center gap-0.5 md:ml-1 md:border-l md:border-[var(--app-border)] md:pl-2">
 					<span class="text-[11px] text-[var(--color-text-tertiary)] mr-1">{currentIndex + 1}/{issueCount}</span>
 					<Button variant="plain" onclick={() => onnavigate?.('prev')}
 						class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] transition-colors"
@@ -1308,7 +1303,7 @@
 						<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 							<!-- Comment header + body -->
 							<div class="group/comment p-4">
-								<div class="flex items-center gap-2">
+								<div class="flex flex-wrap items-center gap-2">
 									<Avatar
 										name={comment.user?.name ?? 'U'}
 										avatarUrl={comment.user?.avatar_url}
@@ -1331,7 +1326,7 @@
 											{/each}
 										</span>
 									{/if}
-									<div class="ml-auto flex items-center gap-0.5 opacity-0 group-hover/comment:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity">
+									<div class="ml-auto flex items-center gap-0.5 opacity-0 any-pointer-coarse:opacity-100 group-hover/comment:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity">
 										<CommentActionsMenu
 											canEdit={canEditComment(comment, authState.user?.id)}
 											canDelete={canDeleteComments}
@@ -1339,11 +1334,11 @@
 											ondelete={() => handleDeleteComment(comment.id)}
 										/>
 										{#if comment.resolved_at}
-											<Button variant="plain" onclick={() => handleReopen(comment.id)} class="flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors" title={m['issue.reopen_thread']()}>
+											<Button variant="plain" onclick={() => handleReopen(comment.id)} class="flex any-pointer-coarse:min-h-[44px] any-pointer-coarse:min-w-[44px] items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] transition-colors" title={m['issue.reopen_thread']()}>
 												{m['issue.reopen_thread']()}
 											</Button>
 										{:else}
-											<Button variant="plain" onclick={() => handleResolve(comment.id)} class="rounded p-1 text-[var(--color-text-tertiary)] hover:text-green-400 hover:bg-[var(--color-bg-hover)]" title={m['issue.resolve_thread']()}>
+											<Button variant="plain" onclick={() => handleResolve(comment.id)} class="inline-flex items-center justify-center any-pointer-coarse:min-h-[44px] any-pointer-coarse:min-w-[44px] rounded p-1 text-[var(--color-text-tertiary)] hover:text-green-400 hover:bg-[var(--color-bg-hover)]" title={m['issue.resolve_thread']()}>
 												<Check size={14} />
 											</Button>
 										{/if}
@@ -1356,7 +1351,7 @@
 							{#if comment.replies && comment.replies.length > 0}
 								{#each comment.replies as reply (reply.id)}
 									<div class="group/reply border-t border-[var(--app-border)] px-4 py-3 pl-4">
-										<div class="flex items-center gap-2">
+										<div class="flex flex-wrap items-center gap-2">
 											<Avatar
 												name={reply.user?.name ?? 'U'}
 												avatarUrl={reply.user?.avatar_url}
@@ -1366,7 +1361,7 @@
 											<span class="text-[13px] font-medium text-[var(--color-text-primary)]">{reply.user?.name ?? 'User'}</span>
 											<span class="text-[11px] text-[var(--color-text-tertiary)]">{formatRelativeTime(reply.created_at, getLocale())}</span>
 											{#if reply.edited_at}<span class="text-[11px] text-[var(--color-text-tertiary)]" title={new Date(reply.edited_at).toLocaleString(getLocale())}>{m['issue.edited']()}</span>{/if}
-											<div class="ml-auto opacity-0 group-hover/reply:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity">
+											<div class="ml-auto opacity-0 any-pointer-coarse:opacity-100 group-hover/reply:opacity-100 focus-within:opacity-100 has-[[data-state=open]]:opacity-100 transition-opacity">
 												<CommentActionsMenu
 													canEdit={canEditComment(reply, authState.user?.id)}
 													canDelete={canDeleteComments}

@@ -111,7 +111,7 @@
 		aria-label="Terminal dock"
 		data-testid="terminal-dock"
 	>
-		<div class="flex items-center border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1">
+		<div class="mobile-touch-targets flex items-center border-b border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-1">
 			<Button variant="plain" type="button"
 				class="flex h-7 w-7 items-center justify-center rounded text-zinc-400 hover:bg-[var(--color-bg-hover)] hover:text-zinc-200"
 				aria-label={dock.expanded ? m['machines.collapse_dock']() : m['machines.expand_dock']()}
@@ -187,7 +187,7 @@
 
 		{#if dock.expanded && !dock.fullscreen}
 			<div
-				class="h-1 cursor-ns-resize bg-zinc-800 hover:bg-zinc-600 active:bg-zinc-500"
+				class="h-1 max-md:h-[44px] max-md:content-center max-md:bg-transparent max-md:after:block max-md:after:h-1 max-md:after:bg-zinc-800 cursor-ns-resize bg-zinc-800 hover:bg-zinc-600 active:bg-zinc-500"
 				role="separator"
 				aria-label={m['machines.resize_dock']()}
 				aria-orientation="horizontal"
