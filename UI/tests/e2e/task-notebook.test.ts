@@ -1,4 +1,5 @@
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
+import { openPanel } from './side-panel';
 
 // The task notebook (a side panel tab since KUA-286), the prompt a step
 // received and the flag on a run that did not update its notebook
@@ -220,21 +221,6 @@ const sizes = [
 ];
 const fits = (page: Page) =>
 	page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
-// The top bar shows a button per panel when it has room; a narrow bar (a phone,
-// or the room beside an open side panel) shows the open one and lists them all
-// under "More panels" (KUA-296).
-async function openPanel(page: Page, name: string) {
-	const bar = page.getByRole('group', { name: 'Side panels' });
-	const button = bar.getByRole('button', { name, exact: true });
-	const more = bar.getByRole('button', { name: 'More panels', exact: true });
-	await expect(button.or(more).first()).toBeVisible();
-	if (await button.isVisible()) {
-		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
-		return;
-	}
-	await more.click();
-	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
-}
 // The notebook is a tab of the side panel: from the top bar on any width.
 async function openNotebook(page: Page) {
 	await openPanel(page, 'Notebook');

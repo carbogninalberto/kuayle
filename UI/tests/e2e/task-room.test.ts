@@ -1,4 +1,5 @@
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
+import { openPanel } from './side-panel';
 
 // The agent view of a task on a pipeline (KUA-268): its room in order, the
 // owner writing to it from the composer and posts arriving live, served from
@@ -487,9 +488,8 @@ for (const viewport of [
 		await page.goto(viewport.name === 'phone' ? '/test/assistant?conversation=chat-1' : '/test/assistant?conversation=chat-1&agent=task-1');
 		const details = page.getByTestId('task-workflow');
 		if (viewport.name === 'phone') {
-			// At phone width the side panels are one menu (KUA-281).
-			await page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'More panels', exact: true }).click();
-			await page.getByRole('menuitemcheckbox', { name: 'Agents' }).click();
+			// At phone width the panel is a sheet that the toggle opens (KUA-331).
+			await openPanel(page, 'Agents');
 		}
 		await expect(details).toContainText('Team', { timeout: 15_000 });
 		const chart = details.getByTestId('task-workflow-chart');

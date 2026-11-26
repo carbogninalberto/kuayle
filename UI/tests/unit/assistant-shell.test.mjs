@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
 	conversationIndicator,
+	panelSignal,
 	contextUsage,
 	dropMove,
 	humanizeToolName,
@@ -153,4 +154,18 @@ test('a workflow iteration is named by the step and the transition that queued i
 		2: 'Reviewer → Implementer: changes requested',
 		4: 'CI → Implementer: checks failed'
 	});
+});
+
+test('the panel toggle counts what waits on the owner and otherwise says an agent works', () => {
+	assert.deepEqual(panelSignal([], []), { needs: 0, working: false });
+	assert.deepEqual(panelSignal([{ status: 'approved' }], [{ state: 'completed' }, { state: 'failed' }]), { needs: 0, working: false });
+	assert.deepEqual(panelSignal([{ status: 'pending' }, { status: 'denied' }], [{ state: 'running' }]), { needs: 1, working: false });
+	assert.deepEqual(panelSignal([], [{ state: 'awaiting_review' }, { state: 'waiting_input' }, { state: 'blocked' }]), {
+		needs: 3,
+		working: false
+	});
+	assert.deepEqual(panelSignal([], [{ state: 'awaiting_review', pipeline: true }]), { needs: 0, working: false });
+	assert.deepEqual(panelSignal([], [{ state: 'running' }]), { needs: 0, working: true });
+	assert.deepEqual(panelSignal([], [{ state: 'cancelling' }]), { needs: 0, working: false });
+	assert.deepEqual(panelSignal([], [], true), { needs: 0, working: true });
 });

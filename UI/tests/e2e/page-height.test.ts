@@ -1,4 +1,5 @@
 import { test, expect as baseExpect, type Page } from '@playwright/test';
+import { closePanel as closeSidePanel, openPanel as openSidePanel } from './side-panel';
 
 // Many pages load at once on a busy machine; the default 5s is too tight for the first paint.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -869,40 +870,9 @@ type Route = {
 };
 
 // On a wide screen the panel starts as 'auto': Details until the conversation's issue has
-// loaded, then Agents. The buttons flip under the test, so both helpers retry until the state
-// holds instead of trusting one read of aria-pressed.
-const panelGroup = (page: Page) => page.getByRole('group', { name: 'Side panels' });
-// A narrow top bar lists the panels under "More panels" (KUA-296).
-const openPanel = (name: string) => async (page: Page) => {
-	const button = panelGroup(page).getByRole('button', { name, exact: true });
-	const more = panelGroup(page).getByRole('button', { name: 'More panels', exact: true });
-	await expect(button.or(more).first()).toBeVisible();
-	await expect
-		.poll(
-			async () => {
-				if (!(await button.isVisible())) {
-					await more.click();
-					await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
-				} else if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
-				return button.getAttribute('aria-pressed');
-			},
-			{ message: `${name} panel opens` }
-		)
-		.toBe('true');
-};
-const closePanels = async (page: Page) => {
-	await expect(panelGroup(page).getByRole('button').first()).toBeVisible();
-	await expect
-		.poll(
-			async () => {
-				const open = panelGroup(page).getByRole('button', { pressed: true });
-				if (await open.count()) await open.first().click();
-				return page.getByTestId('side-panel').count();
-			},
-			{ message: 'side panels close' }
-		)
-		.toBe(0);
-};
+// loaded, then Agents. The shared helpers retry until the panel shows the tab or is gone.
+const openPanel = (name: string) => (page: Page) => openSidePanel(page, name);
+const closePanels = (page: Page) => closeSidePanel(page);
 
 const wikiParagraph = '1. Long description paragraph';
 const teamPath = `/test/teams/${teamId}`;
