@@ -17,7 +17,7 @@
 </script>
 
 <div id="assistant-panel-region" class="flex h-full min-h-0 min-w-0 flex-col bg-background" data-testid="side-panel">
-	<div class="flex h-12 shrink-0 items-center gap-1 border-b px-2">
+	<div class="touch-controls flex h-12 shrink-0 items-center gap-1 border-b px-2">
 		<!-- One rule for the switcher (KUA-296), by its own width: from 18rem every tab shows
 		     its icon and the open one its name too (shortened if it must); narrower, icons
 		     only; below 13rem, where even seven icons do not fit, the open tab and a "More
@@ -29,11 +29,11 @@
 				<Button
 					variant={open ? 'secondary' : 'ghost'}
 					size="sm"
-					class={cn('h-8 gap-1.5 px-2 text-xs @max-[18rem]:px-1.5', open ? 'min-w-0 shrink' : 'shrink-0 @max-[13rem]:hidden')}
+					class={cn('h-8 gap-1.5 px-2 text-xs @max-[18rem]:px-1.5', open ? 'min-w-0 shrink' : 'shrink-0 @max-[13rem]:hidden max-md:@max-[320px]:hidden')}
 					aria-pressed={open}
 					title={panel.label()}
 					onclick={() => context.open(panel.id)}
-					><panel.icon class="size-3.5" /><span class={open ? 'min-w-0 truncate @max-[18rem]:sr-only' : 'sr-only'}
+					><panel.icon class="size-3.5" /><span class={open ? 'min-w-0 truncate @max-[18rem]:sr-only max-md:@max-[24rem]:sr-only' : 'sr-only'}
 						>{panel.label()}</span
 					></Button
 				>
@@ -46,13 +46,13 @@
 								{...props}
 								variant="ghost"
 								size="sm"
-								class="hidden h-8 shrink-0 px-1.5 @max-[13rem]:inline-flex"
+								class="hidden h-8 shrink-0 px-1.5 @max-[13rem]:inline-flex max-md:@max-[320px]:inline-flex"
 								aria-label={m['assistant.more_panels']()}
 								title={m['assistant.more_panels']()}><EllipsisVertical class="size-3.5" /></Button
 							>
 						{/snippet}
 					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="start" class="w-48">
+					<DropdownMenu.Content align="start" class="touch-controls w-48">
 						<DropdownMenu.RadioGroup value={active.id} onValueChange={(id) => context.open(id)}>
 							{#each panels as panel (panel.id)}
 								<DropdownMenu.RadioItem value={panel.id}><panel.icon />{panel.label()}</DropdownMenu.RadioItem>

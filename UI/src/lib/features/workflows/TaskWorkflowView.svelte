@@ -82,7 +82,7 @@
 					{m['workflows.task.ship_merge_note']()}
 				</p>
 			{/if}
-			<div class="flex flex-wrap gap-2">
+			<div class="touch-controls flex flex-wrap gap-2">
 				{#if decision.kind === 'approval'}
 					<Button size="sm" disabled={deciding} onclick={() => decide('approve')}>{m['workflows.task.approve']()}</Button>
 					{#if !shared.pipeline}<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('deny')}
@@ -172,7 +172,7 @@
 			<!-- Closing (Esc or the close button) returns focus to Expand. -->
 			<Dialog.Root bind:open={expanded}>
 				<Dialog.Content
-					class="top-0 left-0 flex h-dvh w-screen max-w-none translate-x-0 flex-col rounded-none sm:max-w-none"
+					class="touch-controls motion-reduce:animate-none! top-0 left-0 flex h-dvh w-screen max-w-none translate-x-0 flex-col rounded-none sm:max-w-none"
 				>
 					<Dialog.Title class="pr-10">{m['workflows.task.expanded_title']({ name })}</Dialog.Title>
 					<RunChart

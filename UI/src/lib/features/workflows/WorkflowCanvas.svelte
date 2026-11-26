@@ -5,6 +5,7 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { prefersReducedMotion } from 'svelte/motion';
 	import '@xyflow/svelte/dist/style.css';
 	import {
 		SvelteFlow,
@@ -218,7 +219,7 @@
 				selected: selection?.kind === 'edge' && selection.id === edge.id,
 				hidden: self,
 				deletable: editable,
-				animated: !!fired && run?.current === edge.target,
+				animated: !prefersReducedMotion.current && !!fired && run?.current === edge.target,
 				markerEnd: { type: MarkerType.ArrowClosed },
 				class: problem
 					? 'workflow-edge-problem'
@@ -290,7 +291,7 @@
 		panOnDrag={!zoom}
 		zoomOnScroll={!zoom && !navigable}
 		zoomOnPinch={!zoom}
-		zoomOnDoubleClick={!zoom && !navigable}
+		zoomOnDoubleClick={!zoom && !navigable && !prefersReducedMotion.current}
 		preventScrolling={!zoom && !navigable}
 		minZoom={0.1}
 		maxZoom={1.5}
@@ -393,6 +394,31 @@
 	}
 	.workflow-canvas :global(.svelte-flow__node:hover .workflow-add-next) {
 		opacity: 1;
+	}
+	@media (width < 48rem), (pointer: coarse) {
+		/* Keep measured anchors at the visible dots so the edge paths stay put. */
+		.workflow-canvas :global(.svelte-flow__handle.connectable:not(.workflow-loop-handle)) {
+			z-index: 1;
+		}
+		.workflow-canvas :global(.svelte-flow__handle.connectable:not(.workflow-loop-handle)::after) {
+			content: '';
+			position: absolute;
+			inset: -16px;
+			border-radius: 50%;
+		}
+		.workflow-canvas :global(.svelte-flow__edge-interaction) {
+			stroke-width: 24px;
+			vector-effect: non-scaling-stroke;
+		}
+		.workflow-canvas :global(.svelte-flow__controls) {
+			flex-direction: row;
+			gap: 4px;
+			background: var(--background);
+		}
+		.workflow-canvas :global(.svelte-flow__controls-button) {
+			min-width: 44px;
+			min-height: 44px;
+		}
 	}
 	.workflow-canvas :global(.workflow-loop-handle) {
 		opacity: 0;
