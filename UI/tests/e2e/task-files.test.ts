@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { openPanel } from './side-panel';
 import { filesAnswer } from './task-files-api';
 
 // A task's files panel (KUA-285): the tree of the files the task's head
@@ -163,21 +164,6 @@ async function fixture(page: Page, theme: 'light' | 'dark' = 'light') {
 	return state;
 }
 
-// The top bar shows a button per panel when it has room; a narrow bar (a phone,
-// or the room beside an open side panel) shows the open one and lists them all
-// under "More panels" (KUA-296).
-async function openPanel(page: Page, name: string) {
-	const bar = page.getByRole('group', { name: 'Side panels' });
-	const button = bar.getByRole('button', { name, exact: true });
-	const more = bar.getByRole('button', { name: 'More panels', exact: true });
-	await expect(button.or(more).first()).toBeVisible();
-	if (await button.isVisible()) {
-		if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click();
-		return;
-	}
-	await more.click();
-	await page.getByRole('menuitemcheckbox', { name, exact: true }).click();
-}
 async function openFiles(page: Page) {
 	await page.goto('/test/assistant?conversation=chat-1');
 	await openPanel(page, 'Files');
