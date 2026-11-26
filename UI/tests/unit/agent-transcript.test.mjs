@@ -297,11 +297,105 @@ test('reads Codex JSON events with the same entries', () => {
 	assert.equal(command.status, 'done');
 	assert.equal(command.started, '2026-11-01T10:00:00Z');
 	assert.equal(command.ended, '2026-11-01T10:00:03Z');
-	assert.equal(entries[3].tool.status, 'failed');
+	assert.equal(entries[3].tool.status, 'done');
+	assert.equal(entries[3].tool.exitCode, 1);
 	assert.equal(entries[4].tool.title, 'src/a.ts, src/b.ts');
 	assert.equal(entries[4].tool.input, 'update src/a.ts\nadd src/b.ts');
 	assert.equal(entries[5].text, 'Added the search.');
 	assert.equal(entries[6].message, 'stream disconnected');
+});
+
+test('command exits are neutral unless the command could not start, was terminated, or reports an error', () => {
+	const command = 'cat EmptyState.svelte && rg --files | rg header';
+	for (const [fields, status] of [
+		[{ status: 'failed', exit_code: 1 }, 'done'],
+		[{ status: 'failed', exit_code: 2 }, 'done'],
+		[{ exit_code: 255 }, 'done'],
+		[{ exit_code: 124 }, 'failed'],
+		[{ exit_code: 126 }, 'failed'],
+		[{ exit_code: 127 }, 'failed'],
+		[{ exit_code: 137 }, 'failed'],
+		[{ status: 'failed' }, 'failed'],
+		[{ status: 'error', exit_code: 1 }, 'failed'],
+		[{ error: { message: 'Permission denied' }, exit_code: 1 }, 'failed'],
+		[{ status: 'timed_out', exit_code: 1 }, 'failed'],
+		[{ timed_out: true, exit_code: 1 }, 'failed'],
+		[{ killed: true }, 'failed'],
+		[{ signal: 'SIGTERM', exit_code: 1 }, 'failed']
+	]) {
+		const [entry] = parseAgentSession([chunk({
+			type: 'item.completed',
+			item: { type: 'command_execution', command, aggregated_output: 'component contents', ...fields }
+		})]);
+		assert.equal(entry.tool.status, status, JSON.stringify(fields));
+		assert.equal(entry.tool.exitCode, fields.exit_code);
+		assert.equal(entry.tool.output, 'component contents');
+	}
+});
+
+test('only the complete stdin banner on stderr is hidden from the readable transcript', () => {
+	const banner = 'Reading additional input from stdin...';
+	const entries = parseAgentSession([
+		{ stream: 'stderr', content: 'Reading additional ' },
+		{ stream: 'stderr', content: 'input from stdin...\r\nUsing cached configuration\n' },
+		chunk(banner),
+		chunk({ type: 'turn.completed' })
+	]);
+	assert.deepEqual(entries.map(({ kind, stream, text }) => [kind, stream, text]), [
+		['plain', 'stderr', 'Using cached configuration'],
+		['plain', 'stdout', banner]
+	]);
+});
+
+test('successful runs keep failed tool steps but omit recovered run errors from the readable transcript', () => {
+	const logs = [
+		chunk({ type: 'turn.failed', error: { message: 'temporary connection loss' } }),
+		chunk({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'temporary failure' }),
+		chunk({ type: 'item.completed', item: { type: 'command_execution', command: 'missing', exit_code: 127 } }),
+		chunk({ type: 'result', subtype: 'success' })
+	];
+	assert.deepEqual(parseAgentSession(logs).map((entry) => entry.kind), ['error', 'result', 'tool', 'result']);
+	const entries = parseAgentSession(logs, { succeeded: true });
+	assert.deepEqual(entries.map((entry) => entry.kind), ['tool', 'result']);
+	assert.equal(entries[0].tool.status, 'failed');
+	assert.equal(entries[1].failed, false);
+});
+
+test('Pi pairs native tool events and distinguishes shell exits from reported errors', () => {
+	for (const [exit, isError, output, expected] of [
+		[1, true, 'component contents\n\nCommand exited with code 1', 'done'],
+		[127, true, 'Command exited with code 127', 'failed'],
+		[1, true, 'permission denied', 'failed'],
+		[undefined, true, 'Command timed out after 30 seconds', 'failed']
+	]) {
+		const call = { toolCallId: 'call_1', toolName: 'bash' };
+		const entries = parseAgentSession([
+			chunk({ type: 'tool_execution_start', ...call, args: { command: 'rg header' } }),
+			chunk({ type: 'tool_execution_end', ...call, isError,
+				result: { content: [{ type: 'text', text: output }], structuredContent: { exit_code: exit } } })
+		]);
+		assert.equal(entries.length, 1);
+		assert.equal(entries[0].tool.status, expected);
+		assert.equal(entries[0].tool.exitCode, exit);
+		assert.equal(entries[0].tool.input, 'rg header');
+		assert.equal(entries[0].tool.output, output);
+	}
+});
+
+test('Claude shell results distinguish an exit diagnostic from an interrupted or refused tool', () => {
+	for (const [content, details, expected, exitCode] of [
+		['Exit code 1\ncomponent contents', {}, 'done', 1],
+		['Exit code 127', {}, 'failed', 127],
+		['Exit code 1', { interrupted: true }, 'failed', 1],
+		['permission denied', {}, 'failed', undefined]
+	]) {
+		const [entry] = parseAgentSession([
+			chunk({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'b', name: 'Bash', input: { command: 'rg header' } }] } }),
+			chunk({ type: 'user', tool_use_result: details, message: { content: [{ type: 'tool_result', tool_use_id: 'b', is_error: true, content }] } })
+		]);
+		assert.equal(entry.tool.status, expected);
+		assert.equal(entry.tool.exitCode, exitCode);
+	}
 });
 
 test('unknown events and plain output fall back to escaped text, never dropped silently', () => {
@@ -502,6 +596,7 @@ test('an OpenCode tool call carries its input, result, status and own duration',
 		{ ...test_, started: undefined, ended: undefined },
 		{
 			id: 'call_1',
+			exitCode: 0,
 			name: 'bash',
 			title: 'Run the unit tests',
 			input: 'npm test',
@@ -523,8 +618,8 @@ test('an OpenCode tool call carries its input, result, status and own duration',
 	assert.equal(rejected.title, 'git push');
 	assert.equal(rejected.output, 'The user rejected permission to use this specific tool call.');
 	assert.equal(Date.parse(rejected.ended) - Date.parse(rejected.started), 50);
-	// A command that exited non-zero failed, as for the other harnesses.
-	assert.equal(lint.status, 'failed');
+	assert.equal(lint.status, 'done');
+	assert.equal(lint.exitCode, 2);
 	assert.equal(lint.output, '2 problems\n');
 	// One chip per call; consecutive calls fold like a Claude Code run.
 	const blocks = groupSession(parseAgentSession(openCodeRun()));
@@ -533,7 +628,7 @@ test('an OpenCode tool call carries its input, result, status and own duration',
 		['thinking', 'text', 'steps', 'text', 'result']
 	);
 	assert.equal(blocks[2].tools.length, 4);
-	assert.equal(blocks[2].failed, 2);
+	assert.equal(blocks[2].failed, 1);
 });
 
 test('an OpenCode call reported while running is one chip, completed in place', () => {
