@@ -1,5 +1,5 @@
 import MarkdownIt from 'markdown-it';
-import { sanitizeHtml } from './security/sanitize';
+import { sanitizeHtml } from './security/sanitize.ts';
 
 const options = {
 	html: false,

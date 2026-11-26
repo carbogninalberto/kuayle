@@ -7,6 +7,7 @@
 	import { m } from '$lib/features/i18n/messages';
 	import { cn } from '$lib/utils.js';
 	import MessageAttachments from './MessageAttachments.svelte';
+	import AgentPostBody from './AgentPostBody.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 
 	// An echo of a live message in the owning assistant conversation.
@@ -45,7 +46,11 @@
 		{/if}
 		{#if message.body}<Bubble.Root variant={outgoing ? 'muted' : 'outline'}>
 			<Bubble.Content data-selectable={outgoing ? undefined : 'text'} class={cn('pe-9', question ? 'border-[var(--status-warning)]/40' : '')}>
-				<p class="break-words whitespace-pre-wrap">{message.body}</p>
+				{#if outgoing}
+					<p class="break-words whitespace-pre-wrap">{message.body}</p>
+				{:else}
+					<AgentPostBody source={message.body} />
+				{/if}
 			</Bubble.Content>
 			<CopyMessageButton text={message.body} />
 		</Bubble.Root>{/if}

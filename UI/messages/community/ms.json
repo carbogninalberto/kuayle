@@ -3502,6 +3502,7 @@
 	"assistant.sent_to_agent": "Dihantar kepada ejen {agent} bagi {identifier}",
 	"assistant.show_earlier": "Tunjukkan {count} mesej terdahulu",
 	"assistant.show_less": "Tunjukkan kurang",
+	"assistant.post_show_more": "Tunjukkan lagi",
 	"assistant.show_more": "Tunjukkan {count} lagi",
 	"assistant.show_sidebar": "Tunjukkan perbualan",
 	"assistant.sidebar": "Bar sisi pembantu",

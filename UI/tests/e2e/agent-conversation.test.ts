@@ -1,3 +1,4 @@
+import { audit, verifyAudit } from './room-post-audit';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { test, expect, type Page, type TestInfo, type WebSocketRoute } from '@playwright/test';
@@ -391,7 +392,7 @@ test('a message sent from the running step is shown inline with its state, and t
 	await expect(mine.getByRole('img', { name: 'Replied' })).toBeVisible();
 	const reply = running.getByRole('article', { name: 'Agent' }).filter({ hasText: 'the v1 route stays' });
 	await expect(reply).toBeVisible();
-	// Agent text is untrusted: shown as written, never as markup.
+	// Raw HTML in agent Markdown stays literal.
 	await expect(reply).toContainText('<b>now</b>');
 	await expect(reply.locator('b')).toHaveCount(0);
 	const order = await running
@@ -583,6 +584,23 @@ test('starting now on a waiting task asks once, naming what it gives up', async 
 	await expect(composer(page)).toHaveValue('');
 });
 
+for (const width of [1600, 390]) {
+	test(`a relayed audit renders in the thread and Question card at ${width}px`, async ({ page }) => {
+		const { state } = await fixture(page);
+		state.liveMessages = [{
+			id: 'audit', task_id: 'task-1', run_id: 'run-impl', direction: 'from_agent',
+			sender: 'agent', state: 'received', kind: 'question', body: audit, created_at: at(8)
+		}];
+		await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+		await page.goto(agentUrl);
+		const question = thread(page).getByRole('article', { name: 'Agent', exact: true }).filter({ hasText: 'accessibility fixes' });
+		await verifyAudit(page, question, 'thread');
+		// Reopen the chat as a reader of the persisted relay.
+		await page.goto('/test/assistant?conversation=chat-1');
+		await verifyAudit(page, page.getByRole('article', { name: 'Question from the coding agent of ENG-1' }), 'question');
+	});
+}
+
 test('an agent question is answered from where it was asked, and the answer names it', async ({ page }) => {
 	const { state, agentSays } = await fixture(page);
 	await page.goto(agentUrl);
@@ -591,6 +609,7 @@ test('an agent question is answered from where it was asked, and the answer name
 	agentSays('question-1', 'Keep the v1 route?\nIt is still used by the mobile app.', 8, { kind: 'question' });
 	const question = running.getByRole('article', { name: 'Agent' }).filter({ hasText: 'Keep the v1 route?' });
 	await expect(question.getByRole('img', { name: 'Question' })).toBeVisible();
+	await expect(question.getByRole('button', { name: 'Show more' })).toHaveCount(0);
 	// One obvious way to answer: the button brings the cursor to the composer with the question as its target.
 	await question.getByRole('button', { name: 'Answer the question' }).click();
 	await expect(composer(page)).toBeFocused();

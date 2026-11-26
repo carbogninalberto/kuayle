@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
-import { filterEditorClasses } from './editor-classes';
-import { COLWIDTH, COL_WIDTH, filterColumnWidthStyles } from './column-widths';
-import { deferRemoteImage } from './remote-images';
+import { filterEditorClasses } from './editor-classes.ts';
+import { COLWIDTH, COL_WIDTH, filterColumnWidthStyles } from './column-widths.ts';
+import { deferRemoteImage } from './remote-images.ts';
 
 const ALLOWED_TAGS = [
 	'p', 'br', 'strong', 'b', 'em', 'i', 's', 'del', 'code', 'pre',

@@ -18,6 +18,7 @@
 	import * as Tooltip from '$lib/components/ui/tooltip/index.js';
 	import type { AgentLiveMessage } from '$lib/api/agent-tasks';
 	import MessageAttachments from './MessageAttachments.svelte';
+	import AgentPostBody from './AgentPostBody.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import { answerContext, type AnswerContext, type MessageState, type PlacedMessage } from './agent-conversation';
 	import { getLocale, m } from '$lib/features/i18n/messages';
@@ -26,8 +27,7 @@
 	// what its creator (or the assistant for them) said, with the time and a
 	// quiet icon for where it stands, and the agent's reply right under it.
 	// Nothing is spelled out: the state is the icon, named for assistive
-	// technology and on hover. The agent's text is untrusted and
-	// shown as plain text only.
+	// technology and on hover.
 	let { placed }: { placed: PlacedMessage } = $props();
 	const message = $derived(placed.message);
 	// A question is answered from where it was asked: the view's composer
@@ -91,11 +91,12 @@
 			<Bubble.Root variant="outline" class="max-w-[92%]"
 				><Bubble.Content
 					data-selectable="text"
-					class="rounded-2xl rounded-bl-md border ps-3.5 pe-9 py-2 break-words whitespace-pre-wrap {item.kind ===
+					class="rounded-2xl rounded-bl-md border ps-3.5 pe-9 py-2 {item.kind ===
 					'question'
 						? 'border-[var(--status-warning)]/50'
-						: ''} {state === 'rejected' ? 'text-muted-foreground' : ''}">{item.body}</Bubble.Content
-				>
+						: ''} {state === 'rejected' ? 'text-muted-foreground' : ''}">
+					<AgentPostBody source={item.body} />
+				</Bubble.Content>
 				<CopyMessageButton text={item.body} />
 			</Bubble.Root>
 			<Message.Footer class="gap-1.5 px-1 text-[11px] font-normal">
