@@ -17,10 +17,12 @@ import (
 )
 
 type ConversationService struct {
-	Repo      *repository.ConversationRepository
-	ai        *AISettingsService
-	tools     *AssistantTools
-	approvals *AssistantApprovals
+	jobNotifications notificationCreator
+	jobEvents        userEventPublisher
+	Repo             *repository.ConversationRepository
+	ai               *AISettingsService
+	tools            *AssistantTools
+	approvals        *AssistantApprovals
 	// Image attachments are unavailable until SetAttachments wires them.
 	images     *ImageStore
 	assets     repository.AssetRepo
@@ -289,6 +291,12 @@ func (s *ConversationService) execute(parent context.Context, a domain.Conversat
 			prompt = strings.TrimSuffix(strings.TrimSuffix(prompt, " You cannot run code yourself."), " You cannot read repositories or run code yourself.") + migrations
 		}
 	}
+	if s.tools != nil && s.tools.jobs {
+		prompt += " When the user explicitly asks to defer a turn or a reminder, use schedule_job, list_scheduled_jobs or cancel_scheduled_job. Confirm registration and the next run only after success. Never describe registration as completed work or promise unattended writes. A later turn requests approval for consequential actions."
+	}
+	if a.Message.ScheduledJobID != nil {
+		prompt += " This is a scheduled turn. Use read tools and request approvals only. Report any action that needs the user."
+	}
 	// The date line is computed per reply in the requesting user's zone:
 	// their profile timezone when set, else the workspace's (UTC until
 	// workspaces gain a timezone setting).
@@ -412,9 +420,32 @@ func (s *ConversationService) converse(ctx context.Context, a domain.Conversatio
 		if err != nil {
 			return err
 		}
-		tools = slices.DeleteFunc(append(tools, custom...), func(spec chatToolSpec) bool { return disabled[spec.Function.Name] })
+		tools = slices.DeleteFunc(append(tools, custom...), func(spec chatToolSpec) bool {
+			return disabled[spec.Function.Name] || (a.Message.ScheduledJobID != nil && !s.scheduledToolAllowed(spec.Function.Name))
+		})
+	}
+	maxTokens := 0
+	if a.Message.ScheduledJobID != nil {
+		maxTokens = 2048
 	}
 	sequence, changes := 0, 0
+	if len(a.Message.ScheduledProbe) > 0 {
+		// A formerly automatic custom probe now requires a decision. Request the exact
+		// approval through the fenced tool path; the model only summarizes its result.
+		var probe jobCondition
+		if err := json.Unmarshal(a.Message.ScheduledProbe, &probe); err != nil {
+			return err
+		}
+		call := chatToolCall{ID: "scheduled_probe", Type: "function"}
+		call.Function.Name, call.Function.Arguments = probe.Tool, string(probe.Arguments)
+		result, err := s.runToolCall(ctx, a, sequence, call, &changes)
+		if err != nil {
+			return err
+		}
+		messages = append(messages, chatCompletionMessage{Role: "assistant", ToolCalls: []chatToolCall{call}}, chatCompletionMessage{Role: "tool", ToolCallID: call.ID, Content: result})
+		sequence++
+		tools = nil
+	}
 	// Text from successive tool rounds is one reply; separate it into
 	// paragraphs so it renders as Markdown rather than run-on sentences.
 	written := ""
@@ -423,12 +454,12 @@ func (s *ConversationService) converse(ctx context.Context, a domain.Conversatio
 	for round := 0; ; round++ {
 		offered := tools
 		// Keep room in the stored reply for the final answer.
-		if !toolsAllowed(ctx, round, sequence) || len(written) >= assistantMaxReplyBytes/2 {
+		if (a.Message.ScheduledJobID != nil && round >= 3) || !toolsAllowed(ctx, round, sequence) || len(written) >= assistantMaxReplyBytes/2 {
 			offered = nil
 		}
 		compactToolContext(messages, from, assistantContextBytes)
 		text := ""
-		requested, err := s.ai.streamAssistantTools(ctx, baseURL, a.Message.Model, key, messages, offered, func(delta string) error {
+		requested, err := s.ai.streamAssistantTools(ctx, baseURL, a.Message.Model, key, messages, offered, maxTokens, func(delta string) error {
 			if delta == "" {
 				return nil
 			}
@@ -494,6 +525,8 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 		// A read-only GitHub tool cannot work without its permission; approval
 		// tools are checked when the approval is requested instead.
 		runErr = toolFailure("%s", gap.Message)
+	} else if a.Message.ScheduledJobID != nil && !s.scheduledToolAllowed(tool.name) {
+		runErr = toolFailure("a scheduled turn may only read or request approval; ask the user to perform this change")
 	} else if custom {
 		output, issueID, runErr = s.runCustomTool(ctx, a, record.ID, tool.name, call.Function.Arguments)
 	} else if runErr = tool.validateArguments(call.Function.Arguments); runErr != nil {
@@ -515,6 +548,8 @@ func (s *ConversationService) runToolCall(ctx context.Context, a domain.Conversa
 			output, modelContent, runErr = s.tools.runCustomToolTool(ctx, a, tool.name, call.Function.Arguments)
 		} else if tool.name == "get_process" || tool.name == "stop_process" {
 			output, runErr = s.assistantProcessTool(ctx, a, tool.name, call.Function.Arguments)
+		} else if tool.jobs {
+			output, issueID, runErr = s.scheduledJobTool(ctx, a, record.ID, tool.name, call.Function.Arguments)
 		} else if tool.name == "watch_agent_work" {
 			// The watch is bound to this conversation and the turn that asked.
 			output, issueID, runErr = s.tools.watchAgentWork(ctx, a, call.Function.Arguments)

@@ -2100,6 +2100,7 @@
 	"assistant.send": "发送消息",
 	"assistant.sending": "正在发送…",
 	"assistant.hint": "Enter 发送 · Shift+Enter 换行",
+	"assistant.scheduled_job": "计划任务",
 	"assistant.error": "出现问题，请重试。",
 	"assistant.send_error": "无法确认消息，请再次发送以安全重试。",
 	"telegram.title": "Telegram",

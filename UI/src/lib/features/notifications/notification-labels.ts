@@ -2,6 +2,7 @@
 // the browser notification title. Pure: the callers resolve the key with `m`.
 
 const TYPE_MESSAGE_KEYS = {
+	scheduled_job: 'assistant.scheduled_job',
 	approval_requested: 'notify.title.approval_requested',
 	approval_finished: 'notify.title.approval_finished',
 	agent_task_finished: 'notify.title.agent_task_finished',

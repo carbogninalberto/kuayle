@@ -2100,6 +2100,7 @@
 	"assistant.send": "Отправить сообщение",
 	"assistant.sending": "Отправка…",
 	"assistant.hint": "Enter — отправить · Shift+Enter — новая строка",
+	"assistant.scheduled_job": "Запланированная задача",
 	"assistant.error": "Что-то пошло не так. Попробуйте ещё раз.",
 	"assistant.send_error": "Не удалось подтвердить сообщение. Отправьте его ещё раз — это безопасно.",
 	"telegram.title": "Telegram",

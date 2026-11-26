@@ -16,7 +16,7 @@
 {#if canEdit || canDelete}
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger
-			class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+			class="inline-flex items-center justify-center any-pointer-coarse:min-h-[44px] any-pointer-coarse:min-w-[44px] rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 			aria-label={m['issue.comment_actions']()}
 			title={m['issue.comment_actions']()}
 			data-testid="comment-actions"><MoreHorizontal size={14} /></DropdownMenu.Trigger

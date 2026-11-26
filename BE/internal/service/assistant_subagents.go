@@ -187,7 +187,7 @@ func (s *ConversationService) subagentModelCaller(ctx context.Context, ws uuid.U
 	}
 	return func(ctx context.Context, model string, messages []chatCompletionMessage, tools []chatToolSpec) (string, []chatToolCall, error) {
 		var text strings.Builder
-		calls, err := s.ai.streamAssistantTools(ctx, settings.BaseURL, model, key, messages, tools, func(delta string) error {
+		calls, err := s.ai.streamAssistantTools(ctx, settings.BaseURL, model, key, messages, tools, 0, func(delta string) error {
 			if text.Len()+len(delta) > assistantMaxReplyBytes {
 				return ErrAIProviderRequestFailed
 			}

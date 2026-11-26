@@ -328,6 +328,7 @@ func main() {
 	memoryH := handler.NewWorkspaceMemoryHandler(memorySvc)
 	assistantTools.SetAgentWork(repository.NewAgentTaskRepository(db))
 	assistantTools.SetAgentTasks(agentTaskSvc)
+	conversationSvc.SetScheduledJobs(notifSvc, hub)
 	assistantTools.SetTaskWatchers(repository.NewAgentTaskRepository(db))
 	assistantTools.SetRepositories(devMachineRepo)
 	assistantTools.SetLiveChannel(repository.NewAgentTaskRepository(db))
@@ -648,6 +649,7 @@ func main() {
 	defer repositoryCheckouts.Close()
 	// Chains approved before a restart continue from their last recorded step.
 	go assistantApprovals.ResumeShips(conversationCtx)
+	go conversationSvc.RunScheduledJobs(conversationCtx)
 	// Approved merges whose branch Kuayle brought up to date merge once the
 	// new head's checks pass (KUA-207); each wait is read at most once a minute.
 	go assistantApprovals.RunMergeWaits(conversationCtx, 15*time.Second)

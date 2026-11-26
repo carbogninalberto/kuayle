@@ -2100,6 +2100,7 @@
 	"assistant.send": "Send melding",
 	"assistant.sending": "Sender…",
 	"assistant.hint": "Enter for å sende · Shift+Enter for ny linje",
+	"assistant.scheduled_job": "Planlagt oppgave",
 	"assistant.error": "Noe gikk galt. Prøv igjen.",
 	"assistant.send_error": "Meldingen kunne ikke bekreftes. Send den på nytt for å prøve trygt igjen.",
 	"telegram.title": "Telegram",

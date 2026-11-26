@@ -2100,6 +2100,7 @@
 	"assistant.send": "Kirim pesan",
 	"assistant.sending": "Mengirim…",
 	"assistant.hint": "Enter untuk mengirim · Shift+Enter untuk baris baru",
+	"assistant.scheduled_job": "Tugas terjadwal",
 	"assistant.error": "Terjadi kesalahan. Silakan coba lagi.",
 	"assistant.send_error": "Pesan tidak dapat dikonfirmasi. Kirim ulang untuk mencoba lagi dengan aman.",
 	"telegram.title": "Telegram",

@@ -562,7 +562,7 @@
 </script>
 
 {#if mobile}
-	<div class="flex h-full flex-col bg-[var(--color-bg-secondary)]">
+	<div class="mobile-touch-targets flex h-full flex-col bg-[var(--color-bg-secondary)]">
 		{@render sidebarContent()}
 	</div>
 {:else}
@@ -634,7 +634,7 @@
 {/if}
 
 <AlertDialog.Root bind:open={deleteViewOpen}>
-	<AlertDialog.Content>
+	<AlertDialog.Content class="mobile-touch-targets">
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m['sidebar.delete_view_question']()}</AlertDialog.Title>
 			<AlertDialog.Description>
@@ -658,7 +658,7 @@
 			{#if onsearch}
 				<Button variant="plain"
 					onclick={onsearch}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					class="inline-flex items-center justify-center rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					title={m['sidebar.search']()}
 				>
 					<Search size={16} />
@@ -667,7 +667,7 @@
 			{#if oncreateissue}
 				<Button variant="plain"
 					onclick={oncreateissue}
-					class="rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+					class="inline-flex items-center justify-center rounded-md p-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 					title={m['sidebar.new_issue']()}
 				>
 					<SquarePen size={16} />
@@ -787,7 +787,7 @@
 								e.stopPropagation();
 								oncreateteam?.();
 							}}
-							class="rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 transition-opacity group-hover/teams:opacity-100 focus-visible:opacity-100 hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
+							class="inline-flex items-center justify-center rounded p-0.5 text-[var(--color-text-tertiary)] md:opacity-0 transition-opacity group-hover/teams:opacity-100 focus-visible:opacity-100 hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-secondary)]"
 							title={m['sidebar.create_team']()}
 						>
 							<Plus size={14} />
@@ -835,12 +835,13 @@
 											</Button>
 											<DropdownMenu.Root>
 												<DropdownMenu.Trigger
-													class="mr-1 shrink-0 rounded p-0.5 text-[var(--color-text-tertiary)] opacity-0 group-hover/team:opacity-100 data-[state=open]:opacity-100 hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
+													aria-label="{team.name} · {m['tasks.more_actions']()}"
+													class="mr-1 inline-flex shrink-0 items-center justify-center rounded p-0.5 text-[var(--color-text-tertiary)] md:opacity-0 focus-visible:opacity-100 group-hover/team:opacity-100 data-[state=open]:opacity-100 hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
 													onclick={(e) => e.stopPropagation()}
 												>
 													<Ellipsis size={14} />
 												</DropdownMenu.Trigger>
-												<DropdownMenu.Content side="right" align="start" class="w-44">
+												<DropdownMenu.Content side="right" align="start" class="mobile-touch-targets w-44">
 													<DropdownMenu.Item onclick={() => goto(`/${slug}/settings/teams/${team.id}`)}>
 														<Settings size={14} class="mr-2" />
 														{m['sidebar.team_settings']()}
@@ -858,7 +859,7 @@
 											</DropdownMenu.Root>
 										</div>
 									</ContextMenu.Trigger>
-									<ContextMenu.Content class="w-44">
+									<ContextMenu.Content class="mobile-touch-targets w-44">
 										<ContextMenu.Item onclick={() => goto(`/${slug}/teams/${team.id}`)}>
 											<SquareUser class={menuIconClass} />
 											{m['sidebar.open_team']()}
@@ -954,7 +955,7 @@
 																		<span class="truncate capitalize">{project.name}</span>
 																	</a>
 																</ContextMenu.Trigger>
-																<ContextMenu.Content class="w-44">
+																<ContextMenu.Content class="mobile-touch-targets w-44">
 																	<ContextMenu.Item onclick={() => goto(`/${slug}/projects/${project.id}`)}>
 																		<Box class={menuIconClass} />
 																		{m['sidebar.open_project']()}
@@ -1049,7 +1050,7 @@
 																		{view.name}
 																	</a>
 																</ContextMenu.Trigger>
-																<ContextMenu.Content class="w-44">
+																<ContextMenu.Content class="mobile-touch-targets w-44">
 																	<ContextMenu.Item onclick={() => goto(`/${slug}/views/${view.id}`)}>
 																		<Layers class={menuIconClass} />
 																		{m['sidebar.open_view']()}
@@ -1157,7 +1158,7 @@
 													{view.name}
 												</a>
 											</ContextMenu.Trigger>
-											<ContextMenu.Content class="w-44">
+											<ContextMenu.Content class="mobile-touch-targets w-44">
 												<ContextMenu.Item onclick={() => goto(`/${slug}/views/${view.id}`)}>
 													<Layers class={menuIconClass} />
 													{m['sidebar.open_view']()}
@@ -1225,7 +1226,7 @@
 	<!-- Profile -->
 	<div class="flex items-center gap-2 px-2 py-2">
 		<Popover.Root>
-			<Popover.Trigger>
+			<Popover.Trigger class="inline-flex items-center justify-center" aria-label={authState.user?.name ?? m['sidebar.settings']()}>
 				<Avatar
 					name={authState.user?.name ?? 'U'}
 					avatarUrl={authState.user?.avatar_url}
@@ -1233,7 +1234,7 @@
 					class="size-7 cursor-pointer text-xs transition-[filter] hover:brightness-125"
 				/>
 			</Popover.Trigger>
-			<Popover.Content side="top" align="start" class="w-52 p-1">
+			<Popover.Content side="top" align="start" class="mobile-touch-targets w-52 p-1">
 				<a
 					href="/{slug}/settings"
 					class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"

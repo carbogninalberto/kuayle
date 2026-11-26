@@ -3751,3 +3751,78 @@ test('a live approval keeps the reader’s scroll position and typing focus', as
 	await expect(composer).toBeFocused();
 	expect(await viewport.evaluate(el => el.scrollTop)).toBe(position);
 });
+
+test('scheduled job card follows registration, firing and cancellation', async ({ page }) => {
+	const state = await fixture(page);
+	state.appendSends = true;
+	await page.goto('/test/assistant?conversation=chat-1');
+	const composer = page.getByRole('textbox', { name: 'Message' });
+	await composer.fill('Remind me to check the release notes.');
+	await composer.press('Enter');
+	await expect.poll(() => state.sends).toEqual(['Remind me to check the release notes.']);
+	await expect.poll(() => state.sockets.length).toBeGreaterThanOrEqual(2);
+	const job = {
+		id: 'job-1',
+		conversation_id: conversation.id,
+		parent_id: state.messages[0].id,
+		state: 'scheduled',
+		timezone: 'UTC',
+		instructions: 'Check the release notes',
+		next_run_at: '2026-11-27T09:00:00Z',
+		last_outcome: 'Registered'
+	};
+	const sendJob = (payload: typeof job) => {
+		state.sockets
+			.at(-1)!
+			.send(
+				JSON.stringify({
+					id: 'job-event-' + ++state.cursor,
+					cursor: state.cursor,
+					conversation_id: conversation.id,
+					type: 'scheduled_job.updated',
+					payload
+				})
+			);
+	};
+	sendJob(job);
+	const card = page.getByRole('region', { name: 'Scheduled job' });
+	await expect(card.getByText('Registered')).toBeVisible();
+	await expect(card.getByText(/Next run/)).toBeVisible();
+	sendJob({ ...job, state: 'completed', last_outcome: 'Reminder sent' });
+	await expect(card.getByText('Reminder sent')).toBeVisible();
+	state.sockets
+		.at(-1)!
+		.send(
+			JSON.stringify({
+				id: 'notice',
+				cursor: ++state.cursor,
+				conversation_id: conversation.id,
+				type: 'message.created',
+				payload: {
+					...reply,
+					id: 'notice-1',
+					sequence: 3,
+					parent_id: job.parent_id,
+					status: 'completed',
+					content: 'Check the release notes'
+				}
+			})
+		);
+	await expect(page.getByText('Check the release notes', { exact: true })).toHaveCount(2);
+	await expect(card.getByRole('button')).toHaveCount(0);
+	const recurring = { ...job, id: 'job-2', instructions: 'Check again tomorrow' };
+	sendJob(recurring);
+	const current = card.filter({ hasText: recurring.instructions });
+	await page.route('**/conversations/chat-1/jobs/job-2/cancel', route =>
+		route.fulfill({ json: { ...recurring, state: 'cancelled', last_outcome: 'Cancelled' } })
+	);
+	const cancel = current.getByRole('button', { name: 'Cancel' });
+	await cancel.focus();
+	await cancel.press('Enter');
+	await expect(current.getByText('Cancelled')).toBeVisible();
+	// The cancel response can arrive before a queued poll event on the socket.
+	sendJob(recurring);
+	sendJob({ ...job, id: 'job-3', instructions: 'Another reminder' });
+	await expect(card.getByText('Another reminder')).toBeVisible();
+	await expect(current.getByRole('button')).toHaveCount(0);
+});

@@ -22,6 +22,7 @@
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let {
+		class: className = '',
 		filters = $bindable<ViewFilter>({}),
 		teams = [],
 		projects = [],
@@ -31,6 +32,7 @@
 		excludedFilters = [],
 		onchange
 	}: {
+		class?: string;
 		filters: ViewFilter;
 		teams?: Team[];
 		projects?: Project[];
@@ -286,7 +288,7 @@
 </script>
 
 <div
-	class="no-scrollbar flex shrink-0 max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden px-2 py-1.5 sm:overflow-visible sm:py-2"
+	class="no-scrollbar flex shrink-0 max-w-full items-center gap-1.5 overflow-x-auto overflow-y-hidden px-2 py-1.5 sm:overflow-visible sm:py-2 {className}"
 	style="-webkit-overflow-scrolling: touch;"
 >
 	{#if !readonly}

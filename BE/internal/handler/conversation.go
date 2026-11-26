@@ -236,6 +236,22 @@ func (h *ConversationHandler) Cancel(c *echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+func (h *ConversationHandler) CancelScheduledJob(c *echo.Context) error {
+	conversation, err := conversationID(c)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	id, err := uuid.Parse(c.Param("jobId"))
+	if err != nil {
+		return conversationError(c, repository.ErrConversationNotFound)
+	}
+	job, err := h.svc.CancelScheduledJob(c.Request().Context(), middleware.GetWorkspace(c).ID, conversation, id)
+	if err != nil {
+		return conversationError(c, err)
+	}
+	return response.Success(c, http.StatusOK, job)
+}
+
 // Stream reuses the authenticated Echo/WebSocket stack, with conversation-level
 // authorization rather than the workspace-wide broadcast hub. Persisted events
 // are the source for both initial replay and live delivery on every API replica.

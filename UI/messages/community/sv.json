@@ -2100,6 +2100,7 @@
 	"assistant.send": "Skicka meddelande",
 	"assistant.sending": "Skickar…",
 	"assistant.hint": "Enter för att skicka · Shift+Enter för ny rad",
+	"assistant.scheduled_job": "Schemalagd uppgift",
 	"assistant.error": "Något gick fel. Försök igen.",
 	"assistant.send_error": "Meddelandet kunde inte bekräftas. Skicka det igen för att försöka på ett säkert sätt.",
 	"telegram.title": "Telegram",

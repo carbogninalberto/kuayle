@@ -2100,6 +2100,7 @@
 	"assistant.send": "Invia messaggio",
 	"assistant.sending": "Invio…",
 	"assistant.hint": "Invio per inviare · Maiusc+Invio per andare a capo",
+	"assistant.scheduled_job": "Attività pianificata",
 	"assistant.error": "Si è verificato un errore. Riprova.",
 	"assistant.send_error": "Non è stato possibile confermare il messaggio. Invialo di nuovo per riprovare in sicurezza.",
 	"telegram.title": "Telegram",

@@ -169,6 +169,12 @@ func (r *ConversationRepository) History(ctx context.Context, ws, id uuid.UUID, 
 		h.Messages = h.Messages[:50]
 	}
 	slices.Reverse(h.Messages)
+	if len(h.Messages) > 0 {
+		err = tx.SelectContext(ctx, &h.Jobs, `SELECT j.* FROM conversation_jobs j JOIN conversation_messages m ON m.id=j.parent_id WHERE j.conversation_id=$1 AND m.sequence BETWEEN $2 AND $3 ORDER BY j.id`, id, h.Messages[0].Sequence, h.Messages[len(h.Messages)-1].Sequence)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err = fillMessageAttachments(ctx, tx, h.Messages); err != nil {
 		return nil, err
 	}
@@ -343,7 +349,7 @@ func (r *ConversationRepository) Retry(ctx context.Context, ws, id, message, req
 	if err = activeConversation(ctx, tx, id); err != nil {
 		return nil, err
 	}
-	reply, err := addConversationMessage(ctx, tx, id, request, previous.ParentID, "assistant", "", "queued", provider, model)
+	reply, err := addJobReply(ctx, tx, id, request, previous.ParentID, provider, model, previous.ScheduledJobID, previous.ScheduledProbe)
 	if err != nil {
 		return nil, err
 	}
@@ -357,6 +363,20 @@ func transitionConversationMessage(ctx context.Context, tx *sqlx.Tx, id uuid.UUI
 	}
 	if err = failRunningToolCalls(ctx, tx, m); err != nil {
 		return err
+	}
+	if m.ScheduledJobID != nil {
+		var j domain.ConversationJob
+		err = tx.GetContext(ctx, &j, `UPDATE conversation_jobs SET last_outcome=CASE
+ WHEN EXISTS (SELECT 1 FROM conversation_approvals a JOIN conversation_tool_calls t ON t.id=a.tool_call_id WHERE t.message_id=$2 AND a.status='pending') THEN 'Approval pending'
+ ELSE $3 END WHERE id=$1 AND state IN ('scheduled','completed') RETURNING *`, m.ScheduledJobID, m.ID, "Assistant turn "+status)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil {
+			if _, err = conversationEvent(ctx, tx, m.ConversationID, "scheduled_job.updated", j); err != nil {
+				return err
+			}
+		}
 	}
 	_, err = conversationEvent(ctx, tx, m.ConversationID, "message.completed", map[string]any{"message_id": m.ID, "status": m.Status})
 	return err

@@ -2100,6 +2100,7 @@
 	"assistant.send": "Trimite mesajul",
 	"assistant.sending": "Se trimite…",
 	"assistant.hint": "Enter pentru a trimite · Shift+Enter pentru rând nou",
+	"assistant.scheduled_job": "Sarcină programată",
 	"assistant.error": "Ceva nu a mers bine. Încearcă din nou.",
 	"assistant.send_error": "Mesajul nu a putut fi confirmat. Trimite-l din nou pentru a reîncerca în siguranță.",
 	"telegram.title": "Telegram",

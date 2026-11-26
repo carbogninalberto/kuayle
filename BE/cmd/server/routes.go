@@ -572,6 +572,7 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/attachments/:attachmentId", h.conversation.Attachment)
 	sessionOnly(ws, http.MethodDelete, "/conversations/:conversationId/attachments/:attachmentId", h.conversation.RemoveAttachment)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/messages/:messageId/retry", h.conversation.Retry)
+	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/jobs/:jobId/cancel", h.conversation.CancelScheduledJob)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/cancel", h.conversation.Cancel)
 	sessionOnly(ws, http.MethodPost, "/conversations/:conversationId/approvals/:approvalId", h.conversation.ResolveApproval)
 	sessionOnly(ws, http.MethodGet, "/conversations/:conversationId/approvals/:approvalId/command-run", h.conversation.CommandRun)

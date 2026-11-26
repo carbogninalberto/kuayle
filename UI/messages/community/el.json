@@ -2100,6 +2100,7 @@
 	"assistant.send": "Αποστολή μηνύματος",
 	"assistant.sending": "Αποστολή…",
 	"assistant.hint": "Enter για αποστολή · Shift+Enter για νέα γραμμή",
+	"assistant.scheduled_job": "Προγραμματισμένη εργασία",
 	"assistant.error": "Κάτι πήγε στραβά. Δοκιμάστε ξανά.",
 	"assistant.send_error": "Δεν ήταν δυνατή η επιβεβαίωση του μηνύματος. Στείλτε το ξανά για να επαναλάβετε με ασφάλεια.",
 	"telegram.title": "Telegram",

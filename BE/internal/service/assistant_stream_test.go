@@ -130,15 +130,15 @@ func TestAssistantStreamAcceptsToolCallsOnlyWhenOffered(t *testing.T) {
 	tools := (&AssistantTools{}).specs()
 	provider := serve(call)
 	defer provider.Close()
-	calls, err := svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, tools, func(string) error { return nil })
+	calls, err := svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, tools, 0, func(string) error { return nil })
 	require.NoError(t, err)
 	require.Len(t, calls, 1)
 	require.Equal(t, "list_teams", calls[0].Function.Name)
-	_, err = svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, nil, func(string) error { return nil })
+	_, err = svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, nil, 0, func(string) error { return nil })
 	require.ErrorIs(t, err, ErrAIProviderRequestFailed, "a provider cannot invoke tools that were not offered")
 	missing := serve(empty)
 	defer missing.Close()
-	_, err = svc.streamAssistantTools(context.Background(), missing.URL, "model", "key", nil, tools, func(string) error { return nil })
+	_, err = svc.streamAssistantTools(context.Background(), missing.URL, "model", "key", nil, tools, 0, func(string) error { return nil })
 	require.ErrorIs(t, err, ErrAIProviderRequestFailed)
 }
 
@@ -150,7 +150,7 @@ func TestAssistantStreamBoundsParallelCallsPerRound(t *testing.T) {
 			w.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprint(w, toolCallsStream("list_teams", "{}", count))
 		}))
-		calls, err := svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, tools, func(string) error { return nil })
+		calls, err := svc.streamAssistantTools(context.Background(), provider.URL, "model", "key", nil, tools, 0, func(string) error { return nil })
 		provider.Close()
 		if ok {
 			require.NoError(t, err)

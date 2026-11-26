@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ScheduledJobCard from './ScheduledJobCard.svelte';
 	import ChatComposer from './ChatComposer.svelte';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { prefersReducedMotion } from 'svelte/motion';
@@ -981,6 +982,9 @@
 									{#if message.role === 'user'}{@render userMessage(message)}{:else}{@render assistantMessage(
 											message
 										)}{/if}
+									{#each Object.values(chat.jobs).filter(job => job.parent_id === message.id) as job (job.id)}
+										<ScheduledJobCard {job} oncancel={() => chat.cancelJob(job.id)} />
+									{/each}
 								</MessageScroller.Item>
 								{/if}
 							{/each}

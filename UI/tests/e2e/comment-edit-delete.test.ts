@@ -6,7 +6,7 @@ const teamId = '00000000-0000-0000-0000-000000000010';
 const statusId = '00000000-0000-0000-0000-000000000020';
 const createdAt = '2026-01-01T00:00:00Z';
 
-type CommentRow = { id: string; user_id: string; body: string; edited_at?: string | null };
+type CommentRow = { id: string; user_id: string; body: string; edited_at?: string | null; replies?: CommentRow[] };
 
 // Mocks a workspace where the caller has `role` and ENG-1 has one comment of
 // theirs and one of someone else's. Records the comment writes it receives.
@@ -56,7 +56,7 @@ async function mockIssue(page: Page, role: 'owner' | 'member', description: stri
 			return route.fulfill({ json: issue });
 		}
 		if (path === '/api/workspaces/test/issues/ENG-1/comments' && method === 'GET')
-			return route.fulfill({ json: state.live.map(toResponse) });
+			return route.fulfill({ json: state.live.map((c) => ({ ...toResponse(c), replies: c.replies?.map(toResponse) })) });
 		const one = path.match(/^\/api\/workspaces\/test\/issues\/ENG-1\/comments\/([^/]+)(\/restore)?$/);
 		if (one) {
 			const [, id, restore] = one;
@@ -330,4 +330,27 @@ test('issue and comment tables survive editing and reloading', async ({ page }, 
 	await expect(mine.getByRole('cell', { name: 'Mobile checked' })).toHaveAttribute('align', 'center');
 	await page.screenshot({ path: testInfo.outputPath('issue-tables.png') });
 	expect(pageErrors).toEqual([]);
+});
+
+test.describe('mobile workspace comments', () => {
+	test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+	test('comment actions are visible before touch and return focus on Escape', async ({ page }, testInfo) => {
+		const { state } = await mockIssue(page, 'owner');
+		state.live[0].replies = [{ id: 'reply', user_id: me, body: '<p>One more detail</p>' }];
+		await page.goto('/test/issue/ENG-1');
+		const replyMenu = page.locator('.group\\/reply').filter({ hasText: 'One more detail' }).getByRole('button', { name: 'Comment actions' });
+		await replyMenu.scrollIntoViewIfNeeded();
+		expect(await replyMenu.evaluate((el) => el.checkVisibility({ checkOpacity: true }))).toBe(true);
+		const menu = commentCard(page, 'My first thought').getByRole('button', { name: 'Comment actions' });
+		await menu.scrollIntoViewIfNeeded();
+		expect(await menu.evaluate((el) => el.checkVisibility({ checkOpacity: true }))).toBe(true);
+		await page.screenshot({ path: testInfo.outputPath('touch-comments.png') });
+		await menu.tap();
+		await expect(page.getByRole('menuitem', { name: 'Edit' })).toBeVisible();
+		await page.keyboard.press('Escape');
+		await expect(menu).toBeFocused();
+		await page.keyboard.press('Enter');
+		await expect(page.getByRole('menuitem', { name: 'Delete' })).toBeVisible();
+	});
 });
