@@ -161,7 +161,7 @@
 	}}
 >
 	<Dialog.Content
-		class="overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[440px]"
+		class="settings-dialog rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[440px]"
 	>
 		<form onsubmit={rename}>
 			<div class="space-y-4 px-5 pt-5 pb-4">

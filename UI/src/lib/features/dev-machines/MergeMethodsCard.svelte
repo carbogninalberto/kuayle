@@ -57,7 +57,7 @@
 		<ul class="grid gap-x-6 gap-y-1.5 lg:grid-cols-2">
 			{#each active as repo (repo.id)}
 				<li class="flex min-w-0 items-center justify-between gap-3">
-					<span class="min-w-0 truncate font-mono text-xs" title={repo.full_name}>{repo.full_name}</span>
+					<span class="min-w-0 wrap-anywhere font-mono text-xs" title={repo.full_name}>{repo.full_name}</span>
 					<SelectField
 						size="sm"
 						bind:value={() => methods[repo.full_name] ?? '', (next: MergeMethod | '') => void choose(repo.full_name, next)}

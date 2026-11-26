@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import { onMount } from 'svelte';
 	import ConfirmDialog from '$lib/components/shared/ConfirmDialog.svelte';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
@@ -74,8 +75,8 @@
 
 <PageTitle parts={[m['settings.push.title'](), m['settings.title']()]} />
 
-<div class="mx-auto max-w-3xl space-y-6 px-5 py-10 sm:px-8">
-	<h1 class="text-2xl font-semibold">{m['settings.push.title']()}</h1>
+<div class="settings-page mx-auto max-w-3xl space-y-6 px-5 py-10 sm:px-8">
+	<SettingsPageHeader title={m['settings.push.title']()} />
 	{#if !admin}
 		<p>{m['settings.push.denied']()}</p>
 	{:else}

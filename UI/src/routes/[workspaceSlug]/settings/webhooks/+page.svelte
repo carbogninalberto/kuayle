@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader, SettingsEmptyState } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -22,7 +23,6 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Switch } from '$lib/components/ui/switch';
-	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import { formatRelativeTime } from '$lib/utils/format';
@@ -143,16 +143,17 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
-	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.webhooks.title']()}</h1>
-		<Button variant="plain" onclick={() => { resetForm(); showCreate = true; }} disabled={!webhooksAllowed}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-		>
-			<Plus size={14} />
-			{m['settings.webhooks.new']()}
-		</Button>
-	</div>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.webhooks.title']()}>
+		{#snippet action()}
+			<Button variant="plain" onclick={() => { resetForm(); showCreate = true; }} disabled={!webhooksAllowed}
+				class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+			>
+				<Plus size={14} />
+				{m['settings.webhooks.new']()}
+			</Button>
+		{/snippet}
+	</SettingsPageHeader>
 
 	{#if workspace?.privacy_enabled}
 		<Alert.Root class="mt-6 border-[var(--color-warning)] bg-[var(--color-bg-secondary)] text-[var(--color-warning)]">
@@ -166,7 +167,7 @@
 			<div class="flex h-64 items-center justify-center">
 			</div>
 		{:else if webhooks.length === 0}
-			<EmptyState
+			<SettingsEmptyState
 				title={m['settings.webhooks.no_webhooks']()}
 				description={m['settings.webhooks.no_webhooks_desc']()}
 				action={webhooksAllowed ? { label: m['settings.webhooks.new'](), onclick: () => { resetForm(); showCreate = true; } } : undefined}
@@ -178,7 +179,7 @@
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">
 								<ExternalLink size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
-								<span class="truncate text-sm font-medium text-[var(--color-text-primary)]">{webhook.url}</span>
+								<span class="wrap-anywhere text-sm font-medium text-[var(--color-text-primary)]">{webhook.url}</span>
 								{#if !webhook.is_active}
 									<Badge variant="outline" class="text-[10px]">{m['settings.webhooks.inactive']()}</Badge>
 								{/if}
@@ -223,7 +224,7 @@
 </div>
 
 <Dialog.Root bind:open={showCreate}>
-	<Dialog.Content class="sm:max-w-[480px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 overflow-hidden rounded-xl">
+	<Dialog.Content class="settings-dialog sm:max-w-[480px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 rounded-xl">
 		<form onsubmit={handleCreate}>
 			<div class="px-5 pt-5 pb-4 space-y-4">
 				<div>
@@ -277,11 +278,11 @@
 </Dialog.Root>
 
 <Dialog.Root bind:open={showDeliveries}>
-	<Dialog.Content class="sm:max-w-[560px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 overflow-hidden rounded-xl">
+	<Dialog.Content class="settings-dialog sm:max-w-[560px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 rounded-xl">
 		<Dialog.Header class="px-5 pt-5">
 			<Dialog.Title class="text-base font-semibold text-[var(--color-text-primary)]">{m['settings.webhooks.deliveries']()}</Dialog.Title>
 			{#if deliveriesFor}
-				<Dialog.Description class="truncate text-xs text-[var(--color-text-tertiary)]">{deliveriesFor.url}</Dialog.Description>
+				<Dialog.Description class="wrap-anywhere text-xs text-[var(--color-text-tertiary)]">{deliveriesFor.url}</Dialog.Description>
 			{/if}
 		</Dialog.Header>
 		<div class="max-h-[60vh] overflow-y-auto px-5 pb-5">

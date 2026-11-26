@@ -610,6 +610,10 @@ async function mockApi(page: Page, theme: 'light' | 'dark') {
 			const wiki = rest.match(/^\/wiki(?:\/([^/]+))?(?:\/(versions|backlinks|publish))?$/);
 			if (wiki) return wikiResponse(json, wiki[1], wiki[2], true);
 		}
+		if (path === `${w}/ai-settings`) return json({
+			provider: 'openai_compatible', base_url: 'https://models.example.test/v1', model: 'workspace-model',
+			has_api_key: false, assistant_vision: false, description_expand_prompt: '', issue_copy_prompt: ''
+		});
 		if (path === `${w}/labels`) return json(labels);
 		if (path === `${w}/members`) return json(members);
 		if (path === `${w}/views`) return json(views);
@@ -1223,3 +1227,48 @@ for (const route of routes.filter(({ path }) => path.startsWith('/test/settings'
 		});
 	}
 }
+
+test('a long license list stays readable and scrolls to its last package at 390px', async ({ page }) => {
+	await page.setViewportSize(phone);
+	await mockApi(page, 'light');
+	await page.goto('/test/settings/licenses');
+	const content = page.getByTestId('settings-content');
+	const name = content.getByRole('link', { name: '@internationalized/date', exact: true }).first();
+	await expect(name).toBeVisible();
+	const readable = await name.evaluate((link) => {
+		const cell = link.parentElement!.getBoundingClientRect();
+		return [...link.getClientRects()].every((line) => line.right <= cell.right + 1);
+	});
+	expect(readable, 'package name stays inside its column').toBe(true);
+	const lastPackage = content.getByRole('link').last();
+	await lastPackage.scrollIntoViewIfNeeded();
+	await expect(lastPackage).toBeInViewport();
+	expect(await content.evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+	expect(await page.evaluate(() => window.scrollY)).toBe(0);
+	const search = content.getByRole('textbox', { name: 'Search package or license' });
+	await search.fill('no-such-package-for-this-test');
+	await expect(content.getByText('No results', { exact: true })).toBeVisible();
+	await search.fill('@internationalized/date');
+	await expect(name).toBeVisible();
+});
+
+test('label actions can be opened without hover at phone width', async ({ page }) => {
+	await page.setViewportSize(phone);
+	await mockApi(page, 'dark');
+	await page.goto('/test/settings/labels');
+	const action = page.getByRole('button', { name: 'Actions for Label 0', exact: true });
+	await expect(action).toBeVisible();
+	const bounds = await action.boundingBox();
+	expect(Math.min(bounds!.width, bounds!.height)).toBeGreaterThanOrEqual(44);
+	expect(await action.evaluate((el) => {
+		for (let node: Element | null = el; node; node = node.parentElement) {
+			if (getComputedStyle(node).opacity === '0') return false;
+		}
+		return true;
+	})).toBe(true);
+	await action.focus();
+	await page.keyboard.press('Enter');
+	await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
+	await page.keyboard.press('Escape');
+	await expect(action).toBeFocused();
+});

@@ -45,7 +45,7 @@
 </script>
 
 <Dialog.Root open onOpenChange={(open) => !open && onclose()}>
-	<Dialog.Content class="sm:max-w-lg">
+	<Dialog.Content class="settings-dialog sm:max-w-lg">
 		<form onsubmit={submit} class="space-y-4" data-testid="lesson-form">
 			<Dialog.Header>
 				<Dialog.Title>{title}</Dialog.Title>
