@@ -2749,6 +2749,54 @@ function openCodeRun() {
 	}));
 }
 
+for (const theme of ['light', 'dark'] as const) {
+	for (const width of [1280, 390]) {
+		test(`command exits and stderr at ${width}px in ${theme}`, async ({ page }, testInfo) => {
+			const { state } = await fixture(page);
+			state.task = runningTask({ provider: 'codex', model: 'gpt-5', state: 'awaiting_review' });
+			const command = (id: string, cmd: string, exit: number, output: string) => JSON.stringify({
+				type: 'item.completed',
+				item: { id, type: 'command_execution', command: cmd, exit_code: exit, status: 'failed', aggregated_output: output }
+			});
+			state.logs = [
+				['stderr', 'Reading additional input from stdin...'],
+				['stdout', command('search', 'cat EmptyState.svelte && rg --files | rg header', 1, '<slot />')],
+				['stderr', 'Using cached configuration.'],
+				['stdout', command('missing', 'ui-check --version', 127, 'ui-check: command not found')]
+			].map(([stream, content], i) => ({
+				id: i + 1, agent_run_id: 'run-1', stream, sequence: i + 1,
+				content: content + '\n', truncated: false, created_at: '2026-10-26T10:01:00Z'
+			}));
+			await page.route('**/api/preferences', (route) => route.fulfill({
+				json: { theme_mode: theme, light_theme: 'light', dark_theme: 'dark' }
+			}));
+			await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+			await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+			const session = page.getByRole('region', { name: 'Agent session' });
+			await expect(page.locator('html')).toHaveClass(new RegExp(theme));
+			const search = session.getByRole('button', { name: /^cat EmptyState.*exit 1$/ });
+			const missing = session.getByRole('button', { name: /^Failed: .*ui-check.*exit 127$/ });
+			await expect(session.getByText('Reading additional input from stdin...')).toHaveCount(0);
+			await expect(session.getByText('stderr', { exact: true })).toBeVisible();
+			await expect(session.locator('[data-status="error"]')).toHaveCount(1);
+			await expect(missing.locator('[data-status="error"]')).toBeVisible();
+			await unfold(missing);
+			await expect(session.locator('[data-variant="destructive"]')).toHaveText(/ui-check: command not found/);
+			await missing.click();
+			await search.focus();
+			await search.press('Enter');
+			await expect(search).toHaveAttribute('aria-expanded', 'true');
+			await expect(session.getByText('<slot />', { exact: true })).toBeVisible();
+			await expect(session.locator('[data-variant="destructive"]:visible')).toHaveCount(0);
+			await expect.poll(() => session.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+			await missing.scrollIntoViewIfNeeded();
+			await page.screenshot({ path: testInfo.outputPath(`command-exits-${width}-${theme}.png`), animations: 'disabled' });
+			await session.getByRole('button', { name: 'Raw', exact: true }).click();
+			await expect(session.getByText(/Reading additional input from stdin/)).toBeVisible();
+		});
+	}
+}
+
 test('an OpenCode run reads as a session: Markdown messages and one chip per tool call', async ({ page }) => {
 	const { state } = await fixture(page);
 	state.task = runningTask({ provider: 'opencode', model: 'opencode-go/example-model', state: 'awaiting_review' });

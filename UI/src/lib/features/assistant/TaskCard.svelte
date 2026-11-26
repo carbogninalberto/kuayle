@@ -1231,6 +1231,7 @@
 								<!-- The run as a readable session; its Raw toggle keeps the original output. -->
 								{#if outputOpen}<AgentTranscript
 										chunks={sessionLogs}
+										succeeded={selected?.status === 'succeeded'}
 										active={active && selectedRun === task.run_id}
 									/>{/if}
 							</Trace.CollapsibleContent>

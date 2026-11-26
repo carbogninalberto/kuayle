@@ -137,6 +137,15 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 		events: [] as any[]
 	};
 	const logs: Record<string, any[]> = {
+		'run-rev-1': [
+			{ type: 'turn.failed', error: { message: 'Temporary connection loss' } },
+			{ type: 'item.completed', item: {
+				type: 'command_execution', command: 'rg SearchBox', status: 'failed', exit_code: 1
+			} }
+		].map((value, i) => ({
+			id: i + 1, agent_run_id: 'run-rev-1', stream: 'stdout', sequence: i + 1, truncated: false,
+			content: JSON.stringify(value) + '\n', created_at: at(4)
+		})),
 		'run-impl-1': [text('Starting with the endpoint.'), text('Search is added and covered.')].map((value, i) => ({
 			id: i + 1,
 			agent_run_id: 'run-impl-1',
@@ -260,6 +269,12 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	await expect(verdictLine).toHaveAttribute('aria-expanded', 'true');
 	await expect(verdict).toContainText('Commit abc1234');
 	await page.screenshot({ path: testInfo.outputPath('task-room-desktop.png'), fullPage: true });
+
+	// A completed reviewer's turn uses the same neutral shell-exit presentation.
+	const reviewer = rows.nth(3).getByRole('article', { name: 'reviewer' });
+	await reviewer.getByRole('button').first().press('Enter');
+	await expect(reviewer.getByRole('button', { name: 'rg SearchBox exit 1' })).toBeVisible();
+	await expect(reviewer.locator('[data-status="error"]')).toHaveCount(0);
 
 	// The composer writes to the room: a say, sent once.
 	const composer = page.getByRole('textbox', { name: 'Write to the room' });
