@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
@@ -14,7 +15,7 @@
 	import * as Alert from '$lib/components/ui/alert';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
-	import { Check, Copy, Loader2, ShieldCheck, Trash2, TriangleAlert } from '@lucide/svelte';
+	import { Check, Copy, Loader2, Trash2, TriangleAlert } from '@lucide/svelte';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	let config = $state<SSOConfig | null>(null);
@@ -141,13 +142,8 @@
 	);
 </script>
 
-<div class="mx-auto w-full max-w-2xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
-	<div class="space-y-2">
-		<div class="flex items-center gap-2">
-			<ShieldCheck class="size-5 text-[var(--app-accent)]" aria-hidden="true" />
-			<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.nav.sso']()}</h1>
-		</div>
-	</div>
+<div class="settings-page mx-auto w-full max-w-2xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.nav.sso']()} />
 
 	{#if loading}
 		<div class="flex h-40 items-center justify-center text-[var(--color-text-tertiary)]">

@@ -91,7 +91,7 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Content class="sm:max-w-md">
+	<Dialog.Content class="settings-dialog sm:max-w-md">
 		<Dialog.Header>
 			<Dialog.Title>{m['avatar.title']()}</Dialog.Title>
 			<Dialog.Description>{m['avatar.description']()}</Dialog.Description>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
@@ -282,16 +283,16 @@
 
 </script>
 
-<div class="mx-auto max-w-3xl space-y-5 p-6">
-	<div><h1 class="text-lg font-semibold">{m['settings.dev_machines.title']()}</h1><p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.dev_machines.desc']()}</p></div>
+<div class="mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
+	<SettingsPageHeader title={m['settings.dev_machines.title']()} description={m['settings.dev_machines.desc']()} />
 	<Tabs.Root value={tab} onValueChange={selectTab} class="gap-5">
-		<Tabs.List>
+		<Tabs.List class="max-w-full flex-wrap group-data-horizontal/tabs:h-auto">
 			{#if !isGuest}<Tabs.Trigger value="machines">{m['settings.dev_machines.tab_machines']()}</Tabs.Trigger>{/if}
 			<Tabs.Trigger value="policy">{m['settings.dev_machines.tab_policy']()}</Tabs.Trigger>
 			{#if canAdmin}<Tabs.Trigger value="automations">{m['settings.dev_machines.tab_automations']()}</Tabs.Trigger>{/if}
 		</Tabs.List>
 		{#if !isGuest}<Tabs.Content value="machines"><MachineList {slug} {issueId} /></Tabs.Content>{/if}
-		<Tabs.Content value="policy">
+		<Tabs.Content value="policy" class="settings-page min-w-0">
 {#if loading}<LoadingState />
 {:else if failed || !policy}<ErrorState message={m['settings.dev_machines.unable_load']()} onretry={load} />
 {:else}
@@ -304,7 +305,7 @@
 			</Alert.Root>
 		{/if}
 		{#if !canAdmin}<p class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.admin_only']()}</p>{/if}
-		<fieldset disabled={!canAdmin} class="space-y-6">
+		<fieldset disabled={!canAdmin} class="min-w-0 space-y-6">
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 			<label class="flex items-center justify-between gap-4"><div><p class="text-sm font-medium">{m['settings.dev_machines.enable']()}</p><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.enable_desc']()}</p></div><Switch bind:checked={policy.enabled} /></label>
 			<div class="grid gap-4 sm:grid-cols-2">
@@ -344,8 +345,8 @@
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
-			<div class="flex items-start justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.environments']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.environments_desc']()}</p></div><Button type="button" variant="outline" onclick={openEnvironmentBuilder} disabled={builderBusy}>{m['settings.dev_machines.new_env']()}</Button></div>
-			{#if environments.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.no_envs']()}</p>{:else}<div class="space-y-2">{#each environments as environment}<div class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div class="min-w-0"><p class="truncate text-sm font-medium">{environment.name}</p><p class="truncate text-xs text-[var(--color-text-tertiary)]">{environment.image_ref}</p><p class="mt-1 text-[10px] capitalize text-[var(--color-text-tertiary)]">{environment.status.replaceAll('_', ' ')}</p></div><Button type="button" size="sm" variant="outline" disabled={environment.status === 'delete_requested'} onclick={() => { environmentToDelete = environment; environmentDeleteOpen = true; }}>{m['settings.dev_machines.delete']()}</Button></div>{/each}</div>{/if}
+			<div class="flex flex-wrap items-start justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.environments']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.environments_desc']()}</p></div><Button type="button" variant="outline" onclick={openEnvironmentBuilder} disabled={builderBusy}>{m['settings.dev_machines.new_env']()}</Button></div>
+			{#if environments.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.no_envs']()}</p>{:else}<div class="space-y-2">{#each environments as environment}<div class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div class="min-w-0"><p class="wrap-anywhere text-sm font-medium">{environment.name}</p><p class="wrap-anywhere text-xs text-[var(--color-text-tertiary)]">{environment.image_ref}</p><p class="mt-1 text-[10px] capitalize text-[var(--color-text-tertiary)]">{environment.status.replaceAll('_', ' ')}</p></div><Button type="button" size="sm" variant="outline" disabled={environment.status === 'delete_requested'} onclick={() => { environmentToDelete = environment; environmentDeleteOpen = true; }}>{m['settings.dev_machines.delete']()}</Button></div>{/each}</div>{/if}
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 			<div><h2 class="text-sm font-semibold">{m['settings.dev_machines.workspace_defaults']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.defaults_desc']()}</p></div>

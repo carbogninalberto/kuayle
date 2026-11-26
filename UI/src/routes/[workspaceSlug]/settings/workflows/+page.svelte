@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
@@ -112,29 +113,28 @@
 {:else if failed || !list}<ErrorState message={m['workflows.failed_load']()} onretry={load} />
 {:else}
 	{@const canManage = list.can_manage}
-	<div class="mx-auto max-w-3xl space-y-6 p-6">
-		<div class="flex flex-wrap items-start justify-between gap-3">
-			<div class="flex items-center gap-1">
-				<h1 class="text-lg font-semibold">{m['workflows.title']()}</h1>
+	<div class="settings-page mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+		<SettingsPageHeader title={m['workflows.title']()}>
+			{#snippet action()}
 				<Popover.Root>
-					<Popover.Trigger>
-						{#snippet child({ props })}<Button
-								{...props}
-								size="icon-sm"
-								variant="ghost"
-								class="text-muted-foreground"
-								aria-label={m['workflows.about']()}><Info /></Button
-							>{/snippet}
-					</Popover.Trigger>
-					<Popover.Content align="start" class="w-80 text-sm text-muted-foreground"
-						>{m['workflows.desc']()}</Popover.Content
-					>
-				</Popover.Root>
-			</div>
-			{#if canManage}<Button size="sm" onclick={() => (creating = true)} data-testid="workflow-new"
-					><Plus />{m['workflows.new']()}</Button
-				>{/if}
-		</div>
+						<Popover.Trigger>
+							{#snippet child({ props })}<Button
+									{...props}
+									size="icon-sm"
+									variant="ghost"
+									class="text-muted-foreground"
+									aria-label={m['workflows.about']()}><Info /></Button
+								>{/snippet}
+						</Popover.Trigger>
+						<Popover.Content align="start" class="w-80 text-sm text-muted-foreground"
+							>{m['workflows.desc']()}</Popover.Content
+						>
+					</Popover.Root>
+				{#if canManage}<Button size="sm" onclick={() => (creating = true)} data-testid="workflow-new"
+						><Plus />{m['workflows.new']()}</Button
+					>{/if}
+			{/snippet}
+		</SettingsPageHeader>
 		{#if !canManage}<p class="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
 				{m['workflows.member_note']()}
 			</p>{/if}
@@ -231,7 +231,7 @@
 {/if}
 
 <AlertDialog.Root open={!!deleting} onOpenChange={(open) => !open && (deleting = null)}>
-	<AlertDialog.Content>
+	<AlertDialog.Content class="max-h-[calc(100dvh-2rem)] overflow-y-auto wrap-anywhere">
 		<AlertDialog.Header>
 			<AlertDialog.Title
 				>{deleting?.builtin ? m['workflows.reset_title']() : m['workflows.delete_title']()}</AlertDialog.Title

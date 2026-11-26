@@ -84,7 +84,7 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
 	<SettingsPageHeader title={m['settings.labels.title']()}>
 		{#snippet action()}
 			<Button variant="plain" onclick={() => (showCreate = true)}
@@ -115,8 +115,8 @@
 						{/if}
 						<div class="rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 					{#each group.labels as label, i}
-						<div class="group flex items-center justify-between px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
-							<div class="flex items-center gap-3">
+						<div class="flex items-center justify-between gap-2 px-5 py-3.5 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
+							<div class="flex min-w-0 items-center gap-3 wrap-anywhere">
 								<div class="h-3.5 w-3.5 rounded-full shrink-0" style="background-color: {label.color}"></div>
 								<div>
 									<span class="text-sm text-[var(--color-text-primary)]">{label.name}</span>
@@ -125,24 +125,24 @@
 									{/if}
 								</div>
 							</div>
-							<div class="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+							<div class="shrink-0">
 								<Popover.Root open={menuOpenId === label.id} onOpenChange={(open) => { menuOpenId = open ? label.id : null; }}>
 									<Popover.Trigger>
 										{#snippet child({ props })}
-											<Button {...props} variant="ghost" size="icon-sm" class="h-7 w-7">
+											<Button {...props} variant="ghost" size="icon-sm" class="settings-action" aria-label={m['cycles.actions']({ name: label.name })}>
 												<MoreHorizontal size={14} />
 											</Button>
 										{/snippet}
 									</Popover.Trigger>
 									<Popover.Content class="w-36 p-1" align="end">
 										<Button variant="plain" onclick={() => openEdit(label)}
-											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
+											class="settings-action flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
 										>
 											<Pencil size={13} />
 											{m['settings.edit']()}
 										</Button>
 										<Button variant="plain" onclick={() => { menuOpenId = null; handleDelete(label.id); }}
-											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
+											class="settings-action flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-bg-hover)]"
 										>
 											<Trash2 size={13} />
 											{m['settings.delete']()}

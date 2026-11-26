@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import { onMount } from 'svelte';
 	import { AudioLines, Clock, Server, Trash2 } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -142,10 +143,9 @@
 	</span>
 {/snippet}
 
-<div class="mx-auto w-full max-w-2xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
+<div class="settings-page mx-auto w-full max-w-2xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
 	<div class="space-y-3">
-		<h1 class="text-2xl font-semibold">{m['voice.settings_title']()}</h1>
-		<p class="text-sm text-muted-foreground">{m['voice.settings_desc']()}</p>
+		<SettingsPageHeader title={m['voice.settings_title']()} description={m['voice.settings_desc']()} />
 		<ul class="flex flex-wrap gap-2 text-xs text-muted-foreground">
 			<li class="flex items-center gap-1.5 rounded-full border px-2.5 py-1">
 				<Server class="size-3.5" />{m['voice.fact_local']()}

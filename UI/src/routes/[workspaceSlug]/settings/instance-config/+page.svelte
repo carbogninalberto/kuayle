@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import { Search } from '@lucide/svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
@@ -135,12 +136,11 @@
 
 <PageTitle parts={[m['settings.instance_config.title'](), m['settings.title']()]} />
 
-<div class="mx-auto max-w-4xl space-y-6 px-5 py-10 sm:px-8">
-	<header class="space-y-1">
-		<h1 class="text-2xl font-semibold">{m['settings.instance_config.title']()}</h1>
-		<p class="text-sm text-muted-foreground">{m['settings.instance_config.intro']()}</p>
+<div class="settings-page mx-auto max-w-4xl space-y-6 px-5 py-10 sm:px-8">
+	<div class="space-y-1">
+		<SettingsPageHeader title={m['settings.instance_config.title']()} description={m['settings.instance_config.intro']()} />
 		<p class="text-sm text-muted-foreground">{m['settings.instance_config.restart_intro']()}</p>
-	</header>
+	</div>
 
 	{#if !admin}
 		<p>{m['settings.instance_config.denied']()}</p>

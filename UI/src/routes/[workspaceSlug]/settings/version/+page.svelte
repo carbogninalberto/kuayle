@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onDestroy, onMount } from 'svelte';
 	import { AlertTriangle, CircleCheck, CircleDashed, CircleX, ExternalLink, LoaderCircle, RefreshCw, ShieldCheck } from '@lucide/svelte';
@@ -130,19 +131,15 @@
 	}
 </script>
 
-<div class="mx-auto max-w-3xl px-8 py-10">
-	<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-		<div>
-			<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.version.title']()}</h1>
-			<p class="mt-1 text-sm text-[var(--color-text-tertiary)]">
-				{m['settings.version.desc']()}
-			</p>
-		</div>
-		<Button variant="outline" onclick={loadReleases} disabled={loadingReleases}>
-			<RefreshCw size={14} class={loadingReleases ? 'animate-spin' : ''} />
-			{loadingReleases ? m['settings.version.checking']() : m['settings.version.check_releases']()}
-		</Button>
-	</div>
+<div class="settings-page mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.version.title']()} description={m['settings.version.desc']()}>
+		{#snippet action()}
+			<Button variant="outline" onclick={loadReleases} disabled={loadingReleases}>
+				<RefreshCw size={14} class={loadingReleases ? 'animate-spin' : ''} />
+				{loadingReleases ? m['settings.version.checking']() : m['settings.version.check_releases']()}
+			</Button>
+		{/snippet}
+	</SettingsPageHeader>
 
 	<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<div class="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
@@ -343,7 +340,7 @@
 </div>
 
 <Dialog.Root bind:open={confirmOpen}>
-	<Dialog.Content class="sm:max-w-md border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+	<Dialog.Content class="settings-dialog sm:max-w-md border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<Dialog.Header>
 			<Dialog.Title>{m['settings.version.run_confirm']()}</Dialog.Title>
 			<Dialog.Description>

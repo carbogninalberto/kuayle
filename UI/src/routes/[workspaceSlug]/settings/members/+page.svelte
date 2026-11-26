@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import Avatar from '$lib/components/shared/Avatar.svelte';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
@@ -234,18 +235,19 @@
 	}
 </script>
 
-<div class="mx-auto max-w-3xl px-4 sm:px-8 py-10">
-	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.members.title']()}</h1>
-		{#if canManageMembers}
-		<Button variant="plain" onclick={() => openInvite('email')}
-			class="flex items-center gap-1.5 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
-		>
-			<UserPlus size={14} />
-			{m['settings.members.invite']()}
-		</Button>
-		{/if}
-	</div>
+<div class="settings-page mx-auto max-w-3xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.members.title']()}>
+		{#snippet action()}
+			{#if canManageMembers}
+			<Button variant="plain" onclick={() => openInvite('email')}
+				class="flex items-center gap-1.5 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			>
+				<UserPlus size={14} />
+				{m['settings.members.invite']()}
+			</Button>
+			{/if}
+		{/snippet}
+	</SettingsPageHeader>
 
 	<div class="mt-8">
 		{#if loading}
@@ -405,7 +407,7 @@
 <!-- Invite Dialog (email / invite link tabs) -->
 <Dialog.Root bind:open={showInvite}>
 	<Dialog.Content
-		class="sm:max-w-md"
+		class="settings-dialog sm:max-w-md"
 		showCloseButton={!linkSubmitting}
 		interactOutsideBehavior={linkSubmitting ? 'ignore' : 'close'}
 		escapeKeydownBehavior={linkSubmitting ? 'ignore' : 'close'}

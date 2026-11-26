@@ -28,7 +28,10 @@ description: Implement Kuayle application UI and reusable Svelte components usin
 
 Settings pages share [header, section, form row and empty state](../../../UI/src/lib/components/settings/index.ts)
 primitives. The form row passes control attributes to its snippet; spread them
-onto the input or trigger to associate its label, help and error.
+onto the input or trigger to associate its label, help and error. Use the
+`settings-page` class on Settings content for wrapping and 44px touch controls,
+`settings-action` for standalone row actions, and `settings-dialog` on tall
+Settings Dialog.Content panels. Size multi-column forms against their panel width.
 
 Use [SelectField](../../../UI/src/lib/components/shared/SelectField.svelte) for
 simple typed option lists. Forward trigger props through `child` snippets when
