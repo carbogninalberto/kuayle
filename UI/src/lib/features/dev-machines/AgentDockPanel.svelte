@@ -26,7 +26,7 @@
 	}
 </script>
 
-<div class="min-h-0 flex-1 overflow-y-auto" role="tabpanel" aria-label={m['tasks.agents']()}>
+<div class="mobile-touch-targets min-h-0 flex-1 overflow-y-auto" role="tabpanel" aria-label={m['tasks.agents']()}>
 	{#if items.length === 0}
 		<p class="p-4 text-sm text-muted-foreground">{m['tasks.agents_empty']()}</p>
 	{:else}

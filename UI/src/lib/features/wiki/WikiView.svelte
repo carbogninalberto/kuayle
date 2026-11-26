@@ -573,7 +573,7 @@
 		<div class="flex min-h-0 flex-1 flex-col md:flex-row">
 			<nav
 				aria-label={m['wiki.pages']()}
-				class="flex max-h-56 shrink-0 flex-col overflow-y-auto border-b border-[var(--app-border)] md:max-h-none md:w-60 md:border-r md:border-b-0"
+				class="flex max-h-56 shrink-0 flex-col overflow-hidden border-b border-[var(--app-border)] md:max-h-none md:w-60 md:border-r md:border-b-0"
 			>
 				<WikiTree
 					items={treeItems}
@@ -588,7 +588,7 @@
 
 				<!-- The registry is pinned under the page list, apart from the pages. -->
 				{#if registryEnabled || canWrite}
-					<div class="mt-auto border-t border-[var(--app-border)] p-2">
+					<div class="mt-auto shrink-0 border-t border-[var(--app-border)] p-2">
 						<div class="flex items-center gap-2">
 							{#if registryEnabled}
 								<a

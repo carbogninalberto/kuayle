@@ -218,7 +218,7 @@ for (const method of ['button', 'escape', 'close']) {
 test('logout closes an open notice without dismissal', async ({ page }) => {
 	const state = await setup(page, 'member');
 	await page.goto('/alpha/inbox');
-	await page.getByRole('button', { name: 'T', exact: true }).click();
+	await page.getByRole('button', { name: 'Test User', exact: true }).click();
 	state.roles.alpha = 'owner';
 	await refresh(page);
 	await expect(notice(page)).toBeVisible();
@@ -395,7 +395,7 @@ test('slow teams cannot restore an obsolete owner role in navigation', async ({ 
 	await page.evaluate(
 		() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
 	);
-	await expect(page.getByRole('button', { name: 'T', exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Test User', exact: true })).toBeVisible();
 	await expect(page.locator('a[href="/alpha/machines"]')).toHaveCount(0);
 	expect(await dismissed(page)).toBeNull();
 });
