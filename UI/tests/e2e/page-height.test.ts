@@ -1342,8 +1342,13 @@ test.describe('mobile workspace', () => {
 		await page.goto('/test/issue/ENG-1');
 		const next = page.getByTitle('Next issue (J)', { exact: true });
 		await expect(next).toBeVisible();
-		await expect(next).toBeInViewport({ ratio: 1 });
-		await expect(page.getByRole('main').getByText('ENG-1', { exact: true }).first()).toBeInViewport({ ratio: 1 });
+		const shell = page.getByTestId('shell-scroll');
+		for (const width of [390, 360]) {
+			await page.setViewportSize({ width, height: 740 });
+			await expect(next).toBeInViewport({ ratio: 1 });
+			await expect(shell.getByText('ENG-1', { exact: true }).first()).toBeInViewport({ ratio: 1 });
+			expect(await shell.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+		}
 		await page.screenshot({ path: testInfo.outputPath('issue-toolbar.png') });
 		const more = page.getByTitle('Issue actions');
 		await more.tap();
@@ -1397,4 +1402,28 @@ test.describe('mobile workspace', () => {
 		await expect(tabs.nth(1)).toBeFocused();
 		await expectNoPageScroll(page, { expectOverflow: false });
 	});
+});
+
+test('issue navigation stays reachable with the sidebar open at 800px', async ({ page }, testInfo) => {
+	await page.setViewportSize({ width: 800, height: 800 });
+	await page.addInitScript(() => localStorage.setItem('sidebar_width', '320'));
+	await mockApi(page, 'light');
+	await page.goto('/test/issue/ENG-1');
+	await expect(page.getByRole('link', { name: 'My Issues', exact: true })).toBeInViewport();
+	const shell = page.getByTestId('shell-scroll');
+	const project = shell.getByRole('link', { name: 'Project 0' });
+	const next = page.getByTitle('Next issue (J)', { exact: true });
+	const previous = page.getByTitle('Previous issue (K)', { exact: true });
+	await expect(next).toBeVisible();
+	await project.click({ trial: true });
+	for (const action of [previous, next]) {
+		await action.scrollIntoViewIfNeeded();
+		await expect(action).toBeInViewport({ ratio: 0.95 });
+		expect(await shell.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+	}
+	await page.screenshot({ path: testInfo.outputPath('issue-navigation-800.png') });
+	await next.click();
+	await expect(page).toHaveURL('/test/issue/ENG-2');
+	await previous.click();
+	await expect(page).toHaveURL('/test/issue/ENG-1');
 });

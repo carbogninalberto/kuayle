@@ -916,7 +916,7 @@
 >
 	<!-- Top bar — matches sidebar h-[49px] -->
 	<div class="flex min-h-[49px] shrink-0 items-center justify-between gap-2 max-md:flex-wrap max-md:gap-y-1 max-md:py-2 border-b border-[var(--app-border)] px-3 sm:px-4">
-		<div class="flex min-w-0 items-center gap-1.5 text-xs">
+		<div class="flex min-w-0 items-center gap-1.5 text-xs md:shrink-0">
 			<a
 				href="/{slug}/teams/{issue.team_id}"
 				class="shrink-0 text-[var(--color-text-tertiary)] transition-colors hover:text-[var(--color-text-primary)]"
@@ -929,7 +929,7 @@
 				<a href="/{slug}/projects/{issueProject.id}" class="ml-1 flex min-w-0 shrink-0 hover:opacity-80"><ProjectChip project={issueProject} /></a>
 			{/if}
 		</div>
-		<div class="flex max-w-full flex-wrap items-center gap-0.5 max-md:w-full max-md:[&_button>svg:only-child]:mx-auto max-md:[&_button]:min-h-9 max-md:[&_button]:min-w-9 md:flex-nowrap">
+		<div class="flex max-w-full flex-wrap items-center gap-0.5 max-md:w-full max-md:[&_button>svg:only-child]:mx-auto max-md:[&_button]:min-h-9 max-md:[&_button]:min-w-9 md:min-w-0 md:flex-nowrap md:overflow-x-auto">
 			<!-- Actions -->
 			<OpenIssueChatButton {slug} issueId={issue.id} class="mr-1" />
 			<Button variant="plain" onclick={toggleSubscription}

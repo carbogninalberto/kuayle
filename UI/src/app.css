@@ -754,7 +754,7 @@ html.pipboy :focus-visible {
 
 @utility mobile-touch-targets {
 	@media (width < 48rem) {
-		& :where(button, a[href], summary, input, [role="menuitem"]) {
+		& :where(button, a[href], summary, input:not([type="hidden"], [type="checkbox"], [type="radio"]), [role="menuitem"]) {
 			min-width: 44px;
 			min-height: 44px;
 		}
