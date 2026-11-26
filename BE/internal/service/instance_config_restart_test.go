@@ -68,7 +68,7 @@ func TestPlanValidatesWithoutStoringAnything(t *testing.T) {
 		"S3_CDN_BASE_URL", "ftp://cdn.example.com", // URL format
 		"ISSUE_DELETE_GRACE_PERIOD", "soon", // type
 		"JWT_SECRET", "x", // secret
-		"DATABASE_URL", "postgres://u:p@h/db", // connection string
+		"DATABASE_URL", "postgres://localhost/kuayle", // connection string
 		"OIDC_ALLOW_PRIVATE_NETWORK", "true", // SSRF guard
 		"WORKFLOW_PIPELINES_ENABLED", "false", // takes effect without a restart
 		"NOT_A_SETTING", "1",
