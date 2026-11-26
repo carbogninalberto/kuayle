@@ -40,7 +40,7 @@
 	aria-label={m['assistant.copy']()}
 	title={m['assistant.copy']()}
 	class={cn(
-		'absolute end-1 top-1 z-10 text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100 data-[copied]:opacity-100 pointer-coarse:opacity-100',
+		'message-copy absolute end-1 top-1 z-10 text-muted-foreground opacity-0 transition-opacity group-focus-within/message:opacity-100 group-hover/message:opacity-100 focus-visible:opacity-100 data-[copied]:opacity-100 pointer-coarse:opacity-100',
 		className
 	)}
 	onclick={() => void copy()}

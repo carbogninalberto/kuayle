@@ -1276,6 +1276,27 @@ test('label actions can be opened without hover at phone width', async ({ page }
 test.describe('mobile workspace', () => {
 	test.use({ viewport: { width: 360, height: 740 }, hasTouch: true });
 
+	test('the workspace picker keeps touch targets on a wide touchscreen', async ({ page }, testInfo) => {
+		await page.setViewportSize({ width: 1024, height: 768 });
+		await mockApi(page, 'light');
+		await page.goto('/test/my-issues');
+		await page.getByRole('button', { name: /Test Workspace/ }).tap();
+		const create = page.getByRole('button', { name: 'Create workspace', exact: true });
+		await expect(create).toBeInViewport();
+		await expect.poll(async () => {
+			const box = (await create.boundingBox())!;
+			return Math.min(box.width, box.height);
+		}).toBeGreaterThanOrEqual(44);
+		await page.screenshot({ path: testInfo.outputPath('workspace-picker-touch.png'), animations: 'disabled' });
+		await create.tap();
+		const dialog = page.getByRole('dialog', { name: 'Create workspace' });
+		const fields = dialog.getByRole('textbox');
+		await expect(fields).toHaveCount(2);
+		for (const input of await fields.all()) {
+			await expect.poll(async () => (await input.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+		}
+	});
+
 	test('shell controls have 44px hit areas in the header and drawer', async ({ page }, testInfo) => {
 		await mockApi(page, 'light');
 		await page.goto('/test/my-issues');

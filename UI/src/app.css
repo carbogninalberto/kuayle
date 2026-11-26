@@ -753,8 +753,12 @@ html.pipboy :focus-visible {
 }
 
 @utility mobile-touch-targets {
-	@media (width < 48rem) {
-		& :where(button, a[href], summary, input:not([type="hidden"], [type="checkbox"], [type="radio"]), [role="menuitem"]) {
+	@media (width < 48rem), (pointer: coarse) {
+		:is(&, & *):is(
+			button, a[href], a[aria-haspopup], summary,
+			input:not([type="hidden"], [type="checkbox"], [type="radio"]),
+			[data-slot="button"], [data-slot="select-trigger"], [role="combobox"], [role^="menuitem"]
+		) {
 			min-width: 44px;
 			min-height: 44px;
 		}
@@ -770,6 +774,60 @@ html.pipboy :focus-visible {
 	.settings-action {
 		min-width: 44px;
 		min-height: 44px;
+	}
+	/* Match the important padding utility's layer so this more specific rule reserves space for Copy. */
+	@layer utilities {
+		.assistant-surface [data-slot="bubble"]:has(.message-copy) > [data-slot="bubble-content"] {
+			min-height: 52px;
+			padding-inline-end: 52px !important;
+		}
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.assistant-surface,
+	.assistant-surface *,
+	.mobile-touch-targets[data-slot="dropdown-menu-content"],
+	.workflow-canvas * {
+		animation: none !important;
+		transition: none !important;
+	}
+}
+
+@media (width < 48rem), (pointer: coarse) {
+	.workflow-tools-layout {
+		display: flex;
+		flex-direction: column;
+	}
+	.workflow-tools-layout > .workflow-canvas,
+	.workflow-tools-layout > [data-slot="context-menu-trigger"] {
+		min-height: 0;
+		flex: 1;
+	}
+	.workflow-tools-layout > [role="toolbar"] {
+		position: static;
+		translate: none;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 4px;
+		border-radius: 0;
+		background: var(--background);
+		box-shadow: none;
+	}
+}
+
+/* Two rows keep Add, Undo and Redo together when all seven targets cannot fit. */
+@media (width <= 420px) {
+	.workflow-tools-layout > .workflow-editor-tools {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(44px, 1fr));
+		justify-items: stretch;
+	}
+	.workflow-editor-tools > button {
+		width: auto;
+	}
+	.workflow-editor-tools > button:first-of-type {
+		grid-column: span 2;
 	}
 }
 

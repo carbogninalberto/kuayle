@@ -605,7 +605,7 @@
 		)}
 	>
 		<div
-			class="relative min-h-0 bg-muted/30"
+			class="workflow-tools-layout relative min-h-0 bg-muted/30"
 			data-testid="workflow-canvas-area"
 			bind:this={canvasArea}
 		>
@@ -758,10 +758,10 @@
 					</ContextMenu.Content>
 				</ContextMenu.Root>
 
-				<!-- The editing toolbar floats over the canvas. -->
+				<!-- On touch screens the toolbar has its own row outside the pan surface. -->
 				<Tooltip.Provider delayDuration={300}>
 					<div
-						class="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur"
+						class="workflow-editor-tools mobile-touch-targets absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-xl border bg-background/95 p-1 shadow-lg backdrop-blur"
 						role="toolbar"
 						aria-label={m['workflows.editor.toolbar']()}
 						data-testid="workflow-toolbar"
@@ -772,7 +772,7 @@
 										><Plus />{m['workflows.editor.palette']()}</Button
 									>{/snippet}
 							</DropdownMenu.Trigger>
-							<DropdownMenu.Content side="top" align="start" class="w-72">
+							<DropdownMenu.Content side="top" align="start" class="mobile-touch-targets w-72">
 								{#each BLOCKS as type (type)}
 									{@const Icon = blockIcon(type)}
 									<DropdownMenu.Item onclick={() => addAt(type)} class="gap-3 py-2" data-testid="workflow-add-{type}">
@@ -787,7 +787,7 @@
 								{/each}
 							</DropdownMenu.Content>
 						</DropdownMenu.Root>
-						<span class="mx-1 h-5 w-px bg-border"></span>
+						<span class="mx-1 h-5 w-px bg-border max-md:hidden pointer-coarse:hidden"></span>
 						{#snippet tool(label: string, Icon: typeof Plus, action: () => void, disabled = false, shortcut = '', testid = '')}
 							<Tooltip.Root>
 								<Tooltip.Trigger>
@@ -808,7 +808,7 @@
 						{/snippet}
 						{@render tool(m['workflows.editor.undo'](), Undo2, undo, past.length === 0, '⌘Z')}
 						{@render tool(m['workflows.editor.redo'](), Redo2, redo, future.length === 0, '⇧⌘Z')}
-						<span class="mx-1 h-5 w-px bg-border"></span>
+						<span class="mx-1 h-5 w-px bg-border max-md:hidden pointer-coarse:hidden"></span>
 						{@render tool(m['workflows.editor.tidy'](), StretchHorizontal, () => void arrange(), false, '', 'workflow-arrange')}
 						{@render tool(m['workflows.editor.zoom_out'](), ZoomOut, () => flow?.zoomOut())}
 						{@render tool(m['workflows.editor.zoom_in'](), ZoomIn, () => flow?.zoomIn())}

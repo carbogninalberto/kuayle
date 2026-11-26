@@ -318,6 +318,64 @@ const options: Record<string, string> = {
 	blank: 'Blank'
 };
 
+test.describe('touch workflow editor', () => {
+	test.use({ hasTouch: true, viewport: { width: 360, height: 800 }, contextOptions: { reducedMotion: 'reduce' } });
+
+	test('toolbar leaves graph gestures and nearby port and edge taps independent', async ({ page }, testInfo) => {
+		const graph = { nodes: templates.standard.nodes.slice(0, 2), edges: [], budget: {} };
+		await mockSettings(page, { legacy: graph });
+		await page.goto('/test/settings/workflows/legacy');
+		const canvas = page.getByRole('region', { name: 'Workflow canvas' });
+		const toolbar = page.getByTestId('workflow-toolbar');
+		const start = canvas.getByTestId('workflow-node-start');
+		await expect(start).toBeVisible();
+		const frame = (await canvas.boundingBox())!;
+		const tools = (await toolbar.boundingBox())!;
+		expect(tools.y).toBeGreaterThanOrEqual(frame.y + frame.height - 1);
+		const buttons = await toolbar.getByRole('button').all();
+		const boxes = await Promise.all(buttons.map(async b => (await b.boundingBox())!));
+		for (const [index, box] of boxes.entries()) {
+			expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+			expect(box.x).toBeGreaterThanOrEqual(0);
+			expect(box.x + box.width).toBeLessThanOrEqual(360);
+			expect(boxes.slice(index + 1).some(other => touching(box, other))).toBe(false);
+		}
+		const before = await start.boundingBox();
+		await toolbar.getByTestId('workflow-add-step').tap();
+		const menu = page.getByRole('menu');
+		await expect(menu).toHaveCSS('animation-name', 'none');
+		await page.keyboard.press('Escape');
+		await expect(menu).toBeHidden();
+		expect(await start.boundingBox()).toEqual(before);
+		const port = canvas.locator('.svelte-flow__handle-right[data-nodeid="start"]');
+		const dot = (await port.boundingBox())!;
+		await page.touchscreen.tap(dot.x + dot.width / 2, dot.y + dot.height / 2 + 9);
+		const target = (await canvas.locator('.svelte-flow__handle-left[data-nodeid="implement"]').boundingBox())!;
+		await page.touchscreen.tap(target.x + target.width / 2, target.y + target.height / 2 + 9);
+		const connected = canvas.locator('.svelte-flow__edge');
+		await expect(connected).toHaveCount(1);
+		await canvas.tap({ position: { x: 12, y: 12 } });
+		await expect(connected).not.toHaveClass(/selected/);
+		const hit = await connected.locator('.svelte-flow__edge-path').evaluate((el: SVGPathElement) => {
+			const point = el.getPointAtLength(el.getTotalLength() * 0.6).matrixTransform(el.getScreenCTM()!);
+			return { x: point.x, y: point.y + 9 };
+		});
+		await page.touchscreen.tap(hit.x, hit.y);
+		await expect(connected).toHaveClass(/selected/);
+		await page.screenshot({ path: testInfo.outputPath('mobile-workflow.png'), animations: 'disabled' });
+
+		// With reduced motion the zoom is complete by the next painted frame.
+		const ratio = await toolbar.getByRole('button', { name: 'Zoom in', exact: true }).evaluate(async button => {
+			const node = document.querySelector('[data-testid="workflow-node-start"]')!;
+			const before = node.getBoundingClientRect().width;
+			(button as HTMLButtonElement).click();
+			await new Promise(requestAnimationFrame);
+			return node.getBoundingClientRect().width / before;
+		});
+		expect(ratio).toBeCloseTo(1.2, 2);
+	});
+});
+
 for (const size of sizes) {
 	test.describe(`${size.name} width`, () => {
 		test.use({ viewport: { width: size.width, height: size.height } });
@@ -705,7 +763,7 @@ async function animationsEnd(element: Locator) {
 
 // Whether the step is wholly inside the chart.
 async function inView(chart: Locator, id: string) {
-	const frame = (await chart.boundingBox())!;
+	const frame = (await chart.getByRole('region').boundingBox())!;
 	const box = await nodeBox(chart, id);
 	return (
 		box.x >= frame.x &&
@@ -717,7 +775,7 @@ async function inView(chart: Locator, id: string) {
 
 // How far the step's centre is from the chart's.
 async function offCentre(chart: Locator, id: string) {
-	const frame = (await chart.boundingBox())!;
+	const frame = (await chart.getByRole('region').boundingBox())!;
 	const box = await nodeBox(chart, id);
 	return Math.hypot(
 		box.x + box.width / 2 - (frame.x + frame.width / 2),
@@ -725,12 +783,12 @@ async function offCentre(chart: Locator, id: string) {
 	);
 }
 
-// Drags the chart's background sideways across most of its width (1: to the
+// Drags half a viewport so repeated gestures cannot skip past a visible step (1: to the
 // right, showing what is left of the view; -1: to the left).
 async function drag(page: Page, chart: Locator, direction: 1 | -1) {
-	const frame = (await chart.boundingBox())!;
+	const frame = (await chart.getByRole('region').boundingBox())!;
 	const y = frame.y + frame.height - 12;
-	const [from, to] = [frame.x + 24, frame.x + frame.width - 24];
+	const [from, to] = [frame.x + frame.width / 4, frame.x + frame.width * 3 / 4];
 	await page.mouse.move(direction === 1 ? from : to, y);
 	await page.mouse.down();
 	await page.mouse.move(direction === 1 ? to : from, y, { steps: 8 });
@@ -932,6 +990,7 @@ test('a task finished by merging shows its completed workflow path', async ({ pa
 // another approval does not.
 for (const shipMerge of [true, false]) {
 	test(`an approval ${shipMerge ? 'that ships says it merges' : 'that does not ship says nothing of a merge'}`, async ({ page }) => {
+		await page.setViewportSize({ width: 390, height: 844 });
 		await mockTask(page, { at: 'ship', decide: true, shipMerge });
 		await page.goto('/test/assistant?conversation=chat-1');
 		await expect(page.getByTestId('panel-toggle')).toBeVisible();
@@ -940,7 +999,10 @@ for (const shipMerge of [true, false]) {
 		await expect(view).toBeVisible();
 		const decision = view.getByTestId('task-workflow-decision');
 		await expect(decision).toContainText('Waiting for an approval: Ready to ship');
-		await expect(decision.getByRole('button', { name: 'Approve', exact: true })).toBeVisible();
+		const approve = decision.getByRole('button', { name: 'Approve', exact: true });
+		await expect(approve).toBeVisible();
+		const box = (await approve.boundingBox())!;
+		expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
 		const note = decision.getByTestId('task-workflow-ship-merge');
 		if (shipMerge)
 			await expect(note).toHaveText(

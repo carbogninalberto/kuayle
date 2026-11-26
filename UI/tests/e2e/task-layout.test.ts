@@ -669,8 +669,9 @@ test('the side panel names its open tab and its tabs fit at any width', async ({
 	const sheetTabs = sheet.getByRole('toolbar', { name: 'Side panels' });
 	await expect(sheetTabs.getByRole('button', { pressed: true })).toHaveAccessibleName('Checks');
 	await expect(sheetTabs.getByRole('button')).toHaveCount(allPanels.length);
-	await expect
-		.poll(() => sheetTabs.getByRole('button').evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width > 40)))
-		.toEqual(allPanels.map(() => false));
+	for (const button of await sheetTabs.getByRole('button').all()) {
+		const box = (await button.boundingBox())!;
+		expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+	}
 	expect(await sheetTabs.evaluate((toolbar) => toolbar.scrollWidth <= toolbar.clientWidth)).toBe(true);
 });

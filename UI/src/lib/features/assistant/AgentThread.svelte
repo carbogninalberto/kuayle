@@ -313,8 +313,9 @@
 	class="flex min-w-0 flex-col gap-3"
 	data-testid="agent-thread"
 >
-	<header class="@container sticky top-0 z-10 border-b bg-background py-1.5" data-testid="agent-thread-header">
-		<div class="flex min-w-0 items-center gap-1.5 @min-[36rem]:gap-2">
+	<header class="@container sticky top-0 z-20 flex flex-col" data-testid="agent-thread-header">
+		<!-- The touch row can use 4px of the gap below the sticky header. -->
+		<div class="mobile-touch-targets flex min-w-0 items-center gap-1.5 border-b bg-background py-1.5 max-md:-mb-1 max-md:py-0 pointer-coarse:-mb-1 pointer-coarse:py-0 @min-[36rem]:gap-2">
 			<Breadcrumb.Root class="shrink-0" aria-label={m['assistant.agent_view_breadcrumb']()}>
 				<Breadcrumb.List class="flex-nowrap gap-1 text-xs">
 					<Breadcrumb.Item>
@@ -338,14 +339,15 @@
 					</Breadcrumb.Item>
 				</Breadcrumb.List>
 			</Breadcrumb.Root>
-			<div class="flex min-w-0 flex-1 items-center gap-1">
-				<p class="min-w-0 flex-1 truncate text-sm font-medium">{task.prompt.split('\n', 1)[0]}</p>
-				<Collapsible.Trigger
-					class="group inline-flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
-					aria-label={detailsOpen ? m['tasks.transcript_show_less']() : m['sharedComponents.create_issue.expand']()}
-					title={m['tasks.details']()}
-				><ChevronDown size={14} aria-hidden="true" class="transition-transform group-aria-expanded:rotate-180 motion-reduce:transition-none" /></Collapsible.Trigger>
-			</div>
+			<Collapsible.Trigger
+				class="group flex h-7 min-w-0 flex-auto cursor-pointer items-center gap-1 rounded-md text-start outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+				aria-label={detailsOpen ? m['tasks.transcript_show_less']() : m['sharedComponents.create_issue.expand']()}
+				aria-describedby="thread-title-{task.id}"
+				title={m['tasks.details']()}
+			>
+				<span id="thread-title-{task.id}" class="min-w-0 flex-1 truncate text-sm font-medium">{task.prompt.split('\n', 1)[0]}</span>
+				<ChevronDown size={14} aria-hidden="true" class="mx-1.5 shrink-0 text-muted-foreground transition-transform group-aria-expanded:rotate-180 motion-reduce:transition-none" />
+			</Collapsible.Trigger>
 			{#if working}{@const text = m['tasks.working_count']({ count: working })}<span
 					class="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--status-running)] tabular-nums"
 					title={text}
@@ -354,7 +356,7 @@
 						class="sr-only @min-[30rem]:not-sr-only">{text}</span
 					></span
 				>{/if}
-			<Badge variant="outline" class="max-w-28 shrink-0 @min-[36rem]:max-w-52 {toneBadge[tone]}" title={stateText} role="status"
+			<Badge variant="outline" class="min-w-0 max-w-28 shrink @min-[36rem]:max-w-52 {toneBadge[tone]}" title={stateText} role="status"
 				><span class="truncate">{stateText}</span></Badge
 			>
 			<div class="flex shrink-0 items-center gap-0.5 @min-[36rem]:gap-1">
@@ -386,7 +388,7 @@
 	</section>
 
 	{#if filterable}<div
-			class="flex min-w-0 flex-wrap items-center gap-1.5"
+			class="mobile-touch-targets flex min-w-0 flex-wrap items-center gap-1.5"
 			role="group"
 			aria-label={m['tasks.filter_label']()}
 			data-testid="thread-filters"
@@ -423,12 +425,12 @@
 		</ol>
 		{#if filtered && stepRows.length && !shownSteps.length}<div class="flex flex-wrap items-center gap-2" role="status">
 				<p class="text-sm text-muted-foreground">{m['tasks.filter_empty']()}</p>
-				<Button variant="ghost" size="sm" onclick={resetFilter}>{m['tasks.filter_reset']()}</Button>
+				<Button class="mobile-touch-targets" variant="ghost" size="sm" onclick={resetFilter}>{m['tasks.filter_reset']()}</Button>
 			</div>{/if}{/if}
 	{#if run.failed}<div class="flex flex-wrap items-center gap-2">
 			<p role="alert" class="text-sm text-destructive">
 				{run.followsWorkflow ? m['workflows.task.load_failed']() : m['tasks.load_error']()}
 			</p>
-			<Button variant="ghost" size="sm" onclick={() => void run.load()}><RefreshCw />{m['tasks.refresh']()}</Button>
+			<Button class="mobile-touch-targets" variant="ghost" size="sm" onclick={() => void run.load()}><RefreshCw />{m['tasks.refresh']()}</Button>
 		</div>{/if}
 </Collapsible.Root>

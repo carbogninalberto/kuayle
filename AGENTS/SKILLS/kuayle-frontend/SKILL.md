@@ -32,6 +32,7 @@ onto the input or trigger to associate its label, help and error. Use the
 `settings-page` class on Settings content for wrapping and 44px touch controls,
 `settings-action` for standalone row actions, and `settings-dialog` on tall
 Settings Dialog.Content panels. Size multi-column forms against their panel width.
+Apply `mobile-touch-targets` to a control or control group, including portalled menu content, for 44px minimum targets below 48rem or on a coarse primary pointer.
 
 Use [SelectField](../../../UI/src/lib/components/shared/SelectField.svelte) for
 simple typed option lists. Forward trigger props through `child` snippets when

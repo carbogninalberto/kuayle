@@ -445,7 +445,7 @@
 	}
 </script>
 
-<div class="shrink-0 px-3 pt-1 pb-3 md:px-6 md:pb-4" data-testid={toAgent ? 'agent-composer' : 'assistant-composer'}>
+<div class="mobile-touch-targets shrink-0 px-3 pt-1 pb-[calc(0.75rem+env(safe-area-inset-bottom))] max-md:max-h-[calc(100%-3rem)] max-md:overflow-y-auto md:px-6 md:pb-[calc(1rem+env(safe-area-inset-bottom))]" data-testid={toAgent ? 'agent-composer' : 'assistant-composer'}>
 	<div class="mx-auto w-full {wide ? '' : 'max-w-3xl'}">
 		{#if error || chat.failed}<p role="alert" class="mb-2 text-sm text-destructive">
 				{error || m['assistant.error']()}
@@ -585,7 +585,7 @@
 						attachments.add(files);
 					}}
 				/>
-				<InputGroup.Addon align="block-end" class="justify-between gap-2">
+				<InputGroup.Addon align="block-end" class="justify-between gap-2 max-md:flex-wrap pointer-coarse:flex-wrap">
 					<div class="flex min-w-0 items-center gap-1">
 						{#if room && targetTask}
 							{#key targetTask.id}
@@ -618,7 +618,7 @@
 										>
 									{/snippet}
 								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="start" class="w-64">
+								<DropdownMenu.Content align="start" class="mobile-touch-targets w-64">
 									<DropdownMenu.Label class="text-xs font-normal text-muted-foreground"
 										>{m['assistant.target_heading']()}</DropdownMenu.Label
 									>
@@ -643,7 +643,7 @@
 							>
 						{/if}
 					</div>
-					<div class="flex shrink-0 items-center gap-1">
+					<div class="ms-auto flex max-w-full shrink-0 flex-wrap justify-end items-center gap-1">
 						<ComposerContext {chat} />
 						<ComposerVoice
 							{slug}
