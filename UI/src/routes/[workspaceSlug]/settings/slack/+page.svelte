@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { slack, slackInstallKey, type SlackStatus, type SlackChannel } from '$lib/api/slack';
@@ -103,8 +104,8 @@
 </script>
 
 <PageTitle parts={['Slack', m['settings.title']()]} />
-<div class="mx-auto max-w-3xl space-y-6 p-6">
-	<h2 class="text-lg font-semibold">Slack</h2>
+<div class="settings-page mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+	<SettingsPageHeader title="Slack" />
 	{#if denied}
 		<p>{m['slack.no_access']()}</p>
 	{:else if status?.install}

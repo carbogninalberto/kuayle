@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
-	import { MessagesSquare, RefreshCw, CirclePlay, X } from '@lucide/svelte';
+	import { RefreshCw, CirclePlay, X } from '@lucide/svelte';
 	import LoadingState from '$lib/components/shared/LoadingState.svelte';
 	import ErrorState from '$lib/components/shared/ErrorState.svelte';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
@@ -120,17 +121,14 @@
 	}
 </script>
 
-<div class="mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
-	<div class="flex items-start gap-3">
-		<MessagesSquare class="mt-1 shrink-0 text-muted-foreground" size={18} aria-hidden="true" />
-		<div class="min-w-0 flex-1">
-			<h1 class="text-lg font-semibold">{m['agent_messages.title']()}</h1>
-			<p class="mt-1 text-sm text-muted-foreground">{m['agent_messages.description']()}</p>
-		</div>
-		<Button variant="ghost" size="icon-sm" aria-label={m['agent_messages.refresh']()} onclick={() => void load()}
-			><RefreshCw /></Button
-		>
-	</div>
+<div class="settings-page mx-auto max-w-3xl space-y-4 p-4 sm:p-6">
+	<SettingsPageHeader title={m['agent_messages.title']()} description={m['agent_messages.description']()}>
+		{#snippet action()}
+			<Button variant="ghost" size="icon-sm" aria-label={m['agent_messages.refresh']()} onclick={() => void load()}
+				><RefreshCw /></Button
+			>
+		{/snippet}
+	</SettingsPageHeader>
 
 	{#if holds.length}<section aria-label={m['agent_messages.held_conversations']()} class="space-y-1.5">
 			<h2 class="text-xs font-medium text-muted-foreground">{m['agent_messages.held_conversations']()}</h2>

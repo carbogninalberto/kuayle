@@ -92,7 +92,7 @@ test('an owner sees the webhook URL, links repositories and can remove a connect
 
 	const gitlab = page.locator('section').filter({ hasText: 'gitlab.example.com' });
 	page.once('dialog', (dialog) => dialog.accept());
-	await gitlab.getByRole('button', { name: 'Delete' }).click();
+	await gitlab.getByRole('button', { name: 'Delete', exact: true }).click();
 	await expect(gitlab).toHaveCount(0);
 	expect(calls).toContain(`DELETE /api/workspaces/test/forges/connections/${connectionId}`);
 });
@@ -105,4 +105,20 @@ test('a member sees the admin-only note and cannot load or change forge connecti
 	await expect(page.getByText('Only workspace owners can configure forge connections.')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Add connection' })).toHaveCount(0);
 	expect(calls.filter((call) => call.includes('/forges/'))).toEqual([]);
+});
+
+test('forge URLs wrap and repository fields fit beside the Settings sidebar', async ({ page }) => {
+	await mockApi(page, 'owner', []);
+	await page.setViewportSize({ width: 768, height: 844 });
+	await page.goto('/test/settings/forges');
+	const webhook = page.getByText(`https://kuayle.test/api/forges/webhook/${connectionId}`);
+	const form = page.locator('form').filter({ has: page.getByRole('button', { name: 'Link', exact: true }) });
+	await expect(form).toBeVisible();
+	for (const width of [768, 390]) {
+		await page.setViewportSize({ width, height: 844 });
+		expect(await webhook.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+		for (const input of await form.locator('input').all()) {
+			expect((await input.boundingBox())!.width).toBeGreaterThan(100);
+		}
+	}
 });

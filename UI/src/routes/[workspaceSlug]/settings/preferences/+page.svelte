@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsFormRow, SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { onMount } from 'svelte';
@@ -265,88 +266,82 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
-	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['prefs.title']()}</h1>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['prefs.title']()} />
 
 	<!-- Interface and theme -->
 	<!-- Language -->
 	<div class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-		<div class="flex items-center justify-between px-5 py-4">
-			<div>
-				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['prefs.language']()}</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">{m['prefs.language_desc']()}</p>
-			</div>
-			<Select.Root
-				type="single"
-				value={getLocale()}
-				onValueChange={(v) => {
-					if (v) setLocale(v as (typeof locales)[number]);
-				}}
-			>
-				<Select.Trigger size="sm" class="w-[190px]">
-					{localeLabel(getLocale())}
-				</Select.Trigger>
-				<Select.Content>
-					{#each locales as locale}
-						<Select.Item value={locale}>{localeLabel(locale)}</Select.Item>
-					{/each}
-				</Select.Content>
-			</Select.Root>
-		</div>
+		<SettingsFormRow class="px-5 py-4" label={m['prefs.language']()} help={m['prefs.language_desc']()}>
+			{#snippet control(props)}
+				<Select.Root
+					type="single"
+					value={getLocale()}
+					onValueChange={(v) => {
+						if (v) setLocale(v as (typeof locales)[number]);
+					}}
+				>
+					<Select.Trigger {...props} size="sm" class="w-full">
+						{localeLabel(getLocale())}
+					</Select.Trigger>
+					<Select.Content>
+						{#each locales as locale}
+							<Select.Item value={locale}>{localeLabel(locale)}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			{/snippet}
+		</SettingsFormRow>
 
 		<div class="border-t border-[var(--app-border)]"></div>
 
 		<!-- Timezone -->
-		<div class="flex items-center justify-between px-5 py-4">
-			<div>
-				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['prefs.timezone']()}</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">{m['prefs.timezone_desc']()}</p>
-			</div>
-			<Select.Root
-				type="single"
-				value={preferencesState.timezone || 'UTC'}
-				onValueChange={(v) => {
-					if (v) preferencesState.setTimezone(v);
-				}}
-			>
-				<Select.Trigger size="sm" class="w-[190px]" aria-label={m['prefs.timezone']()}>
-					{preferencesState.timezone || 'UTC'}
-				</Select.Trigger>
-				<Select.Content>
-					{#each timezoneOptions as zone (zone)}
-						<Select.Item value={zone}>{zone}</Select.Item>
-					{/each}
-				</Select.Content>
-			</Select.Root>
-		</div>
+		<SettingsFormRow class="px-5 py-4" label={m['prefs.timezone']()} help={m['prefs.timezone_desc']()}>
+			{#snippet control(props)}
+				<Select.Root
+					type="single"
+					value={preferencesState.timezone || 'UTC'}
+					onValueChange={(v) => {
+						if (v) preferencesState.setTimezone(v);
+					}}
+				>
+					<Select.Trigger {...props} size="sm" class="w-full">
+						{preferencesState.timezone || 'UTC'}
+					</Select.Trigger>
+					<Select.Content>
+						{#each timezoneOptions as zone (zone)}
+							<Select.Item value={zone}>{zone}</Select.Item>
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			{/snippet}
+		</SettingsFormRow>
 	</div>
 
 	<h2 class="mt-8 text-sm font-medium text-[var(--color-text-secondary)]">{m['prefs.interface_theme']()}</h2>
 
 	<div class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<!-- Font size -->
-		<div class="flex items-center justify-between px-5 py-4">
-			<div>
-				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['prefs.font_size']()}</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">{m['prefs.font_size_desc']()}</p>
-			</div>
-			<Select.Root
-				type="single"
-				value={preferencesState.fontSize}
-				onValueChange={(v) => {
-					if (v) preferencesState.setFontSize(v as 'small' | 'default' | 'large');
-				}}
-			>
-				<Select.Trigger size="sm" class="w-[130px]">
-					{fontSizeLabels[preferencesState.fontSize]}
-				</Select.Trigger>
-				<Select.Content>
-					<Select.Item value="small">{m['prefs.font_size.small']()}</Select.Item>
-					<Select.Item value="default">{m['prefs.font_size.default']()}</Select.Item>
-					<Select.Item value="large">{m['prefs.font_size.large']()}</Select.Item>
-				</Select.Content>
-			</Select.Root>
-		</div>
+		<SettingsFormRow class="px-5 py-4" label={m['prefs.font_size']()} help={m['prefs.font_size_desc']()}>
+			{#snippet control(props)}
+				<Select.Root
+					type="single"
+					value={preferencesState.fontSize}
+					onValueChange={(v) => {
+						if (v) preferencesState.setFontSize(v as 'small' | 'default' | 'large');
+					}}
+				>
+					<Select.Trigger {...props} size="sm" class="w-full">
+						{fontSizeLabels[preferencesState.fontSize]}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="small">{m['prefs.font_size.small']()}</Select.Item>
+						<Select.Item value="default">{m['prefs.font_size.default']()}</Select.Item>
+						<Select.Item value="large">{m['prefs.font_size.large']()}</Select.Item>
+					</Select.Content>
+				</Select.Root>
+			{/snippet}
+		</SettingsFormRow>
 
 		<div class="border-t border-[var(--app-border)]"></div>
 
@@ -395,58 +390,54 @@
 		<div class="border-t border-[var(--app-border)]"></div>
 
 		<!-- Light theme variant -->
-		<div class="flex items-center justify-between px-5 py-4">
-			<div>
-				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['prefs.light_theme']()}</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">{m['prefs.light_theme_desc']()}</p>
-			</div>
-			<Select.Root
-				type="single"
-				value={preferencesState.lightTheme}
-				onValueChange={(v) => {
-					if (v) preferencesState.setLightTheme(v as 'light' | 'rose-light' | 'blue-light');
-				}}
-			>
-				<Select.Trigger size="sm" class="w-[130px]">
-					{lightThemeLabels[preferencesState.lightTheme]}
-				</Select.Trigger>
-				<Select.Content>
-					<Select.Item value="light">{m['prefs.theme.light']()}</Select.Item>
-					<Select.Item value="rose-light">{m['prefs.theme.rose_light']()}</Select.Item>
-					<Select.Item value="blue-light">{m['prefs.theme.blue_light']()}</Select.Item>
-				</Select.Content>
-			</Select.Root>
-		</div>
+		<SettingsFormRow class="px-5 py-4" label={m['prefs.light_theme']()} help={m['prefs.light_theme_desc']()}>
+			{#snippet control(props)}
+				<Select.Root
+					type="single"
+					value={preferencesState.lightTheme}
+					onValueChange={(v) => {
+						if (v) preferencesState.setLightTheme(v as 'light' | 'rose-light' | 'blue-light');
+					}}
+				>
+					<Select.Trigger {...props} size="sm" class="w-full">
+						{lightThemeLabels[preferencesState.lightTheme]}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="light">{m['prefs.theme.light']()}</Select.Item>
+						<Select.Item value="rose-light">{m['prefs.theme.rose_light']()}</Select.Item>
+						<Select.Item value="blue-light">{m['prefs.theme.blue_light']()}</Select.Item>
+					</Select.Content>
+				</Select.Root>
+			{/snippet}
+		</SettingsFormRow>
 
 		<div class="border-t border-[var(--app-border)]"></div>
 
 		<!-- Dark theme variant -->
-		<div class="flex items-center justify-between px-5 py-4">
-			<div>
-				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['prefs.dark_theme']()}</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">{m['prefs.dark_theme_desc']()}</p>
-			</div>
-			<Select.Root
-				type="single"
-				value={preferencesState.darkTheme}
-				onValueChange={(v) => {
-					if (v) preferencesState.setDarkTheme(v as 'dark' | 'dark-gray' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy');
-				}}
-			>
-				<Select.Trigger size="sm" class="w-[130px]">
-					{darkThemeLabels[preferencesState.darkTheme]}
-				</Select.Trigger>
-				<Select.Content>
-					<Select.Item value="dark">{m['prefs.theme.dark']()}</Select.Item>
-					<Select.Item value="dark-gray">{m['prefs.theme.dark_gray']()}</Select.Item>
-					<Select.Item value="amethyst-dark">{m['prefs.theme.amethyst_dark']()}</Select.Item>
-					<Select.Item value="emerald-dark">{m['prefs.theme.emerald_dark']()}</Select.Item>
-					<Select.Item value="cyber-77">{m['prefs.theme.cyber_77']()}</Select.Item>
-					<Select.Item value="blade-49">{m['prefs.theme.blade_49']()}</Select.Item>
-					<Select.Item value="pipboy">{m['prefs.theme.pipboy']()}</Select.Item>
-				</Select.Content>
-			</Select.Root>
-		</div>
+		<SettingsFormRow class="px-5 py-4" label={m['prefs.dark_theme']()} help={m['prefs.dark_theme_desc']()}>
+			{#snippet control(props)}
+				<Select.Root
+					type="single"
+					value={preferencesState.darkTheme}
+					onValueChange={(v) => {
+						if (v) preferencesState.setDarkTheme(v as 'dark' | 'dark-gray' | 'amethyst-dark' | 'emerald-dark' | 'cyber-77' | 'blade-49' | 'pipboy');
+					}}
+				>
+					<Select.Trigger {...props} size="sm" class="w-full">
+						{darkThemeLabels[preferencesState.darkTheme]}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="dark">{m['prefs.theme.dark']()}</Select.Item>
+						<Select.Item value="dark-gray">{m['prefs.theme.dark_gray']()}</Select.Item>
+						<Select.Item value="amethyst-dark">{m['prefs.theme.amethyst_dark']()}</Select.Item>
+						<Select.Item value="emerald-dark">{m['prefs.theme.emerald_dark']()}</Select.Item>
+						<Select.Item value="cyber-77">{m['prefs.theme.cyber_77']()}</Select.Item>
+						<Select.Item value="blade-49">{m['prefs.theme.blade_49']()}</Select.Item>
+						<Select.Item value="pipboy">{m['prefs.theme.pipboy']()}</Select.Item>
+					</Select.Content>
+				</Select.Root>
+			{/snippet}
+		</SettingsFormRow>
 	</div>
 
 	<!-- Notifications -->
@@ -553,28 +544,26 @@
 	<h2 class="mt-8 text-sm font-medium text-[var(--color-text-secondary)]">{m['prefs.issue_list_display']()}</h2>
 
 	<div class="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-		<div class="flex items-center justify-between px-5 py-4">
-			<div>
-				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['prefs.workflow_sorting']()}</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">{m['prefs.workflow_sorting_desc']()}</p>
-			</div>
-			<Select.Root
-				type="single"
-				value={preferencesState.workflowSortMode}
-				onValueChange={(v) => {
-					if (v) preferencesState.setWorkflowSortMode(v as 'default' | 'active-first' | 'custom');
-				}}
-			>
-				<Select.Trigger size="sm" class="w-[145px]">
-					{workflowSortLabels[preferencesState.workflowSortMode]}
-				</Select.Trigger>
-				<Select.Content>
-					<Select.Item value="default">{m['prefs.workflow_order']()}</Select.Item>
-					<Select.Item value="active-first">{m['prefs.active_first']()}</Select.Item>
-					<Select.Item value="custom">{m['prefs.custom']()}</Select.Item>
-				</Select.Content>
-			</Select.Root>
-		</div>
+		<SettingsFormRow class="px-5 py-4" label={m['prefs.workflow_sorting']()} help={m['prefs.workflow_sorting_desc']()}>
+			{#snippet control(props)}
+				<Select.Root
+					type="single"
+					value={preferencesState.workflowSortMode}
+					onValueChange={(v) => {
+						if (v) preferencesState.setWorkflowSortMode(v as 'default' | 'active-first' | 'custom');
+					}}
+				>
+					<Select.Trigger {...props} size="sm" class="w-full">
+						{workflowSortLabels[preferencesState.workflowSortMode]}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="default">{m['prefs.workflow_order']()}</Select.Item>
+						<Select.Item value="active-first">{m['prefs.active_first']()}</Select.Item>
+						<Select.Item value="custom">{m['prefs.custom']()}</Select.Item>
+					</Select.Content>
+				</Select.Root>
+			{/snippet}
+		</SettingsFormRow>
 
 		{#if preferencesState.workflowSortMode === 'custom'}
 			<div class="border-t border-[var(--app-border)]"></div>
@@ -602,7 +591,7 @@
 								</span>
 								<span class="text-sm text-[var(--color-text-primary)] transition-colors group-hover:text-[var(--color-text-primary)]">{getCategoryLabel(category)}</span>
 							</div>
-							<div class="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+							<div class="flex items-center gap-1">
 								<Button variant="plain" onclick={() => moveWorkflowCategory(category, -1)}
 									disabled={index === 0}
 									class="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)] disabled:opacity-30"

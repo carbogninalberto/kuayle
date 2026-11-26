@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -166,13 +167,14 @@
 {:else if denied}<p class="p-6 text-sm text-[var(--color-text-secondary)]">{m['privacy.unavailable']()}</p>
 {:else if failed}<ErrorState message={m['lessons.failed_load']()} onretry={load} />
 {:else}
-	<div class="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
-		<div class="flex items-center justify-between gap-3">
-			<h1 class="text-lg font-semibold">{m['lessons.title']()}</h1>
-			{#if board.choices.length}<Button size="sm" onclick={() => (editing = 'new')} data-testid="lesson-add"
-					><Plus />{m['lessons.add']()}</Button
-				>{/if}
-		</div>
+	<div class="settings-page mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+		<SettingsPageHeader title={m['lessons.title']()}>
+			{#snippet action()}
+				{#if board.choices.length}<Button size="sm" onclick={() => (editing = 'new')} data-testid="lesson-add"
+						><Plus />{m['lessons.add']()}</Button
+					>{/if}
+			{/snippet}
+		</SettingsPageHeader>
 
 		{#if board.proposals.length}<section aria-labelledby="lessons-proposals" class="space-y-2">
 				<h2 id="lessons-proposals" class="flex items-center gap-2 text-sm font-medium">

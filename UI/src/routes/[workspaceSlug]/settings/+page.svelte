@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsFormRow, SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import WorkspaceLogo from '$lib/components/shared/WorkspaceLogo.svelte';
 	import Avatar from '$lib/components/shared/Avatar.svelte';
@@ -192,30 +193,28 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
-	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.general.title']()}</h1>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.general.title']()} />
 
 	{#if workspace}
 		<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 			<!-- Workspace name -->
-			<div class="flex items-center justify-between px-5 py-4">
-				<div>
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.workspace_name']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.workspace_name_desc']()}</p>
-				</div>
-				<Input variant="plain"
-					type="text"
-					bind:value={wsName}
-					onblur={handleNameBlur}
-					disabled={!isOwner || savingName}
-					class="w-[200px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
-				/>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.general.workspace_name']()} help={m['settings.general.workspace_name_desc']()}>
+				{#snippet control(props)}
+					<Input {...props} variant="plain"
+						type="text"
+						bind:value={wsName}
+						onblur={handleNameBlur}
+						disabled={!isOwner || savingName}
+						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
+					/>
+				{/snippet}
+			</SettingsFormRow>
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
 			<!-- Workspace URL -->
-			<div class="flex items-center justify-between px-5 py-4">
+			<div class="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
 				<div>
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.workspace_url']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.workspace_url_desc']()}</p>
@@ -226,7 +225,7 @@
 			<div class="border-t border-[var(--app-border)]"></div>
 
 			<!-- Logo -->
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
+			<div class="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
 				<div class="min-w-0">
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.logo']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.logo_desc']()}</p>
@@ -234,7 +233,7 @@
 						<p class="text-xs text-red-500">{logoError}</p>
 					{/if}
 				</div>
-				<div class="flex shrink-0 items-center gap-2">
+				<div class="flex flex-wrap items-center gap-2">
 					<WorkspaceLogo name={workspace.name} logoUrl={workspace.logo_url} size="lg" class="size-10" />
 					<input
 						bind:this={logoFileInput}
@@ -268,27 +267,23 @@
 			<div class="border-t border-[var(--app-border)]"></div>
 
 			<!-- Logo URL -->
-			<div class="flex items-center justify-between px-5 py-4">
-				<div class="min-w-0">
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.logo_url']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">
-						{uploadedLogo ? m['settings.general.logo_uploaded']() : m['settings.general.logo_url_desc']()}
-					</p>
-				</div>
-				<Input variant="plain"
-					type="url"
-					bind:value={logoUrl}
-					onblur={handleLogoBlur}
-					placeholder={uploadedLogo ? m['settings.general.logo_uploaded']() : 'https://'}
-					disabled={!isOwner || savingLogo || uploadingLogo}
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
-				/>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.general.logo_url']()} help={uploadedLogo ? m['settings.general.logo_uploaded']() : m['settings.general.logo_url_desc']()}>
+				{#snippet control(props)}
+					<Input {...props} variant="plain"
+						type="url"
+						bind:value={logoUrl}
+						onblur={handleLogoBlur}
+						placeholder={uploadedLogo ? m['settings.general.logo_uploaded']() : 'https://'}
+						disabled={!isOwner || savingLogo || uploadingLogo}
+						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)] disabled:cursor-not-allowed disabled:opacity-60"
+					/>
+				{/snippet}
+			</SettingsFormRow>
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
 			<!-- Owner -->
-			<div class="flex items-center justify-between px-5 py-4">
+			<div class="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
 				<div>
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.owner']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.owner_desc']()}</p>
@@ -309,27 +304,25 @@
 			<div class="border-t border-[var(--app-border)]"></div>
 
 			<!-- Shared link min role -->
-			<div class="flex items-center justify-between px-5 py-4">
-				<div>
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.shared_link_role']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.general.shared_link_role_desc']()}</p>
-				</div>
-				<Select.Root
-					type="single"
-					value={shareLinkMinRole}
-					disabled={!isOwner || savingRole}
-					onValueChange={(v) => v && handleRoleChange(v)}
-				>
-					<Select.Trigger size="sm" class="w-[140px]">
-						{minRoleOptions.find((o) => o.value === shareLinkMinRole)?.label ?? shareLinkMinRole}
-					</Select.Trigger>
-					<Select.Content>
-						{#each minRoleOptions as opt}
-							<Select.Item value={opt.value}>{opt.label}</Select.Item>
-						{/each}
-					</Select.Content>
-				</Select.Root>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.general.shared_link_role']()} help={m['settings.general.shared_link_role_desc']()}>
+				{#snippet control(props)}
+					<Select.Root
+						type="single"
+						value={shareLinkMinRole}
+						disabled={!isOwner || savingRole}
+						onValueChange={(v) => v && handleRoleChange(v)}
+					>
+						<Select.Trigger {...props} size="sm" class="w-full">
+							{minRoleOptions.find((o) => o.value === shareLinkMinRole)?.label ?? shareLinkMinRole}
+						</Select.Trigger>
+						<Select.Content>
+							{#each minRoleOptions as opt}
+								<Select.Item value={opt.value}>{opt.label}</Select.Item>
+							{/each}
+						</Select.Content>
+					</Select.Root>
+				{/snippet}
+			</SettingsFormRow>
 		</div>
 
 		{#if !isOwner}
@@ -370,7 +363,7 @@
 			<div class="mt-10">
 				<h2 class="text-base font-medium text-[var(--color-text-primary)]">{m['settings.general.danger_zone']()}</h2>
 				<div class="mt-3 rounded-lg border border-red-500/30 bg-[var(--color-bg-secondary)]">
-					<div class="flex items-center justify-between px-5 py-4">
+					<div class="flex flex-wrap items-center justify-between gap-2 px-5 py-4">
 						<div>
 							<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.general.delete_workspace']()}</p>
 							<p class="text-xs text-[var(--color-text-tertiary)]">
@@ -393,7 +386,7 @@
 </div>
 
 <Dialog.Root bind:open={showDelete}>
-	<Dialog.Content class="sm:max-w-md border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+	<Dialog.Content class="settings-dialog sm:max-w-md border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<Dialog.Header>
 			<Dialog.Title>{m['settings.general.delete_workspace']()}</Dialog.Title>
 			<Dialog.Description>

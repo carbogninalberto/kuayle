@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -65,11 +66,8 @@
 {#if loading}<LoadingState />
 {:else if failed || !policy}<ErrorState message={m['settings.agents.failed_load']()} onretry={load} />
 {:else}
-	<div class="mx-auto max-w-3xl space-y-6 p-6">
-		<div>
-			<h1 class="text-lg font-semibold">{m['settings.agents.title']()}</h1>
-			<p class="mt-1 text-sm text-muted-foreground">{m['settings.agents.desc']()}</p>
-		</div>
+	<div class="settings-page mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+		<SettingsPageHeader title={m['settings.agents.title']()} description={m['settings.agents.desc']()} />
 		{#if !canAdmin}<p class="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
 				{m['settings.dev_machines.admin_only']()}
 			</p>{/if}

@@ -285,3 +285,18 @@ test('connects kuayle_cli from a generated link and revokes it', async ({ page, 
 	await page.getByRole('button', { name: 'Revoke' }).click();
 	await expect.poll(() => deleted).toBe(true);
 });
+
+test('the create token footer stays reachable in a short landscape viewport', async ({ page }) => {
+	await page.setViewportSize({ width: 740, height: 360 });
+	await mockApi(page, (route) => route.fulfill({ json: [token] }));
+	await page.goto('/test/settings/tokens');
+	await page.getByRole('button', { name: 'New token' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Create token', exact: true });
+	const cancel = dialog.getByRole('button', { name: 'Cancel' });
+	await expect(cancel).toBeInViewport({ ratio: 1 });
+	await dialog.getByLabel('Name', { exact: true }).fill('Landscape');
+	await dialog.getByRole('checkbox', { name: 'Test Workspace' }).check();
+	await expect(dialog.getByRole('button', { name: 'Create token' })).toBeInViewport({ ratio: 1 });
+	await cancel.click();
+	await expect(dialog).toBeHidden();
+});

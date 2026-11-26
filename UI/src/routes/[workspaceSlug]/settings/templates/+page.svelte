@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader, SettingsEmptyState } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -17,7 +18,6 @@
 	import type { Team } from '$lib/types/team';
 	import type { Label } from '$lib/types/label';
 	import type { WorkspaceMember } from '$lib/types/workspace';
-	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { appToast } from '$lib/features/toast/toast';
@@ -108,24 +108,23 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-4 py-10 sm:px-8">
-	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">
-			{m['settings.templates.title']()}
-		</h1>
-		<Button
-			variant="plain"
-			onclick={openCreateDialog}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
-		>
-			<Plus size={14} />
-			{m['settings.templates.new']()}
-		</Button>
-	</div>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.templates.title']()}>
+		{#snippet action()}
+			<Button
+				variant="plain"
+				onclick={openCreateDialog}
+				class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			>
+				<Plus size={14} />
+				{m['settings.templates.new']()}
+			</Button>
+		{/snippet}
+	</SettingsPageHeader>
 
 	<div class="mt-8">
 		{#if !loading && templates.length === 0}
-			<EmptyState
+			<SettingsEmptyState
 				title={m['settings.templates.no_templates']()}
 				description={m['settings.templates.no_templates_desc']()}
 				action={{ label: m['settings.templates.new'](), onclick: openCreateDialog }}
@@ -135,7 +134,7 @@
 				{#each templates as template, index (template.id)}
 					{@const templateGroup = templateTeam(template)}
 					<div
-						class="group flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3.5 sm:flex-nowrap sm:gap-x-4 sm:px-5 {index > 0 ? 'border-t border-[var(--app-border)]' : ''}"
+						class="group flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3.5 lg:flex-nowrap lg:gap-x-4 sm:px-5 {index > 0 ? 'border-t border-[var(--app-border)]' : ''}"
 					>
 						<FileText size={16} class="shrink-0 text-[var(--color-text-tertiary)]" />
 						<div class="min-w-0 flex-1">
@@ -164,7 +163,7 @@
 							{/if}
 						</div>
 						{#if templateGroup || template.status || template.priority != null}
-							<div class="order-last flex w-full flex-wrap items-center gap-2 pl-7 sm:contents">
+							<div class="order-last flex w-full flex-wrap items-center gap-2 pl-7 lg:contents">
 								{#if templateGroup}
 									<Badge variant="outline" class="text-[10px]">{templateGroup.key}</Badge>
 								{/if}
@@ -192,7 +191,7 @@
 							variant="ghost"
 							size="icon-sm"
 							onclick={() => handleDelete(template.id)}
-							class="opacity-0 group-hover:opacity-100 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] focus:opacity-100 max-sm:opacity-100"
+							class="text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]"
 						>
 							<Trash2 size={14} />
 						</Button>

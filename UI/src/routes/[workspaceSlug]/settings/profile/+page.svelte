@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsFormRow, SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { onMount } from 'svelte';
@@ -98,9 +99,8 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
-	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.profile.title']()}</h1>
-	<p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.profile.desc']()}</p>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.profile.title']()} description={m['settings.profile.desc']()} />
 
 	{#if user}
 		{#if user.sso_workspace_slug}
@@ -113,23 +113,23 @@
 		{/if}
 
 		<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
+			<div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
 				<div>
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.email']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.email_desc']()}</p>
 				</div>
-				<span class="truncate text-sm text-[var(--color-text-secondary)]">{user.email}</span>
+				<span class="wrap-anywhere text-sm text-[var(--color-text-secondary)]">{user.email}</span>
 			</div>
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
+			<div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
 				<div>
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.user_id']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.user_id_desc']()}</p>
 				</div>
 				<div class="flex min-w-0 items-center gap-2">
-					<span class="truncate font-mono text-xs text-[var(--color-text-secondary)]">{user.id}</span>
+					<span class="wrap-anywhere font-mono text-xs text-[var(--color-text-secondary)]">{user.id}</span>
 					<Button variant="outline" size="sm" onclick={copyUserId}>
 						<Copy size={13} />
 						{m['settings.profile.copy']()}
@@ -139,40 +139,36 @@
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
-				<div>
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.name']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.name_desc']()}</p>
-				</div>
-				<Input variant="plain"
-					type="text"
-					bind:value={name}
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.profile.name']()} help={m['settings.profile.name_desc']()}>
+				{#snippet control(props)}
+					<Input {...props} variant="plain"
+						type="text"
+						bind:value={name}
+						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					/>
+				{/snippet}
+			</SettingsFormRow>
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
-				<div>
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.display_name']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.display_name_desc']()}</p>
-				</div>
-				<Input variant="plain"
-					type="text"
-					bind:value={displayName}
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.profile.display_name']()} help={m['settings.profile.display_name_desc']()}>
+				{#snippet control(props)}
+					<Input {...props} variant="plain"
+						type="text"
+						bind:value={displayName}
+						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					/>
+				{/snippet}
+			</SettingsFormRow>
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
+			<div class="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
 				<div>
 					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.avatar_url']()}</p>
 					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.avatar_url_desc']()}</p>
 				</div>
-				<div class="flex items-center gap-3">
+				<div class="flex flex-wrap items-center gap-3">
 					<Avatar name={user.display_name || user.name} avatarUrl={user.avatar_url} size="lg" />
 					<Button variant="outline" size="sm" onclick={() => (avatarOpen = true)}>{m['avatar.change']()}</Button>
 					{#if user.avatar_url}
@@ -188,7 +184,7 @@
 
 		{#if ssoAvailable && !user.sso_workspace_slug}
 			<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-5 py-4">
-				<div class="flex items-center justify-between gap-4">
+				<div class="flex flex-wrap items-center justify-between gap-3">
 					<div>
 						<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.profile.sso_link']()}</p>
 						<p class="mt-1 text-xs text-[var(--color-text-tertiary)]">{m['settings.profile.sso_link_desc']()}</p>

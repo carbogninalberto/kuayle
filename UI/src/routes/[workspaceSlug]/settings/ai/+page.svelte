@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsFormRow, SettingsPageHeader, SettingsSection } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
@@ -99,71 +100,61 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
-	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.ai.title']()}</h1>
-	<p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.ai.desc']()}</p>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.ai.title']()} description={m['settings.ai.desc']()} />
 
 	{#if settings}
+		{@const hasApiKey = settings.has_api_key}
 		<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
-				<div>
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.ai.provider']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.ai.provider_desc']()}</p>
-				</div>
-				<Select.Root type="single" value={provider} onValueChange={(v) => v && (provider = v)}>
-					<Select.Trigger size="sm" class="w-[190px]">{m['settings.ai.provider_label']()}</Select.Trigger>
-					<Select.Content>
-						<Select.Item value="openai_compatible">{m['settings.ai.provider_label']()}</Select.Item>
-					</Select.Content>
-				</Select.Root>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.ai.provider']()} help={m['settings.ai.provider_desc']()}>
+				{#snippet control(props)}
+					<Select.Root type="single" value={provider} onValueChange={(v) => v && (provider = v)}>
+						<Select.Trigger {...props} size="sm" class="w-full">{m['settings.ai.provider_label']()}</Select.Trigger>
+						<Select.Content>
+							<Select.Item value="openai_compatible">{m['settings.ai.provider_label']()}</Select.Item>
+						</Select.Content>
+					</Select.Root>
+				{/snippet}
+			</SettingsFormRow>
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
-				<div>
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.ai.base_url']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.ai.base_url_example']()}</p>
-				</div>
-				<Input variant="plain"
-					type="url"
-					bind:value={baseUrl}
-					placeholder={m['settings.ai.base_url_placeholder']()}
-					class="w-[300px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.ai.base_url']()} help={m['settings.ai.base_url_example']()}>
+				{#snippet control(props)}
+					<Input {...props} variant="plain"
+						type="url"
+						bind:value={baseUrl}
+						placeholder={m['settings.ai.base_url_placeholder']()}
+						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					/>
+				{/snippet}
+			</SettingsFormRow>
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
-				<div>
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.ai.model']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.ai.model_desc']()}</p>
-				</div>
-				<Input variant="plain"
-					type="text"
-					bind:value={model}
-					placeholder={m['settings.ai.model_placeholder']()}
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.ai.model']()} help={m['settings.ai.model_desc']()}>
+				{#snippet control(props)}
+					<Input {...props} variant="plain"
+						type="text"
+						bind:value={model}
+						placeholder={m['settings.ai.model_placeholder']()}
+						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					/>
+				{/snippet}
+			</SettingsFormRow>
 
 			<div class="border-t border-[var(--app-border)]"></div>
 
-			<div class="flex items-center justify-between gap-4 px-5 py-4">
-				<div>
-					<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.ai.api_key']()}</p>
-					<p class="text-xs text-[var(--color-text-tertiary)]">
-						{settings.has_api_key ? m['settings.ai.key_configured']() : m['settings.ai.key_not_configured']()}
-					</p>
-				</div>
-				<Input variant="plain"
-					type="password"
-					bind:value={apiKey}
-					placeholder={settings.has_api_key ? m['settings.ai.key_configured_placeholder']() : m['settings.ai.key_placeholder']()}
-					class="w-[240px] rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-				/>
-			</div>
+			<SettingsFormRow class="px-5 py-4" label={m['settings.ai.api_key']()} help={hasApiKey ? m['settings.ai.key_configured']() : m['settings.ai.key_not_configured']()}>
+				{#snippet control(props)}
+					<Input {...props} variant="plain"
+						type="password"
+						bind:value={apiKey}
+						placeholder={hasApiKey ? m['settings.ai.key_configured_placeholder']() : m['settings.ai.key_placeholder']()}
+						class="w-full rounded-md border border-[var(--app-border)] bg-[var(--color-bg)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
+					/>
+				{/snippet}
+			</SettingsFormRow>
 		</div>
 
 		<div class="mt-8 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
@@ -193,36 +184,23 @@
 			</div>
 		</div>
 
-		<div class="mt-8">
-			<div class="flex items-center justify-between gap-4">
-				<div>
-					<h2 class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.ai.desc_prompt']()}</h2>
-					<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.ai.desc_prompt_desc']()}</p>
-				</div>
-				<Button variant="outline" size="sm" onclick={resetPrompt}>{m['settings.ai.reset']()}</Button>
-			</div>
-			<Textarea variant="plain"
-				bind:value={prompt}
-				rows={8}
-				class="mt-3 w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-			></Textarea>
-		</div>
+		<div class="mt-8 space-y-6">
+			<SettingsSection title={m['settings.ai.desc_prompt']()} description={m['settings.ai.desc_prompt_desc']()}>
+				<Textarea bind:value={prompt} rows={8} aria-label={m['settings.ai.desc_prompt']()} />
+				{#snippet footer()}
+					<Button variant="outline" size="sm" onclick={resetPrompt}>{m['settings.ai.reset']()}</Button>
+				{/snippet}
+			</SettingsSection>
 
-		<div class="mt-8">
-			<div class="flex items-center justify-between gap-4">
-				<div>
-					<h2 class="text-sm font-medium text-[var(--color-text-primary)]">{m['settings.ai.copy_prompt']()}</h2>
-					<p class="text-xs text-[var(--color-text-tertiary)]">
-						{m['settings.ai.copy_prompt_desc']({ title: '{title}', description: '{description}', identifier: '{identifier}' })}
-					</p>
-				</div>
-				<Button variant="outline" size="sm" onclick={resetIssueCopyPrompt}>{m['settings.ai.reset']()}</Button>
-			</div>
-			<Textarea variant="plain"
-				bind:value={issueCopyPrompt}
-				rows={8}
-				class="mt-3 w-full rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)] px-3 py-2 font-mono text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
-			></Textarea>
+			<SettingsSection
+				title={m['settings.ai.copy_prompt']()}
+				description={m['settings.ai.copy_prompt_desc']({ title: '{title}', description: '{description}', identifier: '{identifier}' })}
+			>
+				<Textarea bind:value={issueCopyPrompt} rows={8} aria-label={m['settings.ai.copy_prompt']()} class="font-mono" />
+				{#snippet footer()}
+					<Button variant="outline" size="sm" onclick={resetIssueCopyPrompt}>{m['settings.ai.reset']()}</Button>
+				{/snippet}
+			</SettingsSection>
 		</div>
 
 		<div class="mt-4 flex justify-end">

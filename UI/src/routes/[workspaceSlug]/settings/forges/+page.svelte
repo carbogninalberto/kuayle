@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader, SettingsEmptyState } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -162,11 +163,16 @@
 
 <PageTitle parts={[m['settings.forges.title'](), m['settings.title']()]} />
 
-<div class="mx-auto max-w-3xl space-y-8 p-6">
-	<div>
-		<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">{m['settings.forges.title']()}</h2>
-		<p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.forges.desc']()}</p>
-	</div>
+<div class="settings-page mx-auto max-w-3xl space-y-8 p-4 sm:p-6">
+	<SettingsPageHeader title={m['settings.forges.title']()} description={m['settings.forges.desc']()}>
+		{#snippet action()}
+			{#if !loading && canManage}
+				<Button size="sm" onclick={() => (showForm = !showForm)}>
+					<Plus size={14} />{m['settings.forges.add_connection']()}
+				</Button>
+			{/if}
+		{/snippet}
+	</SettingsPageHeader>
 
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
@@ -178,23 +184,16 @@
 				{m['settings.forges.admins_only']()}
 			</p>
 		{/if}
-		{#if canManage}
-			<div class="flex justify-end">
-				<Button size="sm" onclick={() => (showForm = !showForm)}>
-					<Plus size={14} />{m['settings.forges.add_connection']()}
-				</Button>
-			</div>
-		{/if}
 
 		{#if showForm && canManage}
 			<form
-				class="space-y-4 rounded-lg border border-[var(--app-border)] p-4"
+				class="@container space-y-4 rounded-lg border border-[var(--app-border)] p-4"
 				onsubmit={(event) => {
 					event.preventDefault();
 					void createConnection();
 				}}
 			>
-				<div class="grid gap-4 sm:grid-cols-2">
+				<div class="grid gap-4 @md:grid-cols-2">
 					<div class="space-y-1">
 						<Label for="forge-provider">{m['settings.forges.provider']()}</Label>
 						<Select.Root
@@ -216,7 +215,7 @@
 						<Label for="forge-name">{m['settings.forges.name']()}</Label>
 						<Input id="forge-name" bind:value={name} placeholder={provider} />
 					</div>
-					<div class="space-y-1 sm:col-span-2">
+					<div class="space-y-1 @md:col-span-2">
 						<Label for="forge-base-url">{m['settings.forges.base_url']()}</Label>
 						<Input
 							id="forge-base-url"
@@ -251,20 +250,18 @@
 		{/if}
 
 		{#if connections.length === 0}
-			<p class="rounded-lg border border-dashed border-[var(--app-border)] p-6 text-center text-sm text-[var(--color-text-tertiary)]">
-				{m['settings.forges.no_connections']()}
-			</p>
+			<SettingsEmptyState title={m['settings.forges.no_connections']()} />
 		{/if}
 
 		{#each connections as connection (connection.id)}
-			<section class="space-y-4 rounded-lg border border-[var(--app-border)] p-4">
+			<section class="@container space-y-4 wrap-anywhere rounded-lg border border-[var(--app-border)] p-4">
 				<div class="flex flex-wrap items-start justify-between gap-3">
-					<div class="flex items-start gap-3">
-						<div class="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)]">
+					<div class="flex min-w-0 items-start gap-3">
+						<div class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-bg-tertiary)]">
 							<GitBranch size={16} class="text-[var(--color-text-secondary)]" />
 						</div>
 						<div>
-							<div class="flex items-center gap-2">
+							<div class="flex flex-wrap items-center gap-2">
 								<span class="text-sm font-medium text-[var(--color-text-primary)]">{connection.name}</span>
 								<Badge variant="outline" class="text-[10px] capitalize">{connection.provider}</Badge>
 								{#if connection.has_access_token}
@@ -284,7 +281,7 @@
 				<div class="space-y-1">
 					<p class="text-xs font-medium text-[var(--color-text-secondary)]">{m['settings.forges.webhook_url']()}</p>
 					<div class="flex items-center gap-2">
-						<code class="min-w-0 flex-1 truncate rounded bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs">{connection.webhook_url}</code>
+						<code class="min-w-0 flex-1 wrap-anywhere rounded bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs">{connection.webhook_url}</code>
 						<Button variant="outline" size="sm" onclick={() => copyWebhook(connection)}>
 							{#if copied === connection.id}<Check size={13} />{:else}<Copy size={13} />{/if}
 							{copied === connection.id ? m['settings.forges.copied']() : m['settings.forges.copy']()}
@@ -300,15 +297,15 @@
 						<ul class="space-y-1">
 							{#each repos[connection.id] ?? [] as repo (repo.id)}
 								<li class="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-[var(--color-bg-hover)]">
-									<span class="min-w-0 flex-1 truncate">{repo.full_name}</span>
+									<span class="min-w-0 flex-1 wrap-anywhere">{repo.full_name}</span>
 									<span class="text-[var(--color-text-tertiary)]">#{repo.external_repo_id}</span>
 									{#if safeForgeUrl(repo.web_url)}
-										<a href={safeForgeUrl(repo.web_url) ?? undefined} target="_blank" rel="noopener noreferrer" class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">
+										<a href={safeForgeUrl(repo.web_url) ?? undefined} target="_blank" rel="noopener noreferrer" aria-label={m['common.open_in_new_tab']()} class="settings-action inline-flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]">
 											<ExternalLink size={12} />
 										</a>
 									{/if}
 									{#if canManage}
-										<Button variant="plain" onclick={() => removeRepo(connection, repo)} class="p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]">
+										<Button variant="plain" aria-label={m['common.remove']() + ' · ' + repo.full_name} onclick={() => removeRepo(connection, repo)} class="settings-action inline-flex items-center justify-center p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)]">
 											<Trash2 size={12} />
 										</Button>
 									{/if}
@@ -318,12 +315,12 @@
 					{/if}
 
 					{#if canManage}
-						<form class="grid gap-2 sm:grid-cols-[8rem_1fr_1fr_7rem_auto]" onsubmit={(event) => addRepo(connection, event)}>
-							<Input name="external_repo_id" type="number" min="1" required placeholder={m['settings.forges.external_repo_id']()} />
-							<Input name="full_name" required placeholder={m['settings.forges.full_name']()} />
-							<Input name="web_url" placeholder={m['settings.forges.web_url']()} />
-							<Input name="default_branch" placeholder={m['settings.forges.default_branch']()} />
-							<Button type="submit" size="sm">{m['settings.forges.link_repo']()}</Button>
+						<form class="grid gap-2 @md:grid-cols-2" onsubmit={(event) => addRepo(connection, event)}>
+							<Input name="external_repo_id" type="number" min="1" required aria-label={m['settings.forges.external_repo_id']()} placeholder={m['settings.forges.external_repo_id']()} />
+							<Input name="full_name" required aria-label={m['settings.forges.full_name']()} placeholder={m['settings.forges.full_name']()} />
+							<Input name="web_url" aria-label={m['settings.forges.web_url']()} placeholder={m['settings.forges.web_url']()} />
+							<Input name="default_branch" aria-label={m['settings.forges.default_branch']()} placeholder={m['settings.forges.default_branch']()} />
+							<Button type="submit" size="sm" class="@md:col-span-2 @md:justify-self-end">{m['settings.forges.link_repo']()}</Button>
 						</form>
 					{/if}
 				</div>

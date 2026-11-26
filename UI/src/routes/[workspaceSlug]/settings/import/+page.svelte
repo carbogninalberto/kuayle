@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { onDestroy, onMount } from 'svelte';
@@ -287,9 +288,8 @@
 	});
 </script>
 
-<div class="mx-auto w-full max-w-4xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
-	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.import.title']()}</h1>
-	<p class="text-sm text-[var(--color-text-secondary)]">{m['settings.import.subtitle']()}</p>
+<div class="settings-page mx-auto w-full max-w-4xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.import.title']()} description={m['settings.import.subtitle']()} />
 
 	{#if loading}
 		<div class="flex h-40 items-center justify-center text-[var(--color-text-tertiary)]">…</div>
