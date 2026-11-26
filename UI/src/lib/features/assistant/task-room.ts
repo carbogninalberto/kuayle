@@ -1,4 +1,24 @@
-import type { TaskMessage } from '$lib/api/agent-tasks';
+import type { AgentTask, TaskMessage } from '$lib/api/agent-tasks';
+
+/** Only an explicit, contiguous list of alternatives becomes one-click replies. */
+export function decisionOptions(body: string): string[] {
+	const options = body
+		.split('\n')
+		.map((line) =>
+			line
+				.trim()
+				.replace(/^[-*] /, '')
+				.replaceAll('**', '')
+		)
+		.filter((line) => /^[A-C][).:]\s+\S/.test(line));
+	return options.length >= 2 && options.every((line, index) => line[0] === 'ABC'[index]) ? options : [];
+}
+
+export function roomBlocker(task: AgentTask) {
+	return task.pending_decisions?.find((d) => d.blocks_pause);
+}
+
+export const decisionAnchor = (taskId: string, kind: string, seq: number) => `decision-${taskId}-${kind}-${seq}`;
 
 // Posts stay in sequence in the conversation. The activity lane groups facts
 // and turns, including runs that have not posted yet.
@@ -293,7 +313,8 @@ export function roomSplits(messages: readonly TaskMessage[]) {
 }
 
 /** Split requests require a platform receipt. An owner can answer other posts in the room. */
-export function roomBlocker(messages: readonly TaskMessage[]): TaskMessage | undefined {
+export function openRoomBlocker(messages: readonly TaskMessage[], decisions?: AgentTask['pending_decisions']): TaskMessage | undefined {
+	if (decisions?.some((item) => item.blocks_pause)) return;
 	const pending = new Map<number, TaskMessage>();
 	const verdicts = new Map<string, number>();
 	const addressedByOwner = new Map<string, number>();
@@ -317,7 +338,11 @@ export function roomBlocker(messages: readonly TaskMessage[]): TaskMessage | und
 		if (post.kind === 'ask' || (post.kind === 'say' && post.to_roles?.includes('human')) ||
 			(post.kind === 'request' && post.data.action !== 'approve')) pending.set(post.seq, post);
 	}
-	const open = [...pending.values()];
+	// The task API tracks owner requests, including declines and delegated splits.
+	const open = [...pending.values()].filter((post) => {
+		if (decisions == null || post.kind === 'say') return true;
+		return post.data.action !== 'split' && !post.to_roles?.includes('human');
+	});
 	return open.findLast((post) => post.data.action === 'split') ?? open.findLast((post) => {
 		if (lastBroadcast > post.seq || (addressedByOwner.get(post.author_role ?? '') ?? 0) > post.seq) return false;
 		if (post.data.action !== 'review') return true;

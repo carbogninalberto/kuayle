@@ -134,6 +134,7 @@ type tickStall struct {
 	Count  int    `json:"count,omitempty"`
 	Run    string `json:"run,omitempty"`
 	Turned bool   `json:"turned,omitempty"`
+	Paused bool   `json:"paused,omitempty"` // This counter triggered the current pause.
 }
 
 func readTickState(task domain.AgentTask) tickState {
@@ -927,6 +928,7 @@ func (t *tickPass) noProgress(phase domain.PipelinePhase, unmet []UnmetCheck) (r
 	if t.st.Stall.Count < tickStallLimit {
 		return repository.WorkflowEntry{}, false
 	}
+	t.st.Stall.Paused = true
 	reasons := make([]string, 0, len(unmet))
 	for _, check := range unmet {
 		reasons = append(reasons, "- "+check.ID+": "+check.Reason)

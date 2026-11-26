@@ -6,7 +6,7 @@
 
 	// The assistant's sidebar folded to a rail while a task is open (KUA-281):
 	// the places as icons, and the button that opens the conversations again.
-	let { slug, onexpand }: { slug: string; onexpand: () => void } = $props();
+	let { slug, pending, onexpand }: { slug: string; pending: number; onexpand: () => void } = $props();
 	const places = $derived(assistantPlaces(slug));
 </script>
 
@@ -18,9 +18,17 @@
 	<Button
 		variant="ghost"
 		size="icon-sm"
-		aria-label={m['assistant.show_sidebar']()}
+		class="relative"
+		aria-label={pending
+			? `${m['assistant.show_sidebar']()} · ${m['tasks.decision_count']({ count: pending })}`
+			: m['assistant.show_sidebar']()}
 		title={m['assistant.show_sidebar']()}
-		onclick={onexpand}><PanelLeft /></Button
+		onclick={onexpand}
+		><PanelLeft />{#if pending}<span
+				data-testid="rail-decision-count"
+				class="absolute -end-1 -top-1 rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground tabular-nums"
+				>{pending}</span
+			>{/if}</Button
 	>
 	<Button variant="ghost" size="icon-sm" href="/{slug}/assistant" aria-label={m['assistant.new']()} title={m['assistant.new']()}
 		><SquarePen /></Button

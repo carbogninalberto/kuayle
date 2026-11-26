@@ -181,7 +181,14 @@ func (r *AgentTaskRepository) Get(ctx context.Context, ws, id uuid.UUID) (*domai
 		return nil, err
 	}
 	defer tx.Rollback()
-	return task, nil
+	access, _ := domain.AccessFromContext(ctx)
+	if access.TokenScopes != nil {
+		// Room content is session-only.
+		task.PendingDecisions = domain.OwnerDecisions{}
+		return task, nil
+	}
+	err = tx.GetContext(ctx, &task.PendingDecisions, `SELECT `+taskDecisionList+` FROM agent_tasks t WHERE t.id=$1`, id)
+	return task, err
 }
 func (r *AgentTaskRepository) List(ctx context.Context, ws, conversation uuid.UUID) ([]domain.AgentTask, error) {
 	tx, _, err := NewConversationRepository(r.db).authorized(ctx, ws, conversation)
@@ -190,7 +197,7 @@ func (r *AgentTaskRepository) List(ctx context.Context, ws, conversation uuid.UU
 	}
 	defer tx.Rollback()
 	tasks := []domain.AgentTask{}
-	err = tx.SelectContext(ctx, &tasks, `SELECT * FROM agent_tasks WHERE conversation_id=$1 AND kind='implement' ORDER BY created_at DESC,id LIMIT 100`, conversation)
+	err = tx.SelectContext(ctx, &tasks, `SELECT t.*,`+taskDecisionList+` AS pending_decisions FROM agent_tasks t WHERE conversation_id=$1 AND kind='implement' ORDER BY created_at DESC,id LIMIT 100`, conversation)
 	return tasks, err
 }
 func (r *AgentTaskRepository) Transitions(ctx context.Context, ws, id uuid.UUID) ([]domain.AgentTaskTransition, error) {

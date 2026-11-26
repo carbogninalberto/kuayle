@@ -16,7 +16,17 @@ export type TaskState =
 	| 'failed'
 	| 'cancelling'
 	| 'cancelled';
+export interface OwnerDecision {
+	blocks_pause?: boolean;
+	seq: number;
+	kind: 'ask' | 'request' | 'pause' | 'approval';
+	asker: string;
+	body: string;
+	data: TaskRoomData;
+}
+
 export interface AgentTask {
+	pending_decisions?: OwnerDecision[] | null;
 	id: string;
 	workspace_id: string;
 	conversation_id: string | null;
@@ -107,6 +117,8 @@ export interface ValidationArtifact {
 	created_at: string;
 }
 export interface AgentQueueItem {
+	pending_decision_count?: number;
+	task_title?: string;
 	id: string;
 	conversation_id: string;
 	state: AgentTask['state'];
@@ -385,6 +397,7 @@ export type TaskRoomAuthor = 'human' | 'member' | 'kuayle';
 export type TaskRoomKind = 'say' | 'ask' | 'phase' | 'verdict' | 'request' | 'waiver' | 'grant' | 'fact' | 'summary';
 // The structured part of a post; each kind reads its own fields.
 export interface TaskRoomData {
+	answer?: 'approve' | 'decline' | 'reply';
 	/** phase: the phase moved to. */
 	phase?: string;
 	/** verdict: what the role decided, on a commit, for its own role. */
@@ -582,6 +595,10 @@ export const agentTasks = {
 	// Checks run on demand on an attempt, oldest first.
 	manualChecks: (slug: string, id: string, run: string) =>
 		api.get<ValidationStep[]>(`${task(slug, id)}/runs/${encodeURIComponent(run)}/checks`),
+	needsMe: (slug: string, issue?: string) =>
+		api.get<AgentQueueItem[]>(
+			`${base(slug)}/agent-tasks?needs_me=true${issue ? `&issue=${encodeURIComponent(issue)}` : ''}`
+		),
 	queue: (slug: string) => api.get<AgentQueueItem[]>(`${base(slug)}/agent-tasks`),
 	signals: (slug: string, id: string) => api.get<TaskSignal[]>(`${task(slug, id)}/signals`),
 	sessions: (slug: string, id: string) => api.get<{ sessions: AgentSession[] }>(`${task(slug, id)}/sessions`),

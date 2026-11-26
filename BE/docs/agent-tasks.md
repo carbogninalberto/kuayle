@@ -3130,6 +3130,27 @@ A refused human post returns the reason to the caller. A publish or merge
 request can call a role's attention to the work. The platform action itself
 depends on the tick and the merge gate. See the [runtime posting guide](../../devmachine/common/kuayle-agents.md#the-task-room).
 
+#### Owner decisions
+
+The creator's task list and task detail include `pending_decisions`. Each
+entry names its asker, kind, body, structured data and sequence. Asks and
+requests addressed to `human` use their room sequence. A split also needs
+a decision when broadcast unless a prior split grant covers it. A refused
+delegated split returns to the owner. Merge approvals and workflow pauses
+use the workflow sequence. Room contents stay behind session authentication.
+
+The room pins these entries. A creator reply names the original post with
+`reply_to`. A card's reply, approval or decline also records `data.answer`.
+Creating sub-issues and approving a merge use the existing action endpoints.
+Answering the last item at a no-progress stall wakes the pipeline. Budget,
+manual and merge-failure pauses keep their own controls.
+
+`GET /agent-tasks?needs_me=true` returns the creator's visible tasks with
+pending decisions across issues, including older tasks outside the recent
+queue. Each row includes `pending_decision_count`. The creator receives an
+Inbox entry and the existing push and linked Telegram delivery according to
+their notification preferences.
+
 #### Grants, waivers and split requests
 
 The pinned definition may grant merge approval with `autonomy.approve` set

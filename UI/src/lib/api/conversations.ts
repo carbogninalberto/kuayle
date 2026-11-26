@@ -82,6 +82,7 @@ export interface ConversationEvent {
 		| 'task.workflow_updated'
 		| 'task.live_message'
 		| 'task.room_message'
+		| 'task.decisions_updated'
 		| 'scheduled_job.updated'
 		| 'tool.started'
 		| 'tool.completed'

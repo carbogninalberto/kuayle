@@ -26,7 +26,7 @@
 	import AgentPostBody from './AgentPostBody.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import TurnLine from './TurnLine.svelte';
-	import { decides, factLabel, foldText, roomBlocker, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow, type RoomTurn } from './task-room';
+	import { decides, decisionAnchor, factLabel, foldText, openRoomBlocker, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow, type RoomTurn } from './task-room';
 	import { activeRun } from './task-column';
 	import { firstLine, shownRows, turnSummary, workTokens, type ThreadFilter } from './thread-rows';
 	import { formatDuration } from './shell-rules';
@@ -63,9 +63,11 @@
 			return role ? [{ id: item.id, role, at: item.started_at ?? item.created_at }] : [];
 		})
 	);
-	const rows = $derived(roomRows(room, turns));
+	const pinned = $derived(new Set(task.pending_decisions?.filter((item) => item.kind === 'ask' || item.kind === 'request').map((item) => item.seq)));
+	const threadPosts = $derived(room.filter((post) => !pinned.has(post.seq)));
+	const rows = $derived(roomRows(threadPosts, turns));
 	const shown = $derived(shownRows(rows, filter, rowRoles, (row) => !!row.decision));
-	const posts = $derived(room.filter((post) => post.author_kind !== 'kuayle'));
+	const posts = $derived(threadPosts.filter((post) => post.author_kind !== 'kuayle'));
 	const conversation = $derived(shownRows(posts, filter,
 		(post) => [...(post.author_role ? [post.author_role] : []), ...(post.to_roles ?? [])], decides));
 	const bySeq = $derived(new Map(room.map((post) => [post.seq, post])));
@@ -76,12 +78,17 @@
 	$effect(() => {
 		const anchor = page.url.hash.slice(1);
 		if (!anchor) { followed = ''; return; }
-		if (anchor === followed || !posts.some((post) => 'room-post-' + post.seq === anchor)) return;
+		if (anchor === followed) return;
+		const decision = task.pending_decisions?.find((item) =>
+			decisionAnchor(task.id, item.kind, item.seq) === anchor ||
+			((item.kind === 'ask' || item.kind === 'request') && 'room-post-' + item.seq === anchor));
+		if (!decision && !posts.some((post) => 'room-post-' + post.seq === anchor)) return;
 		followed = anchor;
-		untrack(() => onreset?.());
-		void tick().then(() => document.getElementById(anchor)?.focus());
+		if (!decision) untrack(() => onreset?.());
+		const target = decision ? decisionAnchor(task.id, decision.kind, decision.seq) : anchor;
+		void tick().then(() => document.getElementById(target)?.focus());
 	});
-	const blocker = $derived(run.view?.status === 'paused' || task.workflow_paused_at ? roomBlocker(room) : undefined);
+	const blocker = $derived(run.view?.status === 'paused' || task.workflow_paused_at ? openRoomBlocker(room, task.pending_decisions) : undefined);
 	const splits = $derived(roomSplits(room));
 	let approving = $state<number | null>(null);
 
@@ -381,7 +388,7 @@
 					</li>
 				{/each}
 			</ol>
-			{#if split.pending && task.creator_id === authState.user?.id}
+			{#if task.pending_decisions == null && split.pending && task.creator_id === authState.user?.id}
 				<Button variant="outline" size="sm" class="w-fit" disabled={approving !== null}
 					onclick={() => void approveSplit(message.seq)}>{m['tasks.room_create_sub_issues']()}</Button>
 			{/if}
@@ -464,7 +471,7 @@
 		<p class="text-sm text-muted-foreground">{m['tasks.filter_empty']()}</p>
 		{#if onreset}<Button variant="ghost" size="sm" onclick={onreset}>{m['tasks.filter_reset']()}</Button>{/if}
 	</div>{/if}
-{#if !posts.length && !working.length && !run.roomFailed}<p class="text-sm text-muted-foreground" role="status">
+{#if !pinned.size && !posts.length && !working.length && !run.roomFailed}<p class="text-sm text-muted-foreground" role="status">
 		{run.roomLoaded ? m['tasks.room_empty']() : m['assistant.loading']()}
 	</p>{/if}
 

@@ -54,6 +54,8 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 		const url = new URL(request.url());
 		const path = url.pathname;
 		if (!path.startsWith('/api/')) return route.continue();
+		if (path.endsWith('/agent-tasks') && url.searchParams.get('needs_me') === 'true')
+			return route.fulfill({ json: [] });
 		if (path === '/api/auth/me') return route.fulfill({ json: user });
 		if (path === '/api/preferences')
 			return route.fulfill({
@@ -133,6 +135,26 @@ async function mockWorkspace(page: Page, options: { role?: string; assigned?: As
 
 const agentsUpdated = (page: Page) =>
 	page.evaluate((id) => window.dispatchEvent(new CustomEvent('ws:issue-agents-updated', { detail: { issue_id: id } })), issueId);
+
+test('the issue links to a task needing its owner even without an assigned agent', async ({ page }) => {
+	await mockWorkspace(page);
+	await page.route('**/agent-tasks?needs_me=true&issue=ENG-1', (route) =>
+		route.fulfill({
+			json: [
+				{
+					id: 'task-1',
+					conversation_id: 'chat-1',
+					task_title: 'Check the import',
+					pending_decision_count: 2
+				}
+			]
+		})
+	);
+	await page.goto('/test/issue/ENG-1');
+	const task = page.getByRole('link', { name: 'Check the import 2 pending' });
+	await expect(task).toBeVisible();
+	await expect(task).toHaveAttribute('href', '/test/assistant?conversation=chat-1&agent=task-1');
+});
 
 test('assigning an issue to an agent shows it as assignee with a live status', async ({ page }, testInfo) => {
 	const state = await mockWorkspace(page);

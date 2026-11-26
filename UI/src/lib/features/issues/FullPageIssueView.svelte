@@ -74,7 +74,7 @@
 	import { toggleIssueAgent } from '$lib/features/agents/issue-agents.svelte';
 	import { taskLabel } from '$lib/features/assistant/task-labels';
 	import { taskTone, toneText } from '$lib/features/assistant/task-tone';
-	import type { TaskState } from '$lib/api/agent-tasks';
+	import { agentTasks, type AgentQueueItem, type TaskState } from '$lib/api/agent-tasks';
 	import { historyActor } from './history-agent';
 	import IssueVersionHistory from './IssueVersionHistory.svelte';
 	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
@@ -97,6 +97,28 @@
 	// AI agents assigned to the issue. Their status is live: a realtime event
 	// reloads it, and a slow poll covers a missed event while a task works.
 	let agentAssignees = $state<IssueAgentAssignee[]>([]);
+	let waitingTasks = $state<AgentQueueItem[]>([]);
+	$effect(() => {
+		const identifier = issue.identifier;
+		const workspace = slug;
+		let active = true;
+		waitingTasks = [];
+		async function refresh() {
+			if (document.hidden) return;
+			try {
+				const tasks = await agentTasks.needsMe(workspace, identifier);
+				if (active) waitingTasks = tasks;
+			} catch {
+				// Keep the last visible counts until the next poll.
+			}
+		}
+		void refresh();
+		const timer = setInterval(refresh, 20000);
+		return () => {
+			active = false;
+			clearInterval(timer);
+		};
+	});
 	$effect(() => {
 		agentAssignees = issue.agent_assignees ?? [];
 	});
@@ -1578,6 +1600,26 @@
 							</div>
 						</div>
 
+						{#if waitingTasks.length}
+							<div class="flex items-start gap-3 px-2 py-1.5">
+								<span class="w-20 shrink-0 text-xs text-muted-foreground">{m['tasks.decision_needs_me']()}</span>
+								<ul class="min-w-0 space-y-1">
+									{#each waitingTasks as task (task.id)}
+										<li>
+											<a
+												class="flex items-center gap-2 text-sm hover:underline"
+												href={`/${slug}/assistant?conversation=${task.conversation_id}&agent=${task.id}`}
+											>
+												<span class="min-w-0 truncate">{task.task_title || task.issue_title}</span>
+												<Badge variant="outline"
+													>{m['tasks.decision_count']({ count: task.pending_decision_count ?? 0 })}</Badge
+												>
+											</a>
+										</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
 						{#if agentAssignees.length > 0}
 							<!-- Agents row: each assigned agent with its task's live status -->
 							<div class="flex items-start gap-3 rounded-md px-2 py-1.5" data-testid="issue-agents">

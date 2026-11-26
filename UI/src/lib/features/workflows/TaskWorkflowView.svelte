@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { decisionWaitLabel } from '../assistant/task-labels';
 	import { untrack } from 'svelte';
 	import { ExternalLink, RefreshCw } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
@@ -7,7 +8,6 @@
 	import type { AgentTask } from '$lib/api/agent-tasks';
 	import { workflows, type TaskWorkflow, type WorkflowDecision } from '$lib/api/workflows';
 	import type { ConversationState } from '$lib/features/assistant/conversation-state.svelte';
-	import { roomBlocker } from '$lib/features/assistant/task-room';
 	import RoomBlockerNotice from '$lib/features/assistant/RoomBlockerNotice.svelte';
 	import { useTaskRun } from '$lib/features/assistant/task-run.svelte';
 	import { appToast } from '$lib/features/toast/toast';
@@ -17,6 +17,7 @@
 	import RunChart from './RunChart.svelte';
 	import { taskRunChart } from './task-run-chart';
 	import { statusLabel } from './labels';
+	import { decisionAnchor, roomBlocker, openRoomBlocker } from '../assistant/task-room';
 	import { pendingDecision } from './workflow-graph';
 
 	// A task's workflow run: the graph with the current step highlighted and
@@ -50,8 +51,9 @@
 	const pipeline = $derived(shared.pipeline);
 	const chart = $derived(run ? taskRunChart(run) : null);
 	const overlay = $derived(chart?.overlay);
+	const ownerBlocker = $derived(roomBlocker(task));
 	const decision = $derived(run ? pendingDecision(run) : null);
-	const blocker = $derived(pipeline && decision?.kind === 'limit' ? roomBlocker(chat.taskRooms[taskId] ?? []) : undefined);
+	const blocker = $derived(pipeline && decision?.kind === 'limit' ? openRoomBlocker(chat.taskRooms[taskId] ?? [], task.pending_decisions) : undefined);
 	const nodeLabel = (id: string | null | undefined) =>
 		(id && (pipeline?.phases ?? run?.graph.nodes)?.find((node) => node.id === id)?.label) || id || '';
 
@@ -74,7 +76,14 @@
 </script>
 
 {#snippet decisionCard(run: TaskWorkflow)}
-	{#if decision}
+	{#if ownerBlocker}
+		<a
+			class="block text-sm underline underline-offset-2 [overflow-wrap:anywhere]"
+			href={`/${slug}/assistant?conversation=${chat.id}&agent=${task.id}#${decisionAnchor(task.id, ownerBlocker.kind, ownerBlocker.seq)}`}
+			onclick={onopenpost}
+			>{decisionWaitLabel(ownerBlocker)}</a
+		>
+	{:else if decision}
 		<div class="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3" role="group" aria-label={nodeLabel(run.node)} data-testid="task-workflow-decision">
 			{#if blocker}
 				<RoomBlockerNotice post={blocker} {chat} onfollow={onopenpost} />

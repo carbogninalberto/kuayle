@@ -6,6 +6,7 @@
 	import { taskLabel } from '$lib/features/assistant/task-labels';
 	import { turnSummary } from '$lib/features/assistant/thread-rows';
 	import { m } from '$lib/features/i18n/messages';
+	import { roomBlocker } from '../assistant/task-room';
 	import { statusLabel } from './labels';
 	import { ownerLabel } from './pipeline-labels';
 	import { pipelineRunMembers } from './pipeline-run-members';
@@ -20,7 +21,7 @@
 	} = $props();
 
 	const status = $derived.by(() => {
-		if (task.workflow_paused_at || run.paused_at) return m['tasks.state.paused']();
+		if (task.workflow_paused_at || run.paused_at || roomBlocker(task)) return m['tasks.state.paused']();
 		if (run.status === 'paused') return statusLabel(run.status);
 		if (task.state === 'blocked' || run.task_state === 'blocked') return m['tasks.state.blocked']();
 		return statusLabel(run.status) ?? taskLabel(task.state);

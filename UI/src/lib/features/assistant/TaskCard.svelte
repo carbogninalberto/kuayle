@@ -48,6 +48,7 @@
 	const agentLabel = (provider: string) => agentInfo(provider).name;
 	import { approvedBy } from './review-approval';
 	import type { TaskAction, TaskMenuEntry } from './task-actions';
+	import { roomBlocker, decisionAnchor } from './task-room';
 	import { canResume, workflowPause } from './workflow-pause';
 	import { mayHaveWorkflowUpdate, workflowUpdate } from './workflow-switch';
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
@@ -73,7 +74,7 @@
 	import { openAppPort } from '$lib/features/dev-machines/open-app-port';
 	import { getErrorMessage } from '$lib/features/toast/toast';
 	import type { ConversationState } from './conversation-state.svelte';
-	import { taskLabel } from './task-labels';
+	import { decisionWaitLabel, taskLabel } from './task-labels';
 	import { iterationReasons, workflowIterationReasons, type IterationReason } from './shell-rules';
 	import { downloadTaskTrace } from './task-trace';
 	import { m } from '$lib/features/i18n/messages';
@@ -133,6 +134,7 @@
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	// A workflow its creator paused is neither working nor failed, whatever
 	// state the pause found the task in.
+	const blocker = $derived(roomBlocker(task));
 	const pause = $derived(workflowPause(task));
 	const active = $derived(
 		pause !== 'paused' && ['preparing', 'running', 'validating', 'publishing', 'cancelling'].includes(task.state)
@@ -750,7 +752,7 @@
 		// Retrying is the next step once a task stopped; otherwise it is secondary.
 		// A paused workflow has one next step: resuming it.
 		const resumable = pause === 'paused' || pause === 'pausing';
-		const stopped = canRetry && task.state !== 'awaiting_review' && !resumable;
+		const stopped = !blocker && canRetry && task.state !== 'awaiting_review' && !resumable;
 		if (resumable)
 			list.push({
 				id: 'resume',
@@ -790,7 +792,7 @@
 				href: pullRequest,
 				external: true,
 				group: 'main',
-				variant: stopped || canAccept || resumable ? undefined : 'primary'
+				variant: blocker || stopped || canAccept || resumable ? undefined : 'primary'
 			});
 		if (diffReady)
 			list.push({
@@ -798,7 +800,7 @@
 				icon: FileDiff,
 				label: m['tasks.view_diff'](),
 				group: 'main',
-				variant: pullRequest || stopped || canAccept || resumable ? undefined : 'primary',
+				variant: blocker || pullRequest || stopped || canAccept || resumable ? undefined : 'primary',
 				onclick: () =>
 					(chat.diffView = {
 						taskId: task.id,
@@ -1008,6 +1010,9 @@
 						})}</span
 					></span
 				>
+				{#if task.pending_decisions?.length}<Badge variant="outline"
+						>{m['tasks.decision_count']({ count: task.pending_decisions.length })}</Badge
+					>{/if}
 				<!-- Why the iteration started; the first run needs no explanation. -->
 				{#if workflowReason}<Badge
 						variant="secondary"
@@ -1024,7 +1029,12 @@
 		{#if expanded}<TaskMenu {actions} bind:trigger={menuTrigger} />{/if}
 	</div>
 	{#if expanded}<div class="mt-2 space-y-2.5 pl-[26px]">
-			{#if reason}<p class="flex min-w-0 items-start gap-1.5 text-xs leading-5 text-muted-foreground">
+			{#if blocker}<a
+					class="text-sm underline"
+					href={`/${chat.slug}/assistant?conversation=${chat.id}&agent=${task.id}#${decisionAnchor(task.id, blocker.kind, blocker.seq)}`}
+					>{decisionWaitLabel(blocker)}</a
+				>
+			{:else if reason}<p class="flex min-w-0 items-start gap-1.5 text-xs leading-5 text-muted-foreground">
 					<span aria-hidden="true" class="mt-[3px] shrink-0 [&_svg]:size-3.5 {toneText[tone]}"
 						>{#if active}<LoaderCircle class="animate-spin motion-reduce:animate-none" />{:else if failed}<CircleAlert
 							/>{:else if task.state === 'completed' || approver}<CircleCheck

@@ -744,7 +744,14 @@ func (h *AgentTaskHandler) ApproveSplit(c *echo.Context) error {
 
 // Queue lists the session user's recent agent tasks across projects.
 func (h *AgentTaskHandler) Queue(c *echo.Context) error {
-	result, err := h.svc.Repo.Queue(c.Request().Context(), middleware.GetWorkspace(c).ID)
+	ctx, ws := c.Request().Context(), middleware.GetWorkspace(c).ID
+	var result []repository.AgentQueueItem
+	var err error
+	if c.QueryParam("needs_me") == "true" {
+		result, err = h.svc.Repo.NeedsMe(ctx, ws, c.QueryParam("issue"))
+	} else {
+		result, err = h.svc.Repo.Queue(ctx, ws)
+	}
 	if err != nil {
 		return agentTaskError(c, err)
 	}

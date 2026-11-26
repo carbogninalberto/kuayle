@@ -83,19 +83,19 @@ export interface PanelSignal {
 
 /**
  * What the side panel's toggle reports while the panel is closed. Needs the
- * owner outranks working. TODO(KUA-328): fold in its "needs the owner" tracking
- * (e.g. a workflow step's pending decision) once it is on main; until then the
- * signal is the conversation's pending approvals and its tasks' states.
+ * owner outranks working. A blocked task with open decisions counts once per decision.
  */
 export function panelSignal(
 	approvals: { status: string }[],
-	tasks: { state: string; pipeline?: boolean }[],
+	tasks: { state: string; pipeline?: boolean; pending_decisions?: unknown[] | null }[],
 	busy = false
 ): PanelSignal {
 	// A pipeline task's review is its reviewer agent's turn; any other review is the owner's.
 	const waits = (task: { state: string; pipeline?: boolean }) =>
 		ownerStates.includes(task.state) || (task.state === 'awaiting_review' && !task.pipeline);
-	const needs = approvals.filter((approval) => approval.status === 'pending').length + tasks.filter(waits).length;
+	const needs =
+		approvals.filter((approval) => approval.status === 'pending').length +
+		tasks.reduce((total, task) => total + (task.pending_decisions?.length || Number(waits(task))), 0);
 	const working = busy || tasks.some((task) => taskIndicator(task.state) === 'running' && task.state !== 'cancelling');
 	return { needs, working: needs === 0 && working };
 }

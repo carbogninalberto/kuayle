@@ -94,6 +94,8 @@ async function mockWorkspace(page: Page, history: unknown[] = []) {
 		if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
 		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
 		if (path === '/api/workspaces/test/teams') return route.fulfill({ json: teams });
+		if (path === '/api/workspaces/test/agent-tasks' && url.searchParams.get('needs_me') === 'true' && url.searchParams.has('issue'))
+			return route.fulfill({ json: [] });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/issues')
 			return route.fulfill({

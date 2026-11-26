@@ -12,10 +12,11 @@ import (
 // AgentTask is the durable business workflow. Native execution attempts remain
 // DevMachineAgentRuns; a task can survive replacement of a runtime or a worker.
 type AgentTask struct {
-	IssueStatusID  *uuid.UUID `json:"-" db:"issue_status_id"`
-	IssueUpdatedAt *time.Time `json:"-" db:"issue_updated_at"`
-	FailureCount   int        `json:"failure_count" db:"failure_count"`
-	FailurePending bool       `json:"-" db:"failure_pending"`
+	PendingDecisions OwnerDecisions `json:"pending_decisions" db:"pending_decisions"`
+	IssueStatusID    *uuid.UUID     `json:"-" db:"issue_status_id"`
+	IssueUpdatedAt   *time.Time     `json:"-" db:"issue_updated_at"`
+	FailureCount     int            `json:"failure_count" db:"failure_count"`
+	FailurePending   bool           `json:"-" db:"failure_pending"`
 	// FailureClass is the class (a FailureClass) of the failure the task is
 	// failing or failed with; Reason is its cause. Nil otherwise.
 	FailureClass      *string    `json:"failure_class,omitempty" db:"failure_class"`

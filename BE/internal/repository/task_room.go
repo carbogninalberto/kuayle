@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -365,6 +366,19 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 	if reason != "" && (post.AuthorKind != domain.RoomAuthorMember || !slices.Contains(domain.RoomKinds, post.Kind)) {
 		return nil, &TaskRoomRefusedError{reason}
 	}
+	// Bind an explicit answer to an open item under the same lock as split approval.
+	var stallReply bool
+	if reason == "" && post.ReplyTo != nil && (post.AuthorKind == domain.RoomAuthorHuman && post.Kind == domain.RoomSay || post.AuthorKind == domain.RoomAuthorKuayle && post.Data.Fact == "split_approved") {
+		err = tx.GetContext(ctx, &stallReply, `SELECT blocks_pause FROM open_room_decisions
+   WHERE task_id=$1 AND seq=$2 AND (kind='ask' OR data->>'action' IS DISTINCT FROM 'split' OR $3<>'approve')`, task.ID, post.ReplyTo, post.Data.Answer)
+		if errors.Is(err, sql.ErrNoRows) {
+			if post.Data.Answer != "" {
+				return nil, &TaskRoomRefusedError{"this decision cannot be answered here"}
+			}
+		} else if err != nil {
+			return nil, err
+		}
+	}
 	var rejected *string
 	if reason != "" {
 		// A refused post keeps what its sender needs to recognise it.
@@ -386,8 +400,19 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 	if err != nil {
 		return nil, err
 	}
-	if message.IsLeadReport() {
-		if err = recordLeadReport(ctx, tx, *task, message); err != nil {
+	decision := false
+	if message.AuthorKind == domain.RoomAuthorMember && rejected == nil && (message.Kind == domain.RoomAsk || message.Kind == domain.RoomRequest) {
+		if err = tx.GetContext(ctx, &decision, `SELECT EXISTS(SELECT 1 FROM open_room_decisions WHERE task_id=$1 AND seq=$2)`, task.ID, message.Seq); err != nil {
+			return nil, err
+		}
+	}
+	if message.AuthorKind == domain.RoomAuthorKuayle && message.Kind == domain.RoomFact && message.Data.Fact == "split_refused" && message.ReplyTo != nil {
+		if err = tx.GetContext(ctx, &decision, `SELECT EXISTS(SELECT 1 FROM open_room_decisions WHERE task_id=$1 AND seq=$2)`, task.ID, message.ReplyTo); err != nil {
+			return nil, err
+		}
+	}
+	if message.IsLeadReport() || decision {
+		if err = recordRoomNotice(ctx, tx, *task, message.ID, message.Body, decision); err != nil {
 			return nil, err
 		}
 	}
@@ -412,6 +437,29 @@ func postTaskMessageTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask,
 	if task.ConversationID != nil {
 		if _, err = conversationEvent(ctx, tx, *task.ConversationID, "task.room_message", message); err != nil {
 			return nil, err
+		}
+	}
+	if task.ConversationID != nil && (decision || message.ReplyTo != nil && (message.AuthorKind == domain.RoomAuthorHuman || message.AuthorKind == domain.RoomAuthorKuayle)) {
+		if err = decisionEvent(ctx, tx, *task); err != nil {
+			return nil, err
+		}
+	}
+	if stallReply {
+		var pending bool
+		if err = tx.GetContext(ctx, &pending, `SELECT EXISTS(SELECT 1 FROM open_room_decisions WHERE task_id=$1)`, task.ID); err != nil {
+			return nil, err
+		}
+		if !pending {
+			// Only a no-progress stall is released by its last answer. Preserve budget and explicit pauses.
+			var state json.RawMessage
+			if err = tx.GetContext(ctx, &state, `SELECT pipeline_state-'stall' FROM agent_tasks WHERE id=$1`, task.ID); err != nil {
+				return nil, err
+			}
+			now := time.Now()
+			if err = applyPipelineTx(ctx, tx, task, PipelineApply{Sequence: task.WorkflowSequence, Phase: *task.WorkflowNode, State: state, ClaimedWake: task.WorkflowWakeAt, Actor: &task.CreatorID,
+				Entry: WorkflowEntry{Kind: WorkflowEnterWait, Reason: domain.WorkflowReasonPrefix + "Owner answered; Kuayle reads the room", WakeAt: &now}}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return &message, nil

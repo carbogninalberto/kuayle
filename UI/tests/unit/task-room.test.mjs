@@ -1,6 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { factLabel, foldText, mergeRoom, readRoomPages, roomBlocker, roomRead, roomRows, roomSplits, rowRoles } from '../../src/lib/features/assistant/task-room.ts';
+import {
+	decisionOptions,
+	factLabel,
+	foldText,
+	mergeRoom,
+	openRoomBlocker,
+	readRoomPages,
+	roomRead,
+	roomRows,
+	roomSplits,
+	rowRoles
+} from '../../src/lib/features/assistant/task-room.ts';
+
+test('only an ordered set of labelled alternatives becomes reply buttons', () => {
+	assert.deepEqual(decisionOptions('Which scope?\nA) Titles\nB) Identifiers\nC) Both'), [
+		'A) Titles',
+		'B) Identifiers',
+		'C) Both'
+	]);
+	assert.deepEqual(decisionOptions('**A.** Titles\n**B.** Both'), ['A. Titles', 'B. Both']);
+	assert.deepEqual(decisionOptions('A. Just a heading'), []);
+	assert.deepEqual(decisionOptions('B) An example\nC) Another example'), []);
+});
 
 // The room of a pipeline task as rows: what the owner, Kuayle and each
 // role's turn posted, in the room's order.
@@ -332,42 +354,51 @@ test('a pause points to an open owner request until its receipt, even after a co
 	const ask = member(1, 'reviewer', 'r1', 'ask', 'Which branch?', { to_roles: ['human'] });
 	const split = member(2, 'lead', 'r2', 'request', '', { data: { action: 'split', issues: [{title: 'Search', description: 'Add search.'}] } });
 	const posts = [ask, split, owner(3, 'I will read it.', { reply_to: 2 })];
-	assert.equal(roomBlocker(posts)?.seq, 2);
+	assert.equal(openRoomBlocker(posts)?.seq, 2);
 	posts.push(post(4, 'kuayle', 'fact', '', { reply_to: 2, data: {fact: 'split_approved'} }));
-	assert.equal(roomBlocker(posts)?.seq, 1);
+	assert.equal(openRoomBlocker(posts)?.seq, 1);
 	posts.push(owner(5, 'Main.', { reply_to: 1 }));
-	assert.equal(roomBlocker(posts), undefined);
+	assert.equal(openRoomBlocker(posts), undefined);
 });
 
 test('a paused role-to-role question stays open until an accepted reply from its recipient or the owner', () => {
 	const ask = member(1, 'lead', 'a', 'ask', 'Can search ignore case?', { to_roles: ['reviewer'] });
 	const posts = [ask, member(2, 'implementer', 'b', 'say', 'Maybe.', { reply_to: 1 }),
 		member(3, 'reviewer', 'c', 'say', 'Yes.', { reply_to: 1, reject_reason: 'rate limited' })];
-	assert.equal(roomBlocker(posts)?.seq, 1);
+	assert.equal(openRoomBlocker(posts)?.seq, 1);
 	posts.push(member(4, 'reviewer', 'c', 'say', 'Yes.', { reply_to: 1 }));
-	assert.equal(roomBlocker(posts), undefined);
+	assert.equal(openRoomBlocker(posts), undefined);
 });
 
 test('an owner can answer an open post by addressing its author or everyone without quoting it', () => {
 	const fyi = member(2, 'reviewer', 'r', 'say', 'The review is waiting.', { to_roles: ['human'] });
 	const ask = member(3, 'lead', 'l', 'ask', 'Which branch?', { to_roles: ['human'] });
 	const posts = [owner(1, 'Starting now.'), fyi, ask];
-	assert.equal(roomBlocker(posts), ask);
+	assert.equal(openRoomBlocker(posts), ask);
 	posts.push(owner(4, 'Main.', { to_roles: ['lead'] }));
-	assert.equal(roomBlocker(posts), fyi);
+	assert.equal(openRoomBlocker(posts), fyi);
 	posts.push(owner(5, 'Thanks.', { to_roles: ['reviewer'], reject_reason: 'rate limited' }));
-	assert.equal(roomBlocker(posts), fyi);
-	assert.equal(roomBlocker([...posts, owner(6, 'Thanks.', { to_roles: ['reviewer'] })]), undefined);
-	assert.equal(roomBlocker([...posts, owner(6, 'Thanks everyone.')]), undefined);
+	assert.equal(openRoomBlocker(posts), fyi);
+	assert.equal(openRoomBlocker([...posts, owner(6, 'Thanks.', { to_roles: ['reviewer'] })]), undefined);
+	assert.equal(openRoomBlocker([...posts, owner(6, 'Thanks everyone.')]), undefined);
 });
 
 test('a broadcast cannot settle a split request', () => {
 	const split = member(1, 'lead', 'r', 'request', 'Split the work.', { data: { action: 'split' } });
-	assert.equal(roomBlocker([split, owner(2, 'Sounds good.')]), split);
+	assert.equal(openRoomBlocker([split, owner(2, 'Sounds good.')]), split);
+});
+
+test('a task decision takes precedence over an inferred room blocker', () => {
+	const fyi = member(1, 'reviewer', 'r', 'say', 'CI is waiting.', { to_roles: ['human'] });
+	const split = member(2, 'lead', 'l', 'request', 'Split this work.', { data: { action: 'split' } });
+	const posts = [fyi, split];
+	assert.equal(openRoomBlocker(posts), split);
+	assert.equal(openRoomBlocker(posts, [{ kind: 'request', seq: 2, blocks_pause: true }]), undefined);
+	assert.equal(openRoomBlocker(posts, []), fyi);
 });
 
 test('a verdict answers the review request for that role', () => {
 	const review = member(1, 'lead', 'a', 'request', '', { to_roles: ['reviewer'], data: { action: 'review' } });
-	assert.equal(roomBlocker([review])?.seq, 1);
-	assert.equal(roomBlocker([review, member(2, 'reviewer', 'b', 'verdict', 'Ready.', { data: { verdict: 'approve' } })]), undefined);
+	assert.equal(openRoomBlocker([review])?.seq, 1);
+	assert.equal(openRoomBlocker([review, member(2, 'reviewer', 'b', 'verdict', 'Ready.', { data: { verdict: 'approve' } })]), undefined);
 });

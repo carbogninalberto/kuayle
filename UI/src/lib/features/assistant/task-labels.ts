@@ -1,5 +1,10 @@
 import { m } from '$lib/features/i18n/messages';
-import type { TaskState } from '$lib/api/agent-tasks';
+import type { OwnerDecision, TaskState } from '$lib/api/agent-tasks';
+export function decisionWaitLabel(item: OwnerDecision) {
+	const subject = item.data.action === 'split' ? m['tasks.room_create_sub_issues']() : item.body.split('\n')[0];
+	return m['tasks.decision_waiting']({ item: subject });
+}
+
 export function taskLabel(state: TaskState): string {
 	const labels: Record<TaskState, () => string> = {
 		queued: m['tasks.state.queued'],
