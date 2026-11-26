@@ -2100,6 +2100,7 @@
 	"assistant.send": "Odeslat zprávu",
 	"assistant.sending": "Odesílání…",
 	"assistant.hint": "Enter odešle · Shift+Enter vloží nový řádek",
+	"assistant.scheduled_job": "Naplánovaná úloha",
 	"assistant.error": "Něco se pokazilo. Zkuste to prosím znovu.",
 	"assistant.send_error": "Zprávu se nepodařilo potvrdit. Odešlete ji znovu, bezpečně se zopakuje.",
 	"telegram.title": "Telegram",

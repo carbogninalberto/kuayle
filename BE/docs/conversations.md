@@ -521,7 +521,8 @@ The worker offers OpenAI-compatible function tools: `list_teams`,
 `search_issues`, `get_issue`, `create_issue`, `update_issue`,
 `delegate_issue`, `plan_issues` and `link_issues` (see [dependencies and collaborating agents](agent-tasks.md#dependencies-and-collaborating-agents)),
 `get_agent_work`, `list_agent_work`, `watch_agent_work`
-(see [watching agent work](#watching-agent-work)), `merge_pull_request`, `accept_agent_work`
+(see [watching agent work](#watching-agent-work)), `schedule_job`, `list_scheduled_jobs`,
+`cancel_scheduled_job` (see [scheduled assistant jobs](#scheduled-assistant-jobs)), `merge_pull_request`, `accept_agent_work`
 (see [accepting without merge](agent-tasks.md#accepting-without-merge)), `request_agent_review`,
 `follow_up_task` (see [requested agent reviews](agent-tasks.md#requested-agent-reviews)),
 `publish_task_changes` (see [publishing a stopped task](#publishing-a-stopped-task)),
@@ -660,6 +661,71 @@ and stores the user's normal notification (in-app, plus email/push per the
 user's preferences) and announces it over the user's event stream, unless the
 creator's notice for the same event already reaches the watcher: a creator
 watching their own task gets one notification and the chat message.
+
+### Scheduled assistant jobs
+
+`schedule_job` registers work in the current chat. The assistant confirms registration
+and the next run. `list_scheduled_jobs` returns active jobs and recent outcomes.
+`cancel_scheduled_job(id)` and the chat card cancel future runs. The card follows
+`scheduled_job.updated` events and reloads from conversation history.
+
+| Trigger | Fields | Timing |
+| --- | --- | --- |
+| `once` | `at` or `delay_seconds` | An ISO local date and time, an RFC3339 instant, or a delay in seconds |
+| `interval` | `interval_seconds` | Repeat after the interval, measured from the actual fire |
+| `cron` | `cron` | Five fields (minute, hour, day of month, month, weekday) in the creator’s profile timezone |
+| `condition` | `condition`, `interval_seconds`, `deadline` | Probe when registered, then poll until a match or the deadline |
+
+The job stores the profile timezone at registration, with UTC as the default.
+A local cron follows daylight-saving changes. Missed recurring occurrences coalesce
+into one fire after restart. The minimum interval or poll is one minute. Every
+job expires within 30 days and a condition requires an explicit deadline.
+Up to 10 jobs may be active per conversation, 30 per creator and 200 per workspace.
+
+For example, this job waits for passing CI, then asks the assistant to propose a release:
+
+```json
+{
+  "kind": "condition",
+  "interval_seconds": 120,
+  "deadline": "2026-11-27T18:00:00",
+  "condition": {
+    "tool": "get_pull_request_checks",
+    "arguments": {"identifier": "ENG-12"},
+    "path": "state", "op": "eq", "value": "passing"
+  },
+  "action": "continue",
+  "instructions": "Read the release notes and request approval to publish v1.3.0."
+}
+```
+
+Use the result of an existing read tool for a probe. A dot path selects a field
+or an array index, such as `tasks.0.state`. Equality accepts a string, number
+or boolean. Numeric thresholds use `gt`, `gte`, `lt` or `lte`. A read-only
+automatic custom tool can return a number in `output_tail`, for example disk
+usage. Probe errors back off exponentially. An approval-required probe requests
+the ordinary approval and stops the dependent action. A direct-write tool
+without an approval path is refused.
+
+`notify` posts the stored reminder without contacting the model. `continue`
+queues the instructions as a turn in the originating conversation. Every API
+process can claim a due row with a short lease. Finishing checks current access,
+scope, deadline and lease ownership, then commits the occurrence's request ID,
+message and card state together. The normal assistant pool claims the reply.
+A scheduled turn uses current workspace AI configuration, the ordinary reply
+timeout and up to four model requests of 2,048 completion tokens each. A
+recurring job can queue at most ten turns. The assistant can read or request
+approval for an action such as `create_release`. Publishing requires a fresh
+user decision on the ordinary approval card.
+
+Fires, cancellations and expirations use the normal notification delivery.
+Issue or team chats can create an inbox row. A free chat without either anchor
+uses a live-only event. Web push uses the recipient’s preferences and current
+access. Linked Telegram accounts receive the committed chat message through the
+usual delivery queue, including when another chat is open. Revoking access stops delivery.
+
+Use assistant jobs for reminders, summaries and deferred chat turns. Rule-driven
+coding work belongs to the [Automations engine](agent-tasks.md#automations).
 
 ### Tool switches (Settings → Assistant)
 

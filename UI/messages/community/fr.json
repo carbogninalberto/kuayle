@@ -2100,6 +2100,7 @@
 	"assistant.send": "Envoyer le message",
 	"assistant.sending": "Envoi…",
 	"assistant.hint": "Entrée pour envoyer · Maj+Entrée pour un retour à la ligne",
+	"assistant.scheduled_job": "Tâche planifiée",
 	"assistant.error": "Une erreur s'est produite. Veuillez réessayer.",
 	"assistant.send_error": "Le message n'a pas pu être confirmé. Renvoyez-le pour réessayer en toute sécurité.",
 	"telegram.title": "Telegram",

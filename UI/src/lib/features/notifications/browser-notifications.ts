@@ -18,7 +18,7 @@ const ICON = '/icons/icon-192.png';
 
 /** One notification per type and subject: a newer one replaces the older. */
 export function notificationTag(payload: NotificationEventPayload): string {
-	return `${payload.type}:${payload.issue_id ?? payload.approval_id ?? payload.task_id ?? 'workspace'}`;
+	return `${payload.type}:${payload.job_id ?? payload.issue_id ?? payload.approval_id ?? payload.task_id ?? 'workspace'}`;
 }
 
 /**
@@ -31,7 +31,7 @@ export function notificationUrl(slug: string, payload: NotificationEventPayload)
 	const conversation = payload.conversation_id
 		? `${base}/assistant?conversation=${encodeURIComponent(payload.conversation_id)}`
 		: null;
-	if (conversation && (payload.type === 'approval_requested' || payload.type === 'approval_finished')) return conversation;
+	if (conversation && (payload.type === 'approval_requested' || payload.type === 'approval_finished' || payload.type === 'scheduled_job')) return conversation;
 	if (issue && payload.type !== 'issues_deleted') return `${base}/issue/${encodeURIComponent(issue)}`;
 	if (conversation) return conversation;
 	return `${base}/inbox`;

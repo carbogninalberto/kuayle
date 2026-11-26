@@ -2100,6 +2100,7 @@
 	"assistant.send": "Hantar mesej",
 	"assistant.sending": "Menghantar…",
 	"assistant.hint": "Enter untuk hantar · Shift+Enter untuk baris baharu",
+	"assistant.scheduled_job": "Tugas berjadual",
 	"assistant.error": "Sesuatu telah berlaku. Sila cuba lagi.",
 	"assistant.send_error": "Mesej tidak dapat disahkan. Hantar semula untuk mencuba dengan selamat.",
 	"telegram.title": "Telegram",

@@ -253,4 +253,51 @@ func TestConversationHTTPStreamingAndReplay(t *testing.T) {
 	_, _, err = resumed.Read(ctx)
 	require.Equal(t, websocket.StatusPolicyViolation, websocket.CloseStatus(err))
 	request("GET", path, "", token, 403, nil)
+	t.Run("a registered reminder fires and the card reloads from HTTP history", func(t *testing.T) {
+		stop()
+		<-finished
+		svc.SetTools(service.NewAssistantTools(repository.NewIssueRepository(db), repository.NewTeamRepository(db), workspaces, nil))
+		svc.SetScheduledJobs(nil, nil)
+		workerCtx, stopWorkers := context.WithCancel(t.Context())
+		drained := make(chan struct{})
+		go func() { svc.Run(workerCtx); close(drained) }()
+		defer func() { stopWorkers(); <-drained }()
+		memberToken := tokenFor(other)
+		var requests atomic.Int32
+		reminderProvider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			if requests.Add(1) == 1 {
+				fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"schedule","function":{"name":"schedule_job","arguments":"{\"kind\":\"once\",\"action\":\"notify\",\"delay_seconds\":1,\"instructions\":\"Review the release notes\"}"}}]},"finish_reason":"tool_calls"}]}`+"\n\n")
+			} else {
+				fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Reminder registered.\"},\"finish_reason\":\"stop\"}]}\n\n")
+			}
+			fmt.Fprint(w, "data: [DONE]\n\n")
+		}))
+		defer reminderProvider.Close()
+		require.NoError(t, aiRepo.Upsert(t.Context(), &domain.AISettings{WorkspaceID: ws, Provider: domain.AIProviderOpenAICompatible, BaseURL: reminderProvider.URL, Model: "test-model", APIKeyEncrypted: &encrypted}))
+		var chat domain.Conversation
+		request("POST", "/conversations", `{"title":"Reminders"}`, memberToken, 201, &chat)
+		path := "/conversations/" + chat.ID.String()
+		request("POST", path+"/messages", fmt.Sprintf(`{"request_id":%q,"content":"Remind me to review the release notes"}`, uuid.NewString()), memberToken, 202, nil)
+		var h domain.ConversationHistory
+		require.Eventually(t, func() bool {
+			request("GET", path, "", memberToken, 200, &h)
+			return len(h.Jobs) == 1 && h.Jobs[0].LastOutcome == "Registered"
+		}, 10*time.Second, 100*time.Millisecond)
+		jobID := h.Jobs[0].ID
+		loopCtx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { svc.RunScheduledJobs(loopCtx); close(done) }()
+		defer func() { cancel(); <-done }()
+		require.Eventually(t, func() bool {
+			request("GET", path, "", memberToken, 200, &h)
+			return len(h.Jobs) == 1 && h.Jobs[0].State == "completed"
+		}, 10*time.Second, 100*time.Millisecond)
+		require.Equal(t, jobID, h.Jobs[0].ID)
+		require.Equal(t, h.Messages[0].ID, h.Jobs[0].ParentID)
+		require.Equal(t, "Reminder sent", h.Jobs[0].LastOutcome)
+		require.Len(t, h.Messages, 3)
+		require.Equal(t, "Review the release notes", h.Messages[2].Content)
+		require.EqualValues(t, 2, requests.Load())
+	})
 }

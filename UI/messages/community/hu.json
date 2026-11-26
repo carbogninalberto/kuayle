@@ -2100,6 +2100,7 @@
 	"assistant.send": "Üzenet küldése",
 	"assistant.sending": "Küldés…",
 	"assistant.hint": "Enter a küldéshez · Shift+Enter az új sorhoz",
+	"assistant.scheduled_job": "Ütemezett feladat",
 	"assistant.error": "Valami hiba történt. Próbáld újra.",
 	"assistant.send_error": "Az üzenet fogadása nem erősíthető meg. Küldd el újra, ez biztonságos.",
 	"telegram.title": "Telegram",

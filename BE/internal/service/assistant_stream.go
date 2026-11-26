@@ -24,20 +24,21 @@ const (
 // provider diagnostics (which may contain credentials). Only public reply text,
 // not hidden reasoning, enters the conversation stream.
 func (s *AISettingsService) streamAssistant(ctx context.Context, baseURL, model, apiKey string, messages []chatCompletionMessage, emit func(string) error) error {
-	_, err := s.streamAssistantTools(ctx, baseURL, model, apiKey, messages, nil, emit)
+	_, err := s.streamAssistantTools(ctx, baseURL, model, apiKey, messages, nil, 0, emit)
 	return err
 }
 
 // streamAssistantTools also offers tools. Requested calls are returned only when
 // the provider finished the turn with finish_reason "tool_calls"; the caller
 // decides, outside the model, whether and how each call may run.
-func (s *AISettingsService) streamAssistantTools(ctx context.Context, baseURL, model, apiKey string, messages []chatCompletionMessage, tools []chatToolSpec, emit func(string) error) ([]chatToolCall, error) {
+func (s *AISettingsService) streamAssistantTools(ctx context.Context, baseURL, model, apiKey string, messages []chatCompletionMessage, tools []chatToolSpec, maxTokens int, emit func(string) error) ([]chatToolCall, error) {
 	body, err := json.Marshal(struct {
-		Model    string                  `json:"model"`
-		Messages []chatCompletionMessage `json:"messages"`
-		Tools    []chatToolSpec          `json:"tools,omitempty"`
-		Stream   bool                    `json:"stream"`
-	}{model, messages, tools, true})
+		Model     string                  `json:"model"`
+		Messages  []chatCompletionMessage `json:"messages"`
+		Tools     []chatToolSpec          `json:"tools,omitempty"`
+		MaxTokens int                     `json:"max_tokens,omitempty"`
+		Stream    bool                    `json:"stream"`
+	}{model, messages, tools, maxTokens, true})
 	if err != nil {
 		return nil, err
 	}

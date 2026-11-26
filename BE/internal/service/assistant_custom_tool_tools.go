@@ -227,41 +227,56 @@ func (s *ConversationService) runCustomTool(ctx context.Context, a domain.Conver
 	if err != nil {
 		return nil, nil, err
 	}
-	var issueID *uuid.UUID
-	if prepared.issue != nil {
-		issueID = &prepared.issue.ID
+	if prepared.tool.RunMode != domain.AssistantToolRunAuto || !prepared.tool.ReadOnly || len(a.Message.ScheduledProbe) > 0 {
+		return s.requestCustomToolApproval(ctx, a, toolCallID, prepared)
 	}
-	if prepared.tool.RunMode != domain.AssistantToolRunAuto {
-		if prepared.issue == nil {
-			return nil, nil, toolFailure("give the issue identifier as well: a run that needs approval is bound to an issue")
-		}
-		payload := domain.CustomToolRunPayload{Identifier: prepared.issue.Identifier, Title: prepared.issue.Title, ToolID: prepared.tool.ID, ToolName: prepared.tool.Name,
-			Version: prepared.tool.CurrentVersion, Description: prepared.tool.Description, ReadOnly: prepared.tool.ReadOnly, Interpreter: prepared.tool.Interpreter, Inputs: prepared.inputs, MachineID: prepared.machine}
-		if prepared.task != nil {
-			payload.TaskID, payload.Generation = &prepared.task.TaskID, prepared.task.Generation
-		}
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return nil, nil, err
-		}
-		approval, err := s.Repo.CreateApproval(ctx, a, toolCallID, "run_custom_tool", prepared.issue.ID, data, assistantApprovalTTL)
-		if err != nil {
-			return nil, nil, err
-		}
-		auditApprovalRequested(user, ws, approval, nil)
-		s.approvals.notifyRequested(ctx, a.Conversation, approval, prepared.issue.Identifier)
-		return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval", "identifier": prepared.issue.Identifier, "tool": prepared.tool.Name}, issueID, nil
+	run, err := s.tools.queuePreparedTool(ctx, ws, user, a.Conversation.ID, &toolCallID, prepared)
+	if err != nil {
+		return nil, nil, err
 	}
-	req := repository.ToolRunRequest{ToolID: prepared.tool.ID, Version: prepared.tool.CurrentVersion, Inputs: prepared.inputs, MachineID: prepared.machine, IssueID: issueID,
-		ConversationID: &a.Conversation.ID, ToolCallID: &toolCallID}
+	return toolRunResult(s.tools.awaitToolRun(ctx, ws, user, run)), prepared.issueID(), nil
+}
+
+func (p *preparedToolRun) issueID() *uuid.UUID {
+	if p.issue == nil {
+		return nil
+	}
+	return &p.issue.ID
+}
+
+func (s *ConversationService) requestCustomToolApproval(ctx context.Context, a domain.ConversationAttempt, toolCallID uuid.UUID, prepared *preparedToolRun) (any, *uuid.UUID, error) {
+	if prepared.issue == nil {
+		return nil, nil, toolFailure("give the issue identifier as well: a run that needs approval is bound to an issue")
+	}
+	payload := domain.CustomToolRunPayload{Identifier: prepared.issue.Identifier, Title: prepared.issue.Title, ToolID: prepared.tool.ID, ToolName: prepared.tool.Name,
+		Version: prepared.tool.CurrentVersion, Description: prepared.tool.Description, ReadOnly: prepared.tool.ReadOnly, Interpreter: prepared.tool.Interpreter, Inputs: prepared.inputs, MachineID: prepared.machine}
+	if prepared.task != nil {
+		payload.TaskID, payload.Generation = &prepared.task.TaskID, prepared.task.Generation
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	approval, err := s.Repo.CreateApproval(ctx, a, toolCallID, "run_custom_tool", prepared.issue.ID, data, assistantApprovalTTL)
+	if err != nil {
+		return nil, nil, err
+	}
+	auditApprovalRequested(a.Conversation.CreatorID, a.Conversation.WorkspaceID, approval, nil)
+	s.approvals.notifyRequested(ctx, a.Conversation, approval, prepared.issue.Identifier)
+	return map[string]any{"approval_id": approval.ID, "status": "pending_user_approval", "identifier": prepared.issue.Identifier, "tool": prepared.tool.Name}, &prepared.issue.ID, nil
+}
+
+func (t *AssistantTools) queuePreparedTool(ctx context.Context, ws, user, conversation uuid.UUID, toolCallID *uuid.UUID, prepared *preparedToolRun) (*domain.AssistantToolRun, error) {
+	req := repository.ToolRunRequest{ToolID: prepared.tool.ID, Version: prepared.tool.CurrentVersion, Inputs: prepared.inputs, MachineID: prepared.machine, IssueID: prepared.issueID(),
+		ConversationID: &conversation, ToolCallID: toolCallID}
 	if prepared.task != nil {
 		req.TaskID, req.Generation = &prepared.task.TaskID, &prepared.task.Generation
 	}
-	run, err := s.tools.customTools.QueueRun(ctx, ws, user, req)
+	run, err := t.customTools.QueueRun(ctx, ws, user, req)
 	if err != nil {
-		return nil, nil, toolRunQueueFailure(err)
+		return nil, toolRunQueueFailure(err)
 	}
-	return toolRunResult(s.tools.awaitToolRun(ctx, ws, user, run)), issueID, nil
+	return run, nil
 }
 
 // toolRunQueueFailure turns refusals into user-safe tool failures.

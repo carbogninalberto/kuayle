@@ -2100,6 +2100,7 @@
 	"assistant.send": "Bericht verzenden",
 	"assistant.sending": "Verzenden…",
 	"assistant.hint": "Enter om te verzenden · Shift+Enter voor een nieuwe regel",
+	"assistant.scheduled_job": "Geplande taak",
 	"assistant.error": "Er is iets misgegaan. Probeer het opnieuw.",
 	"assistant.send_error": "Het bericht kon niet worden bevestigd. Verzend het opnieuw om veilig opnieuw te proberen.",
 	"telegram.title": "Telegram",

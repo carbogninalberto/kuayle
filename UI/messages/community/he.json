@@ -2100,6 +2100,7 @@
 	"assistant.send": "שליחת ההודעה",
 	"assistant.sending": "שולח…",
 	"assistant.hint": "Enter לשליחה · Shift+Enter לשורה חדשה",
+	"assistant.scheduled_job": "משימה מתוזמנת",
 	"assistant.error": "משהו השתבש. נסו שוב.",
 	"assistant.send_error": "לא ניתן היה לאשר את ההודעה. שלחו אותה שוב כדי לנסות בבטחה.",
 	"telegram.title": "Telegram",

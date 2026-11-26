@@ -325,6 +325,7 @@ authentication.
 | GET | `/api/workspaces/:slug/conversations/:conversationId/attachments/:attachmentId` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/cancel` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | GET | `/api/workspaces/:slug/conversations/:conversationId/events` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
+| POST | `/api/workspaces/:slug/conversations/:conversationId/jobs/:jobId/cancel` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/messages` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/messages/:messageId/retry` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | DELETE | `/api/workspaces/:slug/conversations/:conversationId/processes/:processId` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |

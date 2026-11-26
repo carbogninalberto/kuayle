@@ -2100,6 +2100,7 @@
 	"assistant.send": "Mesajı gönder",
 	"assistant.sending": "Gönderiliyor…",
 	"assistant.hint": "Göndermek için Enter · Yeni satır için Shift+Enter",
+	"assistant.scheduled_job": "Zamanlanmış görev",
 	"assistant.error": "Bir şeyler ters gitti. Lütfen tekrar deneyin.",
 	"assistant.send_error": "Mesaj doğrulanamadı. Güvenle yeniden denemek için tekrar gönderin.",
 	"telegram.title": "Telegram",

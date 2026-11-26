@@ -79,6 +79,7 @@ type AssistantTools struct {
 	agentTasks *AgentTaskService
 	// Task watch tools (watch_agent_work) need SetTaskWatchers as well.
 	watchers assistantTaskWatchers
+	jobs     bool
 	// merge_pull_request shows the head GitHub reports once SetPullRequestHeads
 	// wires it; before that it shows the published commit.
 	heads pullRequestHeadReader
@@ -218,6 +219,7 @@ type assistantTool struct {
 	agentWork bool
 	// watch tools also need SetTaskWatchers.
 	watch bool
+	jobs  bool
 	// repositories tools need SetRepositories.
 	repositories bool
 	// machines tools need SetMachines.
@@ -281,6 +283,7 @@ func assistantTools() []assistantTool {
 	var tools []assistantTool
 	for _, catalog := range [][]assistantTool{
 		assistantToolCatalog,
+		assistantJobTools,
 		assistantMachineToolCatalog,
 		assistantLiveToolCatalog,
 		assistantSkillToolCatalog,
@@ -323,7 +326,7 @@ func (tool assistantTool) spec() chatToolSpec {
 
 // available reports whether a tool's dependencies are wired.
 func (t *AssistantTools) available(tool assistantTool) bool {
-	return (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.publish || (t.wikiPublish != nil && t.wikiWorkspaces != nil)) && (!tool.agentWork || t.work != nil) && (!tool.watch || t.watchers != nil) && (!tool.repositories || t.repositories != nil) &&
+	return (!tool.jobs || t.jobs) && (!tool.wiki || (t.wiki != nil && t.wikiProjects != nil)) && (!tool.publish || (t.wikiPublish != nil && t.wikiWorkspaces != nil)) && (!tool.agentWork || t.work != nil) && (!tool.watch || t.watchers != nil) && (!tool.repositories || t.repositories != nil) &&
 		(!tool.machines || (t.machineTasks != nil && t.machines != nil)) &&
 		(!tool.machineLogs || t.worktreeScans != nil) &&
 		(!tool.live || t.live != nil) &&

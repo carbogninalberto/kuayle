@@ -2100,6 +2100,7 @@
 	"assistant.send": "Envia el missatge",
 	"assistant.sending": "S'està enviant…",
 	"assistant.hint": "Enter per enviar · Shift+Enter per a una línia nova",
+	"assistant.scheduled_job": "Tasca programada",
 	"assistant.error": "Alguna cosa ha fallat. Torna-ho a provar.",
 	"assistant.send_error": "No s'ha pogut confirmar el missatge. Torna a enviar-lo per reintentar-ho de manera segura.",
 	"telegram.title": "Telegram",
