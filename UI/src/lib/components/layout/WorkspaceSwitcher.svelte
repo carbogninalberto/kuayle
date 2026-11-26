@@ -94,7 +94,7 @@
 			</Button>
 		{/snippet}
 	</Popover.Trigger>
-	<Popover.Content class="w-56 p-1" align="start">
+	<Popover.Content class="mobile-touch-targets w-56 p-1" align="start">
 		<div class="px-2 py-1">
 			<span class="text-[10px] font-medium uppercase text-[var(--color-text-tertiary)]">{m['sidebar.workspaces']()}</span>
 		</div>
@@ -121,7 +121,7 @@
 </Popover.Root>
 
 <Dialog.Root bind:open={showCreateWorkspace}>
-	<Dialog.Content class="sm:max-w-md border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
+	<Dialog.Content class="mobile-touch-targets sm:max-w-md border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
 		<Dialog.Header>
 			<Dialog.Title>{m['sidebar.create_workspace']()}</Dialog.Title>
 			<Dialog.Description>{m['sidebar.create_workspace_desc']()}</Dialog.Description>

@@ -7,7 +7,7 @@
 
 {#if sidebarState.collapsed}
 	<Button variant="plain" onclick={() => sidebarState.expand()}
-		class="shrink-0 rounded-md p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
+		class="hidden shrink-0 md:inline-flex rounded-md p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]"
 		title={m['sidebar.expand_sidebar']()}
 	>
 		<PanelLeft size={16} />

@@ -1272,3 +1272,158 @@ test('label actions can be opened without hover at phone width', async ({ page }
 	await page.keyboard.press('Escape');
 	await expect(action).toBeFocused();
 });
+
+test.describe('mobile workspace', () => {
+	test.use({ viewport: { width: 360, height: 740 }, hasTouch: true });
+
+	test('shell controls have 44px hit areas in the header and drawer', async ({ page }, testInfo) => {
+		await mockApi(page, 'light');
+		await page.goto('/test/my-issues');
+		const open = page.getByRole('button', { name: 'Open navigation' });
+		await expect(open).toBeVisible();
+		for (const name of ['Open navigation', 'Search', 'Create issue']) {
+			const box = await page.getByRole('main').getByRole('button', { name, exact: true }).boundingBox();
+			expect(Math.min(box!.width, box!.height), name).toBeGreaterThanOrEqual(44);
+		}
+		await open.tap();
+		const drawer = page.getByRole('dialog', { name: 'Workspace navigation' });
+		await expect(drawer.getByRole('link', { name: 'My Issues' })).toBeVisible();
+		const undersized = await drawer.locator('button:visible, a:visible').evaluateAll((controls) =>
+			controls.filter((control) => {
+				const { width, height } = control.getBoundingClientRect();
+				return Math.min(width, height) < 44;
+			}).map((control) => control.outerHTML)
+		);
+		expect(undersized).toEqual([]);
+		await page.screenshot({ path: testInfo.outputPath('workspace-navigation.png') });
+		await drawer.getByRole('link', { name: 'Inbox' }).tap();
+		await expect(drawer).toBeHidden();
+	});
+
+	for (const width of [360, 390]) {
+		test(`My Issues tabs and active filters fit at ${width}px`, async ({ page }, testInfo) => {
+			await page.setViewportSize({ width, height: 740 });
+			await mockApi(page, 'light');
+			await page.goto('/test/my-issues?priority=2&status_type=started');
+			await expect(page.getByText('Heavy page issue 2', { exact: true })).toBeVisible();
+			for (const tab of await page.getByRole('tab').all()) {
+				await expect(tab).toBeInViewport({ ratio: 1 });
+			}
+			const agents = page.getByRole('tab', { name: 'Assigned to my agents' });
+			await agents.tap();
+			await expect(agents).toHaveAttribute('aria-selected', 'true');
+			const clear = page.getByRole('button', { name: 'Clear filters' });
+			await expect(clear).toBeInViewport({ ratio: 1 });
+			expect(await page.getByTestId('shell-scroll').evaluate((shell) => shell.scrollWidth - shell.clientWidth)).toBeLessThanOrEqual(1);
+			await page.screenshot({ path: testInfo.outputPath('my-issues.png') });
+			await clear.tap();
+			await expect(clear).toBeHidden();
+			await expectNoPageScroll(page, { expectOverflow: true });
+		});
+	}
+
+	test('the board pans horizontally inside the workspace', async ({ page }) => {
+		await mockApi(page, 'light');
+		await page.goto('/test/my-issues');
+		await page.getByRole('radio', { name: 'Board view' }).tap();
+		const first = page.getByText('Heavy page issue 5', { exact: true });
+		const lastColumn = page.getByText('Heavy page issue 4', { exact: true });
+		await expect(first).toBeInViewport();
+		await expect(lastColumn).not.toBeInViewport();
+		await first.hover();
+		await page.mouse.wheel(2000, 0);
+		await expect(lastColumn).toBeInViewport();
+		expect(await page.getByTestId('shell-scroll').evaluate((shell) => shell.scrollLeft)).toBe(0);
+		expect(await page.evaluate(() => window.scrollX)).toBe(0);
+	});
+
+	test('issue toolbar fits with a project and previous/next navigation', async ({ page, context }, testInfo) => {
+		await mockApi(page, 'light');
+		await page.goto('/test/issue/ENG-1');
+		const next = page.getByTitle('Next issue (J)', { exact: true });
+		await expect(next).toBeVisible();
+		const shell = page.getByTestId('shell-scroll');
+		for (const width of [390, 360]) {
+			await page.setViewportSize({ width, height: 740 });
+			await expect(next).toBeInViewport({ ratio: 1 });
+			await expect(shell.getByText('ENG-1', { exact: true }).first()).toBeInViewport({ ratio: 1 });
+			expect(await shell.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+		}
+		await page.screenshot({ path: testInfo.outputPath('issue-toolbar.png') });
+		const more = page.getByTitle('Issue actions');
+		await more.tap();
+		await expect(page.getByRole('button', { name: 'Add relation' })).toBeVisible();
+		await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+		await page.getByRole('button', { name: 'Copy issue ID' }).tap();
+		await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe('ENG-1');
+		await expectNoPageScroll(page, { expectOverflow: true });
+	});
+
+	test('wiki tree scrolls to the last page above the registry', async ({ page }, testInfo) => {
+		await mockApi(page, 'light');
+		await page.goto(`${teamPath}/wiki`);
+		const tree = page.getByRole('tree');
+		const lastPage = tree.getByRole('link').last();
+		const registry = page.getByRole('switch');
+		await expect(tree.getByRole('link')).toHaveCount(wikiPages.length);
+		await lastPage.scrollIntoViewIfNeeded();
+		await expect(lastPage).toBeInViewport({ ratio: 1 });
+		await expect(registry).toBeInViewport({ ratio: 1 });
+		const last = (await lastPage.boundingBox())!;
+		expect(last.y + last.height).toBeLessThanOrEqual((await registry.boundingBox())!.y);
+		await lastPage.tap();
+		await expect(lastPage).toHaveAttribute('aria-current', 'page');
+		await page.screenshot({ path: testInfo.outputPath('wiki-tree.png') });
+		await expectNoPageScroll(page, { expectOverflow: true });
+	});
+
+	test('inbox tabs fit and respond to touch and arrow keys', async ({ page }, testInfo) => {
+		await mockApi(page, 'light');
+		await page.route('**/api/notifications', (route) => route.fulfill({ json: {
+			notifications: issues.slice(0, 24).map((issue) => ({
+				id: issue.id, type: 'issue.assigned', issue_identifier: issue.identifier,
+				title: `Assigned to you: ${issue.title}`, created_at: createdAt
+			})),
+			unread_count: 24
+		} }));
+		await page.goto('/test/inbox');
+		await expect(page.getByText('Assigned to you: Heavy page issue 1', { exact: true })).toBeVisible();
+		const tabs = page.getByRole('tab');
+		await expect(tabs).toHaveCount(3);
+		for (const tab of await tabs.all()) {
+			await expect(tab).toBeInViewport({ ratio: 1 });
+			expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+		}
+		await page.screenshot({ path: testInfo.outputPath('inbox.png') });
+		await expectNoPageScroll(page, { expectOverflow: true });
+		await tabs.last().tap();
+		await expect(tabs.last()).toHaveAttribute('aria-selected', 'true');
+		await page.keyboard.press('ArrowLeft');
+		await expect(tabs.nth(1)).toBeFocused();
+		await expectNoPageScroll(page, { expectOverflow: false });
+	});
+});
+
+test('issue navigation stays reachable with the sidebar open at 800px', async ({ page }, testInfo) => {
+	await page.setViewportSize({ width: 800, height: 800 });
+	await page.addInitScript(() => localStorage.setItem('sidebar_width', '320'));
+	await mockApi(page, 'light');
+	await page.goto('/test/issue/ENG-1');
+	await expect(page.getByRole('link', { name: 'My Issues', exact: true })).toBeInViewport();
+	const shell = page.getByTestId('shell-scroll');
+	const project = shell.getByRole('link', { name: 'Project 0' });
+	const next = page.getByTitle('Next issue (J)', { exact: true });
+	const previous = page.getByTitle('Previous issue (K)', { exact: true });
+	await expect(next).toBeVisible();
+	await project.click({ trial: true });
+	for (const action of [previous, next]) {
+		await action.scrollIntoViewIfNeeded();
+		await expect(action).toBeInViewport({ ratio: 0.95 });
+		expect(await shell.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+	}
+	await page.screenshot({ path: testInfo.outputPath('issue-navigation-800.png') });
+	await next.click();
+	await expect(page).toHaveURL('/test/issue/ENG-2');
+	await previous.click();
+	await expect(page).toHaveURL('/test/issue/ENG-1');
+});

@@ -688,10 +688,10 @@
 		<main class="flex min-w-0 flex-1 flex-col overflow-hidden">
 			<BrowserGuide />
 			{#if workspace.privacy_enabled}
-				<details class="shrink-0 border-b border-[var(--app-border)] px-4 py-2 text-xs text-[var(--color-text-secondary)]"><summary class="cursor-pointer">{m['privacy.workspace_limits']()}</summary><p class="mt-2 max-w-3xl">{m['privacy.limits']()}</p></details>
+				<details class="mobile-touch-targets shrink-0 border-b border-[var(--app-border)] px-4 py-2 text-xs text-[var(--color-text-secondary)]"><summary class="cursor-pointer max-md:content-center">{m['privacy.workspace_limits']()}</summary><p class="mt-2 max-w-3xl">{m['privacy.limits']()}</p></details>
 			{/if}
 			{#if !isSettings}
-				<div class="flex h-12 shrink-0 items-center justify-between border-b border-[var(--app-border)] bg-[var(--color-bg)] px-3 md:hidden">
+				<div class="mobile-touch-targets flex min-h-[48px] shrink-0 items-center justify-between border-b border-[var(--app-border)] bg-[var(--color-bg)] px-3 md:hidden">
 					<div class="flex min-w-0 items-center gap-2">
 						<Button variant="ghost" size="icon-lg" onclick={() => (showMobileSidebar = true)} aria-label={m['sidebar.open_navigation']()}>
 							<Menu size={18} />

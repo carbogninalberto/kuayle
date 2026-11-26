@@ -34,6 +34,11 @@
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
 	type MyTab = 'assigned' | 'created' | 'agents';
+	const tabs = [
+		{ value: 'assigned', label: m['my_issues.tab.assigned'], icon: CircleUser },
+		{ value: 'created', label: m['my_issues.tab.created'], icon: PenLine },
+		{ value: 'agents', label: m['my_issues.tab.agents'], icon: Bot }
+	] as const;
 	const DRILL_DOWN_FILTERS = [
 		'status',
 		'status_type',
@@ -167,9 +172,9 @@
 	}
 </script>
 
-<div class="flex h-full flex-col">
+<div class="flex h-full min-h-0 min-w-0 flex-col">
 	<!-- Header -->
-	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-6">
+	<div class="flex h-[49px] items-center justify-between border-b border-[var(--app-border)] px-3 md:px-6">
 		<div class="flex items-center gap-2">
 			<SidebarToggle />
 			<h1 class="text-sm font-medium text-[var(--color-text-primary)]">{m['my_issues.title']()}</h1>
@@ -179,33 +184,20 @@
 
 	<!-- Tabs -->
 	<Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-		<Tabs.List class="w-full justify-start gap-1.5 rounded-none border-none bg-transparent px-2 pt-4 pb-2">
-			<Tabs.Trigger
-				value="assigned"
-				class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none"
-			>
-				<CircleUser size={13} class="mr-1" />
-				{m['my_issues.tab.assigned']()}
-			</Tabs.Trigger>
-			<Tabs.Trigger
-				value="created"
-				class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none"
-			>
-				<PenLine size={13} class="mr-1" />
-				{m['my_issues.tab.created']()}
-			</Tabs.Trigger>
-			<Tabs.Trigger
-					value="agents"
-					class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none"
+		<Tabs.List class="w-full justify-start gap-1.5 rounded-none border-none bg-transparent px-2 pt-4 pb-2 max-md:grid max-md:h-auto! max-md:grid-cols-3 max-md:items-stretch max-md:gap-1 max-md:pt-2">
+			{#each tabs as tab (tab.value)}
+				<Tabs.Trigger value={tab.value}
+					class="flex-none h-auto rounded-full border border-[var(--app-border)] px-2.5 py-1 text-xs text-[var(--color-text-tertiary)] shadow-none data-[state=active]:border-[var(--app-accent)]/30 data-[state=active]:bg-[var(--app-accent)]/10 data-[state=active]:text-[var(--app-accent-light)] data-[state=active]:shadow-none max-md:min-h-[44px] max-md:whitespace-normal max-md:px-1"
 				>
-					<Bot size={13} class="mr-1" />
-					{m['my_issues.tab.agents']()}
-			</Tabs.Trigger>
+					<tab.icon size={13} class="mr-1 max-md:hidden" />
+					{tab.label()}
+				</Tabs.Trigger>
+			{/each}
 		</Tabs.List>
 	</Tabs.Root>
 
 	<!-- Filter bar -->
-	<FilterBuilder bind:filters {projects} {labels} {members} onchange={handleFilterChange} />
+	<FilterBuilder class="max-md:flex-wrap max-md:[&_button]:max-w-full max-md:[&_button]:wrap-anywhere max-md:[&_button]:h-auto max-md:[&_button]:min-h-8" bind:filters {projects} {labels} {members} onchange={handleFilterChange} />
 
 	<!-- Content -->
 	{#if layout === 'list'}
