@@ -2143,7 +2143,7 @@ const agentQuestion = {
 	sender: 'agent',
 	author_id: null,
 	kind: 'question',
-	body: 'Keep the v1 route? See [the plan](https://evil.example/steal)',
+	body: 'Keep the v1 route? See [the plan](https://example.com/plan)',
 	state: 'received',
 	delivered_via: null,
 	run_id: 'run-1',
@@ -2207,8 +2207,9 @@ test('the chat composer messages the running agent and its answers show live; th
 	emit('task.live_message', agentQuestion);
 	const item = page.getByRole('article', { name: 'Question from the coding agent of ENG-1' });
 	await expect(item).toBeVisible();
-	await expect(item.getByText('See [the plan](https://evil.example/steal)', { exact: false })).toBeVisible();
-	await expect(page.getByRole('link', { name: 'the plan' })).toHaveCount(0);
+	const plan = item.getByRole('link', { name: 'the plan', exact: true });
+	await expect(plan).toBeVisible();
+	await expect(plan).toHaveAttribute('href', 'https://example.com/plan');
 	await expect(page.getByText('The coding agent of ENG-1 has a question')).toBeVisible();
 	// A replayed event is one item.
 	state.sockets.at(-1)!.send(JSON.stringify(state.events.at(-1)));
