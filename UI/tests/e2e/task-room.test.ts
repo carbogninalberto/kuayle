@@ -1,4 +1,5 @@
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
+import { openPanel } from './side-panel';
 
 // The agent view of a task on a pipeline (KUA-268): its room in order, the
 // owner writing to it from the composer and posts arriving live, served from
@@ -455,8 +456,7 @@ test('the roster and pipeline status stay available when room history fails to l
 	);
 	await page.setViewportSize({ width: 320, height: 720 });
 	await page.goto('/test/assistant?conversation=chat-1');
-	await page.getByRole('button', { name: 'More panels', exact: true }).click();
-	await page.getByRole('menuitemcheckbox', { name: 'Agents' }).click();
+	await openPanel(page, 'Agents');
 	const agents = page.getByRole('region', { name: 'Agents', exact: true });
 	const summary = agents.getByRole('button', { name: new RegExp(name) });
 	await expect(summary).toContainText('Running');
@@ -549,9 +549,8 @@ for (const viewport of [
 		await page.goto(viewport.name === 'phone' ? '/test/assistant?conversation=chat-1' : '/test/assistant?conversation=chat-1&agent=task-1');
 		const details = page.getByTestId('task-workflow');
 		if (viewport.name === 'phone') {
-			// At phone width the side panels are one menu (KUA-281).
-			await page.getByRole('group', { name: 'Side panels' }).getByRole('button', { name: 'More panels', exact: true }).click();
-			await page.getByRole('menuitemcheckbox', { name: 'Agents' }).click();
+			// At phone width the panel is a sheet that the toggle opens (KUA-331).
+			await openPanel(page, 'Agents');
 		}
 		const agents = page.getByRole('region', { name: 'Agents', exact: true });
 		const summary = agents.getByRole('button', { name: /Quality Pipeline v2 · Running · Review · Iteration 1/ });

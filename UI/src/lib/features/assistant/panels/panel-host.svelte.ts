@@ -42,9 +42,14 @@ export interface PanelDefinition {
 	scrolls?: boolean;
 }
 
-/** Which side panel is open; the choice is remembered per person. */
+/**
+ * Which side panel is open; the choice is remembered per person. `last` is the
+ * tab last used, kept while the panel is closed (and across reloads) so the
+ * header's toggle reopens on it.
+ */
 export class PanelHost {
 	active = $state<string | null>(null);
+	last = $state<string | null>(null);
 	constructor(
 		private readonly storageKey: string,
 		initial: string | null
@@ -56,10 +61,29 @@ export class PanelHost {
 			saved = undefined;
 		}
 		this.active = saved === undefined || saved === null ? initial : saved === 'closed' ? null : saved;
+		let last: string | null | undefined;
+		try {
+			last = localStorage.getItem(this.lastKey);
+		} catch {
+			last = undefined;
+		}
+		this.last = last || (this.active && this.active !== 'auto' ? this.active : null);
+	}
+	private get lastKey() {
+		return `${this.storageKey}:last`;
 	}
 	open(id: string) {
 		this.active = id;
 		this.remember(id);
+		// Only a real tab is worth reopening on: not the 'auto' default, not a diff.
+		if (id !== 'auto' && id !== 'diff') {
+			this.last = id;
+			try {
+				localStorage.setItem(this.lastKey, id);
+			} catch {
+				/* The tab is still remembered for this visit. */
+			}
+		}
 	}
 	close() {
 		this.active = null;
