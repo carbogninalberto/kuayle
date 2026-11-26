@@ -7,6 +7,7 @@ import {
 	type ConversationEvent,
 	type ConversationToolCall,
 	type ApprovalEdit,
+	type ScheduledJob,
 	type ConversationApproval
 } from '$lib/api/conversations';
 import type { TaskRun } from './task-run.svelte';
@@ -20,6 +21,7 @@ export class ConversationState {
 	tools = $state<Record<string, ConversationToolCall[]>>({});
 	// Approvals by tool call. The backend is the authority; this is display state.
 	approvals = $state<Record<string, ConversationApproval>>({});
+	jobs = $state<Record<string, ScheduledJob>>({});
 	liveTasks = $state<Record<string, AgentTask>>({});
 	// The attempt whose diff is open beside the chat.
 	diffView = $state<{ taskId: string; runId: string; title: string } | null>(null);
@@ -90,6 +92,7 @@ export class ConversationState {
 			this.conversation = history.conversation;
 			this.issue = history.issue ?? null;
 			this.messages = history.messages;
+			this.jobs = Object.fromEntries((history.scheduled_jobs ?? []).map(job => [job.id, job]));
 			this.tools = {};
 			this.approvals = {};
 			this.acceptTools(history.tools ?? []);
@@ -116,6 +119,7 @@ export class ConversationState {
 			this.loadVersion++;
 			this.loading = false;
 			this.messages = [];
+			this.jobs = {};
 			this.tools = {};
 			this.approvals = {};
 			this.liveTasks = {};
@@ -177,6 +181,10 @@ export class ConversationState {
 			this.taskPublicationCursor = { ...this.taskPublicationCursor, [data.task_id]: event.cursor };
 		} else if (event.type === 'tool.started' || event.type === 'tool.completed') {
 			this.acceptTools([event.payload as ConversationToolCall]);
+		} else if (event.type === 'scheduled_job.updated') {
+			const job = event.payload as ScheduledJob;
+			// An earlier poll can arrive over the socket after the cancel response.
+			if (this.jobs[job.id]?.state !== 'cancelled') this.jobs[job.id] = job;
 		} else if (event.type.startsWith('approval.')) {
 			this.acceptApprovals([event.payload as ConversationApproval]);
 		} else if (event.type === 'task.activity') {
@@ -194,6 +202,10 @@ export class ConversationState {
 			);
 		}
 		this.cursor = event.cursor;
+	}
+	async cancelJob(id: string) {
+		const job = await conversations.cancelJob(this.slug, this.id, id);
+		if (!this.disposed && !this.unavailable) this.jobs[id] = job;
 	}
 	async resolveApproval(approval: ConversationApproval, decision: 'approve' | 'deny', choice?: ApprovalEdit) {
 		const result = await conversations.resolveApproval(this.slug, this.id, approval.id, decision, choice);
@@ -325,6 +337,7 @@ export class ConversationState {
 		try {
 			const history = await conversations.history(this.slug, this.id, this.messages[0].sequence);
 			if (this.disposed || this.unavailable || version !== this.loadVersion) return;
+			for (const job of history.scheduled_jobs ?? []) this.jobs[job.id] ??= job;
 			const known = new Set(this.messages.map((m) => m.id));
 			this.messages = [...history.messages.filter((m) => !known.has(m.id)), ...this.messages];
 			this.acceptTools(history.tools ?? []);

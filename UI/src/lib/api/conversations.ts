@@ -52,6 +52,17 @@ export interface ConversationAttachment {
 	position: number;
 	created_at: string;
 }
+export interface ScheduledJob {
+	timezone: string;
+	id: string;
+	conversation_id: string;
+	parent_id: string;
+	instructions: string;
+	state: 'scheduled' | 'completed' | 'expired' | 'cancelled';
+	next_run_at: string;
+	last_outcome: string;
+	last_error?: string;
+}
 export interface ConversationEvent {
 	id: string;
 	cursor: number;
@@ -71,12 +82,14 @@ export interface ConversationEvent {
 		| 'task.workflow_updated'
 		| 'task.live_message'
 		| 'task.room_message'
+		| 'scheduled_job.updated'
 		| 'tool.started'
 		| 'tool.completed'
 		| 'approval.requested'
 		| 'approval.updated'
 		| 'approval.resolved';
 	payload:
+		| ScheduledJob
 		| ConversationApproval
 		| ConversationToolCall
 		| AgentTask
@@ -510,6 +523,7 @@ interface ApprovalBase {
 	updated_at: string;
 }
 export interface ConversationHistory {
+	scheduled_jobs?: ScheduledJob[];
 	issue?: ConversationIssue;
 	conversation: Conversation;
 	messages: ConversationMessage[];
@@ -562,6 +576,8 @@ export const conversations = {
 		api.post<Conversation>(`${base(slug)}/conversations`, project_id ? { title, project_id } : { title }),
 	history: (slug: string, id: string, before = 0) =>
 		api.get<ConversationHistory>(`${base(slug)}/conversations/${encodeURIComponent(id)}?before=${before}`),
+	cancelJob: (slug: string, id: string, job: string) =>
+		api.post<ScheduledJob>(`${base(slug)}/conversations/${encodeURIComponent(id)}/jobs/${encodeURIComponent(job)}/cancel`, {}),
 	events: (slug: string, id: string, after: number) =>
 		api.get<ConversationEvent[]>(`${base(slug)}/conversations/${encodeURIComponent(id)}/events?after=${after}`),
 	send: (slug: string, id: string, request_id: string, content: string, attachment_ids: string[] = []) =>

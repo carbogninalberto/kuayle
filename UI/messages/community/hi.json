@@ -2100,6 +2100,7 @@
 	"assistant.send": "संदेश भेजें",
 	"assistant.sending": "भेजा जा रहा है…",
 	"assistant.hint": "भेजने के लिए Enter · नई पंक्ति के लिए Shift+Enter",
+	"assistant.scheduled_job": "निर्धारित कार्य",
 	"assistant.error": "कुछ गड़बड़ हो गई। कृपया फिर से प्रयास करें।",
 	"assistant.send_error": "संदेश की पुष्टि नहीं हो सकी। सुरक्षित रूप से दोबारा प्रयास करने के लिए इसे फिर से भेजें।",
 	"telegram.title": "Telegram",

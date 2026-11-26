@@ -2100,6 +2100,7 @@
 	"assistant.send": "Lähetä viesti",
 	"assistant.sending": "Lähetetään…",
 	"assistant.hint": "Enter lähettää · Shift+Enter lisää rivinvaihdon",
+	"assistant.scheduled_job": "Ajastettu tehtävä",
 	"assistant.error": "Jokin meni pieleen. Yritä uudelleen.",
 	"assistant.send_error": "Viestin lähetystä ei voitu vahvistaa. Lähetä se uudelleen turvallisesti.",
 	"telegram.title": "Telegram",

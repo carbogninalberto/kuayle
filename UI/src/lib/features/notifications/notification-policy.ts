@@ -25,6 +25,7 @@ export interface NotificationEventPayload {
 	issue_id?: string | null;
 	issue_identifier?: string | null;
 	title?: string | null;
+	job_id?: string | null;
 	approval_id?: string | null;
 	conversation_id?: string | null;
 	task_id?: string | null;
@@ -53,7 +54,7 @@ export function countsAsUnread(payload: unknown): boolean {
  * every event that is announced wherever the user is.
  */
 export function notificationSubject(payload: NotificationEventPayload): string | null {
-	if ((payload.type !== 'approval_requested' && payload.type !== 'approval_finished') || !payload.conversation_id) return null;
+	if ((payload.type !== 'approval_requested' && payload.type !== 'approval_finished' && payload.type !== 'scheduled_job') || !payload.conversation_id) return null;
 	return `conversation:${payload.conversation_id}`;
 }
 

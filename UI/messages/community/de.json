@@ -2100,6 +2100,7 @@
 	"assistant.send": "Nachricht senden",
 	"assistant.sending": "Wird gesendet…",
 	"assistant.hint": "Enter zum Senden · Shift+Enter für eine neue Zeile",
+	"assistant.scheduled_job": "Geplante Aufgabe",
 	"assistant.error": "Etwas ist schiefgelaufen. Bitte versuche es erneut.",
 	"assistant.send_error": "Die Nachricht konnte nicht bestätigt werden. Sende sie erneut, um es sicher noch einmal zu versuchen.",
 	"telegram.title": "Telegram",

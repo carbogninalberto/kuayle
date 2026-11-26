@@ -2100,6 +2100,7 @@
 	"assistant.send": "Надіслати повідомлення",
 	"assistant.sending": "Надсилання…",
 	"assistant.hint": "Enter — надіслати · Shift+Enter — новий рядок",
+	"assistant.scheduled_job": "Заплановане завдання",
 	"assistant.error": "Щось пішло не так. Спробуйте ще раз.",
 	"assistant.send_error": "Не вдалося підтвердити повідомлення. Надішліть його знову, щоб безпечно повторити.",
 	"telegram.title": "Telegram",

@@ -137,13 +137,15 @@ func (s *PushService) sendJob(ctx context.Context, job pushJob) (bool, error) {
 
 func (a pushAccess) authorizeEvent(ctx context.Context, job pushJob) error {
 	event := job.event
-	if event.LiveOnly {
-		// A free-chat approval has a committed approval row but no inbox entry.
+	if event.LiveOnly || event.Type == "scheduled_job" {
+		// A job can include private chat instructions even when it has an issue anchor.
 		conversation, err := uuid.Parse(event.Extra["conversation_id"])
 		if err != nil {
 			return sql.ErrNoRows
 		}
-		return a.authorizeChat(ctx, job.workspaceID, conversation)
+		if err = a.authorizeChat(ctx, job.workspaceID, conversation); err != nil || event.LiveOnly {
+			return err
+		}
 	}
 	return a.notifications.AuthorizeDelivery(ctx, &domain.Notification{
 		UserID: job.userID, WorkspaceID: job.workspaceID, IssueID: event.IssueID, SourceTeamIDs: event.SourceTeams,
@@ -183,6 +185,9 @@ func makePushPayload(slug string, event notificationEvent) pushPayload {
 	if event.Type == notificationApprovalFinished {
 		title = "Approval finished"
 	}
+	if event.Type == "scheduled_job" {
+		title = "Scheduled job"
+	}
 	payload := pushPayload{Title: title, Body: truncateRunes(event.Title, 350)}
 	base := "/" + url.PathEscape(slug)
 	payload.Data.URL = base + "/inbox"
@@ -200,8 +205,11 @@ func makePushPayload(slug string, event notificationEvent) pushPayload {
 		subject = id
 	}
 	if conversation := event.Extra["conversation_id"]; conversation != "" &&
-		(key == "approval_requested" || payload.Data.URL == base+"/inbox") {
+		(key == "approval_requested" || event.Type == "scheduled_job" || payload.Data.URL == base+"/inbox") {
 		payload.Data.URL = base + "/assistant?conversation=" + url.QueryEscape(conversation)
+	}
+	if event.Type == "scheduled_job" {
+		subject = event.Extra["job_id"]
 	}
 	payload.Tag = event.Type + ":" + subject
 	return payload

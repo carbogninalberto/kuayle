@@ -2100,6 +2100,7 @@
 	"assistant.send": "ส่งข้อความ",
 	"assistant.sending": "กำลังส่ง…",
 	"assistant.hint": "Enter เพื่อส่ง · Shift+Enter เพื่อขึ้นบรรทัดใหม่",
+	"assistant.scheduled_job": "งานที่กำหนดเวลาไว้",
 	"assistant.error": "เกิดข้อผิดพลาดบางอย่าง โปรดลองอีกครั้ง",
 	"assistant.send_error": "ไม่สามารถยืนยันข้อความได้ ส่งอีกครั้งเพื่อลองใหม่อย่างปลอดภัย",
 	"telegram.title": "Telegram",

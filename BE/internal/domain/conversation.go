@@ -53,6 +53,8 @@ type ConversationFolder struct {
 	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 type ConversationMessage struct {
+	ScheduledProbe []byte     `db:"scheduled_probe" json:"-"`
+	ScheduledJobID *uuid.UUID `json:"scheduled_job_id,omitempty" db:"scheduled_job_id"`
 	ID             uuid.UUID  `json:"id" db:"id"`
 	ConversationID uuid.UUID  `json:"conversation_id" db:"conversation_id"`
 	Sequence       int64      `json:"sequence" db:"sequence"`
@@ -79,6 +81,7 @@ type ConversationEvent struct {
 	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
 }
 type ConversationHistory struct {
+	Jobs         []ConversationJob      `json:"scheduled_jobs,omitempty"`
 	Conversation Conversation           `json:"conversation"`
 	Issue        *ConversationIssue     `json:"issue,omitempty"`
 	Messages     []ConversationMessage  `json:"messages"`

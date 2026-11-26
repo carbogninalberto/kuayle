@@ -2100,6 +2100,7 @@
 	"assistant.send": "メッセージを送信",
 	"assistant.sending": "送信中…",
 	"assistant.hint": "Enterで送信 · Shift+Enterで改行",
+	"assistant.scheduled_job": "スケジュール済みジョブ",
 	"assistant.error": "問題が発生しました。もう一度お試しください。",
 	"assistant.send_error": "メッセージを確認できませんでした。安全に再試行するには、もう一度送信してください。",
 	"telegram.title": "Telegram",

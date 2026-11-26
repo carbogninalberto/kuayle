@@ -2100,6 +2100,7 @@
 	"assistant.send": "Gửi tin nhắn",
 	"assistant.sending": "Đang gửi…",
 	"assistant.hint": "Enter để gửi · Shift+Enter để xuống dòng",
+	"assistant.scheduled_job": "Tác vụ đã lên lịch",
 	"assistant.error": "Đã xảy ra lỗi. Vui lòng thử lại.",
 	"assistant.send_error": "Không thể xác nhận tin nhắn. Hãy gửi lại để thử lại một cách an toàn.",
 	"telegram.title": "Telegram",

@@ -2100,6 +2100,7 @@
 	"assistant.send": "ارسال پیام",
 	"assistant.sending": "در حال ارسال…",
 	"assistant.hint": "Enter برای ارسال · Shift+Enter برای خط جدید",
+	"assistant.scheduled_job": "کار زمان‌بندی‌شده",
 	"assistant.error": "مشکلی پیش آمد. لطفاً دوباره تلاش کنید.",
 	"assistant.send_error": "ارسال پیام تأیید نشد. برای تلاش امن دوباره آن را بفرستید.",
 	"telegram.title": "Telegram",

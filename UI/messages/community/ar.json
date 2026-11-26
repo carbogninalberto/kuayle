@@ -2100,6 +2100,7 @@
 	"assistant.send": "إرسال الرسالة",
 	"assistant.sending": "جارٍ الإرسال…",
 	"assistant.hint": "Enter للإرسال · Shift+Enter لسطر جديد",
+	"assistant.scheduled_job": "مهمة مجدولة",
 	"assistant.error": "حدث خطأ ما. يرجى المحاولة مرة أخرى.",
 	"assistant.send_error": "تعذر تأكيد الرسالة. أرسلها مرة أخرى لإعادة المحاولة بأمان.",
 	"telegram.title": "Telegram",
