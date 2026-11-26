@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.4.3",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.3",
+    "body": "## What's changed\n\n### New\n\n- **Every decision that waits on you is pinned at the top of the task room.** (#427, KUA-328)\n  - Open requests, asks, approvals and pauses become cards that say what is asked, who asks and why, with Approve, Decline, reply and the lead's A/B/C choices inline.\n  - An answered card moves into the thread as a normal post.\n  - Pending decisions are counted on the task row, in the issue's task block and as a sidebar badge, and each also lands in your Inbox and as a notification (push, and Telegram where lead reports already go).\n  - A task paused on an unanswered decision says \"Waiting on your decision: …\" and links to the card instead of offering Continue.\n- **A \"Needs me\" list gathers every task waiting on you across issues.** (#427, KUA-328)\n- **The task room reads as a conversation.** (#426, KUA-323)\n  - Member and owner posts are the main view, with role avatars and replies attached to the post they answer.\n  - Kuayle facts, stall summaries and turn summaries move into a separate system section, without repeated stall summaries.\n  - A composer addresses @all or one role and reaches that member's next turn without pausing the workflow.\n  - Each turn's full output (summary, diff, files) opens on demand.\n\n### Improvements\n\n- **Mobile covers the assistant chat, approvals and the workflow canvas.** (#425, KUA-327)\n  - Chat controls are touch-sized, code and tables scroll locally, and the composer stays clear of the keyboard and safe areas.\n  - Workflow toolbar controls no longer overlap graph ports and drag zones, and reduced-motion preferences are respected.\n\n### Upgrade notes\n\n- **Migrations:** 000214 runs on startup. Back up the database first.",
+    "published_at": "2026-11-26T21:55:32Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.3",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.4.2",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.2",
     "body": "## What's changed\n\n### New\n\n- **The assistant can schedule work for later.** (#423, KUA-333)\n  - Ask it to come back at a specific time, on a recurring schedule, or once a condition is met — for example waiting for CI to finish and then continuing.\n  - A due job either posts a short notification or runs a real assistant turn in the same conversation, with its normal tools.\n  - A job grants no extra permissions: it runs with the creator's current access and still requests approval before anything is merged or released.\n\n- **Restart-only instance settings are editable from Settings.** (#415, KUA-311)\n  - Settings that previously required editing `.env` and restarting by hand can now be changed in the UI, with validation before the restart and an explicit \"Apply and restart\" action.\n  - Secrets and database connection settings stay protected and cannot be changed there.\n\n### Improvements\n\n- **Settings work on small screens.** (#417, KUA-324; #421, KUA-325)\n  - Forms, lists and dialogs fit narrow widths, backed by shared form primitives and a mobile navigation.\n\n- **The mobile workspace covers the core pages.** (#424, KUA-326)\n  - Issues, My Issues, wiki and activity are usable around 390px: 44px touch targets, wrapping filters, and comment actions that are reachable by touch.\n\n- **The task view is less cluttered.** (#420, KUA-331; #419, KUA-330)\n  - The Agents tab no longer repeats the pipeline graph and checks already shown in the Workflow tab, and the header has a single side-panel toggle instead of duplicated icons.\n\n- **Agent posts from the task room render as markdown.** (#416, KUA-329)\n  - Formatting, lists and code blocks display properly instead of raw text.\n\n### Fixes\n\n- **Normal agent output is no longer reported as an error.** (#418, KUA-332)\n  - The agent run view distinguishes a non-zero exit or harness stderr from a real failure, so healthy runs don't look broken.\n\n- **The secret scan no longer blocks tagging over a test placeholder.** (#422, KUA-334)\n  - The flagged test literal now uses a credential-free value without weakening its assertions, so v0.4.2 can be tagged.\n\n### Upgrade notes\n\n- **Migrations:** 000212 and 000213 run on startup. Back up the database first.\n\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.4.1...v0.4.2",
@@ -1086,17 +1097,6 @@
     "force_upgrade": false,
     "minimum_supported_version": null,
     "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.9",
-    "upgrade_message": null
-  },
-  {
-    "tag_name": "v0.0.8",
-    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.8",
-    "body": "## What's Changed\r\n* feat(teams): add issue sorting within workflow by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/19\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.7...v0.0.8",
-    "published_at": "2026-07-06T11:32:17Z",
-    "prerelease": false,
-    "force_upgrade": false,
-    "minimum_supported_version": null,
-    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.8",
     "upgrade_message": null
   }
 ]
