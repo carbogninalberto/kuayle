@@ -123,6 +123,8 @@ async function mockWorkspace(page: Page) {
   if (path === '/api/workspaces/test/github/status') return route.fulfill({json: {connected: false, repositories: []}});
   if (path.includes('/dev-machine')) return route.fulfill({json: []});
   if (path === '/api/system/update-status') return route.fulfill({json: {}});
+		if (path === '/api/workspaces/test/agent-tasks' && url.searchParams.get('needs_me') === 'true' && url.searchParams.has('issue'))
+			return route.fulfill({ json: [] });
 		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
 		if (path === '/api/workspaces/test/issues')
 			return route.fulfill({

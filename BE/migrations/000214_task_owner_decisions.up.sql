@@ -12,10 +12,15 @@ CREATE TABLE task_decision_notices (
  task_id uuid NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE
 );
 
+-- Earlier ticks only recorded the cause in the reason. Mark existing stalls once.
+UPDATE agent_tasks SET pipeline_state=jsonb_set(pipeline_state,'{stall,paused}','true')
+WHERE pipeline AND state='blocked' AND workflow_status='paused'
+  AND reason LIKE 'Workflow · Nobody made progress on %';
+
 CREATE VIEW open_room_decisions AS
 SELECT t.id AS task_id, m.seq, m.kind, m.author_role AS asker, m.body, m.data,
   (t.pipeline AND t.state='blocked' AND t.workflow_status='paused' AND t.workflow_paused_at IS NULL
-    AND t.reason LIKE 'Workflow · Nobody made progress on %') IS TRUE AS blocks_pause
+    AND t.pipeline_state @> '{"stall":{"paused":true}}') IS TRUE AS blocks_pause
 FROM task_messages m JOIN agent_tasks t ON t.id=m.task_id
 WHERE t.state NOT IN ('completed','failed','cancelled','cancelling')
   AND m.author_kind='member' AND m.reject_reason IS NULL

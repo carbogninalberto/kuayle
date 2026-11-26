@@ -183,8 +183,10 @@ func (r *AgentTaskRepository) Get(ctx context.Context, ws, id uuid.UUID) (*domai
 	defer tx.Rollback()
 	access, _ := domain.AccessFromContext(ctx)
 	if access.TokenScopes != nil {
+		// Room content is session-only.
+		task.PendingDecisions = domain.OwnerDecisions{}
 		return task, nil
-	} // Room content is session-only.
+	}
 	err = tx.GetContext(ctx, &task.PendingDecisions, `SELECT `+taskDecisionList+` FROM agent_tasks t WHERE t.id=$1`, id)
 	return task, err
 }

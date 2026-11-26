@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -107,8 +108,10 @@ func (r *AgentTaskRepository) DecidePipeline(ctx context.Context, ws, id uuid.UU
 	if err = applyPipelineTx(ctx, tx, task, *apply); err != nil {
 		return nil, err
 	}
-	if _, err = postTaskMessageTx(ctx, tx, task, domain.TaskRoomPost{AuthorKind: domain.RoomAuthorKuayle, Kind: domain.RoomSummary, Body: apply.Entry.Reason}); err != nil {
-		return nil, err
+	if strings.TrimSpace(apply.Entry.Reason) != "" {
+		if _, err = postTaskMessageTx(ctx, tx, task, domain.TaskRoomPost{AuthorKind: domain.RoomAuthorKuayle, Kind: domain.RoomSummary, Body: apply.Entry.Reason}); err != nil {
+			return nil, err
+		}
 	}
 	if err = workflowAudit(ctx, tx, ws, &actor, "task_workflow", id, "decision", map[string]any{"sequence": apply.Sequence, "phase": apply.Phase}); err != nil {
 		return nil, err

@@ -76,7 +76,7 @@ func TestPendingOwnerDecisions(t *testing.T) {
 	}
 	split := splitRequest(t, f)
 	pending(1)
-	_, err = f.db.Exec(`UPDATE agent_tasks SET state='blocked',workflow_status='paused',reason='Workflow · Nobody made progress on this head',pipeline_state='{"stall":{"count":3}}' WHERE id=$1`, id)
+	_, err = f.db.Exec(`UPDATE agent_tasks SET state='blocked',workflow_status='paused',reason='Waiting for progress',pipeline_state='{"stall":{"count":3,"paused":true}}' WHERE id=$1`, id)
 	require.NoError(t, err)
 	pending(1) // The stall and the unanswered proposal are one decision.
 	splitStatus(t, f)
@@ -120,4 +120,64 @@ func TestPendingOwnerDecisions(t *testing.T) {
 		require.NoError(t, err)
 		pending(0)
 	}
+}
+
+func TestOwnerAnswerPreservesIndependentHolds(t *testing.T) {
+	for _, tc := range []struct {
+		name, reason, state string
+		manual              bool
+	}{
+		{"manual", "Paused by owner", `{"stall":{"count":3,"paused":true}}`, true},
+		{"merge failure", "Workflow · The merge was refused", `{"stall":{"count":2},"merge":{"failure":"checks failed"}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRoomFixture(t)
+			ask := f.member("lead", domain.RoomAsk, "Which search should ship?", domain.TaskRoomData{})
+			ask.ToRoles = []string{"human"}
+			post, err := f.repo.RecordRoomMessage(f.ctx, f.task.ID, ask)
+			require.NoError(t, err)
+			require.Nil(t, post.RejectReason)
+			_, err = f.db.Exec(`UPDATE agent_tasks SET pipeline=true, state='blocked',workflow_status='paused',reason=$2,pipeline_state=$3,workflow_paused_at=CASE WHEN $4 THEN now() END WHERE id=$1`, f.task.ID, tc.reason, tc.state, tc.manual)
+			require.NoError(t, err)
+			var blocksPause bool
+			require.NoError(t, f.db.Get(&blocksPause, `SELECT blocks_pause FROM open_room_decisions WHERE task_id=$1 AND seq=$2`, f.task.ID, post.Seq))
+			require.False(t, blocksPause)
+			_, err = f.repo.PostRoomMessage(f.ctx, f.task.WorkspaceID, f.task.ID, domain.TaskRoomPost{Kind: domain.RoomSay, ReplyTo: &post.Seq, Body: "Titles first"})
+			require.NoError(t, err)
+			task, err := f.repo.Get(f.ctx, f.task.WorkspaceID, f.task.ID)
+			require.NoError(t, err)
+			require.Equal(t, "blocked", task.State)
+			require.Equal(t, tc.reason, task.Reason)
+			require.Equal(t, tc.manual, task.WorkflowPausedAt != nil)
+			if tc.manual {
+				require.Empty(t, task.PendingDecisions)
+			} else {
+				require.Len(t, task.PendingDecisions, 1)
+				require.Equal(t, "pause", task.PendingDecisions[0].Kind)
+			}
+		})
+	}
+}
+
+func TestPipelineDecisionWithoutReasonDoesNotPost(t *testing.T) {
+	f := newRoomFixture(t)
+	_, err := f.db.Exec(`UPDATE agent_tasks SET pipeline=true,state='awaiting_review',workflow_status='waiting' WHERE id=$1`, f.task.ID)
+	require.NoError(t, err)
+	for _, reason := range []string{"", " \n "} {
+		_, err = f.repo.DecidePipeline(f.ctx, f.task.WorkspaceID, f.task.ID, func(task domain.AgentTask) (*PipelineApply, error) {
+			return &PipelineApply{Sequence: task.WorkflowSequence, Phase: *task.WorkflowNode, Entry: WorkflowEntry{Kind: WorkflowEnterWait, Reason: reason}}, nil
+		})
+		require.NoError(t, err)
+	}
+	require.Empty(t, f.room())
+}
+
+func TestTokenTaskOmitsRoomDecisions(t *testing.T) {
+	f := newRoomFixture(t)
+	splitRequest(t, f)
+	access, _ := domain.AccessFromContext(f.ctx)
+	access.TokenScopes = []string{domain.PermIssuesRead}
+	tokenTask, err := f.repo.Get(domain.WithAccess(f.ctx, access), f.task.WorkspaceID, f.task.ID)
+	require.NoError(t, err)
+	require.Equal(t, domain.OwnerDecisions{}, tokenTask.PendingDecisions)
 }
