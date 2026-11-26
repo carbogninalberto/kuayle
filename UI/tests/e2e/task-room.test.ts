@@ -456,8 +456,7 @@ test('the roster and pipeline status stay available when room history fails to l
 	);
 	await page.setViewportSize({ width: 320, height: 720 });
 	await page.goto('/test/assistant?conversation=chat-1');
-	await page.getByRole('button', { name: 'More panels', exact: true }).click();
-	await page.getByRole('menuitemcheckbox', { name: 'Agents' }).click();
+	await openPanel(page, 'Agents');
 	const agents = page.getByRole('region', { name: 'Agents', exact: true });
 	const summary = agents.getByRole('button', { name: new RegExp(name) });
 	await expect(summary).toContainText('Running');
