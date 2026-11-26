@@ -222,10 +222,10 @@ test('a pipeline task shows its room: the owner, Kuayle and each role, and the o
 	const room = thread.getByRole('list', { name: 'Task room' });
 	const rows = room.locator(':scope > li');
 	await expect(rows).toHaveCount(6);
-	// The thread keeps its room while the side panel charts the phases.
+	// The room stays open beside the Agents panel.
 	await expect(thread.getByRole('list', { name: 'Path taken' })).toHaveCount(0);
 	await expect(page.getByTestId('task-workflow')).toContainText('Team');
-	await expect(page.getByTestId('task-workflow-chart')).toBeVisible();
+	await expect(page.getByTestId('task-workflow-chart')).toHaveCount(0);
 
 	// The owner's post, then Kuayle's phase move, named by the pipeline.
 	await expect(rows.nth(0).getByRole('article', { name: 'You' })).toContainText('Search should cover titles and identifiers.');
@@ -362,6 +362,7 @@ test('a running turn that has not posted shows a working row with its live outpu
 	await expect(line).toHaveAttribute('aria-expanded', 'false');
 	await expect(line.getByRole('img', { name: 'Done' })).toBeVisible();
 	await expect(turn.getByText('Starting with the endpoint.')).toHaveCount(0);
+	await expect(page.getByTestId('run-member-implementer')).toContainText('Idle');
 	await expect(room.locator(':scope > li')).toHaveCount(1);
 });
 
@@ -425,11 +426,49 @@ test('the owner approves a pipeline task waiting for approval', async ({ page })
 	const { state } = await fixture(page, approval);
 	await page.setViewportSize({ width: 1280, height: 900 });
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
-	const decision = page.getByTestId('task-workflow-decision');
+	const agents = page.getByRole('region', { name: 'Agents', exact: true });
+	await expect(agents.getByRole('button', { name: /Team v1 · Waiting · Approval/ })).toBeVisible();
+	await expect(agents.getByTestId('task-workflow-chart')).toHaveCount(0);
+	const decision = agents.getByTestId('task-workflow-decision');
 	await expect(decision).toContainText('Waiting for an approval: Approval');
 	await expect(decision.getByRole('button', { name: 'Deny' })).toHaveCount(0);
 	await decision.getByRole('button', { name: 'Approve' }).click();
 	await expect.poll(() => state.decisions).toEqual([{ sequence: 9, decision: 'approve' }]);
+});
+
+for (const [status, paused_at] of [['Paused', at(3)], ['Blocked', null]] as const) {
+	test(`the Agents status line shows a ${status.toLowerCase()} pipeline`, async ({ page }) => {
+		await fixture(page, { ...view, task_state: 'blocked', paused_at, node: 'implement' });
+		await page.setViewportSize({ width: 1280, height: 900 });
+		await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+		const agents = page.getByRole('region', { name: 'Agents', exact: true });
+		await expect(agents.getByRole('button', { name: new RegExp(`Team v1 · ${status} · Implement`) })).toBeVisible();
+		await expect(agents.getByTestId('task-workflow-chart')).toHaveCount(0);
+	});
+}
+
+test('the roster and pipeline status stay available when room history fails to load', async ({ page }) => {
+	const name = 'Release verification for the full workspace before publishing';
+	await fixture(page, { ...view, name, node: 'implement', runs: [] });
+	let unavailable = true;
+	await page.route('**/agent-tasks/task-1/room?*', (route) =>
+		unavailable ? route.fulfill({ status: 503, json: {} }) : route.fallback()
+	);
+	await page.setViewportSize({ width: 320, height: 720 });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await page.getByRole('button', { name: 'More panels', exact: true }).click();
+	await page.getByRole('menuitemcheckbox', { name: 'Agents' }).click();
+	const agents = page.getByRole('region', { name: 'Agents', exact: true });
+	const summary = agents.getByRole('button', { name: new RegExp(name) });
+	await expect(summary).toContainText('Running');
+	await expect(agents.getByTestId('run-member-reviewer')).toContainText('Idle');
+	expect(await agents.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+	const alert = agents.getByRole('alert');
+	await expect(alert).toBeVisible();
+	unavailable = false;
+	await alert.getByRole('button', { name: 'Refresh' }).click();
+	await expect(alert).toHaveCount(0);
+	await expect(agents.getByTestId('run-member-reviewer')).toContainText('Looks good to me.');
 });
 
 test('the creator reads the proposed sub-issues and approves the exact split from the room', async ({ page }, testInfo) => {
@@ -476,7 +515,7 @@ for (const viewport of [
 	{ name: 'desktop', width: 1600, height: 900 },
 	{ name: 'phone', width: 390, height: 844 }
 ]) {
-	test(`a pipeline run shows the lead's phase, checks and working members on ${viewport.name}`, async ({ page }) => {
+	test(`Agents shows member activity and opens the full pipeline in Workflow on ${viewport.name}`, async ({ page }) => {
 		const phases = [
 			{ id: 'implement', label: 'Implement', owner: 'implementer', checks: [{ id: 'pull-request', fact: 'pr_exists', required: true }] },
 			{ id: 'review', label: 'Review', owner: 'reviewer', checks: [{ id: 'ci', fact: 'ci_green', required: true }] },
@@ -484,9 +523,17 @@ for (const viewport of [
 		];
 		const { state, emit } = await fixture(page, {
 			...view,
+			name: 'Quality Pipeline',
+			version: 2,
+			iterations: 1,
 			node: 'review',
 			graph: { ...view.graph, phases, lead: { profile_id: 'p-lead' } },
-			runs: view.runs.map((run) => ({ ...run, role: run.task_id === task.id ? 'implementer' : 'reviewer' }))
+			runs: [
+				...view.runs.map((run) => run.task_id === task.id
+					? { ...run, role: 'implementer', summary: 'Added search for titles and identifiers.' }
+					: { ...run, role: 'reviewer' }),
+				{ ...run('run-lead', 'member-lead', 'codex', 'gpt-5', 'waiting_input', 2), role: 'lead' }
+			]
 		});
 		const head = 'ab34567fedc';
 		const reason = 'The browser tests are still running.';
@@ -506,7 +553,30 @@ for (const viewport of [
 			// At phone width the panel is a sheet that the toggle opens (KUA-331).
 			await openPanel(page, 'Agents');
 		}
-		await expect(details).toContainText('Team', { timeout: 15_000 });
+		const agents = page.getByRole('region', { name: 'Agents', exact: true });
+		const summary = agents.getByRole('button', { name: /Quality Pipeline v2 · Running · Review · Iteration 1/ });
+		await expect(agents.getByTestId('run-member-reviewer')).toContainText('Working');
+		await expect(agents.getByTestId('task-workflow-chart')).toHaveCount(0);
+		await expect(agents.getByRole('toolbar', { name: 'Chart tools' })).toHaveCount(0);
+		await expect(agents.getByRole('region', { name: 'Checks', exact: true })).toHaveCount(0);
+		await expect(agents.getByTestId('run-member-implementer')).toContainText('Idle');
+		await expect(agents.getByTestId('run-member-implementer')).toContainText('Added search for titles and identifiers.');
+		await expect(agents.getByTestId('run-member-lead')).toContainText('Waiting');
+		await expect(agents.getByTestId('run-member-reviewer')).toContainText('Checking search by issue identifier.');
+		await expect(summary).toBeVisible();
+		expect(await summary.locator('span').evaluateAll((parts) => parts.every((part) => part.scrollWidth <= part.clientWidth))).toBe(true);
+		for (const theme of ['light', 'dark']) {
+			await page.evaluate((theme) => {
+				document.documentElement.classList.toggle('dark', theme === 'dark');
+				document.documentElement.setAttribute('data-theme', theme);
+			}, theme);
+			expect(await agents.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+			if (process.env.KUAYLE_SCREENSHOT_DIR)
+				await page.screenshot({ path: `${process.env.KUAYLE_SCREENSHOT_DIR}/agents-${viewport.name}-${theme}.png`, animations: 'disabled' });
+		}
+		if (viewport.name === 'desktop') await summary.press('Enter');
+		else await summary.click();
+		await expect(page.getByTestId('workflow-panel')).toBeVisible();
 		const chart = details.getByTestId('task-workflow-chart');
 		await expect(chart.getByTestId('workflow-node-review')).toHaveAttribute('data-current', 'true');
 		await expect(chart.locator('[data-current="true"]')).toHaveCount(1);
