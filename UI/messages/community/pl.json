@@ -3687,7 +3687,7 @@
 	"assistant.panel_checks": "Kontrole",
 	"assistant.more_panels": "Więcej paneli",
 	"assistant.panel_toggle": "Panel boczny",
-	"assistant.panel_toggle_needs": "Panel boczny, {count} czeka na Ciebie",
+	"assistant.panel_toggle_needs": "Panel boczny, oczekuje na Ciebie: {count}",
 	"assistant.panel_toggle_working": "Panel boczny, agent pracuje",
 	"ai_editor.write": "Pisz",
 	"ai_editor.preview": "Podgląd",

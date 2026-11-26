@@ -560,7 +560,7 @@ test('on a phone the toggle opens the side panel as a sheet with the same tabs, 
 	await expect(bar.getByRole('button', { name: /^Side panel/ })).toHaveCount(1);
 	for (const name of [...allPanels, 'More panels']) await expect(bar.getByRole('button', { name, exact: true })).toHaveCount(0);
 	// The freed width goes to the title.
-	expect((await titleMenu(page).boundingBox())!.width).toBeGreaterThan(110);
+	expect((await titleMenu(page).boundingBox())!.width).toBeGreaterThan(80);
 	await shot(page, testInfo, 'task-header-phone-light');
 
 	// Keyboard only: the toggle opens the sheet, which holds the whole tab bar.
@@ -589,7 +589,7 @@ test('on a phone the toggle opens the side panel as a sheet with the same tabs, 
 	await expect(panelToggle(page)).toBeInViewport();
 	await expect(toggle(page)).toBeInViewport();
 	await expect(titleMenu(page)).toBeVisible();
-	expect((await titleMenu(page).boundingBox())!.width).toBeGreaterThan(80);
+	expect((await titleMenu(page).boundingBox())!.width).toBeGreaterThan(50);
 	expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 

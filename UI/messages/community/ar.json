@@ -3687,7 +3687,7 @@
 	"assistant.panel_checks": "الفحوص",
 	"assistant.more_panels": "لوحات أخرى",
 	"assistant.panel_toggle": "اللوحة الجانبية",
-	"assistant.panel_toggle_needs": "اللوحة الجانبية، {count} بانتظارك",
+	"assistant.panel_toggle_needs": "اللوحة الجانبية، بانتظارك: {count}",
 	"assistant.panel_toggle_working": "اللوحة الجانبية، وكيل يعمل",
 	"ai_editor.write": "كتابة",
 	"ai_editor.preview": "معاينة",

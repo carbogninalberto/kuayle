@@ -3687,7 +3687,7 @@
 	"assistant.panel_checks": "Verificări",
 	"assistant.more_panels": "Mai multe panouri",
 	"assistant.panel_toggle": "Panou lateral",
-	"assistant.panel_toggle_needs": "Panou lateral, {count} te așteaptă",
+	"assistant.panel_toggle_needs": "Panou lateral, te așteaptă: {count}",
 	"assistant.panel_toggle_working": "Panou lateral, un agent lucrează",
 	"ai_editor.write": "Scrie",
 	"ai_editor.preview": "Previzualizare",

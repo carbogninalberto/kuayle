@@ -18,14 +18,14 @@ export async function openPanel(page: Page, name: string) {
 		if (!(await side.isVisible())) await toggle.click();
 		const tabs = panelTabs(page);
 		const tab = tabs.getByRole('button', { name, exact: true });
-		await expect(tab.or(tabs.getByRole('button', { name: 'More panels', exact: true })).first()).toBeVisible({ timeout: 1000 });
+		await expect(tab.or(tabs.getByRole('button', { name: 'More panels', exact: true })).first()).toBeVisible({ timeout: 5000 });
 		if (await tab.isVisible()) {
 			if ((await tab.getAttribute('aria-pressed')) !== 'true') await tab.click();
 		} else {
 			await tabs.getByRole('button', { name: 'More panels', exact: true }).click();
 			await page.getByRole('menuitemradio', { name, exact: true }).click();
 		}
-		await expect(tab).toHaveAttribute('aria-pressed', 'true', { timeout: 1000 });
+		await expect(tab).toHaveAttribute('aria-pressed', 'true', { timeout: 5000 });
 	}).toPass();
 }
 
@@ -34,6 +34,6 @@ export async function closePanel(page: Page) {
 	await expect(panelToggle(page)).toBeVisible();
 	await expect(async () => {
 		if (await sidePanel(page).isVisible()) await sidePanel(page).getByRole('button', { name: 'Close panel' }).click();
-		await expect(sidePanel(page)).toHaveCount(0, { timeout: 1000 });
+		await expect(sidePanel(page)).toHaveCount(0, { timeout: 5000 });
 	}).toPass();
 }

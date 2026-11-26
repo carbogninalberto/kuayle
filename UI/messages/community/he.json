@@ -3687,7 +3687,7 @@
 	"assistant.panel_checks": "בדיקות",
 	"assistant.more_panels": "לוחות נוספים",
 	"assistant.panel_toggle": "חלונית צד",
-	"assistant.panel_toggle_needs": "חלונית צד, {count} ממתינים לך",
+	"assistant.panel_toggle_needs": "חלונית צד, ממתינים לך: {count}",
 	"assistant.panel_toggle_working": "חלונית צד, סוכן עובד",
 	"ai_editor.write": "כתיבה",
 	"ai_editor.preview": "תצוגה מקדימה",

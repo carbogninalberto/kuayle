@@ -3687,7 +3687,7 @@
 	"assistant.panel_checks": "Kontroly",
 	"assistant.more_panels": "Další panely",
 	"assistant.panel_toggle": "Boční panel",
-	"assistant.panel_toggle_needs": "Boční panel, {count} čeká na vás",
+	"assistant.panel_toggle_needs": "Boční panel, čeká na vás: {count}",
 	"assistant.panel_toggle_working": "Boční panel, agent pracuje",
 	"ai_editor.write": "Psát",
 	"ai_editor.preview": "Náhled",
