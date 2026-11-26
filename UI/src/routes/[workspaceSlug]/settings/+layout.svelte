@@ -231,7 +231,7 @@
 									: 'text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-hover)] hover:text-[var(--color-text-primary)]'}"
 							>
 								<Icon size={16} class="shrink-0" />
-								<span class="min-w-0 wrap-anywhere">{section.label}</span>
+								<span class="truncate">{section.label}</span>
 							</a>
 						{/each}
 					</div>
@@ -255,7 +255,7 @@
 							class="shrink-0 text-[var(--color-text-tertiary)] motion-safe:transition-transform {expanded ? '' : '-rotate-90'}"
 						/>
 						<TeamIcon {team} />
-						<span class="min-w-0 wrap-anywhere">{team.name}</span>
+						<span class="truncate">{team.name}</span>
 					</Button>
 					{#if expanded}
 						{@const generalCurrent = currentItem(teamPath, true)}
@@ -323,7 +323,7 @@
 	</Sheet.Root>
 
 	<div class="flex min-h-0 flex-1">
-		<aside class="hidden w-56 shrink-0 flex-col border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] md:flex">
+		<aside class="hidden w-56 shrink-0 border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-y-auto md:block">
 			{@render settingsNav()}
 		</aside>
 		<div class="min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">

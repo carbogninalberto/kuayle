@@ -12,7 +12,7 @@
 <header class="mx-auto flex w-full min-w-0 max-w-3xl flex-wrap items-center {compact ? 'gap-2' : 'justify-between gap-x-4 gap-y-3'}">
 	<div class="min-w-0 space-y-1.5 wrap-anywhere">
 		{#if compact}
-			<span class="text-sm font-semibold">{title}</span>
+			<span class="text-sm font-medium">{title}</span>
 		{:else}
 			<h1 class="text-2xl font-semibold tracking-tight">{title}</h1>
 		{/if}
