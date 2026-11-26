@@ -103,6 +103,23 @@ test('backend runtime and dependency changes include API, all-in-one and Go runt
   }
 });
 
+test('room delivery sources and the Go prompt fixture select the task-room browser spec', () => {
+  const fixture = 'BE/testdata/room-turn/main.go';
+  for (const path of ['BE/internal/domain/task_room.go', 'BE/internal/domain/task_room_prompt.go', 'BE/internal/domain/room.go', fixture]) {
+    const plan = planForPaths([path]);
+    assert.equal(plan.backend, true, path);
+    assert.ok(plan.required.tests.includes('frontend-browser'), path);
+    assert.deepEqual(plan.frontendSpecs, ['task-room.test.ts'], path);
+  }
+  const fixtureOnly = planForPaths([fixture]);
+  assert.equal(fixtureOnly.runtime, false);
+  assert.deepEqual(fixtureOnly.releaseImages, []);
+  assert.deepEqual(fixtureOnly.devImages, []);
+  assert.deepEqual(fixtureOnly.securityImages, []);
+  assert.deepEqual(planForPaths([fixture, 'UI/tests/e2e/issues.test.ts']).frontendSpecs, ['issues.test.ts', 'task-room.test.ts']);
+  assert.equal(planForPaths(['UI/src/app.css', fixture]).frontendSpecs, null);
+});
+
 test('test-only changes avoid production images but retain the affected suites', () => {
   const ui = planForPaths(['UI/tests/e2e/issues.test.ts']);
   assert.equal(ui.frontend, true);

@@ -296,8 +296,15 @@ export function roomSplits(messages: readonly TaskMessage[]) {
 export function roomBlocker(messages: readonly TaskMessage[]): TaskMessage | undefined {
 	const pending = new Map<number, TaskMessage>();
 	const verdicts = new Map<string, number>();
+	const addressedByOwner = new Map<string, number>();
+	let lastBroadcast = 0;
 	for (const post of messages) {
 		if (post.reject_reason) continue;
+		if (post.author_kind === 'human' && post.kind === 'say' && post.reply_to == null) {
+			if (post.to_roles?.length) {
+				for (const role of post.to_roles) addressedByOwner.set(role, post.seq);
+			} else lastBroadcast = post.seq;
+		}
 		const parent = post.reply_to == null ? undefined : pending.get(post.reply_to);
 		if (parent) {
 			const split = parent.kind === 'request' && parent.data.action === 'split';
@@ -312,6 +319,7 @@ export function roomBlocker(messages: readonly TaskMessage[]): TaskMessage | und
 	}
 	const open = [...pending.values()];
 	return open.findLast((post) => post.data.action === 'split') ?? open.findLast((post) => {
+		if (lastBroadcast > post.seq || (addressedByOwner.get(post.author_role ?? '') ?? 0) > post.seq) return false;
 		if (post.data.action !== 'review') return true;
 		return post.to_roles?.length
 			? post.to_roles.some((role) => (verdicts.get(role) ?? 0) < post.seq)

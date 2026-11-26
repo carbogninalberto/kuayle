@@ -255,6 +255,11 @@ jobs:
       - uses: ./.ci-actions/.github/actions/frontend-dependencies
         with:
           chromium: 'true'
+      - uses: actions/setup-go@v6.4.0
+        if: fromJSON(needs.changes.outputs.plan).frontendSpecs == null || contains(fromJSON(needs.changes.outputs.plan).frontendSpecs, 'task-room.test.ts')
+        with:
+          go-version-file: BE/go.mod
+          cache-dependency-path: BE/go.sum
       - name: Run selected browser tests
         env:
           SPECS: ${{ toJSON(fromJSON(needs.changes.outputs.plan).frontendSpecs) }}

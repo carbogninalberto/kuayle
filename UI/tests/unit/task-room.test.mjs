@@ -348,6 +348,24 @@ test('a paused role-to-role question stays open until an accepted reply from its
 	assert.equal(roomBlocker(posts), undefined);
 });
 
+test('an owner can answer an open post by addressing its author or everyone without quoting it', () => {
+	const fyi = member(2, 'reviewer', 'r', 'say', 'The review is waiting.', { to_roles: ['human'] });
+	const ask = member(3, 'lead', 'l', 'ask', 'Which branch?', { to_roles: ['human'] });
+	const posts = [owner(1, 'Starting now.'), fyi, ask];
+	assert.equal(roomBlocker(posts), ask);
+	posts.push(owner(4, 'Main.', { to_roles: ['lead'] }));
+	assert.equal(roomBlocker(posts), fyi);
+	posts.push(owner(5, 'Thanks.', { to_roles: ['reviewer'], reject_reason: 'rate limited' }));
+	assert.equal(roomBlocker(posts), fyi);
+	assert.equal(roomBlocker([...posts, owner(6, 'Thanks.', { to_roles: ['reviewer'] })]), undefined);
+	assert.equal(roomBlocker([...posts, owner(6, 'Thanks everyone.')]), undefined);
+});
+
+test('a broadcast cannot settle a split request', () => {
+	const split = member(1, 'lead', 'r', 'request', 'Split the work.', { data: { action: 'split' } });
+	assert.equal(roomBlocker([split, owner(2, 'Sounds good.')]), split);
+});
+
 test('a verdict answers the review request for that role', () => {
 	const review = member(1, 'lead', 'a', 'request', '', { to_roles: ['reviewer'], data: { action: 'review' } });
 	assert.equal(roomBlocker([review])?.seq, 1);
