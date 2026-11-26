@@ -61,6 +61,8 @@ export class ConversationState {
 	// The agent's question the agent view's composer is answering, if any:
 	// the answer is sent with the question quoted, so the agent knows which
 	// one it answers.
+	roomRecipient = $state<{ taskId: string; role: string } | null>(null);
+	roomReply = $state<TaskMessage | null>(null);
 	agentQuestion = $state<{ taskId: string; id: string; body: string } | null>(null);
 	cursor = 0;
 	hasMore = $state(false);

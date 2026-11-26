@@ -23,7 +23,7 @@
 		runId,
 		title,
 		onclose
-	}: { slug: string; taskId: string; runId: string; title: string; onclose: () => void } = $props();
+	}: { slug: string; taskId: string; runId: string; title: string; onclose?: () => void } = $props();
 
 	let files = $state<DiffFile[]>([]);
 	let truncated = $state(false);
@@ -100,7 +100,7 @@
 				</p>
 			{/if}
 		</div>
-		<Button variant="ghost" size="icon-sm" aria-label={m['tasks.diff_close']()} onclick={onclose}><X /></Button>
+		{#if onclose}<Button variant="ghost" size="icon-sm" aria-label={m['tasks.diff_close']()} onclick={onclose}><X /></Button>{/if}
 	</header>
 	{#if status === 'ready' && files.length > 0}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-2">

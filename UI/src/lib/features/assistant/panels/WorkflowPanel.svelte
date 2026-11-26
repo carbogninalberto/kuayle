@@ -31,7 +31,7 @@
 				/>
 			</div>{/if}
 		{#key task.id}
-			<TaskWorkflowView chat={context.chat} {task} compact />
+			<TaskWorkflowView onopenpost={context.close} chat={context.chat} {task} compact />
 			<TaskPath chat={context.chat} {task} />
 		{/key}
 	{/if}

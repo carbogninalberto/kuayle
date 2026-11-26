@@ -1,6 +1,12 @@
 <script lang="ts">
-	import { untrack } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import { CheckCheck, ChevronRight, CircleHelp, CircleSlash, Flag, Info, RefreshCw } from '@lucide/svelte';
+	import { page } from '$app/state';
+	import * as Avatar from '$lib/components/ui/avatar/index.js';
+	import * as Dialog from '$lib/components/ui/dialog/index.js';
+	import RoomBlockerNotice from './RoomBlockerNotice.svelte';
+	import DiffPanel from './DiffPanel.svelte';
+	import { sendOptions } from './agent-conversation';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
@@ -20,23 +26,12 @@
 	import AgentPostBody from './AgentPostBody.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import TurnLine from './TurnLine.svelte';
-	import { factLabel, foldText, openByDefault, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow, type RoomTurn } from './task-room';
+	import { decides, factLabel, foldText, roomBlocker, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow, type RoomTurn } from './task-room';
 	import { activeRun } from './task-column';
-	import { shownRows, turnSummary, workTokens, type ThreadFilter } from './thread-rows';
+	import { firstLine, shownRows, turnSummary, workTokens, type ThreadFilter } from './thread-rows';
 	import { formatDuration } from './shell-rules';
 	import { getLocale, m } from '$lib/features/i18n/messages';
 
-	// The room of a task on a pipeline (KUA-252), one line per event
-	// (KUA-286): what the owner wrote, Kuayle's facts in a row folded into one
-	// line that opens to each with its reason, Kuayle's phase moves, and each
-	// role's turn as one line (role, what it ended with, how long, the tokens,
-	// how it went) that opens to the harness, what the turn posted and the
-	// run's transcript. The thread's filter keeps one role's lines or the
-	// decisions. The room is read whole once and kept by its events
-	// (ConversationState); it is read on from the last unbroken post when the
-	// task's run is read again (its events and poll) or when a post arrives
-	// after a gap.
-	// A post the room refused is muted, with the reason.
 	let {
 		chat,
 		task,
@@ -70,6 +65,23 @@
 	);
 	const rows = $derived(roomRows(room, turns));
 	const shown = $derived(shownRows(rows, filter, rowRoles, (row) => !!row.decision));
+	const posts = $derived(room.filter((post) => post.author_kind !== 'kuayle'));
+	const conversation = $derived(shownRows(posts, filter,
+		(post) => [...(post.author_role ? [post.author_role] : []), ...(post.to_roles ?? [])], decides));
+	const bySeq = $derived(new Map(room.map((post) => [post.seq, post])));
+	const writable = $derived(sendOptions(task, authState.user?.id).open);
+	const author = (post: TaskMessage) => post.author_kind === 'human' ? m['tasks.live_from_you']() :
+		post.author_kind === 'kuayle' ? m['tasks.room_kuayle']() : '@' + post.author_role;
+	let followed = '';
+	$effect(() => {
+		const anchor = page.url.hash.slice(1);
+		if (!anchor) { followed = ''; return; }
+		if (anchor === followed || !posts.some((post) => 'room-post-' + post.seq === anchor)) return;
+		followed = anchor;
+		untrack(() => onreset?.());
+		void tick().then(() => document.getElementById(anchor)?.focus());
+	});
+	const blocker = $derived(run.view?.status === 'paused' || task.workflow_paused_at ? roomBlocker(room) : undefined);
 	const splits = $derived(roomSplits(room));
 	let approving = $state<number | null>(null);
 
@@ -96,19 +108,8 @@
 		for (const row of unknown) asked.add((row as Turn).runId!);
 		untrack(() => void run.load());
 	});
-	// The turns that have not ended: they start open, with their stream.
+	// A running role stays visible even before it has posted.
 	const live = $derived(new Set([...runs.values()].filter((item) => activeRun.has(item.status)).map((item) => item.id)));
-	const turnRun = (row: Turn): WorkflowStepRun | undefined =>
-		row.runId
-			? (runs.get(row.runId) ?? {
-					id: row.runId,
-					task_id: task.id,
-					provider: '',
-					model: '',
-					status: '',
-					created_at: row.messages[0]?.created_at ?? row.startedAt ?? ''
-				})
-			: undefined;
 	const turnStatus = (status: string): Status | undefined =>
 		({
 			queued: 'waiting',
@@ -128,10 +129,17 @@
 		return ms === undefined || ms < 1000 ? '' : formatDuration(ms);
 	}
 	let opened = $state<Record<string, boolean>>({});
-	// A turn holding a split the owner has not approved, or still running,
-	// starts open; a running one folds when it ends.
-	const turnOpen = (row: RoomRow) => opened[row.key] ?? openByDefault(row, splits, live);
-
+	const working = $derived(shown.filter((row): row is Turn =>
+		row.type === 'member' && !!row.runId && live.has(row.runId) && !row.messages.length));
+	const system = $derived(shown.filter((row) => row.type === 'facts' || row.type === 'kuayle' ||
+		(row.type === 'member' && row.runId && !live.has(row.runId))));
+	let output = $state<string | null>(null);
+	let outputTrigger: HTMLElement | null = null;
+	function showOutput(id: string | null, event: MouseEvent) {
+		outputTrigger = event.currentTarget as HTMLElement;
+		output = id;
+	}
+	const selected = $derived(output ? rows.find((row): row is Turn => row.type === 'member' && row.runId === output) : undefined);
 	const phaseLabel = (id = '') => run.pipeline?.phases.find((phase) => phase.id === id)?.label || id;
 	const verdictLabel: Record<string, () => string> = {
 		approve: m['tasks.review_verdict_approve'],
@@ -232,15 +240,35 @@
 				title={m['assistant.agent_question']()}
 				class="inline-flex shrink-0 text-[var(--status-warning)]"><CircleHelp size={13} aria-hidden="true" /></span
 			>{/if}
-		{#if message.to_roles?.length}<span class="min-w-0 truncate">{m['tasks.room_to']({ roles: message.to_roles.join(', ') })}</span>{/if}
 		{@render when(message.created_at)}
+		{#if message.run_id}
+			<Button variant="link" size="xs" class="h-auto px-1 text-xs text-muted-foreground" aria-haspopup="dialog" onclick={(event) => showOutput(message.run_id, event)}>{m['tasks.room_output']()}</Button>
+		{/if}
+		{#if writable && message.author_kind === 'member' && !message.reject_reason}
+			<Button variant="ghost" size="xs" class="h-auto px-1 text-xs text-muted-foreground" onclick={() => {
+				chat.roomReply = message;
+				chat.composerFocus++;
+			}}>{m['tasks.room_reply']()}</Button>
+		{/if}
 	</Message.Footer>
+{/snippet}
+
+{#snippet direction(message: TaskMessage)}
+	{@const parent = message.reply_to == null ? undefined : bySeq.get(message.reply_to)}
+	<p class="flex flex-wrap items-baseline gap-x-1.5 px-1 text-xs">
+		<span class="font-semibold">{author(message)}</span>
+		<span class="text-muted-foreground">→ {message.to_roles?.length ? message.to_roles.map((role) => '@' + role).join(', ') : '@all'}</span>
+	</p>
+	{#if parent}
+		<blockquote class="max-w-full border-l-2 pl-2 text-xs text-muted-foreground">{author(parent)} · {firstLine(parent.body || headline(parent) || '#' + parent.seq, 140)}</blockquote>
+	{/if}
 {/snippet}
 
 {#snippet ownerPost(message: TaskMessage)}
 	{@const head = headline(message)}
 	<Message.Root align="end" role="article" aria-label={m['tasks.live_from_you']()} data-seq={message.seq}>
 		<Message.Content class="items-end gap-1">
+			{@render direction(message)}
 			{#if head}<p class="px-1 text-xs text-muted-foreground">{head}</p>{/if}
 			{#if message.body}<Bubble.Root variant="muted" class="max-w-[92%]"
 					><Bubble.Content class="rounded-2xl rounded-br-md ps-3.5 pe-9 py-2 break-words whitespace-pre-wrap"
@@ -353,7 +381,7 @@
 					</li>
 				{/each}
 			</ol>
-			{#if !split.approved && task.creator_id === authState.user?.id}
+			{#if split.pending && task.creator_id === authState.user?.id}
 				<Button variant="outline" size="sm" class="w-fit" disabled={approving !== null}
 					onclick={() => void approveSplit(message.seq)}>{m['tasks.room_create_sub_issues']()}</Button>
 			{/if}
@@ -363,9 +391,8 @@
 {/snippet}
 
 {#snippet turn(row: Turn)}
-	{@const item = turnRun(row)}
-	{@const status = item ? turnStatus(item.status) : undefined}
-	{@const known = item && runs.has(item.id) ? item : undefined}
+	{@const known = row.runId ? runs.get(row.runId) : undefined}
+	{@const status = known ? turnStatus(known.status) : undefined}
 	{#snippet marks()}
 		{#if row.verdict}<Badge variant="outline" class="h-5 shrink-0 px-1.5 text-[11px] font-normal"
 				>{verdictLabel[row.verdict]?.() ?? row.verdict}</Badge
@@ -378,10 +405,7 @@
 			>{/if}
 	{/snippet}
 	<Message.Root align="start" role="article" aria-label={row.role} data-row="turn">
-		<Collapsible.Root class="min-w-0 flex-1" bind:open={() => turnOpen(row), (open) => (opened[row.key] = open)}>
-			<Collapsible.Trigger
-				class="group flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-md py-1.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-			>
+		<Button variant="plain" aria-haspopup="dialog" onclick={(event) => showOutput(row.runId, event)} class="group flex w-full min-w-0 items-center gap-2 rounded-md py-1.5 text-left focus-visible:ring-2">
 				<TurnLine
 					role={row.role}
 					summary={turnSummary(known, row.messages) || (live.has(row.runId ?? '') ? m['tasks.member_working']() : '')}
@@ -391,49 +415,84 @@
 					{status}
 					{marks}
 				/>
-			</Collapsible.Trigger>
-			<Collapsible.Content>
-				{#if turnOpen(row)}<div class="ml-2.5 flex min-w-0 flex-col gap-3 border-l py-3 pl-4 sm:pl-5">
-						{#if known}<p class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground" data-testid="turn-details">
-								{#if known.provider}<AgentLogo agent={known.provider} size="sm" class="size-4" /><span
-										>{agentInfo(known.provider).name}</span
-									>{/if}
-								{#if known.model}<span class="min-w-0 truncate">· {known.model}</span>{/if}
-								<span>·</span>{@render when(known.started_at ?? known.created_at)}
-							</p>{/if}
-						{#each row.messages as message (message.seq)}{@render memberPost(message)}{/each}
-						{#if item}<AgentStepRun
-								{chat}
-								run={item}
-								active={item.status === 'running'}
-								pending={item.status === 'running' || item.status === 'queued'}
-							/>{/if}
-					</div>{/if}
-			</Collapsible.Content>
-		</Collapsible.Root>
+		</Button>
 	</Message.Root>
 {/snippet}
 
-<ol aria-label={m['tasks.room']()} class="flex min-w-0 flex-col gap-2 py-2" data-testid="task-room">
-	{#each shown as row (row.key)}
-		<MessageScroller.Item messageId={row.key}>
+{#if blocker}
+	<div class="border-l-2 border-[var(--status-warning)] pl-3">
+		<RoomBlockerNotice post={blocker} {chat} onfollow={onreset} />
+	</div>
+{/if}
+<ol aria-label={m['tasks.room']()} class="flex min-w-0 flex-col gap-4 py-2" data-testid="task-room">
+	{#each conversation as message (message.seq)}
+		<MessageScroller.Item messageId={'seq-' + message.seq}>
 			{#snippet child({ props })}
-				<li {...props}>
-					{#if row.type === 'owner'}{@render ownerPost(row.message)}{:else if row.type === 'kuayle'}{@render kuaylePost(
-							row.message
-						)}{:else if row.type === 'facts'}{@render facts(row)}{:else if row.type === 'member'}{@render turn(row)}{/if}
+				<li {...props} id={'room-post-' + message.seq} tabindex="-1" class="min-w-0 scroll-m-3 rounded-md focus-visible:ring-2 focus-visible:ring-ring">
+					{#if message.author_kind === 'human'}
+						{@render ownerPost(message)}
+					{:else}
+						<Message.Root role="article" aria-label={message.author_role ?? ''}>
+							<Avatar.Root size="sm" aria-hidden="true">
+								<Avatar.Fallback>{message.author_role?.slice(0, 1).toUpperCase()}</Avatar.Fallback>
+							</Avatar.Root>
+							<Message.Content class="gap-1">
+								{@render direction(message)}
+								{@render memberPost(message)}
+							</Message.Content>
+						</Message.Root>
+					{/if}
 				</li>
 			{/snippet}
 		</MessageScroller.Item>
 	{/each}
 </ol>
-{#if rows.length && !shown.length}<div class="flex flex-wrap items-center gap-2" role="status">
+{#each working as row (row.key)}{@render turn(row)}{/each}
+{#if system.length}
+	<Collapsible.Root>
+		<Collapsible.Trigger class="group inline-flex items-center gap-1.5 rounded-md py-1 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2">
+			{@render chevron()} {m['tasks.room_system']()}
+		</Collapsible.Trigger>
+		<Collapsible.Content class="space-y-1 border-l pl-3">
+			{#each system as row (row.key)}
+				{#if row.type === 'kuayle'}{@render kuaylePost(row.message)}{:else if row.type === 'facts'}{@render facts(row)}{:else if row.type === 'member'}{@render turn(row)}{/if}
+			{/each}
+		</Collapsible.Content>
+	</Collapsible.Root>
+{/if}
+{#if posts.length && !conversation.length}<div class="flex flex-wrap items-center gap-2" role="status">
 		<p class="text-sm text-muted-foreground">{m['tasks.filter_empty']()}</p>
 		{#if onreset}<Button variant="ghost" size="sm" onclick={onreset}>{m['tasks.filter_reset']()}</Button>{/if}
 	</div>{/if}
-{#if !rows.length && !run.roomFailed}<p class="text-sm text-muted-foreground" role="status">
+{#if !posts.length && !working.length && !run.roomFailed}<p class="text-sm text-muted-foreground" role="status">
 		{run.roomLoaded ? m['tasks.room_empty']() : m['assistant.loading']()}
 	</p>{/if}
+
+<Dialog.Root open={!!output} onOpenChange={(open) => { if (!open) output = null; }}>
+	<Dialog.Content class="max-h-[85dvh] overflow-y-auto sm:max-w-3xl" onCloseAutoFocus={(event) => {
+		if (outputTrigger?.isConnected) { event.preventDefault(); outputTrigger.focus(); }
+	}}>
+		<Dialog.Header>
+			<Dialog.Title>{m['tasks.room_output']()}</Dialog.Title>
+			<Dialog.Description>{selected?.role}</Dialog.Description>
+		</Dialog.Header>
+		{#if output && runs.get(output)}
+			{@const item = runs.get(output)!}
+			<p class="flex items-center gap-2 text-xs text-muted-foreground" data-testid="turn-details">
+				{#if item.provider}<AgentLogo agent={item.provider} size="sm" />{agentInfo(item.provider).name}{/if}
+				{item.model} · {@render when(item.started_at ?? item.created_at)}
+			</p>
+			<AgentStepRun {chat} run={item} active={item.status === 'running'} pending={live.has(item.id)} />
+			{#if !live.has(item.id)}
+				<DiffPanel slug={chat.slug} taskId={item.task_id} runId={item.id} title={selected?.role ?? ''} />
+			{/if}
+		{:else}
+			<p role="status" class="text-sm text-muted-foreground">{m['tasks.attempt_missing']()}</p>
+			<Button variant="outline" size="sm" onclick={() => void run.load()}>{m['tasks.refresh']()}</Button>
+		{/if}
+	</Dialog.Content>
+</Dialog.Root>
+
 {#if run.roomFailed}<div class="flex flex-wrap items-center gap-2">
 		<p role="alert" class="text-sm text-destructive">{m['tasks.load_error']()}</p>
 		<Button variant="ghost" size="sm" onclick={() => void run.loadRoom()}><RefreshCw />{m['tasks.refresh']()}</Button>

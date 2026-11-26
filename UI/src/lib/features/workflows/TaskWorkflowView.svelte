@@ -7,6 +7,8 @@
 	import type { AgentTask } from '$lib/api/agent-tasks';
 	import { workflows, type TaskWorkflow, type WorkflowDecision } from '$lib/api/workflows';
 	import type { ConversationState } from '$lib/features/assistant/conversation-state.svelte';
+	import { roomBlocker } from '$lib/features/assistant/task-room';
+	import RoomBlockerNotice from '$lib/features/assistant/RoomBlockerNotice.svelte';
 	import { useTaskRun } from '$lib/features/assistant/task-run.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
@@ -27,12 +29,14 @@
 		chat,
 		task,
 		compact = false,
-		onopenworkflow
+		onopenworkflow,
+		onopenpost
 	}: {
 		chat: ConversationState;
 		task: AgentTask;
 		compact?: boolean;
 		onopenworkflow?: () => void;
+		onopenpost?: () => void;
 	} = $props();
 	const slug = $derived(chat.slug);
 	const taskId = $derived(task.id);
@@ -47,6 +51,7 @@
 	const chart = $derived(run ? taskRunChart(run) : null);
 	const overlay = $derived(chart?.overlay);
 	const decision = $derived(run ? pendingDecision(run) : null);
+	const blocker = $derived(pipeline && decision?.kind === 'limit' ? roomBlocker(chat.taskRooms[taskId] ?? []) : undefined);
 	const nodeLabel = (id: string | null | undefined) =>
 		(id && (pipeline?.phases ?? run?.graph.nodes)?.find((node) => node.id === id)?.label) || id || '';
 
@@ -71,11 +76,13 @@
 {#snippet decisionCard(run: TaskWorkflow)}
 	{#if decision}
 		<div class="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3" role="group" aria-label={nodeLabel(run.node)} data-testid="task-workflow-decision">
-			<p class="text-sm">
+			{#if blocker}
+				<RoomBlockerNotice post={blocker} {chat} onfollow={onopenpost} />
+			{:else}<p class="text-sm">
 				{decision.kind === 'approval'
 					? m['workflows.task.waiting_approval']({ question: decision.question || nodeLabel(run.node) })
 					: m['workflows.task.paused_note']()}
-			</p>
+			</p>{/if}
 			{#if decision.kind === 'approval' && run.ship_merge}
 				<!-- The ship approval: approving merges (KUA-209, KUA-216). -->
 				<p class="text-xs text-muted-foreground" data-testid="task-workflow-ship-merge">
@@ -89,7 +96,7 @@
 							>{m['workflows.task.deny']()}</Button
 						>{/if}
 				{:else}
-					<Button size="sm" disabled={deciding} onclick={() => decide('continue')}
+					<Button size="sm" variant={blocker ? 'outline' : 'default'} disabled={deciding} onclick={() => decide('continue')}
 						>{m['workflows.task.continue']()}</Button
 					>
 					<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('stop')}
