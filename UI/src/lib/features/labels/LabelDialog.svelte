@@ -69,7 +69,7 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Content class="sm:max-w-[420px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 overflow-hidden rounded-xl">
+	<Dialog.Content class="sm:max-w-[420px] border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 settings-dialog rounded-xl">
 		<form onsubmit={handleSubmit}>
 			<div class="px-5 pt-5 pb-4 space-y-4">
 				<div>
@@ -105,8 +105,8 @@
 
 				<div class="space-y-1.5">
 					<Label class="text-xs text-[var(--color-text-secondary)]">Color</Label>
-					<div class="flex items-center gap-2">
-						<div class="flex gap-1.5">
+					<div class="flex flex-wrap items-center gap-2">
+						<div class="flex flex-wrap gap-1.5">
 							{#each PRESET_COLORS as preset}
 								<Button variant="plain" type="button"
 									onclick={() => (color = preset)}

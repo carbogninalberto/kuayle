@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader, SettingsSection } from '$lib/components/settings';
 	import { page } from '$app/state';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
@@ -21,25 +22,21 @@
 	</CodeBlock.Root>
 {/snippet}
 
-<div class="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
-	<div class="space-y-2">
-		<h1 class="text-2xl font-semibold">{m['settings.mcp.title']()}</h1>
-		<p class="text-sm text-muted-foreground">{m['settings.mcp.desc']()}</p>
-	</div>
+<div class="settings-page mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.mcp.title']()} description={m['settings.mcp.desc']()} />
 
-	<section class="space-y-2">
-		<h2 class="text-sm font-medium">{m['settings.mcp.url']()}</h2>
+	<SettingsSection title={m['settings.mcp.url']()}>
 		{@render snippet(m['settings.mcp.url'](), url)}
-		<p class="text-sm text-muted-foreground">
+		<p class="mt-3 text-sm text-muted-foreground">
 			{m['settings.mcp.token_hint']({ placeholder: TOKEN_PLACEHOLDER })}
 			<a href="/{slug}/settings/tokens" class="font-medium text-foreground underline underline-offset-4">
 				{m['settings.mcp.token_link']()}
 			</a>
 		</p>
-	</section>
+	</SettingsSection>
 
 	<Tabs.Root bind:value={client} class="gap-4">
-		<Tabs.List>
+		<Tabs.List class="max-w-full flex-wrap group-data-horizontal/tabs:h-auto">
 			{#each setups as setup (setup.id)}
 				<Tabs.Trigger value={setup.id}>{setup.name}</Tabs.Trigger>
 			{/each}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader, SettingsEmptyState } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { beforeNavigate } from '$app/navigation';
@@ -36,7 +37,6 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Checkbox } from '$lib/components/ui/checkbox';
-	import EmptyState from '$lib/components/shared/EmptyState.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale } from '$lib/features/i18n/messages';
 	import { expiresAt, localDateString, type ExpiryChoice } from '$lib/features/tokens/expiry';
@@ -349,24 +349,24 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-4 py-10 sm:px-8">
-	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.tokens.title']()}</h1>
-		<div class="flex items-center gap-2">
-			<Button variant="outline" size="sm" onclick={openConnect} disabled={loading || loadFailed}>
-				<Terminal size={14} />
-				{m['settings.tokens.cli_button']()}
-			</Button>
-			<Button variant="plain" onclick={openCreate}
-				disabled={loading || loadFailed || creating}
-				class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
-			>
-				<Plus size={14} />
-				{m['settings.tokens.new']()}
-			</Button>
-		</div>
-	</div>
-	<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{m['settings.tokens.desc']()}</p>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.tokens.title']()} description={m['settings.tokens.desc']()}>
+		{#snippet action()}
+			<div class="flex flex-wrap items-center gap-2">
+				<Button variant="outline" size="sm" onclick={openConnect} disabled={loading || loadFailed}>
+					<Terminal size={14} />
+					{m['settings.tokens.cli_button']()}
+				</Button>
+				<Button variant="plain" onclick={openCreate}
+					disabled={loading || loadFailed || creating}
+					class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+				>
+					<Plus size={14} />
+					{m['settings.tokens.new']()}
+				</Button>
+			</div>
+		{/snippet}
+	</SettingsPageHeader>
 
 	<div class="mt-8">
 		{#if loading}
@@ -375,7 +375,7 @@
 			<p role="alert">{m['settings.tokens.failed_load']()}</p>
 			<Button onclick={loadTokens}>{m['settings.tokens.retry']()}</Button>
 		{:else if tokens.length === 0}
-			<EmptyState
+			<SettingsEmptyState
 				title={m['settings.tokens.no_tokens']()}
 				description={m['settings.tokens.no_tokens_desc']()}
 				action={{ label: m['settings.tokens.new'](), onclick: openCreate }}
@@ -387,7 +387,7 @@
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-2">
 								<KeyRound size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
-								<span class="truncate text-sm font-medium text-[var(--color-text-primary)]">{token.name}</span>
+								<span class="wrap-anywhere text-sm font-medium text-[var(--color-text-primary)]">{token.name}</span>
 								{#if isExpired(token)}
 									<Badge variant="destructive" class="text-[10px]">{m['settings.tokens.expired']()}</Badge>
 								{/if}
@@ -439,13 +439,13 @@
 	}}
 >
 	<Dialog.Content
-		class="overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[560px]"
+		class="flex settings-dialog flex-col gap-0 rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[560px]"
 		showCloseButton={!creating}
 		interactOutsideBehavior={creating ? 'ignore' : 'close'}
 		escapeKeydownBehavior={creating ? 'ignore' : 'close'}
 	>
-		<form onsubmit={handleCreate}>
-			<div class="max-h-[80vh] space-y-4 overflow-y-auto px-5 pt-5 pb-4">
+		<form class="flex min-h-0 flex-col" onsubmit={handleCreate}>
+			<div class="min-h-0 space-y-4 overflow-y-auto px-5 pt-5 pb-4">
 				<div>
 					<Dialog.Title class="text-base font-semibold text-[var(--color-text-primary)]">
 						{m['settings.tokens.create_title']()}
@@ -617,7 +617,7 @@
 										onCheckedChange={() => toggleWorkspace(workspace.slug)}
 										aria-label={workspace.name}
 									/>
-									<span class="truncate text-xs text-[var(--color-text-primary)]">{workspace.name}</span>
+									<span class="wrap-anywhere text-xs text-[var(--color-text-primary)]">{workspace.name}</span>
 								</div>
 							{/each}
 						</div>
@@ -666,7 +666,7 @@
 				</div>
 			</div>
 
-			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+			<div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
 				<Button variant="outline" size="sm" type="button" onclick={() => (showCreate = false)} disabled={creating}>
 					{m['settings.cancel']()}
 				</Button>
@@ -680,7 +680,7 @@
 
 <Dialog.Root open={createdToken !== null}>
 	<Dialog.Content
-		class="overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[480px]"
+		class="flex settings-dialog flex-col gap-0 rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[480px]"
 		interactOutsideBehavior="ignore"
 		escapeKeydownBehavior="ignore"
 		showCloseButton={false}
@@ -694,7 +694,7 @@
 					>{m['settings.tokens.close_confirm_desc']()}</Dialog.Description
 				>
 			</div>
-			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+			<div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
 				<Button variant="outline" size="sm" onclick={() => (showCloseConfirm = false)}>
 					{m['settings.cancel']()}
 				</Button>
@@ -725,7 +725,7 @@
 					</Button>
 				</div>
 			</div>
-			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+			<div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
 				<Button size="sm" onclick={() => (showCloseConfirm = true)}>{m['settings.tokens.done']()}</Button>
 			</div>
 		{/if}
@@ -738,7 +738,7 @@
 		if (!open && !revoking) tokenToRevoke = null;
 	}}
 >
-	<AlertDialog.Content>
+	<AlertDialog.Content class="max-h-[calc(100dvh-2rem)] overflow-y-auto wrap-anywhere">
 		<AlertDialog.Header>
 			<AlertDialog.Title>{m['settings.tokens.revoke_title']()}</AlertDialog.Title>
 			<AlertDialog.Description>
@@ -763,7 +763,7 @@
 	}}
 >
 	<Dialog.Content
-		class="overflow-hidden rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[560px]"
+		class="flex settings-dialog flex-col gap-0 rounded-xl border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-0 sm:max-w-[560px]"
 		showCloseButton={!connectCreating}
 		interactOutsideBehavior={connectCreating ? 'ignore' : 'close'}
 		escapeKeydownBehavior={connectCreating ? 'ignore' : 'close'}
@@ -801,12 +801,12 @@
 					})}
 				</p>
 			</div>
-			<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+			<div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
 				<Button size="sm" onclick={() => (showConnect = false)}>{m['settings.tokens.cli_done']()}</Button>
 			</div>
 		{:else}
-			<form onsubmit={handleConnect}>
-				<div class="max-h-[80vh] space-y-4 overflow-y-auto px-5 pt-5 pb-4">
+			<form class="flex min-h-0 flex-col" onsubmit={handleConnect}>
+				<div class="min-h-0 space-y-4 overflow-y-auto px-5 pt-5 pb-4">
 					<div>
 						<Dialog.Title class="text-base font-semibold text-[var(--color-text-primary)]">
 							{m['settings.tokens.cli_title']()}
@@ -1030,7 +1030,7 @@
 								{#each cliLinks as link, i (link.id)}
 									<div class="flex items-center gap-3 px-3 py-2 {i > 0 ? 'border-t border-[var(--app-border)]' : ''}">
 										<div class="min-w-0 flex-1">
-											<p class="truncate text-xs text-[var(--color-text-primary)]">{link.name}</p>
+											<p class="wrap-anywhere text-xs text-[var(--color-text-primary)]">{link.name}</p>
 											<p class="text-[10px] text-[var(--color-text-tertiary)]">
 												{m['settings.tokens.cli_uses_label']({ used: link.uses, max: link.max_uses })}
 												· {m['settings.tokens.cli_expires']({
@@ -1040,7 +1040,7 @@
 										</div>
 										<Button
 											variant="ghost"
-											size="icon-sm"
+											size="icon-sm" class="settings-action"
 											onclick={() => handleRevokeCLILink(link.id)}
 											disabled={revokingCLILink === link.id}
 											aria-label={m['settings.tokens.cli_revoke']()}
@@ -1053,7 +1053,7 @@
 						{/if}
 					</div>
 				</div>
-				<div class="flex justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
+				<div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-[var(--app-border)] px-5 py-3">
 					<Button variant="outline" size="sm" type="button" onclick={() => (showConnect = false)}>
 						{m['settings.cancel']()}
 					</Button>

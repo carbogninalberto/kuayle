@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 
 	import ComposeFileField from '$lib/features/dev-machines/ComposeFileField.svelte';
@@ -449,11 +450,8 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
-	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['team_settings.title']()}</h1>
-	<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">
-		{m['team_settings.description']()}
-	</p>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['team_settings.title']()} description={m['team_settings.description']()} />
 
 	{#if loading}
 		<div class="flex justify-center py-8">
@@ -517,7 +515,7 @@
 							class=""
 						/>
 					</div>
-					<div class="flex justify-end gap-2">
+					<div class="flex flex-wrap justify-end gap-2">
 						<Button variant="outline" size="sm" onclick={() => (editingDetails = false)}><X size={14} />{m['team_settings.cancel']()}</Button>
 						<Button size="sm" onclick={saveDetails} disabled={!editName.trim() || !keyValid}><Check size={14} />{m['team_settings.save']()}</Button>
 					</div>
@@ -784,7 +782,7 @@
 				<p class="text-xs text-[var(--color-text-tertiary)]">
 					{m['team_settings.available_placeholders']()} {'{{issue_identifier}}'}, {'{{issue_title}}'}, {'{{team_key}}'}, {'{{team_name}}'}, {'{{issue_xml}}'}.
 				</p>
-				<div class="flex justify-end gap-2">
+				<div class="flex flex-wrap justify-end gap-2">
 					<Button variant="outline" size="sm" onclick={() => (issueCopyPrompt = '')}>{m['team_settings.use_workspace_default']()}</Button>
 					<Button size="sm" onclick={saveIssueCopyPrompt} disabled={savingIssueCopyPrompt}>
 						{savingIssueCopyPrompt ? m['team_settings.saving']() : m['team_settings.save_prompt']()}

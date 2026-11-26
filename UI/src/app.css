@@ -752,6 +752,25 @@ html.pipboy :focus-visible {
 	}
 }
 
+@utility settings-page {
+	overflow-wrap: anywhere;
+}
+
+@media (width < 48rem), (pointer: coarse) {
+	.settings-page :where([data-slot="button"], [data-slot="select-trigger"], [data-slot="popover-trigger"], [data-slot="tooltip-trigger"]),
+	.settings-action {
+		min-width: 44px;
+		min-height: 44px;
+	}
+}
+
+/* Dialog.Content is anchored 10vh from the top. Leave the bottom edge reachable. */
+@utility settings-dialog {
+	max-height: calc(90dvh - 1rem);
+	overflow-y: auto;
+	overflow-wrap: anywhere;
+}
+
 @utility no-scrollbar {
 	-ms-overflow-style: none;
 	scrollbar-width: none;

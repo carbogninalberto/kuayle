@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import SelectField from '$lib/components/shared/SelectField.svelte';
 	import { onDestroy } from 'svelte';
@@ -243,19 +244,17 @@
 	const hintClass = 'text-xs text-[var(--color-text-tertiary)]';
 </script>
 
-<div class="mx-auto max-w-4xl px-8 py-10">
-	<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-		<div>
-			<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.backups.title']()}</h1>
-			<p class="mt-1 text-sm text-[var(--color-text-tertiary)]">{m['settings.backups.desc']()}</p>
-		</div>
-		{#if isSysadmin && form}
-			<Button onclick={backUpNow} disabled={starting}>
-				<DatabaseBackup size={14} />
-				{starting ? m['settings.starting']() : m['settings.backups.back_up_now']()}
-			</Button>
-		{/if}
-	</div>
+<div class="settings-page mx-auto max-w-4xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.backups.title']()} description={m['settings.backups.desc']()}>
+		{#snippet action()}
+			{#if isSysadmin && form}
+				<Button onclick={backUpNow} disabled={starting}>
+					<DatabaseBackup size={14} />
+					{starting ? m['settings.starting']() : m['settings.backups.back_up_now']()}
+				</Button>
+			{/if}
+		{/snippet}
+	</SettingsPageHeader>
 
 	{#if !isSysadmin}
 		<div class={sectionClass}>
@@ -525,7 +524,7 @@
 									</Table.Cell>
 									<Table.Cell class="whitespace-nowrap">{formatBytes(run.size_bytes)}</Table.Cell>
 									<Table.Cell class="whitespace-nowrap">{formatDuration(run.duration_ms)}</Table.Cell>
-									<Table.Cell class="max-w-48 truncate font-mono text-xs" title={run.destination}>{run.destination}</Table.Cell>
+									<Table.Cell class="max-w-48 whitespace-normal wrap-anywhere font-mono text-xs" title={run.destination}>{run.destination}</Table.Cell>
 									<Table.Cell>
 										{#if run.checksum_sha256}
 											<div class="flex items-center gap-1">

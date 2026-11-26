@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
@@ -228,13 +229,8 @@
 	});
 </script>
 
-<div class="mx-auto max-w-2xl space-y-8 p-6">
-	<div>
-		<h2 class="text-lg font-semibold text-[var(--color-text-primary)]">{m['settings.github.title']()}</h2>
-		<p class="mt-1 text-sm text-[var(--color-text-tertiary)]">
-			{m['settings.github.desc']()}
-		</p>
-	</div>
+<div class="settings-page mx-auto max-w-2xl space-y-8 p-4 sm:p-6">
+	<SettingsPageHeader title={m['settings.github.title']()} description={m['settings.github.desc']()} />
 
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
@@ -383,7 +379,7 @@
 											class="pointer-events-none"
 										/>
 										<GithubLogoIcon size={14} class="shrink-0 text-[var(--color-text-tertiary)]" />
-										<span class="truncate text-[var(--color-text-primary)]">{repo.full_name}</span>
+										<span class="wrap-anywhere text-[var(--color-text-primary)]">{repo.full_name}</span>
 										{#if repo.private}
 											<Badge variant="outline" class="ml-auto shrink-0 text-[9px]">{m['settings.github.private']()}</Badge>
 										{/if}
@@ -426,7 +422,7 @@
 									<span class="text-xs text-[var(--color-text-tertiary)]">{repo.default_branch}</span>
 								</div>
 								{#if repositoryUrl}
-									<a href={repositoryUrl} target="_blank" rel="noopener noreferrer" class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
+									<a href={repositoryUrl} aria-label={m['common.open_in_new_tab']()} target="_blank" rel="noopener noreferrer" class="settings-action inline-flex items-center justify-center text-[var(--color-text-tertiary)] hover:text-[var(--color-text-secondary)]">
 										<ExternalLink size={14} />
 									</a>
 								{/if}

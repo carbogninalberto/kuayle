@@ -103,7 +103,7 @@
 		if (!open) onclose();
 	}}
 >
-	<Dialog.Content class="sm:max-w-lg">
+	<Dialog.Content class="settings-dialog sm:max-w-lg">
 		<form onsubmit={create} class="space-y-4" data-testid="new-workflow-form">
 			<Dialog.Header>
 				<Dialog.Title>{m['workflows.new']()}</Dialog.Title>

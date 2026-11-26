@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import { onMount } from 'svelte';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import { Textarea } from '$lib/components/ui/textarea/index.js';
@@ -92,11 +93,8 @@
 	}
 </script>
 
-<div class="mx-auto w-full max-w-2xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
-	<div>
-		<h1 class="text-2xl font-semibold">{m['telegram.title']()}</h1>
-		<p class="mt-2 text-sm text-muted-foreground">{m['telegram.description']()}</p>
-	</div>
+<div class="settings-page mx-auto w-full max-w-2xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['telegram.title']()} description={m['telegram.description']()} />
 	{#if settings}
 		<p role="status" class="text-sm">
 			{statusLabel}{#if settings.bot_username}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsFormRow, SettingsPageHeader } from '$lib/components/settings';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
@@ -285,38 +286,31 @@
 	const PRESET_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'];
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
-	<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['team_settings.statuses_title']()}</h1>
-	<p class="mt-2 text-sm text-[var(--color-text-tertiary)]">
-		{m['team_settings.statuses_desc']()}
-	</p>
+<div class="settings-page mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['team_settings.statuses_title']()} description={m['team_settings.statuses_desc']()} />
 
 	<div class="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--color-bg-secondary)]">
-		<div class="flex items-center justify-between px-5 py-4">
-			<div>
-				<p class="text-sm font-medium text-[var(--color-text-primary)]">{m['team_settings.issue_list_sorting']()}</p>
-				<p class="text-xs text-[var(--color-text-tertiary)]">
-					{m['team_settings.issue_list_sorting_desc']()}
-				</p>
-			</div>
-			<Select.Root
-				type="single"
-				value={teamWorkflowOverride.mode}
-				onValueChange={(v) => {
-					if (v) setTeamWorkflowSortMode(v as TeamWorkflowSortMode);
-				}}
-			>
-				<Select.Trigger size="sm" class="w-[145px]">
-					{workflowSortLabels[teamWorkflowOverride.mode]}
-				</Select.Trigger>
-				<Select.Content>
-					<Select.Item value="inherit">{m['team_settings.sort_mode.inherit']()}</Select.Item>
-					<Select.Item value="default">{m['team_settings.sort_mode.default']()}</Select.Item>
-					<Select.Item value="active-first">{m['team_settings.sort_mode.active_first']()}</Select.Item>
-					<Select.Item value="custom">{m['team_settings.sort_mode.custom']()}</Select.Item>
-				</Select.Content>
-			</Select.Root>
-		</div>
+		<SettingsFormRow class="px-5 py-4" label={m['team_settings.issue_list_sorting']()} help={m['team_settings.issue_list_sorting_desc']()}>
+			{#snippet control(props)}
+				<Select.Root
+					type="single"
+					value={teamWorkflowOverride.mode}
+					onValueChange={(v) => {
+						if (v) setTeamWorkflowSortMode(v as TeamWorkflowSortMode);
+					}}
+				>
+					<Select.Trigger {...props} size="sm" class="w-full">
+						{workflowSortLabels[teamWorkflowOverride.mode]}
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="inherit">{m['team_settings.sort_mode.inherit']()}</Select.Item>
+						<Select.Item value="default">{m['team_settings.sort_mode.default']()}</Select.Item>
+						<Select.Item value="active-first">{m['team_settings.sort_mode.active_first']()}</Select.Item>
+						<Select.Item value="custom">{m['team_settings.sort_mode.custom']()}</Select.Item>
+					</Select.Content>
+				</Select.Root>
+			{/snippet}
+		</SettingsFormRow>
 
 		{#if teamWorkflowOverride.mode === 'custom'}
 			<div class="border-t border-[var(--app-border)]"></div>
@@ -357,7 +351,7 @@
 								>
 							</div>
 							<div
-								class="flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+								class="flex items-center gap-1"
 							>
 								<Button variant="plain" onclick={() => moveTeamWorkflowCategory(category, -1)}
 									disabled={index === 0}
@@ -443,7 +437,7 @@
 									<IssueStatusIcon category={status.category} color={status.color} size={18} />
 
 									{#if editingId === status.id}
-										<div class="flex flex-1 items-center gap-2">
+										<div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
 											<Input variant="plain"
 												type="text"
 												bind:value={editName}
@@ -453,7 +447,7 @@
 												}}
 												class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-0.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 											/>
-											<div class="flex items-center gap-0.5">
+											<div class="flex flex-wrap items-center gap-0.5">
 												{#each PRESET_COLORS as c}
 													<Button variant="plain" onclick={() => (editColor = c)}
 														class="h-3.5 w-3.5 rounded-full {editColor === c
@@ -487,15 +481,15 @@
 											</div>
 										</div>
 										<div class="flex items-center gap-1">
-											<Button variant="plain" onclick={() => startEdit(status)}
-												class="hidden rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] group-hover:block transition-colors"
+											<Button variant="plain" aria-label={m['settings.edit']()} onclick={() => startEdit(status)}
+												class="inline-flex items-center justify-center rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
 											>
 												<Pencil size={12} />
 											</Button>
 											{#if !status.is_default}
 												<Button aria-label={m['common.delete']()} variant="plain"
 													onclick={() => handleDelete(status.id)}
-													class="hidden rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-bg-tertiary)] group-hover:block transition-colors"
+													class="inline-flex items-center justify-center rounded p-1 text-[var(--color-text-tertiary)] hover:text-[var(--color-error)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
 												>
 													<Trash2 size={12} />
 												</Button>
@@ -508,7 +502,7 @@
 
 						{#if addingCategory === cat}
 							<div
-								class="flex items-center gap-3 px-5 py-2.5 border-t border-[var(--app-border)] bg-[var(--color-bg-hover)]/30"
+								class="flex flex-wrap items-center gap-3 px-5 py-2.5 border-t border-[var(--app-border)] bg-[var(--color-bg-hover)]/30"
 							>
 								<IssueStatusIcon category={cat} size={18} />
 								<Input variant="plain"
@@ -521,14 +515,14 @@
 									}}
 									class="flex-1 rounded border border-[var(--app-border)] bg-[var(--color-bg)] px-2 py-1 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--app-accent)]"
 								/>
-								<div class="flex items-center gap-0.5">
+								<div class="flex flex-wrap items-center gap-0.5">
 									{#each PRESET_COLORS as c}
 										<Button variant="plain" onclick={() => (addColor = c)}
 											class="h-3.5 w-3.5 rounded-full {addColor === c
 												? 'ring-2 ring-[var(--app-accent)] ring-offset-1 ring-offset-[var(--color-bg)]'
 												: ''}"
 											style="background-color: {c}"
-											aria-label={m['team_settings.select_color_only_aria']()}
+											aria-label={m['team_settings.select_color_aria']({ color: c })}
 										></Button>
 									{/each}
 								</div>

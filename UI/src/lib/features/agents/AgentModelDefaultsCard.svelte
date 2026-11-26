@@ -82,11 +82,11 @@
 			{#each defaults as value (value.provider)}
 				{@const agent = agentInfo(value.provider)}
 				{@const server = overridingServer(servers, value.provider)}
-				<form class="space-y-2 rounded-lg border p-3" onsubmit={(event) => save(value, event)}>
+				<form class="@container space-y-2 rounded-lg border p-3" onsubmit={(event) => save(value, event)}>
 					<div class="flex items-center gap-2 text-sm font-medium">
 						<AgentLogo agent={value.provider} size="sm" />{agent.name}
 					</div>
-					<div class="grid items-end gap-3 sm:grid-cols-[1fr_12rem_auto]">
+					<div class="grid items-end gap-3 @lg:grid-cols-[minmax(0,1fr)_minmax(0,12rem)_auto]">
 						<div class="space-y-1.5">
 							<Label for="agent-default-model-{value.provider}">{m['settings.agents.defaults_model']()}</Label>
 							<Input

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { SettingsPageHeader } from '$lib/components/settings';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -71,14 +72,11 @@
 	});
 </script>
 
-<div class="mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
-	<div class="space-y-2">
-		<h1 class="text-2xl font-semibold">{m['assistant_settings.title']()}</h1>
-		<p class="text-sm text-muted-foreground">{m['assistant_settings.desc']()}</p>
-	</div>
+<div class="settings-page mx-auto w-full max-w-3xl space-y-6 px-4 py-8 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['assistant_settings.title']()} description={m['assistant_settings.desc']()} />
 
 	<Tabs.Root value={tab} onValueChange={selectTab} class="gap-4">
-		<Tabs.List>
+		<Tabs.List class="max-w-full flex-wrap group-data-horizontal/tabs:h-auto">
 			<Tabs.Trigger value="tools">{m['assistant_settings.tab_tools']()}</Tabs.Trigger>
 			<Tabs.Trigger value="skills">{m['assistant_settings.tab_skills']()}</Tabs.Trigger>
 			<Tabs.Trigger value="custom-tools">{m['assistant_settings.tab_custom_tools']()}</Tabs.Trigger>
