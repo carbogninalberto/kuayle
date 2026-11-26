@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { decisionWaitLabel } from './task-labels';
+	import { roomBlocker, decisionAnchor } from './task-room';
 	import { untrack } from 'svelte';
 	import { Circle, LoaderCircle, PanelLeftClose, RefreshCw } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
@@ -30,7 +32,8 @@
 	const members = $derived(
 		pipeline ? pipelineMembers(pipeline, run.view?.runs, run.view?.profiles ?? [], task) : []
 	);
-	const budget = $derived(
+	const blocker=$derived(roomBlocker(task));
+ const budget = $derived(
 		budgetUse(run.followsWorkflow ? run.view : null, pipeline, task.workflow_budget_extensions ?? 0)
 	);
 	const spent = $derived(usageParts(run.usage, getLocale()).length > 0);
@@ -93,7 +96,11 @@
 								>
 								<span class="shrink-0 text-xs text-muted-foreground">{phase.owner}</span>
 							</p>
-							{#if phase.state === 'current' && task.reason}<p
+							{#if phase.state === 'current' && blocker}<a
+									class="line-clamp-3 text-xs underline"
+									href={'#' + decisionAnchor(task.id, blocker.kind, blocker.seq)}>{decisionWaitLabel(blocker)}</a
+								>
+							{:else if phase.state === 'current' && task.reason}<p
 									class="line-clamp-3 text-xs leading-4 break-words text-muted-foreground"
 								>
 									{task.reason}

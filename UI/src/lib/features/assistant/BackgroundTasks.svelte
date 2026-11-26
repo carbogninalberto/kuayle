@@ -48,6 +48,9 @@
 		>
 			<AgentLogo agent={item.provider || 'custom'} size="sm" class="shrink-0" />
 			<span class="min-w-0 flex-1 truncate">{item.issue_identifier} · {item.issue_title}</span>
+			{#if item.pending_decision_count}<span class="text-xs font-medium tabular-nums"
+					>{m['tasks.decision_count']({ count: item.pending_decision_count })}</span
+				>{/if}
 			<span class="shrink-0 text-[11px] tabular-nums">{ago(item.updated_at)}</span>
 			<span
 				role="img"

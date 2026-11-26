@@ -3,6 +3,10 @@
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Input } from '$lib/components/ui/input/index.js';
 	import type { Conversation } from '$lib/api/conversations';
+	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
+	import type { AgentQueueItem } from '$lib/api/agent-tasks';
+	import BackgroundTasks from './BackgroundTasks.svelte';
 	import ConversationNav from './ConversationNav.svelte';
 	import type { TaskIndicator } from './shell-rules';
 	import { assistantPlaces } from './assistant-places';
@@ -20,6 +24,9 @@
 		onmore,
 		loading = false,
 		indicators,
+		needsMe,
+		decisionsStatus,
+		retryDecisions,
 		onrenamed,
 		oncollapse,
 		collapseLabel
@@ -34,11 +41,15 @@
 		failed: boolean;
 		onmore: () => void;
 		loading?: boolean;
+		needsMe: AgentQueueItem[];
+		decisionsStatus: 'loading' | 'ready' | 'failed';
+		retryDecisions: () => void;
 		indicators: Record<string, TaskIndicator | undefined>;
 		onrenamed: (conversation: Conversation) => void;
 		oncollapse: () => void;
 		collapseLabel: string;
 	} = $props();
+	const count = $derived(needsMe.reduce((sum, item) => sum + (item.pending_decision_count ?? 0), 0));
 	const places = $derived(assistantPlaces(slug));
 </script>
 
@@ -91,6 +102,22 @@
 				}}
 			/>
 		</div>
+		<Collapsible.Root class="mb-2">
+			<Collapsible.Trigger
+				class="flex min-h-8 w-full items-center justify-between rounded-md px-2 text-sm font-medium hover:bg-muted focus-visible:outline-ring"
+			>
+				{m['tasks.decision_needs_me']()}
+				{#if count}<Badge variant="secondary">{m['tasks.decision_count']({ count })}</Badge>{/if}
+			</Collapsible.Trigger>
+			<Collapsible.Content>
+				{#if decisionsStatus === 'failed'}<p role="alert" class="px-2 text-sm">{m['tasks.decision_error']()}</p>
+					<Button size="sm" variant="ghost" onclick={retryDecisions}>{m['tasks.refresh']()}</Button>
+				{:else if needsMe.length}<BackgroundTasks {slug} items={needsMe} limit={needsMe.length} />
+				{:else}<p role="status" class="px-2 py-1 text-xs text-muted-foreground">
+						{decisionsStatus === 'loading' ? m['assistant.loading']() : m['tasks.decision_none']()}
+					</p>{/if}
+			</Collapsible.Content>
+		</Collapsible.Root>
 		<ConversationNav
 			{slug}
 			{conversationId}

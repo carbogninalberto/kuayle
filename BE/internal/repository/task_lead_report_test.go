@@ -89,3 +89,35 @@ func TestLeadSummaryNotifiesOnlyItsOwnerOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, again, "an enabled bot in another workspace cannot receive this report")
 }
+
+func TestOwnerDecisionUsesLinkedLeadTelegramChannel(t *testing.T) {
+	f := newRoomFixture(t)
+	ctx := context.Background()
+	_, err := f.db.Exec(`INSERT INTO telegram_settings(workspace_id,bot_id,token_encrypted,webhook_secret,enabled,allowed_user_ids) VALUES($1,1,'x','x',true,'{12345}')`, f.task.WorkspaceID)
+	require.NoError(t, err)
+	_, err = f.db.Exec(`INSERT INTO telegram_links(workspace_id,user_id,telegram_user_id) VALUES($1,$2,12345)`, f.task.WorkspaceID, f.task.CreatorID)
+	require.NoError(t, err)
+
+	ask := f.member("lead", domain.RoomAsk, "Which search should ship?", domain.TaskRoomData{})
+	ask.ToRoles, ask.DedupeKey = []string{"human"}, "search"
+	for i := 0; i < 2; i++ {
+		_, err = f.repo.RecordRoomMessage(ctx, f.task.ID, ask)
+		require.NoError(t, err)
+	}
+	tg := NewTelegramRepository(f.db)
+	d, err := tg.ClaimDelivery(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, d)
+	var delivered bool
+	require.NoError(t, tg.Deliver(ctx, *d, "", func(msg domain.TelegramDelivery) error {
+		delivered = true
+		require.Equal(t, f.task.CreatorID, msg.UserID)
+		require.Equal(t, f.task.ConversationID, msg.ConversationID)
+		require.Contains(t, msg.Text, ask.Body)
+		return nil
+	}))
+	require.True(t, delivered)
+	duplicate, err := tg.ClaimDelivery(ctx)
+	require.NoError(t, err)
+	require.Nil(t, duplicate)
+}

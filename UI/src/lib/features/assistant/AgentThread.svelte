@@ -19,6 +19,8 @@
 	import AgentLiveMessage from './AgentLiveMessage.svelte';
 	import AgentReview from './AgentReview.svelte';
 	import StepStatus from './StepStatus.svelte';
+	import OwnerDecisionCard from './OwnerDecisionCard.svelte';
+	import { decisionAnchor, roomBlocker } from './task-room';
 	import TaskRoom from './TaskRoom.svelte';
 	import TaskThreadMenu from './TaskThreadMenu.svelte';
 	import UsageLine from './UsageLine.svelte';
@@ -34,7 +36,7 @@
 	import { shownRows, stepThread, threadRoles, type StepRow, type ThreadFilter } from './thread-rows';
 	import { stepAgent, stepTitle } from './step-labels';
 	import { authState } from '$lib/features/auth/auth.state.svelte';
-	import { taskLabel } from './task-labels';
+	import { decisionWaitLabel, taskLabel } from './task-labels';
 	import { taskTone, toneBadge } from './task-tone';
 	import { downloadTaskTrace } from './task-trace';
 	import { m } from '$lib/features/i18n/messages';
@@ -103,6 +105,7 @@
 	// fallback (see TaskRun). The notebook (its tab) is read by the task's
 	// creator alone, and here only for the runs that did not update it; a
 	// review has no notebook.
+	const blocker = $derived(roomBlocker(task));
 	const mine = $derived(task.creator_id === authState.user?.id);
 	const run = useTaskRun(
 		untrack(() => chat),
@@ -354,8 +357,14 @@
 						class="sr-only @min-[30rem]:not-sr-only">{text}</span
 					></span
 				>{/if}
-			<Badge variant="outline" class="max-w-28 shrink-0 @min-[36rem]:max-w-52 {toneBadge[tone]}" title={stateText} role="status"
-				><span class="truncate">{stateText}</span></Badge
+			{#if task.pending_decisions?.length}<Badge variant="secondary" data-testid="thread-decision-count"
+					>{m['tasks.decision_count']({ count: task.pending_decisions.length })}</Badge
+				>{/if}
+			<Badge
+				variant="outline"
+				class="max-w-28 shrink-0 @min-[36rem]:max-w-52 {toneBadge[tone]}"
+				title={stateText}
+				role="status"><span class="truncate">{stateText}</span></Badge
 			>
 			<div class="flex shrink-0 items-center gap-0.5 @min-[36rem]:gap-1">
 				<TaskStopButton {chat} {task} {identifier} onerror={(message) => (stopError = message)} />
@@ -369,6 +378,20 @@
 				/>
 			</div>
 		</div>
+		{#if mine && task.pending_decisions?.length}
+			<div class="mt-2 max-h-[46dvh] space-y-2 overflow-y-auto overscroll-contain pb-1">
+				{#if blocker}<a
+						class="block text-sm font-medium underline underline-offset-2 [overflow-wrap:anywhere]"
+						href={'#' + decisionAnchor(task.id, blocker.kind, blocker.seq)}>{decisionWaitLabel(blocker)}</a
+					>{/if}
+				{#each task.pending_decisions as item (item.kind + item.seq)}<OwnerDecisionCard
+						{chat}
+						{run}
+						{task}
+						{item}
+					/>{/each}
+			</div>
+		{/if}
 	</header>
 
 	{#if stopError}<p role="alert" class="text-sm break-words text-destructive">{stopError}</p>{/if}
@@ -379,7 +402,7 @@
 			{#if detailsOpen}
 				<p class="text-xs text-muted-foreground">{identifier} · {m['tasks.attempt']({ number: task.generation })}</p>
 				<p class="break-words whitespace-pre-wrap text-sm">{task.prompt}</p>
-				{#if task.reason}<p class="break-words text-xs text-muted-foreground">{task.reason}</p>{/if}
+				{#if task.reason && !blocker}<p class="break-words text-xs text-muted-foreground">{task.reason}</p>{/if}
 				<UsageLine usage={run.usage} label={m['tasks.usage_total']()} />
 			{/if}
 		</Collapsible.Content>

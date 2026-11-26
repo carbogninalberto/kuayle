@@ -167,6 +167,11 @@ export class ConversationState {
 				!this.agentMessages.some((known) => known.id === message.id);
 			this.acceptAgentMessages([message]);
 			if (receivedQuestion) this.onAgentQuestion?.(message);
+		} else if (event.type === 'task.decisions_updated') {
+			const data = event.payload as Pick<AgentTask, 'pending_decisions'> & { task_id: string };
+			const task = this.liveTasks[data.task_id];
+			if (task)
+				this.liveTasks = { ...this.liveTasks, [task.id]: { ...task, pending_decisions: data.pending_decisions } };
 		} else if (event.type === 'task.room_message') {
 			const message = event.payload as TaskMessage;
 			this.acceptRoomMessages(message.task_id, [message]);
@@ -283,7 +288,10 @@ export class ConversationState {
 					Date.parse(current.updated_at) >= Date.parse(task.updated_at)))
 		)
 			return;
-		this.liveTasks = { ...this.liveTasks, [task.id]: task };
+		const pending = ['completed', 'cancelled', 'failed', 'cancelling'].includes(task.state)
+			? []
+			: (task.pending_decisions ?? current?.pending_decisions);
+		this.liveTasks = { ...this.liveTasks, [task.id]: { ...task, pending_decisions: pending } };
 	}
 	private connect() {
 		if (this.disposed || this.unavailable) return;

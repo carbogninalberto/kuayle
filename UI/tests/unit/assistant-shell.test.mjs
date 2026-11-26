@@ -157,7 +157,8 @@ test('a workflow iteration is named by the step and the transition that queued i
 });
 
 test('the panel toggle counts what waits on the owner and otherwise says an agent works', () => {
-	assert.deepEqual(panelSignal([], []), { needs: 0, working: false });
+	assert.deepEqual(panelSignal([], [{state:'blocked',pipeline:true,pending_decisions:[{},{}]}]),{needs:2,working:false});
+ assert.deepEqual(panelSignal([], []), { needs: 0, working: false });
 	assert.deepEqual(panelSignal([{ status: 'approved' }], [{ state: 'completed' }, { state: 'failed' }]), { needs: 0, working: false });
 	assert.deepEqual(panelSignal([{ status: 'pending' }, { status: 'denied' }], [{ state: 'running' }]), { needs: 1, working: false });
 	assert.deepEqual(panelSignal([], [{ state: 'awaiting_review' }, { state: 'waiting_input' }, { state: 'blocked' }]), {

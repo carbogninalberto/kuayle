@@ -360,9 +360,23 @@
 	// and the sidebar's row indicators.
 	const dock = useTerminalDock();
 	let queue = $state<AgentQueueItem[]>([]);
+	let pendingTasks = $state<AgentQueueItem[]>([]);
+	let decisionsStatus = $state<'loading' | 'ready' | 'failed'>('loading');
+	async function loadDecisions() {
+		try {
+			const next = await agentTasks.needsMe(slug);
+			if (!disposed) {
+				pendingTasks = Array.isArray(next) ? next : [];
+				decisionsStatus = 'ready';
+			}
+		} catch {
+			if (!disposed) decisionsStatus = 'failed';
+		}
+	}
 	async function loadQueue() {
 		if (typeof document !== 'undefined' && document.hidden) return;
 		try {
+			void loadDecisions();
 			const next = await agentTasks.queue(slug);
 			if (!disposed) queue = Array.isArray(next) ? next : [];
 			if (queue.length) dock?.trackAgents();
@@ -383,9 +397,25 @@
 				issue_identifier: chat.issue?.identifier ?? '',
 				issue_title: chat.issue?.title ?? '',
 				provider: task.provider,
+				pending_decision_count: task.pending_decisions?.length,
 				updated_at: task.updated_at
 			}));
-		return [...own, ...queue];
+		return [
+			...own,
+			...queue.map((item) => ({
+				...item,
+				pending_decision_count: chat.liveTasks[item.id]?.pending_decisions?.length ?? item.pending_decision_count
+			}))
+		];
+	});
+	const needsMe = $derived.by(() => {
+		const items = new Map(pendingTasks.map((item) => [item.id, item]));
+		for (const item of queueItems) {
+			if (!chat.liveTasks[item.id]?.pending_decisions) continue;
+			if (item.pending_decision_count) items.set(item.id, item);
+			else items.delete(item.id);
+		}
+		return [...items.values()].filter((item) => item.pending_decision_count);
 	});
 	const indicators = $derived.by(() => {
 		const result: Record<string, TaskIndicator | undefined> = {};
@@ -601,8 +631,13 @@
 		loading: loadingList,
 		failed: listFailed,
 		hasMore: !!nextPage,
-		onmore: () => { if (!loadingList) void loadList(listQuery, nextPage); },
+		onmore: () => {
+			if (!loadingList) void loadList(listQuery, nextPage);
+		},
 		indicators,
+		needsMe,
+		decisionsStatus,
+		retryDecisions: loadDecisions,
 		onrenamed: renamed
 	});
 </script>
@@ -776,7 +811,9 @@
 				{#each agentTasksList as task (task.id)}<DropdownMenu.CheckboxItem
 						checked={agentView && agentTask?.id === task.id}
 						onCheckedChange={() => openAgent(task)}
-						>{@render statusDot(task)}<span class="truncate"
+						>{@render statusDot(task)}{#if task.pending_decisions?.length}<span class="text-xs"
+								>{m['tasks.decision_count']({ count: task.pending_decisions.length })}</span
+							>{/if}<span class="truncate"
 							>{m['assistant.agent_view_option']({
 								identifier: chat.issue?.identifier ?? '',
 								agent: agentName(task),
@@ -993,7 +1030,11 @@
 
 <div class="flex h-full min-h-0 min-w-0 flex-1 bg-background text-foreground" data-testid="assistant-shell">
 	{#if sidebarRail}
-		<AssistantRail {slug} onexpand={showSidebar} />
+		<AssistantRail
+			{slug}
+			pending={needsMe.reduce((sum, item) => sum + (item.pending_decision_count ?? 0), 0)}
+			onexpand={showSidebar}
+		/>
 	{:else if sidebarInline}
 		<div class="w-[272px] shrink-0 border-r" data-testid="assistant-sidebar">
 			<AssistantSidebar

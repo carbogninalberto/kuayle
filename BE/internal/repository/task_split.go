@@ -54,6 +54,14 @@ func (r *AgentTaskRepository) ApproveTaskSplit(ctx context.Context, ws, id uuid.
 	if err != nil || approved {
 		return nil, err
 	}
+	var answered bool
+	err = tx.GetContext(ctx, &answered, `SELECT EXISTS(SELECT 1 FROM task_messages WHERE task_id=$1 AND reply_to=$2 AND author_kind='human' AND author_user_id=$3 AND kind='say' AND data ? 'answer' AND reject_reason IS NULL)`, id, requestSeq, task.CreatorID)
+	if err != nil {
+		return nil, err
+	}
+	if answered {
+		return nil, &TaskRoomRefusedError{"the proposal was already answered"}
+	}
 	// The route is session-only. Apply issue:create on the parent's stored team
 	// at the write as the normal issue creation path does for scoped roles.
 	issues, err := r.createSplit(ctx, tx, access, task, request, &access.UserID, map[string]any{})

@@ -7,11 +7,9 @@
 	import * as Collapsible from '$lib/components/ui/collapsible/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as MessageScroller from '$lib/components/ui/message-scroller/index.js';
-	import { authState } from '$lib/features/auth/auth.state.svelte';
-	import { appToast } from '$lib/features/toast/toast';
 	import AgentLogo from '$lib/features/agents/AgentLogo.svelte';
 	import { agentInfo } from '$lib/features/agents/agents';
-	import { agentTasks, type AgentTask, type TaskMessage } from '$lib/api/agent-tasks';
+	import { type AgentTask, type TaskMessage } from '$lib/api/agent-tasks';
 	import type { WorkflowStepRun } from '$lib/api/workflows';
 	import type { ConversationState } from './conversation-state.svelte';
 	import type { TaskRun } from './task-run.svelte';
@@ -68,24 +66,17 @@
 			return role ? [{ id: item.id, role, at: item.started_at ?? item.created_at }] : [];
 		})
 	);
-	const rows = $derived(roomRows(room, turns));
+	const pinned = $derived(
+		new Set(task.pending_decisions?.filter((d) => d.kind === 'request' || d.kind === 'ask').map((d) => d.seq))
+	);
+	const rows = $derived(
+		roomRows(
+			room.filter((post) => !pinned.has(post.seq)),
+			turns
+		)
+	);
 	const shown = $derived(shownRows(rows, filter, rowRoles, (row) => !!row.decision));
 	const splits = $derived(roomSplits(room));
-	let approving = $state<number | null>(null);
-
-	async function approveSplit(seq: number) {
-		if (approving !== null) return;
-		approving = seq;
-		try {
-			await agentTasks.approveSplit(chat.slug, task.id, seq);
-			await run.loadRoom();
-		} catch (error) {
-			appToast.apiError(error, m['issue.toast.failed_sub_issues']());
-		} finally {
-			approving = null;
-		}
-	}
-
 	// A turn opens the run that wrote it. Runs are read with the task's run;
 	// one the room names before that read has it read again, once.
 	const runs = $derived(new Map((run.view?.runs ?? []).map((item) => [item.id, item])));
@@ -353,10 +344,6 @@
 					</li>
 				{/each}
 			</ol>
-			{#if !split.approved && task.creator_id === authState.user?.id}
-				<Button variant="outline" size="sm" class="w-fit" disabled={approving !== null}
-					onclick={() => void approveSplit(message.seq)}>{m['tasks.room_create_sub_issues']()}</Button>
-			{/if}
 		{/if}
 		{@render footer(message)}
 	</div>
@@ -431,7 +418,7 @@
 		<p class="text-sm text-muted-foreground">{m['tasks.filter_empty']()}</p>
 		{#if onreset}<Button variant="ghost" size="sm" onclick={onreset}>{m['tasks.filter_reset']()}</Button>{/if}
 	</div>{/if}
-{#if !rows.length && !run.roomFailed}<p class="text-sm text-muted-foreground" role="status">
+{#if !room.length && !rows.length && !run.roomFailed}<p class="text-sm text-muted-foreground" role="status">
 		{run.roomLoaded ? m['tasks.room_empty']() : m['assistant.loading']()}
 	</p>{/if}
 {#if run.roomFailed}<div class="flex flex-wrap items-center gap-2">

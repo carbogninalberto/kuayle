@@ -139,6 +139,11 @@ func workflowEvent(ctx context.Context, tx *sqlx.Tx, task domain.AgentTask) erro
 	if task.ConversationID == nil {
 		return nil
 	}
+	if task.Pipeline {
+		if err := decisionEvent(ctx, tx, task); err != nil {
+			return err
+		}
+	}
 	_, err := conversationEvent(ctx, tx, *task.ConversationID, "task.workflow_updated", map[string]any{"task_id": task.ID, "sequence": task.WorkflowSequence, "node": task.WorkflowNode, "status": task.WorkflowStatus})
 	return err
 }

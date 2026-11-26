@@ -1,4 +1,24 @@
-import type { TaskMessage } from '$lib/api/agent-tasks';
+import type { AgentTask, TaskMessage } from '$lib/api/agent-tasks';
+
+/** Only an explicit, contiguous list of alternatives becomes one-click replies. */
+export function decisionOptions(body: string): string[] {
+	const options = body
+		.split('\n')
+		.map((line) =>
+			line
+				.trim()
+				.replace(/^[-*] /, '')
+				.replaceAll('**', '')
+		)
+		.filter((line) => /^[A-C][).:]\s+\S/.test(line));
+	return options.length >= 2 && options.every((line, index) => line[0] === 'ABC'[index]) ? options : [];
+}
+
+export function roomBlocker(task: AgentTask) {
+	return task.pending_decisions?.find((d) => d.blocks_pause);
+}
+
+export const decisionAnchor = (taskId: string, kind: string, seq: number) => `decision-${taskId}-${kind}-${seq}`;
 
 // The room of a task on a pipeline (KUA-252) as the rows of its agent view,
 // in the room's order (seq), one line per event (KUA-286). What the owner

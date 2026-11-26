@@ -1,6 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { factLabel, foldText, mergeRoom, openByDefault, readRoomPages, roomRead, roomRows, roomSplits, rowRoles } from '../../src/lib/features/assistant/task-room.ts';
+import {
+	decisionOptions,
+	factLabel,
+	foldText,
+	mergeRoom,
+	openByDefault,
+	readRoomPages,
+	roomRead,
+	roomRows,
+	roomSplits,
+	rowRoles
+} from '../../src/lib/features/assistant/task-room.ts';
+
+test('only an ordered set of labelled alternatives becomes reply buttons', () => {
+	assert.deepEqual(decisionOptions('Which scope?\nA) Titles\nB) Identifiers\nC) Both'), [
+		'A) Titles',
+		'B) Identifiers',
+		'C) Both'
+	]);
+	assert.deepEqual(decisionOptions('**A.** Titles\n**B.** Both'), ['A. Titles', 'B. Both']);
+	assert.deepEqual(decisionOptions('A. Just a heading'), []);
+	assert.deepEqual(decisionOptions('B) An example\nC) Another example'), []);
+});
 
 // The room of a pipeline task as rows: what the owner, Kuayle and each
 // role's turn posted, in the room's order.

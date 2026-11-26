@@ -107,6 +107,9 @@ func (r *AgentTaskRepository) DecidePipeline(ctx context.Context, ws, id uuid.UU
 	if err = applyPipelineTx(ctx, tx, task, *apply); err != nil {
 		return nil, err
 	}
+	if _, err = postTaskMessageTx(ctx, tx, task, domain.TaskRoomPost{AuthorKind: domain.RoomAuthorKuayle, Kind: domain.RoomSummary, Body: apply.Entry.Reason}); err != nil {
+		return nil, err
+	}
 	if err = workflowAudit(ctx, tx, ws, &actor, "task_workflow", id, "decision", map[string]any{"sequence": apply.Sequence, "phase": apply.Phase}); err != nil {
 		return nil, err
 	}
@@ -140,7 +143,9 @@ func applyPipelineTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	from, reason, held := task.State, task.Reason, task.WorkflowHeldSince != nil
 	// A pass moves the sequence on only when what a person decides on
 	// changes (the phase or the status), or a person decided.
-	if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_sequence=workflow_sequence+CASE WHEN $2 IS DISTINCT FROM workflow_node OR $3 IS DISTINCT FROM workflow_status OR $12::boolean THEN 1 ELSE 0 END,
+	if err := tx.GetContext(ctx, task, `UPDATE agent_tasks SET workflow_sequence=workflow_sequence+CASE WHEN $2 IS DISTINCT FROM workflow_node OR $3 IS DISTINCT FROM workflow_status OR $12::boolean
+ OR ($3='waiting' AND (pipeline_state->'facts'->>'head_sha' IS DISTINCT FROM $4::jsonb->'facts'->>'head_sha'
+ OR pipeline_state->'approved' IS DISTINCT FROM $4::jsonb->'approved')) THEN 1 ELSE 0 END,
  workflow_node=$2,workflow_status=$3,pipeline_state=$4::jsonb,workflow_iterations=workflow_iterations+$5,workflow_budget_extensions=$6,workflow_budget_from=$7,workflow_held_since=$8,
  workflow_wake_at=CASE WHEN workflow_wake_at IS DISTINCT FROM $10::timestamptz THEN LEAST(workflow_wake_at,$9::timestamptz) ELSE $9::timestamptz END,updated_at=now() WHERE id=$1 AND workflow_sequence=$11 RETURNING *`,
 		task.ID, apply.Phase, result.Status, state, apply.Turns, result.Cursor.Extensions, nullTime(result.Cursor.BudgetFrom), nullTime(result.Cursor.HeldSince),
@@ -168,7 +173,24 @@ func applyPipelineTx(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, a
 	// A pass that changed nothing a person sees is not announced again; a
 	// person newly awaited is.
 	moved := task.WorkflowSequence != apply.Sequence
-	if task.State == "awaiting_review" && (moved || (apply.Entry.NeedsPerson && !held)) {
+	var workflowDecisions domain.OwnerDecisions
+	if moved && (task.State == "awaiting_review" || task.State == "blocked") {
+		err = tx.GetContext(ctx, &workflowDecisions, `SELECT COALESCE(jsonb_agg(to_jsonb(d)-'task_id'),'[]') FROM task_owner_decisions d WHERE task_id=$1 AND kind IN ('approval','pause')`, task.ID)
+		if err != nil {
+			return err
+		}
+		for _, d := range workflowDecisions {
+			body := d.Body
+			if d.Kind == "approval" {
+				body = "Approve merging " + d.Data.Commit + " at " + d.Body
+			}
+			recipient := domain.WithAccess(ctx, domain.Access{WorkspaceID: task.WorkspaceID, UserID: task.CreatorID})
+			if err = recordRoomNotice(recipient, tx, *task, uuid.New(), body, true); err != nil {
+				return err
+			}
+		}
+	}
+	if len(workflowDecisions) == 0 && task.State == "awaiting_review" && (moved || (apply.Entry.NeedsPerson && !held)) {
 		if err = markWorkflowReviewNotice(ctx, tx, *task, apply.Entry.NeedsPerson, apply.Actor); err != nil {
 			return err
 		}

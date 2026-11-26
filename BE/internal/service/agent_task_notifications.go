@@ -59,6 +59,16 @@ func (s *AgentTaskService) RunNotifications(ctx context.Context) {
 		case <-ticker.C:
 		}
 		s.deliverTaskNotices(ctx)
+		if s.Repo != nil && s.userEvents != nil && s.notifications != nil {
+			notices, err := s.Repo.ClaimDecisionNotices(ctx)
+			if err != nil {
+				log.WithError(err).Warn("Could not claim owner decision notices")
+			}
+			for _, n := range notices {
+				recipient := domain.WithAccess(ctx, domain.Access{WorkspaceID: n.WorkspaceID, UserID: n.CreatorID})
+				s.publishLeadReports(recipient, n.AgentTask, []uuid.UUID{n.NoticeID})
+			}
+		}
 		s.deliverTaskWatches(ctx)
 	}
 }

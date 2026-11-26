@@ -116,7 +116,14 @@ const room = () => [
 ];
 
 async function fixture(page: Page, workflow: Record<string, unknown> = view) {
-	const currentTask = { ...task, workflow_node: workflow.node };
+	const currentTask = {
+		...task,
+		state: workflow.task_state,
+		reason: workflow.task_reason,
+		workflow_status: workflow.status,
+		workflow_node: workflow.node,
+		pending_decisions: [] as any[]
+	};
 	const conversation = {
 		id: 'chat-1',
 		workspace_id: 'workspace-1',
@@ -187,7 +194,12 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 			if (rest === '/room' && route.request().method() === 'POST') {
 				const input = route.request().postDataJSON();
 				state.posts.push(input);
-				const message = post(state.room.length + 1, 'human', input.kind, input.body);
+				const message = post(state.room.length + 1, 'human', input.kind, input.body, {
+					reply_to: input.reply_to ?? null,
+					data: input.data ?? {}
+				});
+				if (input.data?.answer)
+					currentTask.pending_decisions = currentTask.pending_decisions.filter((d) => d.seq !== input.reply_to);
 				state.room.push(message);
 				return route.fulfill({ status: 201, json: message });
 			}
@@ -212,7 +224,7 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 		state.events.push(event);
 		state.sockets.at(-1)!.send(JSON.stringify(event));
 	};
-	return { state, emit };
+	return { state, emit, currentTask };
 }
 
 test('a room post just over the preview height stays fully readable', async ({ page }) => {
@@ -529,23 +541,97 @@ test('the roster and pipeline status stay available when room history fails to l
 	await expect(agents.getByTestId('run-member-reviewer')).toContainText('Looks good to me.');
 });
 
-test('the creator reads the proposed sub-issues and approves the exact split from the room', async ({ page }, testInfo) => {
-	const { state } = await fixture(page);
+test('the owner can answer an ask with a choice and find other waiting tasks from the sidebar', async ({ page }) => {
+	const { state, currentTask } = await fixture(page);
+	const body = 'Which search should ship?\nThe identifier index is ready.\nA) Titles\nB) Identifiers\nC) Both';
+	state.room = [member(1, 'lead', '', 'ask', body, { to_roles: ['human'] })];
+	currentTask.pending_decisions = [{ kind: 'ask', seq: 1, asker: 'lead', body, data: {} }];
+	await page.route('**/agent-tasks?needs_me=true', (route) =>
+		route.fulfill({
+			json: [
+				{
+					id: 'task-2',
+					conversation_id: 'chat-2',
+					pending_decision_count: 2,
+					state: 'blocked',
+					issue_identifier: 'ENG-2',
+					issue_title: 'Release notes',
+					updated_at: at(1),
+					provider: 'codex'
+				}
+			]
+		})
+	);
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const card = page.getByTestId('owner-decision');
+	await expect(card).toContainText('The identifier index is ready.');
+	await page.route(
+		'**/agent-tasks/task-1/room',
+		(route) => route.fulfill({ status: 409, json: { error: { code: 'ROOM_REFUSED' } } }),
+		{ times: 1 }
+	);
+	await card.getByRole('button', { name: 'B) Identifiers' }).click();
+	await expect(card.getByRole('button', { name: 'B) Identifiers' })).toBeEnabled();
+	await card.getByRole('button', { name: 'B) Identifiers' }).click();
+	await expect(card).toHaveCount(0);
+	expect(state.posts).toMatchObject([{ reply_to: 1, to: ['lead'], data: { answer: 'reply' }, body: 'B) Identifiers' }]);
+	await expect(page.getByTestId('rail-decision-count')).toHaveText('2');
+	await page
+		.getByTestId('assistant-sidebar-rail')
+		.getByRole('button', { name: /Show conversations/i })
+		.click();
+	const sidebar = page.getByTestId('assistant-sidebar');
+	await sidebar.getByRole('button', { name: /Needs me/ }).click();
+	await expect(sidebar.getByRole('link', { name: /ENG-2.*Release notes/ })).toHaveAttribute(
+		'href',
+		'/test/assistant?conversation=chat-2&agent=task-2'
+	);
+});
+
+test('the creator reads the proposed sub-issues and approves the exact split from the room', async ({
+	page
+}, testInfo) => {
+	const { state, currentTask } = await fixture(page, {
+		...view,
+		task_state: 'blocked',
+		status: 'paused',
+		can_decide: true,
+		task_reason:
+			'Workflow · Nobody made progress on this head in 3 rounds; Review waits on search. Continue or stop the workflow'
+	});
 	const issues = [
 		{ title: 'Search issue titles', description: 'Match words in the issue title.' },
 		{ title: 'Search identifiers', description: 'Open an issue by its exact identifier.' }
 	];
-	state.room = [member(1, 'lead', '', 'request', 'Implement the two kinds of search separately.', { data: { action: 'split', issues } })];
+	state.room = [
+		member(1, 'lead', '', 'request', 'Implement the two kinds of search separately.', {
+			data: { action: 'split', issues }
+		})
+	];
+	currentTask.pending_decisions = [
+		{ kind: 'request', blocks_pause: true, seq: 1, asker: 'lead', body: state.room[0].body, data: state.room[0].data }
+	];
 	const approvals: string[] = [];
 	await page.route('**/agent-tasks/task-1/room/1/approve-split', (route) => {
 		approvals.push(route.request().method());
-		state.room.push(post(2, 'kuayle', 'fact', 'Created the sub-issues.', { reply_to: 1, data: { fact: 'split_approved' } }));
+		currentTask.pending_decisions = [];
+		state.room.push(
+			post(2, 'kuayle', 'fact', 'Created the sub-issues.', { reply_to: 1, data: { fact: 'split_approved' } })
+		);
 		return route.fulfill({ status: 204 });
 	});
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
-	const proposal = page.getByRole('article', { name: 'lead' });
+	const notice = page.getByTestId('agent-thread-header').getByRole('link', { name: /Waiting on your decision/ });
+	await expect(notice).toBeVisible();
+	await notice.click();
+	const badge = page.getByTestId('thread-decision-count');
+	await expect(badge).toContainText('1');
+	const railBadge = page.getByTestId('rail-decision-count');
+	await expect(railBadge).toHaveText('1');
+	const proposal = page.getByTestId('owner-decision');
 	await expect(proposal).toBeVisible({ timeout: 20_000 });
-	const approve = proposal.getByRole('button', { name: 'Create sub-issues' });
+	const approve = proposal.getByRole('button', { name: 'Approve', exact: true });
 	for (const issue of issues) {
 		await expect(proposal).toContainText(issue.title);
 		await expect(proposal).toContainText(issue.description);
@@ -559,6 +645,7 @@ test('the creator reads the proposed sub-issues and approves the exact split fro
 				document.documentElement.setAttribute('data-theme', theme);
 			}, theme);
 			await approve.scrollIntoViewIfNeeded();
+			expect(await proposal.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 			await page.screenshot({ path: testInfo.outputPath(`split-${device}-${theme}.png`) });
 		}
 	}
@@ -566,6 +653,10 @@ test('the creator reads the proposed sub-issues and approves the exact split fro
 	await approve.click();
 	await expect(page.getByText('Created the sub-issues.')).toBeVisible();
 	await expect(approve).toHaveCount(0);
+	await expect(badge).toHaveCount(0);
+	await expect(notice).toHaveCount(0);
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await expect(railBadge).toHaveCount(0);
 	expect(approvals).toEqual(['POST']);
 });
 

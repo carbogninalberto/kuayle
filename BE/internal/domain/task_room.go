@@ -81,6 +81,18 @@ type TaskMessage struct {
 	CreatedAt      time.Time      `json:"created_at" db:"created_at"`
 }
 
+type OwnerDecision struct {
+	BlocksPause bool         `json:"blocks_pause,omitempty"`
+	Seq         int64        `json:"seq"`
+	Kind        string       `json:"kind"`
+	Asker       string       `json:"asker"`
+	Body        string       `json:"body"`
+	Data        TaskRoomData `json:"data"`
+}
+type OwnerDecisions []OwnerDecision
+
+func (d *OwnerDecisions) Scan(value any) error { return scanJSON(value, d) }
+
 // IsLeadReport marks an accepted summary from the pipeline's managing member.
 func (m TaskMessage) IsLeadReport() bool {
 	return m.Kind == RoomSummary && m.AuthorKind == RoomAuthorMember && m.AuthorRole != nil &&
@@ -90,6 +102,7 @@ func (m TaskMessage) IsLeadReport() bool {
 // TaskRoomData is the structured part of a post; each kind reads its own
 // fields.
 type TaskRoomData struct {
+	Answer   string           `json:"answer,omitempty"`   // A creator's explicit reply to an open decision.
 	Phase    string           `json:"phase,omitempty"`    // phase: the phase moved to
 	Verdict  string           `json:"verdict,omitempty"`  // verdict: approve, request_changes or comment
 	Commit   string           `json:"commit,omitempty"`   // reviewed, approved or waived head
@@ -157,6 +170,13 @@ type TaskRoomPost struct {
 func (p TaskRoomPost) Clean() TaskRoomPost {
 	if utf8.ValidString(p.Body) {
 		p.Body = cleanAgentMessage(p.Body)
+	}
+	if p.Kind == RoomRequest && p.Body == "" {
+		if p.Data.Action == RoomRequestSplit {
+			p.Body = "Create the proposed sub-issues"
+		} else {
+			p.Body = "Request to " + p.Data.Action
+		}
 	}
 	p.ToRoles = slices.Compact(slices.Sorted(slices.Values(p.ToRoles)))
 	return p
@@ -251,6 +271,9 @@ func TaskRoomRefusal(p Pipeline, post TaskRoomPost, leadGranted bool) string {
 		return fmt.Sprintf("the structured part is at most %d bytes", RoomMaxBodyBytes)
 	}
 	d := post.Data
+	if d.Answer != "" && (!human || post.Kind != RoomSay || post.ReplyTo == nil || !slices.Contains([]string{"approve", "decline", "reply"}, d.Answer)) {
+		return "a decision answer must be a creator reply"
+	}
 	if len(d.Issues) > 0 && (post.Kind != RoomRequest || d.Action != RoomRequestSplit) {
 		return "sub-issues belong to a split request"
 	}
