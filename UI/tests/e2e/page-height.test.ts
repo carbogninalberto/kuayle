@@ -1162,3 +1162,64 @@ for (const viewport of [
 		expect(await page.evaluate(() => window.scrollY)).toBe(0);
 	});
 }
+
+test('Settings mobile menu supports keyboard dismissal and navigation', async ({ page }) => {
+	await page.setViewportSize(phone);
+	await mockApi(page, 'light');
+	await page.goto('/test/settings/mcp');
+	const trigger = page.getByRole('button', { name: 'Open settings menu' });
+	await expect(trigger).toBeVisible();
+	const bounds = await trigger.boundingBox();
+	expect(bounds!.height).toBeGreaterThanOrEqual(44);
+	expect(bounds!.width).toBeGreaterThanOrEqual(44);
+	const initialOverflow = await page.evaluate(() => document.body.style.overflow);
+	await trigger.focus();
+	await page.keyboard.press('Enter');
+	const sheet = page.getByRole('dialog', { name: 'Settings navigation' });
+	await expect(sheet).toBeVisible();
+	await expect(page.locator('body')).toHaveCSS('overflow', 'hidden');
+	await sheet.getByRole('button', { name: 'Engineering' }).click();
+	for (const target of await sheet.getByRole('button').or(sheet.getByRole('link')).all()) {
+		const size = await target.boundingBox();
+		expect(Math.min(size!.height, size!.width)).toBeGreaterThanOrEqual(44);
+	}
+	await expect(sheet.getByRole('link', { name: 'MCP server' })).toHaveAttribute('aria-current', 'page');
+	await sheet.getByRole('link', { name: 'Back', exact: true }).focus();
+	await page.keyboard.press('Shift+Tab');
+	await expect(sheet.getByRole('button', { name: 'Design' })).toBeFocused();
+	await page.keyboard.press('Escape');
+	await expect(sheet).toBeHidden();
+	await expect(trigger).toBeFocused();
+	await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe(initialOverflow);
+
+	await trigger.click();
+	await sheet.getByRole('button', { name: 'Close', exact: true }).click();
+	await expect(trigger).toBeFocused();
+	await trigger.click();
+	await sheet.getByRole('link', { name: 'Preferences', exact: true }).click();
+	await expect(page).toHaveURL('/test/settings/preferences');
+	await expect(sheet).toBeHidden();
+	await expect(page.getByRole('heading', { name: 'Preferences', exact: true })).toBeVisible();
+});
+
+for (const route of routes.filter(({ path }) => path.startsWith('/test/settings'))) {
+	for (const theme of ['light', 'dark'] as const) {
+		test(`${route.name} fits the Settings viewport in ${theme}`, async ({ page }) => {
+			await mockApi(page, theme);
+			await page.setViewportSize({ width: 360, height: 844 });
+			await page.goto(route.path);
+			const content = page.getByTestId('settings-content');
+			await expect(content).toBeVisible();
+			await expect(page.locator('html')).toHaveClass(new RegExp(theme));
+			await page.waitForLoadState('networkidle');
+			for (const width of [360, 390, 768, 1440]) {
+				await page.setViewportSize({ width, height: 844 });
+				await waitForLayoutToSettle(page);
+				const overflow = await content.evaluate((region) =>
+					[document.documentElement, region].map((el) => el.scrollWidth - el.clientWidth)
+				);
+				expect.soft(Math.max(...overflow), `${route.path} at ${width}px`).toBeLessThanOrEqual(1);
+			}
+		});
+	}
+}

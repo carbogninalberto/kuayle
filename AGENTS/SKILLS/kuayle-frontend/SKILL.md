@@ -26,6 +26,10 @@ description: Implement Kuayle application UI and reusable Svelte components usin
    sections, lists and content links remain semantic HTML. A primitive's own
    internal `<button>`/`<input>` implementation is expected.
 
+Settings pages share [header, section, form row and empty state](../../../UI/src/lib/components/settings/index.ts)
+primitives. The form row passes control attributes to its snippet; spread them
+onto the input or trigger to associate its label, help and error.
+
 Use [SelectField](../../../UI/src/lib/components/shared/SelectField.svelte) for
 simple typed option lists. Forward trigger props through `child` snippets when
 composing Button with Popover/Select/Dialog; never nest buttons. Shared issue

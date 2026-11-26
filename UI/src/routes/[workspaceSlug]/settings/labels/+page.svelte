@@ -7,7 +7,7 @@
 	import { listLabels, createLabel, updateLabel, deleteLabel } from '$lib/api/labels';
 	import type { Label } from '$lib/types/label';
 	import LabelDialog from '$lib/features/labels/LabelDialog.svelte';
-	import EmptyState from '$lib/components/shared/EmptyState.svelte';
+	import { SettingsEmptyState, SettingsPageHeader } from '$lib/components/settings';
 	import { Button } from '$lib/components/ui/button';
 	import * as Popover from '$lib/components/ui/popover';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
@@ -84,23 +84,24 @@
 	}
 </script>
 
-<div class="mx-auto max-w-2xl px-8 py-10">
-	<div class="flex items-center justify-between">
-		<h1 class="text-2xl font-semibold text-[var(--color-text-primary)]">{m['settings.labels.title']()}</h1>
-		<Button variant="plain" onclick={() => (showCreate = true)}
-			class="flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
-		>
-			<Plus size={14} />
-			{m['settings.labels.new_label']()}
-		</Button>
-	</div>
+<div class="mx-auto max-w-2xl px-4 py-6 sm:px-8 sm:py-10">
+	<SettingsPageHeader title={m['settings.labels.title']()}>
+		{#snippet action()}
+			<Button variant="plain" onclick={() => (showCreate = true)}
+				class="flex items-center gap-1 rounded-md max-md:min-h-[44px] bg-[var(--app-accent)] px-3 py-1.5 text-sm text-[var(--app-accent-foreground)] hover:bg-[var(--app-accent-hover)]"
+			>
+				<Plus size={14} />
+				{m['settings.labels.new_label']()}
+			</Button>
+		{/snippet}
+	</SettingsPageHeader>
 
 	<div class="mt-8">
 		{#if loading}
 			<div class="flex h-64 items-center justify-center">
 			</div>
 		{:else if labels.length === 0}
-			<EmptyState
+			<SettingsEmptyState
 				title={m['settings.labels.no_labels']()}
 				description={m['settings.labels.no_labels_desc']()}
 				action={{ label: m['settings.labels.new_label'](), onclick: () => (showCreate = true) }}
