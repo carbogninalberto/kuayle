@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.4.2",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.2",
+    "body": "## What's changed\n\n### New\n\n- **The assistant can schedule work for later.** (#423, KUA-333)\n  - Ask it to come back at a specific time, on a recurring schedule, or once a condition is met — for example waiting for CI to finish and then continuing.\n  - A due job either posts a short notification or runs a real assistant turn in the same conversation, with its normal tools.\n  - A job grants no extra permissions: it runs with the creator's current access and still requests approval before anything is merged or released.\n\n- **Restart-only instance settings are editable from Settings.** (#415, KUA-311)\n  - Settings that previously required editing `.env` and restarting by hand can now be changed in the UI, with validation before the restart and an explicit \"Apply and restart\" action.\n  - Secrets and database connection settings stay protected and cannot be changed there.\n\n### Improvements\n\n- **Settings work on small screens.** (#417, KUA-324; #421, KUA-325)\n  - Forms, lists and dialogs fit narrow widths, backed by shared form primitives and a mobile navigation.\n\n- **The mobile workspace covers the core pages.** (#424, KUA-326)\n  - Issues, My Issues, wiki and activity are usable around 390px: 44px touch targets, wrapping filters, and comment actions that are reachable by touch.\n\n- **The task view is less cluttered.** (#420, KUA-331; #419, KUA-330)\n  - The Agents tab no longer repeats the pipeline graph and checks already shown in the Workflow tab, and the header has a single side-panel toggle instead of duplicated icons.\n\n- **Agent posts from the task room render as markdown.** (#416, KUA-329)\n  - Formatting, lists and code blocks display properly instead of raw text.\n\n### Fixes\n\n- **Normal agent output is no longer reported as an error.** (#418, KUA-332)\n  - The agent run view distinguishes a non-zero exit or harness stderr from a real failure, so healthy runs don't look broken.\n\n- **The secret scan no longer blocks tagging over a test placeholder.** (#422, KUA-334)\n  - The flagged test literal now uses a credential-free value without weakening its assertions, so v0.4.2 can be tagged.\n\n### Upgrade notes\n\n- **Migrations:** 000212 and 000213 run on startup. Back up the database first.\n\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.4.1...v0.4.2",
+    "published_at": "2026-11-26T17:55:38Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.2",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.4.1",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.1",
     "body": "## What's changed\n\n### Improvements\n\n- **Pull request checks finish sooner.** (#411, KUA-317)\n  - Playwright now runs in shards and pull requests run only the affected specs.\n  - Browser caches are reused between runs, cutting the wait before checks start.\n\n- **The files panel opens faster.** (#414, KUA-319)\n  - Directories are listed lazily as you open them instead of loading the whole tree.\n  - Listings are cached by git tree hash, so revisiting a directory is immediate.\n\n- **A running pipeline turn is visible right away.** (#413, KUA-321)\n  - A task no longer looks idle while a role is still working before it posts its result.\n\n### Fixes\n\n- **Attaching files from inside an issue works again.** (#412, KUA-320)\n  - Files can be attached without the page losing its state.",
@@ -1086,17 +1097,6 @@
     "force_upgrade": false,
     "minimum_supported_version": null,
     "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.8",
-    "upgrade_message": null
-  },
-  {
-    "tag_name": "v0.0.7",
-    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.7",
-    "body": "## What's Changed\r\n* Alberto/kua 12 fixux general UI data refreshing by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/14\r\n* feat(release): add multi-release changelog with markdown rendering by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/15\r\n* feat(ui): add keyboard shortcuts help button to sidebar by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/16\r\n* fix(preferences): prevent stale remote from overwriting local theme c… by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/17\r\n* feat(workspace): add workspace delete and owner-based settings manage… by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/18\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.6...v0.0.7",
-    "published_at": "2026-07-06T05:59:10Z",
-    "prerelease": false,
-    "force_upgrade": false,
-    "minimum_supported_version": null,
-    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.7",
     "upgrade_message": null
   }
 ]
