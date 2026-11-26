@@ -440,7 +440,7 @@
 	}
 </script>
 
-<div class="shrink-0 px-3 pt-1 pb-[calc(0.75rem+env(safe-area-inset-bottom))] max-md:max-h-[calc(100%-3rem)] max-md:overflow-y-auto md:px-6 md:pb-[calc(1rem+env(safe-area-inset-bottom))]" data-testid={toAgent ? 'agent-composer' : 'assistant-composer'}>
+<div class="touch-controls shrink-0 px-3 pt-1 pb-[calc(0.75rem+env(safe-area-inset-bottom))] max-md:max-h-[calc(100%-3rem)] max-md:overflow-y-auto md:px-6 md:pb-[calc(1rem+env(safe-area-inset-bottom))]" data-testid={toAgent ? 'agent-composer' : 'assistant-composer'}>
 	<div class="mx-auto w-full {wide ? '' : 'max-w-3xl'}">
 		{#if error || chat.failed}<p role="alert" class="mb-2 text-sm text-destructive">
 				{error || m['assistant.error']()}

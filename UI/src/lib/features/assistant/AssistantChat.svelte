@@ -492,7 +492,8 @@
 		if (!viewport) return;
 		const resize = () => {
 			const inset = viewport.scale === 1 ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
-			shell.style.setProperty('--assistant-keyboard-inset', `${inset}px`);
+			const keyboardInset = matchMedia('(pointer: coarse)').matches || inset > 80 ? inset : 0;
+			shell.style.setProperty('--assistant-keyboard-inset', `${keyboardInset}px`);
 		};
 		resize();
 		viewport.addEventListener('resize', resize);
@@ -628,7 +629,7 @@
 <PageTitle parts={[m['assistant.title']()]} />
 
 {#snippet topBar()}
-	<header class="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
+	<header class="touch-controls flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
 		{#if !sidebarInline && !sidebarRail}<Button
 				variant="ghost"
 				size="icon-sm"
@@ -893,9 +894,9 @@
 {/snippet}
 
 {#snippet center()}
-	<section class="touch-controls flex h-full min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
+	<section class="flex h-full min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
 		{@render topBar()}
-		<div class="min-h-0 flex-1">
+		<div class="min-h-0 flex-1" class:touch-controls={!agentView}>
 			<MessageScroller.Provider autoScroll>
 				<ScrollerHandle bind:scroller />
 				<MessageScroller.Root>

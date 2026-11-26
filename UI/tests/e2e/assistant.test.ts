@@ -227,6 +227,19 @@ test('keyboard newline, local drafts and mobile layout', async ({ page }, testIn
 	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('mobile.png') });
 });
 
+test('a desktop scrollbar does not shorten the chat panel', async ({ page }) => {
+	await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const shell = page.getByTestId('assistant-shell');
+	await expect(shell).toBeVisible();
+	const before = (await shell.boundingBox())!;
+	await page.evaluate(() => {
+		Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: innerHeight - 15 });
+		window.visualViewport!.dispatchEvent(new Event('resize'));
+	});
+	expect((await shell.boundingBox())!.height).toBe(before.height);
+});
+
 test('mobile chat controls and approvals fit above the visual keyboard viewport', async ({ browser }, testInfo) => {
 	const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 360, height: 800 }, reducedMotion: 'reduce' });
 	const page = await context.newPage();

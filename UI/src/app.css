@@ -772,7 +772,7 @@ html.pipboy :focus-visible {
 		min-width: 44px;
 		min-height: 44px;
 	}
-	/* Ghost bubbles reserve copy space with an important Tailwind utility. */
+	/* Match the important padding utility's layer so this more specific rule reserves space for Copy. */
 	@layer utilities {
 		.assistant-surface [data-slot="bubble"]:has(.message-copy) > [data-slot="bubble-content"] {
 			min-height: 52px;
@@ -784,6 +784,7 @@ html.pipboy :focus-visible {
 @media (prefers-reduced-motion: reduce) {
 	.assistant-surface,
 	.assistant-surface *,
+	.touch-controls[data-slot="dropdown-menu-content"],
 	.workflow-canvas * {
 		animation: none !important;
 		transition: none !important;

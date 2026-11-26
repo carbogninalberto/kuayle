@@ -342,8 +342,10 @@ test.describe('touch workflow editor', () => {
 		}
 		const before = await start.boundingBox();
 		await toolbar.getByTestId('workflow-add-step').tap();
-		await expect(page.getByRole('menu')).toBeVisible();
+		const menu = page.getByRole('menu');
+		await expect(menu).toHaveCSS('animation-name', 'none');
 		await page.keyboard.press('Escape');
+		await expect(menu).toBeHidden();
 		expect(await start.boundingBox()).toEqual(before);
 		const port = canvas.locator('.svelte-flow__handle-right[data-nodeid="start"]');
 		const dot = (await port.boundingBox())!;
