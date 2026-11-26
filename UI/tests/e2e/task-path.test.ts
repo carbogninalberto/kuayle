@@ -360,6 +360,7 @@ test('the sidebar shows the path a workflow task took, compact, and opens to its
 	await expect(tasksRegion(page).getByText('Workflow · Review → CI', { exact: false })).toHaveCount(0);
 	// The chart stays above the tasks; the old verbose cards are gone.
 	await expect(page.getByTestId('task-workflow')).toContainText('Plan and review · version 3');
+	await expect(page.getByRole('region', { name: 'Agents', exact: true }).getByTestId('task-workflow-chart')).toBeVisible();
 	await expect(page.getByText('Step 2: Plan')).toHaveCount(0);
 	await expect(page.getByText('Outcome:', { exact: false })).toHaveCount(0);
 
@@ -649,6 +650,7 @@ test('a task without a workflow shows its attempts and state changes the same wa
 	await showAgents(page);
 	const rows = pathOf(page).getByRole('listitem');
 	// Compact: the last outcome and the attempt the task is on.
+	await expect(page.getByRole('region', { name: 'Agents', exact: true }).getByTestId('task-workflow')).toHaveCount(0);
 	await expect(rows.getByRole('link')).toHaveText([/^Codex/, /^Codex/]);
 	await expect(rows.nth(0).getByRole('img', { name: 'Failed' })).toBeVisible();
 	await expect(rows.nth(0).getByRole('link')).toContainText('×2');
