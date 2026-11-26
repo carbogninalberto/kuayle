@@ -3502,6 +3502,7 @@
 	"assistant.sent_to_agent": "An den {agent}-Agent von {identifier} gesendet",
 	"assistant.show_earlier": "{count} frühere Nachrichten anzeigen",
 	"assistant.show_less": "Weniger anzeigen",
+	"assistant.post_show_more": "Mehr anzeigen",
 	"assistant.show_more": "{count} weitere anzeigen",
 	"assistant.show_sidebar": "Unterhaltungen anzeigen",
 	"assistant.sidebar": "Assistenten-Seitenleiste",

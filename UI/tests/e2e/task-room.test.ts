@@ -1,3 +1,4 @@
+import { audit, verifyAudit } from './room-post-audit';
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 
 // The agent view of a task on a pipeline (KUA-268): its room in order, the
@@ -202,6 +203,39 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 		state.sockets.at(-1)!.send(JSON.stringify(event));
 	};
 	return { state, emit };
+}
+
+test('the room post body renders semantic Markdown and neutralizes untrusted markup', async ({ page }) => {
+	const { state } = await fixture(page);
+	const source = audit + '\n\n<script>void 0</script> [unsafe](javascript:void(0))';
+	state.room = [member(1, 'reviewer', 'run-rev-2', 'say', source)];
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const body = page.getByTestId('task-room').locator('[data-seq="1"]');
+	await expect(body.locator('table')).toHaveCount(1);
+	await body.getByRole('button', { name: 'Show more' }).click();
+	await expect(body.locator('ul li')).toHaveCount(2);
+	await expect(body.locator('pre code')).toContainText('npm run test:e2e');
+	await expect(body.locator('strong')).toHaveText('focus');
+	await expect(body.getByRole('link', { name: 'audit notes' })).toHaveAttribute('href', 'https://example.com/audit');
+	await expect(body).toContainText('<script>void 0</script>');
+	await expect(body.locator('script, a[href^="javascript:" i]')).toHaveCount(0);
+
+	// Keyboard focus on a link below the preview reveals its destination.
+	await body.getByRole('button', { name: 'Show less' }).click();
+	await body.getByRole('link', { name: 'audit notes' }).focus();
+	await expect(body.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+});
+
+for (const width of [1600, 390]) {
+	test(`a room audit stays inside the agent post at ${width}px`, async ({ page }) => {
+		const { state } = await fixture(page);
+		state.room = [member(1, 'implementer', 'run-impl-1', 'ask', audit)];
+		await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+		await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+		const turn = page.getByTestId('task-room').getByRole('article', { name: 'implementer' });
+		await turn.getByRole('button', { name: /implementer/ }).click();
+		await verifyAudit(page, turn.locator('[data-seq="1"]'), 'room');
+	});
 }
 
 test('a pipeline task shows its room: the owner, Kuayle and each role, and the owner writes to it', async ({ page }, testInfo) => {

@@ -3502,6 +3502,7 @@
 	"assistant.sent_to_agent": "已发送给 {identifier} 的 {agent} 代理",
 	"assistant.show_earlier": "显示 {count} 条较早的消息",
 	"assistant.show_less": "收起",
+	"assistant.post_show_more": "显示更多",
 	"assistant.show_more": "再显示 {count} 个",
 	"assistant.show_sidebar": "显示对话",
 	"assistant.sidebar": "助手侧边栏",

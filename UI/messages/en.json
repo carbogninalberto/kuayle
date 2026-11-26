@@ -3502,6 +3502,7 @@
 	"assistant.sent_to_agent": "Sent to the {agent} agent of {identifier}",
 	"assistant.show_earlier": "Show {count} earlier messages",
 	"assistant.show_less": "Show less",
+	"assistant.post_show_more": "Show more",
 	"assistant.show_more": "Show {count} more",
 	"assistant.show_sidebar": "Show conversations",
 	"assistant.sidebar": "Assistant sidebar",

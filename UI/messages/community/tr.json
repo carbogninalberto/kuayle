@@ -3502,6 +3502,7 @@
 	"assistant.sent_to_agent": "{identifier} issue'sunun {agent} ajanına gönderildi",
 	"assistant.show_earlier": "Önceki {count} mesajı göster",
 	"assistant.show_less": "Daha az göster",
+	"assistant.post_show_more": "Daha fazla göster",
 	"assistant.show_more": "{count} tane daha göster",
 	"assistant.show_sidebar": "Sohbetleri göster",
 	"assistant.sidebar": "Asistan kenar çubuğu",

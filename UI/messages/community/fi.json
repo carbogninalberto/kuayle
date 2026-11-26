@@ -3502,6 +3502,7 @@
 	"assistant.sent_to_agent": "Lähetetty agentille {agent} (kohde {identifier})",
 	"assistant.show_earlier": "Näytä aiemmat viestit: {count}",
 	"assistant.show_less": "Näytä vähemmän",
+	"assistant.post_show_more": "Näytä lisää",
 	"assistant.show_more": "Näytä lisää: {count}",
 	"assistant.show_sidebar": "Näytä keskustelut",
 	"assistant.sidebar": "Avustajan sivupalkki",
