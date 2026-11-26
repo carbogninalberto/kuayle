@@ -1,4 +1,4 @@
-import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
+import { test, expect, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 
 // The agent view as a timeline of workflow steps (KUA-126): the conversation
 // with the coding agents of one task, served from mocked API routes.
@@ -761,19 +761,79 @@ test('the timeline fits a phone', async ({ page }, testInfo) => {
 	await page.setViewportSize({ width: 320, height: 740 });
 	await expect(header.getByRole('button', { name: 'More actions' })).toBeInViewport();
 	expect(await header.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-	await page.setViewportSize({ width: 360, height: 800 });
-	const filters = thread.getByTestId('thread-filters');
-	await filters.scrollIntoViewIfNeeded();
-	const latest = page.getByRole('button', { name: 'Scroll to latest' });
-	await expect(latest).toHaveAttribute('data-active', 'true');
-	for (const control of [filters.getByRole('combobox'), filters.getByRole('button', { name: 'Decisions only' }), latest]) {
-		await expect.poll(async () => {
-			const box = (await control.boundingBox())!;
-			return Math.min(box.width, box.height);
-		}).toBeGreaterThanOrEqual(44);
-	}
-	expect((await header.boundingBox())!.height).toBeLessThanOrEqual(42);
-	await page.screenshot({ path: testInfo.outputPath('timeline-controls-360.png'), animations: 'disabled' });
+});
+
+test.describe('agent controls on a touch screen', () => {
+	test.use({ viewport: { width: 360, height: 800 }, hasTouch: true });
+
+	test('Back, filters, refresh and Latest have usable targets in the compact timeline', async ({ page }, testInfo) => {
+		const { state } = await fixture(page);
+		workflowFixture(state);
+		const workflowRoute = '**/agent-tasks/task-1/workflow*';
+		await page.route(workflowRoute, (route) => route.fulfill({ status: 503, json: {} }));
+		await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+
+		const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
+		const header = thread.getByTestId('agent-thread-header');
+		const back = header.getByRole('link', { name: 'Assistant' });
+		async function expectTouchTarget(control: Locator) {
+			await expect(control).toBeInViewport();
+			await expect.poll(async () => {
+				const box = (await control.boundingBox())!;
+				return Math.min(box.width, box.height);
+			}).toBeGreaterThanOrEqual(44);
+			expect(await control.evaluate((el) => {
+				const { left, top, right, bottom, width, height } = el.getBoundingClientRect();
+				const edges = [
+					[left + width / 2, top + 1], [left + width / 2, bottom - 1],
+					[left + 1, top + height / 2], [right - 1, top + height / 2]
+				];
+				return edges.flatMap(([x, y]) => {
+					const hit = document.elementFromPoint(x, y);
+					return el.contains(hit) ? [] : [[x, y, hit?.getAttribute('aria-label') ?? hit?.tagName]];
+				});
+			})).toEqual([]);
+		}
+
+		const refresh = thread.getByRole('button', { name: 'Refresh tasks' });
+		await expectTouchTarget(refresh);
+		await page.unroute(workflowRoute);
+		await refresh.tap();
+		// Open a transcript so Latest has a real scroll distance at this height.
+		await stepButton(page, 3).tap();
+		await expect(page.locator('#step-3').getByRole('article', { name: 'Agent' }).first()).toContainText('Search is added');
+		await expectTouchTarget(back);
+		for (const name of ['Expand', 'Stop', 'More actions']) {
+			await expectTouchTarget(header.getByRole('button', { name, exact: true }));
+		}
+		expect((await header.boundingBox())!.height).toBeLessThanOrEqual(42);
+		const expand = header.getByRole('button', { name: 'Expand', exact: true });
+		await expect(expand).toHaveAccessibleDescription('Add search to the issue list.');
+		await expand.tap();
+
+		const filters = thread.getByTestId('thread-filters');
+		const role = filters.getByRole('combobox');
+		const decisions = filters.getByRole('button', { name: 'Decisions only' });
+		await filters.scrollIntoViewIfNeeded();
+		await expectTouchTarget(role);
+		await expectTouchTarget(decisions);
+		const latest = page.getByRole('button', { name: 'Scroll to latest' });
+		await expect(latest).toHaveAttribute('data-active', 'true');
+		await expectTouchTarget(latest);
+		await page.screenshot({ path: testInfo.outputPath('timeline-controls-360.png'), animations: 'disabled' });
+		await latest.tap();
+		await expect(latest).toHaveAttribute('data-active', 'false');
+
+		await role.tap();
+		await page.getByRole('option', { name: 'Orchestrator' }).tap();
+		await decisions.tap();
+		const reset = thread.getByRole('button', { name: 'Show everything' });
+		await expectTouchTarget(reset);
+		await reset.tap();
+		await expect(decisions).toHaveAttribute('aria-pressed', 'false');
+		await back.tap();
+		await expect(thread).toBeHidden();
+	});
 });
 
 const count = (requests: string[], pattern: RegExp) => requests.filter((request) => pattern.test(request)).length;
