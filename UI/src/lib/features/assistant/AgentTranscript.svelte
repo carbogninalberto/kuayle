@@ -18,6 +18,7 @@
 	import * as CodeBlock from '$lib/components/ui/code-block/index.js';
 	import * as Message from '$lib/components/ui/message/index.js';
 	import * as Bubble from '$lib/components/ui/bubble/index.js';
+	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { Toggle } from '$lib/components/ui/toggle/index.js';
 	import type { DevMachineLogChunk } from '$lib/types/dev-machine';
@@ -49,6 +50,7 @@
 	let {
 		chunks,
 		active = false,
+		succeeded = false,
 		pending = false,
 		lead = false,
 		summary = '',
@@ -58,6 +60,7 @@
 		chunks: Pick<DevMachineLogChunk, 'id' | 'stream' | 'content' | 'truncated' | 'created_at'>[];
 		// The run is still going: an unanswered tool call is in progress.
 		active?: boolean;
+		succeeded?: boolean;
 		// The run has not started yet; nothing recorded is not the end of it.
 		pending?: boolean;
 		// A finished run reads from its conclusion: its final message first,
@@ -74,7 +77,7 @@
 	} = $props();
 	let raw = $state(false);
 	let fullOutput = $state<Record<string, boolean>>({});
-	const blocks = $derived(groupSession(parseAgentSession(chunks)));
+	const blocks = $derived(groupSession(parseAgentSession(chunks, { succeeded })));
 	const final = $derived(lead && !active ? finalMessage(blocks) : undefined);
 	const conclusion = $derived.by(() => {
 		const text = final?.text ?? (active ? '' : summary);
@@ -143,7 +146,13 @@
 				<Trace.Title class="break-words whitespace-normal"
 					>{#if tool.status === 'failed'}<span class="sr-only">{m['tasks.transcript_step_failed']({ title: '' })}</span
 						>{/if}{tool.title}</Trace.Title
-				>{#if time}<Trace.Description class="shrink-0 tabular-nums">{time}</Trace.Description>{/if}
+				>
+				{#if tool.exitCode !== undefined && tool.exitCode !== 0}
+					<Badge variant="outline" class="font-mono font-normal tabular-nums">
+						{m['tasks.transcript_exit']({ code: tool.exitCode })}
+					</Badge>
+				{/if}
+				{#if time}<Trace.Description class="shrink-0 tabular-nums">{time}</Trace.Description>{/if}
 			</Trace.Line>
 		</Trace.CollapsibleTrigger>
 		<Trace.CollapsibleContent class="space-y-2">

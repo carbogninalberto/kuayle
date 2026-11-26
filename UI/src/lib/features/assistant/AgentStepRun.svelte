@@ -106,7 +106,16 @@
 </script>
 
 <div class="flex min-w-0 flex-col gap-3">
-	<AgentTranscript chunks={session} {active} {pending} lead={!more} summary={run.summary ?? ''} {concluded} {messages} />
+	<AgentTranscript
+		chunks={session}
+		succeeded={run.status === 'succeeded'}
+		{active}
+		{pending}
+		lead={!more}
+		summary={run.summary ?? ''}
+		{concluded}
+		{messages}
+	/>
 	{#if more}<Button variant="ghost" size="sm" class="self-start" disabled={loading} onclick={() => void refresh()}
 			>{m['tasks.more_logs']()}</Button
 		>{/if}

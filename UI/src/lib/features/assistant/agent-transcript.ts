@@ -1,9 +1,8 @@
 // Turns a coding agent's recorded native output (the log chunks of one run)
 // into a readable transcript: the agent's messages, its tool calls paired with
 // their results, thinking markers and a compact session header. It reads
-// Claude Code stream-json, Codex `exec --json` and OpenCode `run --format
-// json` events; anything else is kept as plain text or a generic event so
-// nothing recorded disappears.
+// Claude Code stream-json, Codex `exec --json`, OpenCode `run --format json`
+// and Pi tool events. Other output remains inspectable in the raw log.
 //
 // Claude Code marks what a subagent does with `parent_tool_use_id`, the id of
 // the Task/Agent call that started it; those entries are kept under that call
@@ -36,7 +35,8 @@ export interface SessionTool {
 	input: string;
 	output?: string;
 	status: ToolStatus;
-	/** A shell command (Claude Bash, Codex command_execution, OpenCode bash). */
+	exitCode?: number;
+	/** A shell command with process exit semantics. */
 	command: boolean;
 	started?: string;
 	ended?: string;
@@ -75,6 +75,16 @@ const num = (value: unknown) => (typeof value === 'number' && Number.isFinite(va
 function truncate(value: string, max = maxTitle) {
 	const line = value.replace(/\s+/g, ' ').trim();
 	return line.length > max ? line.slice(0, max - 1).trimEnd() + '…' : line;
+}
+
+function stepFailed(details: Json, exitCode?: number, reportedError = false): boolean {
+	if (reportedError || details.error || details.signal || details.killed === true ||
+		details.timed_out === true || details.interrupted === true) return true;
+	if (['error', 'timeout', 'timed_out', 'killed', 'signaled'].includes(str(details.status))) return true;
+	if (exitCode === undefined) return false;
+	// timeout(1), shell launch failures, and signals (negative or shell-encoded).
+	return exitCode === 124 || exitCode === 126 || exitCode === 127 ||
+		exitCode < 0 || (exitCode > 128 && exitCode <= 192);
 }
 
 // The argument that best names what a tool call does, for the chip fallback.
@@ -176,7 +186,7 @@ const openCodeParts = new Set(['step_start', 'step_finish', 'text', 'reasoning',
 // Claude Code tools that start a subagent.
 const subagentTools = new Set(['Task', 'Agent']);
 
-export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
+export function parseAgentSession(chunks: SessionChunk[], { succeeded = false } = {}): SessionEntry[] {
 	const root: SessionEntry[] = [];
 	// Where the current line's entries go: the transcript, or a subagent's call.
 	let entries = root;
@@ -250,7 +260,7 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 			// The call's own result decides when there is one; a subagent stopped
 			// with the run is not a failure.
 			if (tool.status === 'running') {
-				tool.status = event.status === 'failed' ? 'failed' : 'done';
+				tool.status = stepFailed(event, undefined, event.status === 'failed') ? 'failed' : 'done';
 				tool.ended = line.at;
 			}
 			background.delete(tool);
@@ -266,6 +276,7 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 			push({ kind: 'omitted', key: line.key, reason: /limit/i.test(line.text) ? 'limit' : 'oversized' });
 			continue;
 		}
+		if (line.stream === 'stderr' && line.text.trim() === 'Reading additional input from stdin...') continue;
 		const event = parseLine(line.text);
 		if (!event || typeof event.type !== 'string') {
 			if (event) {
@@ -355,7 +366,16 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 					tool.output = resultText(part.content);
 					// A background subagent's call returns at once; it ends later.
 					if (background.has(tool) && part.is_error !== true) return;
-					tool.status = part.is_error === true ? 'failed' : 'done';
+					const details = isObject(event.tool_use_result) ? event.tool_use_result : {};
+					// Claude prefixes a Bash exit with this diagnostic in an error result.
+					const diagnostic = tool.command && part.is_error === true
+						? /^Exit code (-?\d+)\r?(?:\n|$)/.exec(tool.output)
+						: null;
+					const exitCode = tool.command
+						? num(details.exit_code) ?? num(details.exitCode) ?? (diagnostic ? Number(diagnostic[1]) : undefined)
+						: undefined;
+					tool.exitCode = exitCode;
+					tool.status = stepFailed(details, exitCode, part.is_error === true && !diagnostic) ? 'failed' : 'done';
 					tool.ended = line.at;
 					settle(tool);
 				}
@@ -398,6 +418,42 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 				});
 			else push({ kind: 'error', key: line.key, message });
 		}
+		// Pi's JSON stream pairs a tool's args and result by toolCallId.
+		else if ((type === 'tool_execution_start' || type === 'tool_execution_end') && str(event.toolCallId)) {
+			const id = str(event.toolCallId);
+			const name = str(event.toolName) || 'tool';
+			const input = isObject(event.args) ? event.args : {};
+			let tool = tools.get(id);
+			if (!tool) {
+				tool = {
+					id,
+					name,
+					title: truncate(primaryArgument(input)) || name,
+					input: inputText(event.args),
+					status: 'running',
+					command: name === 'bash',
+					started: line.at
+				};
+				tools.set(id, tool);
+				push({ kind: 'tool', key: line.key, tool });
+			}
+			if (type === 'tool_execution_end') {
+				const result = isObject(event.result) ? event.result : {};
+				const details = isObject(result.structuredContent) ? result.structuredContent : {};
+				tool.output = resultText(result.content) || str(details.output);
+				tool.exitCode = tool.command ? num(details.exit_code) : undefined;
+				// Pi sets isError for shell exits too, appending a matching diagnostic.
+				const diagnostic = `Command exited with code ${tool.exitCode}`;
+				const shellExit = !!tool.exitCode && (tool.output === diagnostic || tool.output.endsWith('\n' + diagnostic));
+				const reportedError = event.isError === true && !shellExit;
+				tool.status = stepFailed(details, tool.exitCode, reportedError) ? 'failed' : 'done';
+				tool.ended = line.at;
+			}
+			continue;
+		} else if (type === 'message_end' && isObject(event.message) && event.message.role === 'assistant' &&
+			(event.message.stopReason === 'error' || event.message.stopReason === 'aborted')) {
+			push({ kind: 'error', key: line.key, message: str(event.message.errorMessage) || event.message.stopReason });
+		}
 		// ── Codex exec --json
 		else if (type === 'thread.started') {
 			push({ kind: 'header', key: line.key, session: str(event.thread_id) || undefined });
@@ -416,7 +472,11 @@ export function parseAgentSession(chunks: SessionChunk[]): SessionEntry[] {
 				raw: line.text.trim()
 			});
 	}
-	return root;
+	// A successful attempt may contain an earlier failed turn that the harness retried.
+	// Its diagnostics remain in Raw. Individual tool outcomes still explain the trace.
+	return succeeded
+		? root.filter((entry) => entry.kind !== 'error' && !(entry.kind === 'result' && entry.failed && !entry.usageLimit))
+		: root;
 }
 
 // Recognized events that legitimately add nothing (a result paired to an
@@ -483,8 +543,8 @@ function openCodePart(
 					? state.metadata.metadata
 					: state.metadata
 				: {};
-			const exit = num(metadata.exit);
-			const failed = status === 'error' || (exit !== undefined && exit !== 0);
+			const exit = command ? num(metadata.exit) : undefined;
+			const failed = stepFailed({ ...metadata, ...state }, exit, status === 'failed');
 			const next: ToolStatus = failed ? 'failed' : status === 'completed' ? 'done' : 'running';
 			const clock = isObject(state.time) ? state.time : {};
 			const known = str(part.callID) || str(part.id);
@@ -512,6 +572,7 @@ function openCodePart(
 				input: text,
 				output: resultText(state.output) || resultText(state.error) || existing?.output,
 				status: next,
+				exitCode: exit,
 				command,
 				started: untimed ? undefined : (instant(clock.start) ?? existing?.started ?? line.at),
 				ended: untimed || next === 'running' ? undefined : (instant(clock.end) ?? line.at)
@@ -583,10 +644,12 @@ function codexItem(
 					name: 'command',
 					title: truncate(unwrapShell(command)) || 'command',
 					input: command,
-					output: str(item.aggregated_output) || existing?.output,
-					command: true
+					output: str(item.aggregated_output) || resultText(item.error) || existing?.output,
+					command: true,
+					exitCode: exit
 				},
-				status === 'failed' || (exit !== undefined && exit !== 0)
+				// Codex also uses "failed" for ordinary non-zero shell exits.
+				stepFailed(item, exit, status === 'failed' && (exit === undefined || exit === 0))
 			);
 			return;
 		}
@@ -605,7 +668,7 @@ function codexItem(
 					input: changes.map((change) => `${str(change.kind)} ${str(change.path)}`.trim()).join('\n'),
 					command: false
 				},
-				status === 'failed'
+				stepFailed(item, undefined, status === 'failed')
 			);
 			return;
 		}
@@ -625,13 +688,14 @@ function codexItem(
 								: JSON.stringify(result, null, 2),
 					command: false
 				},
-				status === 'failed' || item.error !== undefined
+				stepFailed(item, undefined, status === 'failed' || (isObject(item.result) && item.result.isError === true))
 			);
 			return;
 		}
 		case 'web_search': {
 			const query = str(item.query);
-			tool({ name: 'web_search', title: truncate(query || 'web_search'), input: query, command: false }, false);
+			tool({ name: 'web_search', title: truncate(query || 'web_search'), input: query, command: false },
+				stepFailed(item, undefined, status === 'failed'));
 			return;
 		}
 		case 'error': {
