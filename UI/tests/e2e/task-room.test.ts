@@ -1,6 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { audit, verifyAudit } from './room-post-audit';
 import { test, expect, type Page, type WebSocketRoute } from '@playwright/test';
 import { openPanel } from './side-panel';
+import type { OwnerDecision } from '../../src/lib/api/agent-tasks';
 
 // The agent view of a task on a pipeline (KUA-268): its room in order, the
 // owner writing to it from the composer and posts arriving live, served from
@@ -118,11 +121,12 @@ const room = () => [
 async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 	const currentTask = {
 		...task,
-		state: workflow.task_state,
+		state: workflow.task_state ?? task.state,
 		reason: workflow.task_reason,
-		workflow_status: workflow.status,
+		workflow_status: workflow.status ?? task.workflow_status,
+		workflow_paused_at: workflow.paused_at,
 		workflow_node: workflow.node,
-		pending_decisions: [] as any[]
+		pending_decisions: [] as OwnerDecision[] | undefined
 	};
 	const conversation = {
 		id: 'chat-1',
@@ -195,11 +199,12 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 				const input = route.request().postDataJSON();
 				state.posts.push(input);
 				const message = post(state.room.length + 1, 'human', input.kind, input.body, {
+					to_roles: input.to ?? [],
 					reply_to: input.reply_to ?? null,
 					data: input.data ?? {}
 				});
 				if (input.data?.answer)
-					currentTask.pending_decisions = currentTask.pending_decisions.filter((d) => d.seq !== input.reply_to);
+					currentTask.pending_decisions = currentTask.pending_decisions?.filter((d) => d.seq !== input.reply_to);
 				state.room.push(message);
 				return route.fulfill({ status: 201, json: message });
 			}
@@ -210,6 +215,8 @@ async function fixture(page: Page, workflow: Record<string, unknown> = view) {
 			}
 			const logRoute = rest.match(/^\/runs\/([^/]+)\/logs$/);
 			if (logRoute) return route.fulfill({ json: { logs: logs[logRoute[1]] ?? [] } });
+			if (rest === '/runs/run-impl-1/diff') return route.fulfill({ json: { diff: 'diff --git a/search.ts b/search.ts\n--- a/search.ts\n+++ b/search.ts\n@@ -0,0 +1 @@\n+export const search = true;\n', truncated: false } });
+			if (rest.endsWith('/diff')) return route.fulfill({ json: { diff: '', truncated: false } });
 			if (rest.endsWith('/checks')) return route.fulfill({ json: [] });
 			if (rest === '/live-messages') return route.fulfill({ json: { messages: [] } });
 			if (rest === '/sessions') return route.fulfill({ json: { sessions: [] } });
@@ -280,161 +287,104 @@ for (const width of [1600, 390]) {
 		await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
 		await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 		const turn = page.getByTestId('task-room').getByRole('article', { name: 'implementer' });
-		await turn.getByRole('button', { name: /implementer/ }).click();
 		await verifyAudit(page, turn.locator('[data-seq="1"]'), 'room');
 	});
 }
 
-test('a pipeline task shows its room: the owner, Kuayle and each role, and the owner writes to it', async ({ page }, testInfo) => {
+test('conversation, system activity and the addressed reviewer’s next turn', async ({ page }, testInfo) => {
+	test.setTimeout(180_000); // The first Go invocation can populate a cold module cache.
 	const { state, emit } = await fixture(page);
-	await page.setViewportSize({ width: 1280, height: 900 });
-	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
-	const thread = page.getByRole('region', { name: 'Agent thread of ENG-1' });
-	const room = thread.getByRole('list', { name: 'Task room' });
-	const rows = room.locator(':scope > li');
-	await expect(rows).toHaveCount(6);
-	// The room stays open beside the Agents panel.
-	await expect(thread.getByRole('list', { name: 'Path taken' })).toHaveCount(0);
-	await expect(page.getByTestId('task-workflow')).toContainText('Team');
-	await expect(page.getByTestId('task-workflow-chart')).toHaveCount(0);
-
-	// The owner's post, then Kuayle's phase move, named by the pipeline.
-	await expect(rows.nth(0).getByRole('article', { name: 'You' })).toContainText('Search should cover titles and identifiers.');
-	await expect(rows.nth(1).getByRole('article', { name: 'Kuayle' })).toContainText('Moved to Implement');
-
-	// The implementer's turn is one line (KUA-286): its role, what it said
-	// last, how long it took and how it went, with its question flagged.
-	// The model, what it posted and its transcript are inside.
-	const implementer = rows.nth(2).getByRole('article', { name: 'implementer' });
-	const line = implementer.getByRole('button').first();
-	await expect(implementer.getByRole('button')).toHaveCount(1);
-	await expect(line).toHaveAttribute('aria-expanded', 'false');
-	await expect(line).toContainText('implementer — Should search ignore case?');
-	await expect(line).toContainText('2m 0s');
-	await expect(line.getByRole('img', { name: 'Question' })).toBeVisible();
-	await expect(line.getByRole('img', { name: 'Done' })).toBeVisible();
-	await expect(implementer.getByText('claude-opus-5-5')).toHaveCount(0);
-	await expect(implementer.getByText('Starting with the endpoint.')).toHaveCount(0);
-	await line.press('Enter');
-	await expect(line).toHaveAttribute('aria-expanded', 'true');
-	await expect(implementer.getByTestId('turn-details')).toContainText('Claude Code');
-	await expect(implementer.getByTestId('turn-details')).toContainText('claude-opus-5-5');
-	await expect(implementer).toContainText('To reviewer');
-	await expect(implementer.getByText('Starting with the endpoint.')).toBeVisible();
-	// Its refused post is muted, with the reason.
-	const refused = implementer.locator('[data-refused]');
-	await expect(refused).toContainText('Approving my own work.');
-	await expect(refused).toContainText('Kuayle refused this message: the implementer may not post verdict');
-	await expect(refused.locator('[data-slot="bubble-content"]')).toHaveClass(/text-muted-foreground/);
-
-	// The reviewer answers in a turn of its own; Kuayle's fact is a line; the
-	// reviewer's next turn gives its verdict on a commit.
-	await expect(rows.nth(3).getByRole('article', { name: 'reviewer' })).toContainText('Yes, ignore case.');
-	await expect(rows.nth(4).getByRole('article', { name: 'Kuayle' })).toContainText('CI passed');
-	const verdict = rows.nth(5).getByRole('article', { name: 'reviewer' });
-	const verdictLine = verdict.getByRole('button').first();
-	await expect(verdictLine).toContainText('Approves');
-	await expect(verdictLine).toContainText('Looks good to me.');
-	await expect(verdictLine.getByRole('img', { name: 'Running' })).toBeVisible();
-	// Its run has not ended, so the turn starts open (KUA-321).
-	await expect(verdictLine).toHaveAttribute('aria-expanded', 'true');
-	await expect(verdict).toContainText('Commit abc1234');
-	await page.screenshot({ path: testInfo.outputPath('task-room-desktop.png'), fullPage: true });
-
-	// A completed reviewer's turn uses the same neutral shell-exit presentation.
-	const reviewer = rows.nth(3).getByRole('article', { name: 'reviewer' });
-	await reviewer.getByRole('button').first().press('Enter');
-	await expect(reviewer.getByRole('button', { name: 'rg SearchBox exit 1' })).toBeVisible();
-	await expect(reviewer.locator('[data-status="error"]')).toHaveCount(0);
-
-	// The composer writes to the room: a say, sent once.
-	const composer = page.getByRole('textbox', { name: 'Write to the room' });
-	await expect(composer).toHaveAttribute('placeholder', 'Write to everyone working on ENG-1…');
-	// Text only, and no "now": the room is read by everyone working on it.
-	await expect(page.getByTestId('agent-composer').getByRole('button', { name: 'Interrupt and send' })).toHaveCount(0);
-	await expect(page.getByTestId('agent-composer').getByRole('button', { name: 'Attach images' })).toBeDisabled();
-	await composer.fill('Please also update the docs.');
-	await composer.press('Enter');
-	await expect(rows).toHaveCount(7);
-	await expect(rows.nth(6).getByRole('article', { name: 'You' })).toContainText('Please also update the docs.');
-	await expect(page.getByTestId('agent-composer').getByRole('status')).toHaveText('Posted to the room of ENG-1');
-	await expect(composer).toHaveValue('');
-	expect(state.posts).toHaveLength(1);
-	expect(state.posts[0]).toMatchObject({ kind: 'say', body: 'Please also update the docs.' });
-	expect(state.posts[0].request_id).toMatch(/^[0-9a-f-]{36}$/);
-
-	// Posts arrive live, once each: the event of the owner's own post adds
-	// nothing, Kuayle's next phase move is added.
-	const own = state.room.at(-1)!;
-	expect(own.seq).toBe(8);
-	emit('task.room_message', own);
-	const next = post(9, 'kuayle', 'phase', '', { data: { phase: 'review' } });
-	state.room.push(next);
-	emit('task.room_message', next);
-	await expect(rows).toHaveCount(8);
-	await expect(rows.nth(7)).toContainText('Moved to Review');
-	await expect(room.getByText('Please also update the docs.')).toHaveCount(1);
-
-	// A post that arrives after a gap reads what was missed.
-	const missed = member(10, 'implementer', 'run-impl-2', 'say', 'Docs updated.');
-	const after = post(11, 'kuayle', 'fact', '1 of 3 check(s) are still running.', {
-		data: { fact: 'ci_green', value: { state: 'pending', head: 'abc1234def5678', failing: [] } }
-	});
-	state.room.push(missed, after);
-	emit('task.room_message', after);
-	await expect(rows).toHaveCount(10);
-	await expect(rows.nth(8)).toContainText('Docs updated.');
-	expect(state.reads).toContain(9);
-
-	// At phone width the room fits without scrolling sideways.
-	await page.setViewportSize({ width: 320, height: 720 });
-	await expect.poll(() => room.evaluate((list) => list.scrollWidth <= list.clientWidth)).toBe(true);
-	await page.screenshot({ path: testInfo.outputPath('task-room-phone.png') });
-});
-
-// KUA-321: a turn that is running but has not posted yet has a row, open on
-// its live stream, and the row folds when the turn ends.
-test('a running turn that has not posted shows a working row with its live output, which folds when the turn ends', async ({ page }) => {
-	const started = new Date(Date.now() - 5 * 60_000).toISOString();
-	const workflow = {
-		...view,
-		runs: [{ ...run('run-impl-1', 'task-1', 'claude-code', 'claude-opus-5-5', 'running', 1), role: 'implementer', started_at: started }]
-	};
-	const { state, emit } = await fixture(page, workflow);
-	state.room = [];
-	await page.setViewportSize({ width: 1280, height: 900 });
+	const stall = 'Nobody is working, and the phase Implement waits on: review';
+	state.room.push(post(8, 'kuayle', 'summary', stall),
+		member(9, 'lead', '', 'request', 'Please review the search behavior.', { data: { action: 'review' }, to_roles: ['reviewer'] }),
+		post(10, 'kuayle', 'summary', stall));
 	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
 	const room = page.getByRole('list', { name: 'Task room' });
-	await expect(room.locator(':scope > li')).toHaveCount(1);
-	const turn = room.getByRole('article', { name: 'implementer' });
-	const line = turn.getByRole('button').first();
-	await expect(line).toContainText('implementer');
-	await expect(line).toContainText('Working');
-	await expect(line).toContainText('5m');
-	await expect(line.getByRole('img', { name: 'Running' })).toBeVisible();
-	// It starts open on the run's live output, though it posted nothing.
-	await expect(line).toHaveAttribute('aria-expanded', 'true');
-	await expect(turn.getByText('Starting with the endpoint.')).toBeVisible();
-	await expect(page.getByTestId('task-workflow')).toContainText('Working');
-	await expect(room.getByText('Nothing here yet')).toHaveCount(0);
+	const seqs = room.locator('[data-seq]');
+	await expect(seqs).toHaveCount(6);
+	expect(await seqs.evaluateAll(items => items.map(item => item.getAttribute('data-seq')))).toEqual(['1','3','4','5','7','9']);
+	await expect(room.locator('blockquote')).toContainText('Should search ignore case?');
+	await expect(room.locator('[data-refused]')).toContainText('the implementer may not post verdict');
+	const system = page.getByRole('button', { name: 'System activity' });
+	await expect(system).toHaveAttribute('aria-expanded', 'false');
+	await expect(page.getByText(stall, { exact: true })).toBeHidden();
+	await system.press('Enter');
+	await expect(page.getByText(stall, { exact: true })).toHaveCount(1);
+	await expect(page.getByText('CI passed', { exact: false }).first()).toBeVisible();
+	await system.click();
 
-	// Its first post joins the same row.
+	await room.locator('[data-seq="3"]').getByRole('button', { name: 'Turn output' }).press('Enter');
+	const output = page.getByRole('dialog', { name: 'Turn output' });
+	await expect(output).toContainText('Starting with the endpoint.');
+	await expect(output).toContainText('Search is added and covered.');
+	await expect(output).toContainText('search.ts');
+	await expect(output).toContainText('+export const search = true;');
+	await page.screenshot({ path: testInfo.outputPath('turn-output.png'), animations: 'disabled' });
+	await page.keyboard.press('Escape');
+	await expect(output).toHaveCount(0);
+	const reviewerLogs = page.waitForRequest(request => new URL(request.url()).pathname.endsWith('/member-rev/runs/run-rev-1/logs'));
+	await room.locator('[data-seq="5"]').getByRole('button', { name: 'Turn output' }).click();
+	await reviewerLogs;
+	await expect(output.getByRole('button', { name: 'rg SearchBox exit 1' })).toBeVisible();
+	await expect(output.locator('[data-status="error"]')).toHaveCount(0);
+	await page.keyboard.press('Escape');
+
+	const recipient = page.getByRole('combobox', { name: 'Message recipient' });
+	await expect(recipient).toHaveText('@all');
+	await recipient.click();
+	await page.getByRole('option', { name: '@reviewer' }).click();
+	const composer = page.getByRole('textbox', { name: 'Write to the room' });
+	const body = 'Please verify case-insensitive search.';
+	await composer.fill(body);
+	await composer.press('Enter');
+	const sent = room.locator('[data-seq="11"]');
+	await expect(sent).toContainText(body);
+	await expect(sent).toContainText('→ @reviewer');
+	expect(state.posts).toHaveLength(1);
+	expect(state.posts[0]).toMatchObject({ kind: 'say', body, to: ['reviewer'] });
+	expect(state.posts[0].request_id).toMatch(/^[0-9a-f-]{36}$/);
+	await expect(composer).toHaveValue('');
+
+	// Feed the stored post into the worker's real wake/inbox/prompt logic.
+	const { seq, kind, author_kind, to_roles, body: delivered } = state.room.at(-1)!;
+	const prompts = JSON.parse(execFileSync('go', ['run', './testdata/room-turn', 'reviewer', 'implementer'], {
+		cwd: fileURLToPath(new URL('../../../BE/', import.meta.url)),
+		input: JSON.stringify({ seq, kind, author_kind, to_roles, body: delivered }), encoding: 'utf8'
+	}));
+	expect(prompts.reviewer).toContain(body);
+	expect(prompts.implementer).toBeUndefined();
+	expect(state.decisions).toEqual([]);
+
+	emit('task.room_message', state.room.at(-1));
+	const missed = member(12, 'implementer', 'run-impl-2', 'say', 'Docs updated.');
+	const after = post(13, 'kuayle', 'fact', 'CI is pending.');
+	state.room.push(missed, after);
+	emit('task.room_message', after);
+	await expect(room.getByText('Docs updated.')).toBeVisible();
+	await expect(room.getByText(body)).toHaveCount(1);
+	expect(state.reads).toContain(11);
+	await page.setViewportSize({ width: 320, height: 720 });
+	expect(await room.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+});
+
+test('a role working before its first post remains visible and its output opens on demand', async ({ page }) => {
+	const workflow = { ...view, runs: [{ ...run('run-impl-1', 'task-1', 'claude-code', 'claude', 'running', 1), role: 'implementer' }] };
+	const { state, emit } = await fixture(page, workflow);
+	state.room = [];
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const working = page.getByRole('button', { name: /implementer — Working/ });
+	await expect(working).toBeVisible();
+	await working.click();
+	await expect(page.getByRole('dialog')).toContainText('Starting with the endpoint.');
+	await page.keyboard.press('Escape');
 	const first = member(1, 'implementer', 'run-impl-1', 'say', 'Starting on the endpoint.');
 	state.room.push(first);
-	await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
 	emit('task.room_message', first);
-	await expect(room.locator(':scope > li')).toHaveCount(1);
-	await expect(turn.getByText('Starting on the endpoint.').first()).toBeVisible();
-	await expect(line).toHaveAttribute('aria-expanded', 'true');
-
-	// When the turn ends the row folds, like the others.
-	workflow.runs = [{ ...workflow.runs[0], status: 'succeeded', completed_at: new Date().toISOString() }];
+	await expect(page.getByTestId('task-room')).toContainText(first.body);
+	await expect(working).toHaveCount(0);
+	workflow.runs[0].status = 'succeeded';
 	emit('task.workflow_updated', { task_id: 'task-1', sequence: 2, node: 'implement', status: 'running' });
-	await expect(line).toHaveAttribute('aria-expanded', 'false');
-	await expect(line.getByRole('img', { name: 'Done' })).toBeVisible();
-	await expect(turn.getByText('Starting with the endpoint.')).toHaveCount(0);
-	await expect(page.getByTestId('run-member-implementer')).toContainText('Idle');
-	await expect(room.locator(':scope > li')).toHaveCount(1);
+	await expect(page.getByRole('button', { name: 'System activity' })).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('the room shows who may approve a merge and which commits a waiver covers', async ({ page }, testInfo) => {
@@ -454,8 +404,6 @@ test('the room shows who may approve a merge and which commits a waiver covers',
 	await expect(room.locator('[data-seq="2"]')).toContainText('Waived the check legacy-ci for all commits');
 	await expect(room.locator('[data-seq="3"]')).toContainText('Waived the check ci');
 	await expect(room.locator('[data-seq="3"]')).toContainText('Commit abc1234');
-	// The lead's post is one line of its turn (KUA-286); it opens to the post.
-	await room.getByRole('article', { name: 'lead' }).getByRole('button').first().click();
 	await expect(room.locator('[data-seq="4"]')).toContainText('Approved merging abc1234');
 	await expect(room.locator('[data-seq="5"]')).toContainText('Lets the lead create sub-issues without asking');
 
@@ -477,6 +425,95 @@ test('the room shows who may approve a merge and which commits a waiver covers',
 
 // The owner approves the head where the pipeline waits for it (its tick then
 // merges through the gate); a pipeline has nothing to deny.
+test('retry preserves the intended addressee and changing to everyone starts a fresh post', async ({ page }) => {
+	const { state } = await fixture(page);
+	const attempts: { to: string[]; request_id: string }[] = [];
+	await page.route('**/agent-tasks/task-1/room', (route) => {
+		if (route.request().method() !== 'POST') return route.fallback();
+		attempts.push(route.request().postDataJSON());
+		return attempts.length <= 2 ? route.fulfill({status: 503, json: {}}) : route.fallback();
+	});
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	const recipient = page.getByRole('combobox', {name: 'Message recipient'});
+	const box = page.getByRole('textbox', {name: 'Write to the room'});
+	await recipient.click();
+	await page.getByRole('option', {name: '@reviewer'}).click();
+	await box.fill('Check the release notes.');
+	await box.press('Enter');
+	await expect(page.getByTestId('agent-composer').getByRole('alert')).toBeVisible();
+	await expect(box).toHaveValue('Check the release notes.');
+	await box.press('Enter');
+	await expect.poll(() => attempts.length).toBe(2);
+	expect(attempts[1]).toEqual(attempts[0]);
+	await recipient.click();
+	await page.getByRole('option', {name: '@all'}).click();
+	await box.press('Enter');
+	await expect(box).toHaveValue('');
+	expect(attempts[2].request_id).not.toBe(attempts[0].request_id);
+	expect(state.posts[0]).toMatchObject({kind: 'say', to: []});
+});
+
+test('a paused split on an older task links to its proposal and a room reply keeps the split pending', async ({ page }, testInfo) => {
+	const { state, currentTask } = await fixture(page, { ...view, node: 'implement', status: 'paused', task_state: 'blocked', can_decide: true,
+		graph: { ...view.graph, lead: { profile_id: 'p-lead' } } });
+	currentTask.pending_decisions = undefined;
+	state.room = [member(1, 'lead', '', 'request', '', { to_roles: ['human'],
+		data: { action: 'split', issues: [{title: 'Index issue titles', description: 'Add case-insensitive matching.'}] } })];
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto('/test/assistant?conversation=chat-1');
+	await openPanel(page, 'Agents');
+	const notice = page.getByTestId('task-workflow-decision');
+	await expect(notice).toContainText('Paused with an open post from @lead.');
+	const link = notice.getByRole('link', { name: /Sub-issues · Index issue titles/ });
+	await expect(link).toHaveAttribute('href', /agent=task-1#room-post-1$/);
+	await page.screenshot({ path: testInfo.outputPath('paused-split.png'), animations: 'disabled' });
+	await link.click();
+	const proposal = page.getByTestId('task-room').getByRole('article', { name: 'lead' });
+	await expect(proposal.getByRole('button', { name: 'Create sub-issues' })).toBeVisible();
+	await proposal.getByRole('button', { name: 'Reply', exact: true }).click();
+	const box = page.getByRole('textbox', { name: 'Write to the room' });
+	await expect(box).toBeFocused();
+	await box.fill('I will review the split.');
+	await box.press('Enter');
+	await expect.poll(() => state.posts.length).toBe(1);
+	expect(state.posts[0]).toMatchObject({kind: 'say', to: ['lead'], reply_to: 1});
+	await expect(page.getByTestId('task-room').locator('blockquote')).toContainText('Sub-issues');
+	await expect(proposal.getByRole('button', { name: 'Create sub-issues' })).toBeVisible();
+	expect(state.decisions).toEqual([]);
+});
+
+test('conversation at desktop and phone widths in both themes', async ({ page }, testInfo) => {
+	const { state } = await fixture(page, { ...view, node: 'implement', graph: { ...view.graph, lead: { profile_id: 'p-lead' } } });
+	state.room = [
+		post(1, 'kuayle', 'fact', 'The agent made no changes against main.'),
+		member(2, 'lead', '', 'say', 'Keep the current search route while we add title matching.', { to_roles: ['implementer'] }),
+		member(3, 'implementer', 'run-impl-1', 'ask', 'Should search ignore case?', { to_roles: ['reviewer'] }),
+		member(4, 'reviewer', 'run-rev-1', 'say', 'Yes. The same query should work for titles and identifiers.', { to_roles: ['implementer'], reply_to: 3 }),
+		post(5, 'human', 'say', 'Please check mixed-case identifiers too.', { to_roles: ['reviewer'] }),
+		post(6, 'kuayle', 'summary', 'Nobody is working, and the phase Implement waits on: review')
+	];
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	await expect(page.getByTestId('task-room').locator(':scope > li')).toHaveCount(4);
+	const recipient = page.getByRole('combobox', { name: 'Message recipient' });
+	await recipient.click();
+	await page.getByRole('option', { name: '@reviewer' }).click();
+	for (const [device, width, height] of [['desktop', 1440, 900], ['phone', 390, 844]] as const) {
+		await page.setViewportSize({width, height});
+		await expect(recipient).toHaveText('@reviewer');
+		await expect(page.getByRole('button', {name:'System activity'})).toHaveAttribute('aria-expanded', 'false');
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+		for (const theme of ['light', 'dark']) {
+			await page.evaluate(value => {
+				document.documentElement.classList.toggle('dark', value === 'dark');
+				document.documentElement.setAttribute('data-theme', value);
+			}, theme);
+			await page.mouse.move(0, 0);
+			await page.screenshot({path: testInfo.outputPath(`conversation-${device}-${theme}.png`), animations: 'disabled'});
+		}
+	}
+});
+
 test('the owner approves a pipeline task waiting for approval', async ({ page }) => {
 	const approval = {
 		...view,
@@ -621,7 +658,9 @@ test('the creator reads the proposed sub-issues and approves the exact split fro
 		);
 		return route.fulfill({ status: 204 });
 	});
-	await page.goto('/test/assistant?conversation=chat-1&agent=task-1');
+	await page.goto('/test/assistant?conversation=chat-1&agent=task-1#room-post-1');
+	await expect(page.getByTestId('owner-decision')).toBeFocused();
+	await expect(page.getByTestId('task-room').locator('[data-seq="1"]')).toHaveCount(0);
 	const notice = page.getByTestId('agent-thread-header').getByRole('link', { name: /Waiting on your decision/ });
 	await expect(notice).toBeVisible();
 	await notice.click();
@@ -651,7 +690,8 @@ test('the creator reads the proposed sub-issues and approves the exact split fro
 	}
 	expect(approvals).toEqual([]);
 	await approve.click();
-	await expect(page.getByText('Created the sub-issues.')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'System activity' })).toHaveAttribute('aria-expanded', 'false');
+	await expect(page.getByTestId('task-room').locator('#room-post-1')).toContainText('Implement the two kinds of search separately.');
 	await expect(approve).toHaveCount(0);
 	await expect(badge).toHaveCount(0);
 	await expect(notice).toHaveCount(0);

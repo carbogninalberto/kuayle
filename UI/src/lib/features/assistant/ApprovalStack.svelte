@@ -30,7 +30,7 @@
 	});
 </script>
 
-<div class="max-h-[45dvh] overflow-y-auto overscroll-contain" data-testid="approval-stack">
+<div class="max-h-[calc((100dvh-var(--assistant-keyboard-inset,0px))*0.45)] overflow-y-auto overscroll-contain" data-testid="approval-stack">
 	{#each pending as approval (approval.id)}
 		<div animate:flip={{ duration: prefersReducedMotion.current ? 0 : 160 }}>
 			<div transition:slide={{ duration: prefersReducedMotion.current ? 0 : 180 }} class="pb-2">

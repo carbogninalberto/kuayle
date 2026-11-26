@@ -12,10 +12,10 @@
 </script>
 
 {#if attachments.items.length}
-	<ul class="flex w-full flex-wrap gap-2" aria-label={m['assistant.attachments_label']()}>
+	<ul class="flex w-full flex-wrap gap-2 max-md:max-h-32 max-md:overflow-y-auto" aria-label={m['assistant.attachments_label']()}>
 		{#each attachments.items as item (item.key)}
 			<li
-				class="relative flex w-40 items-center gap-2 rounded-md border bg-background p-1.5 pr-8 text-xs"
+				class="relative flex w-40 items-center gap-2 rounded-md border bg-background p-1.5 pr-8 text-xs max-md:pr-1.5 pointer-coarse:pr-1.5"
 				aria-busy={item.status === 'uploading'}
 			>
 				<img src={item.preview} alt="" class="size-10 shrink-0 rounded object-cover" />
@@ -36,7 +36,7 @@
 						<p class="text-muted-foreground">{formatBytes(item.file.size)}</p>
 					{/if}
 				</div>
-				<div class="absolute top-1 right-1 flex flex-col gap-0.5">
+				<div class="absolute top-1 right-1 flex flex-col gap-0.5 max-md:static pointer-coarse:static">
 					<Button
 						variant="ghost"
 						size="icon-xs"

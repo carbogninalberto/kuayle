@@ -8,6 +8,7 @@
 	import type { AgentTask } from '$lib/api/agent-tasks';
 	import { workflows, type TaskWorkflow, type WorkflowDecision } from '$lib/api/workflows';
 	import type { ConversationState } from '$lib/features/assistant/conversation-state.svelte';
+	import RoomBlockerNotice from '$lib/features/assistant/RoomBlockerNotice.svelte';
 	import { useTaskRun } from '$lib/features/assistant/task-run.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
@@ -16,7 +17,7 @@
 	import RunChart from './RunChart.svelte';
 	import { taskRunChart } from './task-run-chart';
 	import { statusLabel } from './labels';
-	import { decisionAnchor, roomBlocker } from '../assistant/task-room';
+	import { decisionAnchor, roomBlocker, openRoomBlocker } from '../assistant/task-room';
 	import { pendingDecision } from './workflow-graph';
 
 	// A task's workflow run: the graph with the current step highlighted and
@@ -29,12 +30,14 @@
 		chat,
 		task,
 		compact = false,
-		onopenworkflow
+		onopenworkflow,
+		onopenpost
 	}: {
 		chat: ConversationState;
 		task: AgentTask;
 		compact?: boolean;
 		onopenworkflow?: () => void;
+		onopenpost?: () => void;
 	} = $props();
 	const slug = $derived(chat.slug);
 	const taskId = $derived(task.id);
@@ -48,8 +51,9 @@
 	const pipeline = $derived(shared.pipeline);
 	const chart = $derived(run ? taskRunChart(run) : null);
 	const overlay = $derived(chart?.overlay);
-	const blocker = $derived(roomBlocker(task));
+	const ownerBlocker = $derived(roomBlocker(task));
 	const decision = $derived(run ? pendingDecision(run) : null);
+	const blocker = $derived(pipeline && decision?.kind === 'limit' ? openRoomBlocker(chat.taskRooms[taskId] ?? [], task.pending_decisions) : undefined);
 	const nodeLabel = (id: string | null | undefined) =>
 		(id && (pipeline?.phases ?? run?.graph.nodes)?.find((node) => node.id === id)?.label) || id || '';
 
@@ -72,38 +76,36 @@
 </script>
 
 {#snippet decisionCard(run: TaskWorkflow)}
-	{#if blocker}
+	{#if ownerBlocker}
 		<a
 			class="block text-sm underline underline-offset-2 [overflow-wrap:anywhere]"
-			href={`/${slug}/assistant?conversation=${chat.id}&agent=${task.id}#${decisionAnchor(task.id, blocker.kind, blocker.seq)}`}
-			>{decisionWaitLabel(blocker)}</a
+			href={`/${slug}/assistant?conversation=${chat.id}&agent=${task.id}#${decisionAnchor(task.id, ownerBlocker.kind, ownerBlocker.seq)}`}
+			onclick={onopenpost}
+			>{decisionWaitLabel(ownerBlocker)}</a
 		>
 	{:else if decision}
-		<div
-			class="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3"
-			role="group"
-			aria-label={nodeLabel(run.node)}
-			data-testid="task-workflow-decision"
-		>
-			<p class="text-sm">
+		<div class="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3" role="group" aria-label={nodeLabel(run.node)} data-testid="task-workflow-decision">
+			{#if blocker}
+				<RoomBlockerNotice post={blocker} {chat} onfollow={onopenpost} />
+			{:else}<p class="text-sm">
 				{decision.kind === 'approval'
 					? m['workflows.task.waiting_approval']({ question: decision.question || nodeLabel(run.node) })
 					: m['workflows.task.paused_note']()}
-			</p>
+			</p>{/if}
 			{#if decision.kind === 'approval' && run.ship_merge}
 				<!-- The ship approval: approving merges (KUA-209, KUA-216). -->
 				<p class="text-xs text-muted-foreground" data-testid="task-workflow-ship-merge">
 					{m['workflows.task.ship_merge_note']()}
 				</p>
 			{/if}
-			<div class="flex flex-wrap gap-2">
+			<div class="mobile-touch-targets flex flex-wrap gap-2">
 				{#if decision.kind === 'approval'}
 					<Button size="sm" disabled={deciding} onclick={() => decide('approve')}>{m['workflows.task.approve']()}</Button>
 					{#if !shared.pipeline}<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('deny')}
 							>{m['workflows.task.deny']()}</Button
 						>{/if}
 				{:else}
-					<Button size="sm" disabled={deciding} onclick={() => decide('continue')}
+					<Button size="sm" variant={blocker ? 'outline' : 'default'} disabled={deciding} onclick={() => decide('continue')}
 						>{m['workflows.task.continue']()}</Button
 					>
 					<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('stop')}
@@ -186,7 +188,7 @@
 			<!-- Closing (Esc or the close button) returns focus to Expand. -->
 			<Dialog.Root bind:open={expanded}>
 				<Dialog.Content
-					class="top-0 left-0 flex h-dvh w-screen max-w-none translate-x-0 flex-col rounded-none sm:max-w-none"
+					class="mobile-touch-targets motion-reduce:animate-none! top-0 left-0 flex h-dvh w-screen max-w-none translate-x-0 flex-col rounded-none sm:max-w-none"
 				>
 					<Dialog.Title class="pr-10">{m['workflows.task.expanded_title']({ name })}</Dialog.Title>
 					<RunChart

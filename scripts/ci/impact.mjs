@@ -132,6 +132,11 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
     }
     if (path.startsWith('BE/')) {
       flags.backend = true;
+      if (path.startsWith('BE/testdata/room-turn/')) {
+        selectFrontend(['task-room.test.ts']);
+        continue;
+      }
+      if (/^BE\/internal\/domain\/(?:task_)?room/.test(path)) selectFrontend(['task-room.test.ts']);
       if (path.startsWith('BE/assistant-tools/')) {
         if (['BE/assistant-tools/fetch_url.json', 'BE/assistant-tools/fetch_url.py'].includes(path)) selectFrontend();
         continue;

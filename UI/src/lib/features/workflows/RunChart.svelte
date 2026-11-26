@@ -97,7 +97,7 @@
 <!-- The chart is reachable from the keyboard so that its keys can move it. -->
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
-	class={cn('relative rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring', className)}
+	class={cn('workflow-tools-layout relative rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring', className)}
 	role="group"
 	aria-label={label}
 	aria-keyshortcuts="C F 0 + - ArrowLeft ArrowRight ArrowUp ArrowDown"
@@ -121,7 +121,7 @@
 
 	<Tooltip.Provider delayDuration={300}>
 		<div
-			class="absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg border bg-background/95 p-0.5 shadow-sm backdrop-blur"
+			class="mobile-touch-targets absolute top-2 right-2 z-10 flex items-center gap-0.5 rounded-lg border bg-background/95 p-0.5 shadow-sm backdrop-blur"
 			role="toolbar"
 			aria-label={m['workflows.task.chart_tools']()}
 		>

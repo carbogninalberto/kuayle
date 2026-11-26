@@ -2,6 +2,7 @@
 	import ScheduledJobCard from './ScheduledJobCard.svelte';
 	import ChatComposer from './ChatComposer.svelte';
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
+	import { prefersReducedMotion } from 'svelte/motion';
 	import { onMount, tick, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -515,6 +516,24 @@
 		if (chat.unavailable && board) untrack(() => (board = null));
 	});
 
+	// Some mobile keyboards cover the layout viewport while shrinking the visual viewport.
+	function fitKeyboard(shell: HTMLElement) {
+		const viewport = window.visualViewport;
+		if (!viewport) return;
+		const resize = () => {
+			const inset = viewport.scale === 1 ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0;
+			const keyboardInset = matchMedia('(pointer: coarse)').matches || inset > 80 ? inset : 0;
+			shell.style.setProperty('--assistant-keyboard-inset', `${keyboardInset}px`);
+		};
+		resize();
+		viewport.addEventListener('resize', resize);
+		viewport.addEventListener('scroll', resize);
+		return () => {
+			viewport.removeEventListener('resize', resize);
+			viewport.removeEventListener('scroll', resize);
+		};
+	}
+
 	onMount(() => {
 		// An agent's question needs the reader: say so even when it is scrolled away.
 		chat.onAgentQuestion = (question) =>
@@ -645,7 +664,7 @@
 <PageTitle parts={[m['assistant.title']()]} />
 
 {#snippet topBar()}
-	<header class="flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
+	<header class="mobile-touch-targets flex h-12 shrink-0 items-center gap-1 border-b px-2 md:px-3">
 		{#if !sidebarInline && !sidebarRail}<Button
 				variant="ghost"
 				size="icon-sm"
@@ -701,7 +720,7 @@
 								>
 							{/snippet}
 						</DropdownMenu.Trigger>
-						<DropdownMenu.Content align="start" class="w-64">
+						<DropdownMenu.Content align="start" class="mobile-touch-targets w-64">
 							{#if conversationId && !chat.unavailable}<DropdownMenu.Item
 									onSelect={() => (renaming = chat.conversation?.title ?? '')}
 									><Pencil />{m['assistant.rename_conversation']()}</DropdownMenu.Item
@@ -783,10 +802,11 @@
 		<Button
 			variant={agentView ? 'secondary' : 'outline'}
 			size="sm"
-			class="h-7 max-w-[60%] min-w-0 shrink gap-1.5 rounded-full px-2.5 text-xs"
+			title={label}
+			class="h-7 max-w-[60%] min-w-0 shrink gap-1.5 rounded-full px-2.5 text-xs max-[380px]:w-[44px] max-[380px]:shrink-0 max-[380px]:px-1"
 			aria-pressed={agentView}
 			onclick={() => (agentView ? closeAgent() : openAgent(agentTasksList[0]))}
-			><Bot size={13} /><span class="truncate">{label}</span>{@render statusDot(shownTask)}</Button
+			><Bot size={13} /><span class="truncate max-[380px]:sr-only">{label}</span>{@render statusDot(shownTask)}</Button
 		>
 	{:else}
 		<DropdownMenu.Root>
@@ -796,15 +816,16 @@
 						{...props}
 						variant={agentView ? 'secondary' : 'outline'}
 						size="sm"
-						class="h-7 max-w-[60%] min-w-0 shrink gap-1.5 rounded-full px-2.5 text-xs"
-						><Bot size={13} /><span class="truncate">{label}</span>{@render statusDot(shownTask)}<ChevronDown
+						title={label}
+						class="h-7 max-w-[60%] min-w-0 shrink gap-1.5 rounded-full px-2.5 text-xs max-[380px]:w-[44px] max-[380px]:shrink-0 max-[380px]:px-1"
+						><Bot size={13} /><span class="truncate max-[380px]:sr-only">{label}</span>{@render statusDot(shownTask)}<ChevronDown
 							size={12}
-							class="text-muted-foreground"
+							class="text-muted-foreground max-[380px]:hidden"
 						/></Button
 					>
 				{/snippet}
 			</DropdownMenu.Trigger>
-			<DropdownMenu.Content align="start" class="w-72">
+			<DropdownMenu.Content align="start" class="mobile-touch-targets w-72">
 				<DropdownMenu.Label class="text-xs font-normal text-muted-foreground"
 					>{m['assistant.agent_view_choose']()}</DropdownMenu.Label
 				>
@@ -912,7 +933,7 @@
 {#snippet center()}
 	<section class="flex h-full min-h-0 min-w-0 flex-1 flex-col" aria-label={m['assistant.conversation']()}>
 		{@render topBar()}
-		<div class="min-h-0 flex-1">
+		<div class="min-h-0 flex-1" class:mobile-touch-targets={!agentView}>
 			<MessageScroller.Provider autoScroll>
 				<ScrollerHandle bind:scroller />
 				<MessageScroller.Root>
@@ -1009,7 +1030,7 @@
 						</MessageScroller.Content>
 						{/if}
 					</MessageScroller.Viewport>
-					<MessageScroller.Button aria-label={m['assistant.latest']()}
+				<MessageScroller.Button class="mobile-touch-targets" behavior={prefersReducedMotion.current ? 'auto' : 'smooth'} aria-label={m['assistant.latest']()}
 						><ArrowDown size={16} /><span class="sr-only">{m['assistant.latest']()}</span></MessageScroller.Button
 					>
 				</MessageScroller.Root>
@@ -1028,7 +1049,7 @@
 	{#if agentTask}{#key agentTask.id}<TaskColumn {chat} task={agentTask} {onclose} />{/key}{/if}
 {/snippet}
 
-<div class="flex h-full min-h-0 min-w-0 flex-1 bg-background text-foreground" data-testid="assistant-shell">
+<div class="assistant-surface flex h-full min-h-0 min-w-0 flex-1 bg-background text-foreground" style:max-height="calc(100% - var(--assistant-keyboard-inset, 0px))" data-testid="assistant-shell" {@attach fitKeyboard}>
 	{#if sidebarRail}
 		<AssistantRail
 			{slug}
@@ -1047,7 +1068,7 @@
 		</div>
 	{:else}
 		<Sheet.Root bind:open={sidebarDrawer}>
-			<Sheet.Content side="left" class="w-[min(88vw,300px)] gap-0 p-0" showCloseButton={false}>
+			<Sheet.Content side="left" class="assistant-surface mobile-touch-targets w-[min(88vw,300px)] gap-0 p-0" showCloseButton={false}>
 				<Sheet.Header class="sr-only">
 					<Sheet.Title>{m['assistant.sidebar']()}</Sheet.Title>
 					<Sheet.Description>{m['assistant.sidebar_description']()}</Sheet.Description>
@@ -1085,7 +1106,7 @@
 		{:else}
 			{@render center()}
 			<Sheet.Root bind:open={taskSheet}>
-				<Sheet.Content side="left" class="w-[min(88vw,340px)] gap-0 p-0" showCloseButton={false}>
+				<Sheet.Content side="left" class="assistant-surface mobile-touch-targets w-[min(88vw,340px)] gap-0 p-0" showCloseButton={false}>
 					<Sheet.Header class="sr-only">
 						<Sheet.Title>{m['assistant.task_column']()}</Sheet.Title>
 						<Sheet.Description>{m['assistant.task_column_description']()}</Sheet.Description>
@@ -1094,7 +1115,7 @@
 				</Sheet.Content>
 			</Sheet.Root>
 			<Sheet.Root open={!!activePanel} onOpenChange={(open) => !open && closePanel()}>
-				<Sheet.Content side="right" class="w-full gap-0 p-0 sm:max-w-xl" showCloseButton={false}>
+				<Sheet.Content side="right" class="assistant-surface data-[side=right]:w-full gap-0 p-0 sm:max-w-xl" showCloseButton={false}>
 					<Sheet.Header class="sr-only">
 						<Sheet.Title>{activePanel?.label() ?? m['assistant.panels']()}</Sheet.Title>
 						<Sheet.Description>{m['assistant.panel_description']()}</Sheet.Description>

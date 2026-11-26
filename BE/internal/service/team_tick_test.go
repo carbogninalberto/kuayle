@@ -814,10 +814,20 @@ func TestTickScenario08NoProgressPausesForTheOwner(t *testing.T) {
 
 	// Continuing counts again from nothing: two more sends, then a pause.
 	require.NoError(t, w.decide(WorkflowDecisionContinue))
+	continueReason := w.task().Reason
 	w.drain()
 	require.Equal(t, 5, w.runtime.turns["implementer"])
-	require.Len(t, w.posts(domain.RoomSummary), 4)
 	require.Equal(t, domain.WorkflowStatusPaused, *w.task().WorkflowStatus)
+	summaries = w.posts(domain.RoomSummary)
+	require.Len(t, summaries, 5)
+	receipt := summaries[2]
+	require.Equal(t, domain.RoomAuthorKuayle, receipt.AuthorKind)
+	require.Equal(t, continueReason, receipt.Body)
+	require.Empty(t, receipt.ToRoles)
+	for _, reminder := range summaries[3:] {
+		require.Equal(t, []string{"implementer"}, []string(reminder.ToRoles))
+		require.Contains(t, reminder.Body, "did not approve")
+	}
 }
 
 func TestTickScenario09RefusedPostIsToldOnTheNextTurn(t *testing.T) {

@@ -227,6 +227,55 @@ test('keyboard newline, local drafts and mobile layout', async ({ page }, testIn
 	await page.screenshot({ animations: 'disabled', path: testInfo.outputPath('mobile.png') });
 });
 
+test('a desktop scrollbar does not shorten the chat panel', async ({ page }) => {
+	await fixture(page);
+	await page.goto('/test/assistant?conversation=chat-1');
+	const shell = page.getByTestId('assistant-shell');
+	await expect(shell).toBeVisible();
+	const before = (await shell.boundingBox())!;
+	await page.evaluate(() => {
+		Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: innerHeight - 15 });
+		window.visualViewport!.dispatchEvent(new Event('resize'));
+	});
+	expect((await shell.boundingBox())!.height).toBe(before.height);
+});
+
+test('mobile chat controls and approvals fit above the visual keyboard viewport', async ({ browser }, testInfo) => {
+	const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 360, height: 800 }, reducedMotion: 'reduce' });
+	const page = await context.newPage();
+	await pendingDelegation(page, { title: 'Review the delivery report', instructions: 'Check the totals.' });
+	await page.goto('/test/assistant?conversation=chat-1');
+	const composer = page.getByTestId('assistant-composer');
+	const message = composer.getByRole('textbox', { name: 'Message' });
+	await message.fill('Ready to review');
+	await expect(composer.getByTestId('approval-card')).toBeVisible();
+	const panel = page.getByTestId('panel-toggle');
+	for (const control of [panel, ...await composer.getByRole('button').all()]) {
+		const box = (await control.boundingBox())!;
+		expect(Math.min(box.width, box.height), await control.getAttribute('aria-label') ?? '').toBeGreaterThanOrEqual(44);
+	}
+	await panel.click();
+	await expect(page.getByRole('dialog')).toHaveCSS('animation-name', 'none');
+	await page.keyboard.press('Escape');
+	await message.focus();
+	// Mobile browsers can resize only the visual viewport when the keyboard opens.
+	await page.evaluate(() => {
+		Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 360 });
+		window.visualViewport!.dispatchEvent(new Event('resize'));
+	});
+	const send = composer.getByRole('button', { name: 'Send message' });
+	await expect.poll(() => send.evaluate(el => el.getBoundingClientRect().bottom)).toBeLessThanOrEqual(360);
+	await expect(message).toBeFocused();
+	await expect(message).toHaveValue('Ready to review');
+	await page.evaluate(() => {
+		Reflect.deleteProperty(window.visualViewport!, 'height');
+		window.visualViewport!.dispatchEvent(new Event('resize'));
+	});
+	await expect.poll(() => send.evaluate(el => el.getBoundingClientRect().top)).toBeGreaterThan(360);
+	await page.screenshot({ path: testInfo.outputPath('mobile-chat.png'), animations: 'disabled' });
+	await context.close();
+});
+
 test('clears conversation content after access is revoked', async ({ page }) => {
 	const state = await fixture(page);
 	state.messages = [userMessage, { ...reply, content: 'Private response', status: 'completed' }];
@@ -451,6 +500,7 @@ test('renders Markdown tables in assistant replies with alignment and horizontal
 				'|:--|:-:|--:|',
 				'| one | two | three |',
 				'',
+				'```', 'long_code_line'.repeat(40), '```', '',
 				'Wide table:',
 				'',
 				wideTable,
@@ -493,6 +543,10 @@ test('renders Markdown tables in assistant replies with alignment and horizontal
 
 	const wide = markdown.locator('table').nth(1);
 	await expect(wide.locator('thead th')).toHaveCount(12);
+	await page.setViewportSize({ width: 360, height: 800 });
+	for (const block of [wide, markdown.locator('pre')]) {
+		expect(await block.evaluate(el => { el.scrollLeft = 32; return el.scrollLeft; })).toBeGreaterThan(0);
+	}
 	const overflow = await wide.evaluate((table) => ({
 		scrollWidth: table.scrollWidth,
 		clientWidth: table.clientWidth
@@ -551,6 +605,7 @@ test('preserves a new draft typed while a send is pending', async ({ page }) => 
 });
 
 test('ignores a delayed reconnect after a fresh conversation load', async ({ page }) => {
+	await page.setViewportSize({ width: 375, height: 812 });
 	const state = await fixture(page);
 	state.messages = [userMessage, reply];
 	let release!: () => void;
@@ -559,7 +614,10 @@ test('ignores a delayed reconnect after a fresh conversation load', async ({ pag
 	await expect.poll(() => state.sockets.length).toBe(1);
 	state.sockets[0].close({ code: 1012, reason: 'Restart' });
 	await expect.poll(() => state.replayRequested).toBe(true);
-	await page.getByRole('button', { name: 'Stop response' }).click();
+	const stop = page.getByRole('button', { name: 'Stop response' });
+	const box = (await stop.boundingBox())!;
+	expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+	await stop.click();
 	await expect.poll(() => state.sockets.length).toBe(2);
 	release();
 	// Observe the stale network continuation; it must not open a third socket.
@@ -3365,7 +3423,16 @@ test('the copy control is always shown where nothing can hover', async ({ browse
 	await page.goto('/test/assistant?conversation=chat-1');
 	const buttons = page.getByRole('button', { name: 'Copy message' });
 	await expect(buttons).toHaveCount(2);
-	for (const button of await buttons.all()) await expect(button).toHaveCSS('opacity', '1');
+	for (const button of await buttons.all()) {
+		await expect(button).toHaveCSS('opacity', '1');
+		const reserved = await button.evaluate(el => {
+			const content = el.closest('[data-slot="bubble"]')!.querySelector('[data-slot="bubble-content"]')!;
+			return parseFloat(getComputedStyle(content).paddingInlineEnd);
+		});
+		const box = (await button.boundingBox())!;
+		expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+		expect(reserved).toBeGreaterThanOrEqual(box.width);
+	}
 	await context.close();
 });
 

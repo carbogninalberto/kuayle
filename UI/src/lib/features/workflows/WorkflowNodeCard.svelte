@@ -116,13 +116,13 @@
 	<!-- Adds the next step, connected; shown on hover and when selected. -->
 	<div
 		class={cn(
-			'workflow-add-next nodrag nopan absolute -right-7 -bottom-7 z-10 opacity-0 transition-opacity focus-within:opacity-100',
-			selected && 'opacity-100'
+			'workflow-add-next nodrag nopan absolute -right-7 -bottom-7 pointer-coarse:-bottom-12 pointer-coarse:right-0 pointer-coarse:pointer-events-none pointer-coarse:focus-within:pointer-events-auto z-10 opacity-0 transition-opacity focus-within:opacity-100',
+			selected && 'opacity-100 pointer-coarse:pointer-events-auto'
 		)}
 	>
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger
-				class="flex size-6 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
+				class="flex size-6 pointer-coarse:size-11 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
 				aria-label={m['workflows.editor.add_next']()}
 				title={m['workflows.editor.add_next']()}><Plus class="size-3.5" /></DropdownMenu.Trigger
 			>

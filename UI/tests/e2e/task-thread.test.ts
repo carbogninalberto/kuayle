@@ -314,12 +314,12 @@ async function shots(page: Page, testInfo: TestInfo, name: string) {
 	await dark(page, false);
 }
 
-test('the room is one line per event, folds Kuayle’s facts and filters by role or to the decisions', async ({ page }, testInfo) => {
+test('the conversation filters by role or decision and system activity retains the fact history', async ({ page }, testInfo) => {
 	await fixture(page);
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await page.goto(agentView);
 	const rows = thread(page).getByRole('list', { name: 'Task room' }).locator(':scope > li');
-	await expect(rows).toHaveCount(7);
+	await expect(rows).toHaveCount(4);
 
 	// The header: the issue, the title, the phase with the task's state, who
 	// works now, stop and a menu with the trace.
@@ -332,7 +332,8 @@ test('the room is one line per event, folds Kuayle’s facts and filters by role
 
 	// Five facts in a row are one line: what they say, CI's run from where
 	// it started to where it ended; opened, each with Kuayle's reason.
-	const facts = rows.nth(3).getByRole('article', { name: 'Kuayle' });
+	await thread(page).getByRole('button', { name: 'System activity' }).click();
+	const facts = thread(page).locator('[data-row="facts"]').first();
 	const factsLine = facts.getByRole('button');
 	await expect(factsLine).toContainText('Pull request opened · Head abc1234 · CI running, then CI failed · No migration collision');
 	await factsLine.click();
@@ -344,35 +345,34 @@ test('the room is one line per event, folds Kuayle’s facts and filters by role
 
 	// A turn is one line: the role, its final message's first line, its time,
 	// the tokens it worked through and how it went.
-	const first = rows.nth(2).getByRole('article', { name: 'implementer' }).getByRole('button');
+	const first = thread(page).locator('[data-row="turn"]').first().getByRole('button');
 	await expect(first).toContainText('implementer — Search is added.');
 	await expect(first).toContainText('3m 0s');
 	await expect(first).toContainText('1.2K tokens');
 	await expect(first.getByRole('img', { name: 'Done' })).toBeVisible();
-	const verdict = rows.nth(5).getByRole('article', { name: 'reviewer' }).getByRole('button');
-	await expect(verdict).toContainText('reviewer — Rename q to query.');
+	const verdict = rows.nth(2);
+	await expect(verdict).toContainText('Rename q to query.');
 	await expect(verdict).toContainText('Changes requested');
 	await shots(page, testInfo, 'thread-desktop');
 
 	// One role's lines.
 	await chooseRole(page, 'reviewer');
-	await expect(rows).toHaveCount(1);
-	await expect(rows.first()).toContainText('Rename q to query.');
+	await expect(rows).toHaveCount(2);
+	await expect(rows.last()).toContainText('Rename q to query.');
 	// The decisions: phase moves and verdicts.
 	await chooseRole(page, 'Everyone');
 	const decisions = filters(page).getByRole('button', { name: 'Decisions only' });
 	await decisions.press('Space');
 	await expect(decisions).toHaveAttribute('aria-pressed', 'true');
-	await expect(rows).toHaveCount(3);
-	await expect(rows.nth(0)).toContainText('Moved to Implement');
-	await expect(rows.nth(1)).toContainText('Moved to Integrate');
-	await expect(rows.nth(2)).toContainText('Changes requested');
+	await expect(rows).toHaveCount(1);
+	await expect(rows.first()).toContainText('Changes requested');
+	await expect(thread(page).getByText('Moved to Implement', { exact: false }).first()).toBeVisible();
 	// Nothing left: the reader is told, and shows everything again.
 	await chooseRole(page, 'implementer');
 	await expect(rows).toHaveCount(0);
 	await expect(thread(page).getByText('No line matches this filter.')).toBeVisible();
 	await thread(page).getByRole('button', { name: 'Show everything' }).click();
-	await expect(rows).toHaveCount(7);
+	await expect(rows).toHaveCount(4);
 	await expect(decisions).toHaveAttribute('aria-pressed', 'false');
 });
 
@@ -424,7 +424,7 @@ test('the Checks tab says how each check stands, why and since when, and the own
 	const { state } = await fixture(page);
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await page.goto(agentView);
-	await expect(thread(page).getByRole('list', { name: 'Task room' }).locator(':scope > li')).toHaveCount(7);
+	await expect(thread(page).getByRole('list', { name: 'Task room' }).locator(':scope > li')).toHaveCount(4);
 	await openChecks(page);
 	await expect(checks(page)).toContainText('For the head abc1234');
 
@@ -495,7 +495,7 @@ test('at phone width the thread and its Checks tab fit without scrolling sideway
 	await fixture(page);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto(agentView);
-	await expect(thread(page).getByRole('list', { name: 'Task room' }).locator(':scope > li')).toHaveCount(7);
+	await expect(thread(page).getByRole('list', { name: 'Task room' }).locator(':scope > li')).toHaveCount(4);
 	await expect(filters(page)).toBeVisible();
 	const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 	expect(await fits()).toBe(true);

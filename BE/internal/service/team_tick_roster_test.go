@@ -100,3 +100,18 @@ func TestTickTheFirstAddressStartsAnOnCallRole(t *testing.T) {
 	require.Contains(t, prompt, "Nobody asked you for a verdict")
 	require.Equal(t, 1, w.runtime.turns["uiux"])
 }
+
+func TestOwnerMessageReachesReviewersNextTurn(t *testing.T) {
+	w := newTickWorld(t, nil)
+	w.agent = w.writesAndApproves
+	w.drain()
+	reviews, writes := w.runtime.turns["reviewer"], w.runtime.turns["implementer"]
+	const body = "Please verify case-insensitive search."
+	_, err := w.f.tasks.Repo.PostRoomMessage(w.f.ctx, w.f.ws, w.root, domain.TaskRoomPost{
+		Kind: domain.RoomSay, Body: body, ToRoles: []string{"reviewer"},
+	})
+	require.NoError(t, err)
+	w.drain()
+	require.Contains(t, w.prompt("reviewer", reviews+1), body)
+	require.Equal(t, writes, w.runtime.turns["implementer"])
+}

@@ -10,7 +10,7 @@
 
 <div class="min-w-0 space-y-4 px-4 py-3">
 	{#if context.board}
-		{#if workflowTask?.workflow_version_id}{#key workflowTask.id}<TaskWorkflowView
+		{#if workflowTask?.workflow_version_id}{#key workflowTask.id}<TaskWorkflowView onopenpost={context.close}
 					chat={context.chat}
 					task={workflowTask}
 					onopenworkflow={() => context.open('workflow')}
