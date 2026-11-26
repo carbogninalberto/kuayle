@@ -3502,6 +3502,7 @@
 	"assistant.sent_to_agent": "Enviado al agente {agent} de {identifier}",
 	"assistant.show_earlier": "Mostrar {count} mensajes anteriores",
 	"assistant.show_less": "Mostrar menos",
+	"assistant.post_show_more": "Mostrar más",
 	"assistant.show_more": "Mostrar {count} más",
 	"assistant.show_sidebar": "Mostrar conversaciones",
 	"assistant.sidebar": "Barra lateral del asistente",

@@ -299,9 +299,11 @@ it, in the session at the moment it was delivered (before the first thing the
 agent did afterwards), right-aligned, with its time and one quiet icon for its
 state, named on hover and for assistive technology: waiting, delivered,
 replied, or no reply. The agent's reply (the message whose `reply_to` names
-it) is the next item; its other messages and questions are placed by time, as
-escaped plain text. A message that waits is shown where it will be picked up:
-at the end of the running step, or after the last step when none runs. A
+it) is the next item. Its other messages and questions are placed by time.
+Agent posts in the thread, task room and assistant chat use sanitized Markdown.
+Long posts expand with “Show more”. Wide tables and code scroll inside the post.
+A queued message appears at the end of the running step or after the last
+step when none runs. A
 message is "no reply" once the attempt that received it ran to its end
 without one (or the task ended); an attempt that was interrupted or paused
 hands it to the one that continues it. A missing reply never fails the
@@ -1009,7 +1011,8 @@ of the conversation's tasks in the page's span of time
 next newer page),
 newest 200, oldest first, labelled with their issue. The chat places them
 between its messages by time as distinct items labelled "Coding agent ·
-ENG-1" or "You · ENG-1", rendered as escaped plain text. Incoming items carry a
+ENG-1" or "You · ENG-1". Agent posts use sanitized Markdown, and
+outgoing messages display as plain text. Incoming items carry a
 note that the assistant does not act on them unless asked. A
 `kind: "question"` item is marked as a question, and one that arrives live
 raises a toast; the creator also gets a [Telegram notice](telegram.md#task-notifications)

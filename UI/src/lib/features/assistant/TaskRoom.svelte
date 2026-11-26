@@ -17,6 +17,7 @@
 	import type { TaskRun } from './task-run.svelte';
 	import { stepDuration, type StepStatus as Status } from './agent-timeline';
 	import AgentStepRun from './AgentStepRun.svelte';
+	import AgentPostBody from './AgentPostBody.svelte';
 	import CopyMessageButton from './CopyMessageButton.svelte';
 	import TurnLine from './TurnLine.svelte';
 	import { factLabel, foldText, openByDefault, roomRows, roomSplits, rowRoles, type FactLabel, type RoomRow, type RoomTurn } from './task-room';
@@ -34,7 +35,7 @@
 	// decisions. The room is read whole once and kept by its events
 	// (ConversationState); it is read on from the last unbroken post when the
 	// task's run is read again (its events and poll) or when a post arrives
-	// after a gap. Text from roles is untrusted and shown as plain text only.
+	// after a gap.
 	// A post the room refused is muted, with the reason.
 	let {
 		chat,
@@ -335,11 +336,12 @@
 		{#if message.body}<Bubble.Root variant="outline" class="max-w-[92%]"
 				><Bubble.Content
 					data-selectable="text"
-					class="rounded-2xl rounded-bl-md border ps-3.5 pe-9 py-2 break-words whitespace-pre-wrap {message.kind === 'ask' &&
+					class="rounded-2xl rounded-bl-md border ps-3.5 pe-9 py-2 {message.kind === 'ask' &&
 					!refused
 						? 'border-[var(--status-warning)]/50'
-						: ''} {refused ? 'text-muted-foreground' : ''}">{message.body}</Bubble.Content
-				>
+						: ''} {refused ? 'text-muted-foreground' : ''}">
+					<AgentPostBody source={message.body} />
+				</Bubble.Content>
 				<CopyMessageButton text={message.body} />
 			</Bubble.Root>{/if}
 		{#if split}
