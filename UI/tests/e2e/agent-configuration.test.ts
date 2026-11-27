@@ -293,3 +293,40 @@ test('members see the default models but cannot change them', async ({ page }) =
 	await expect(card.locator('#agent-default-model-claude-code')).toBeDisabled();
 	await expect(card.getByRole('button', { name: 'Save the Claude Code default' })).toHaveCount(0);
 });
+
+async function openCodingAgents(page: import('@playwright/test').Page) {
+	await mockShell(page);
+	await mockModelDefaults(page, []);
+	await page.goto('/test/settings/agents');
+	const section = page.locator('section[aria-labelledby="coding-agents-title"]');
+	await expect(section).toBeVisible();
+	return section;
+}
+
+test('every coding agent shows its logo, not a monogram tile', async ({ page }) => {
+	const section = await openCodingAgents(page);
+	const rows = section.locator('label');
+	for (const name of ['Codex', 'Claude Code', 'OpenCode', 'Pi', 'Qwen Code', 'Kimi']) {
+		const row = rows.filter({ hasText: name }).first();
+		await expect(row.locator('svg').first()).toBeVisible();
+	}
+	// Crush and Goose use their project avatars, which must load.
+	for (const name of ['Crush', 'Goose']) {
+		const image = rows.filter({ hasText: name }).first().locator('img');
+		await expect(image).toBeVisible();
+		await expect.poll(() => image.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0);
+	}
+	for (const monogram of ['Cx', 'Cr', 'Go']) {
+		await expect(section.getByText(monogram, { exact: true })).toBeHidden();
+	}
+});
+
+test('an agent logo image that fails to load falls back to its monogram', async ({ page }) => {
+	await page.route('**/agents/crush.png', (route) => route.abort());
+	const section = await openCodingAgents(page);
+	const crush = section.locator('label').filter({ hasText: 'Crush' }).first();
+	await expect(crush.getByText('Cr', { exact: true })).toBeVisible();
+	await expect(crush.locator('img')).toBeHidden();
+	// The other image logo is unaffected.
+	await expect(section.locator('label').filter({ hasText: 'Goose' }).first().locator('img')).toBeVisible();
+});
