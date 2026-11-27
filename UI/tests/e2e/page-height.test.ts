@@ -1228,6 +1228,29 @@ for (const route of routes.filter(({ path }) => path.startsWith('/test/settings'
 	}
 }
 
+test('the desktop Settings navigation scrolls to its last entry in a short window', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 420 });
+	await mockApi(page, 'light');
+	await page.goto('/test/settings/profile');
+	const nav = page.getByRole('navigation', { name: 'Settings navigation' });
+	const last = nav.getByRole('link', { name: 'Licenses', exact: true });
+	await expect(last).toBeAttached();
+	await waitForLayoutToSettle(page);
+	await expect(last).not.toBeInViewport();
+	// The header stays put while the list scrolls.
+	const back = page.getByRole('link', { name: 'Back', exact: true });
+	await nav.hover();
+	await page.mouse.wheel(0, 2000);
+	await expect(last).toBeInViewport();
+	await expect(back).toBeInViewport();
+	// Keyboard focus brings an off-screen entry into view too.
+	await nav.evaluate((el) => (el.scrollTop = 0));
+	await expect(last).not.toBeInViewport();
+	await last.focus();
+	await expect(last).toBeInViewport();
+	await expectNoPageScroll(page, { expectOverflow: true });
+});
+
 test('a long license list stays readable and scrolls to its last package at 390px', async ({ page }) => {
 	await page.setViewportSize(phone);
 	await mockApi(page, 'light');

@@ -323,7 +323,7 @@
 	</Sheet.Root>
 
 	<div class="flex min-h-0 flex-1">
-		<aside class="hidden w-56 shrink-0 border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] overflow-y-auto md:block">
+		<aside class="hidden min-h-0 w-56 shrink-0 flex-col border-r border-[var(--app-border)] bg-[var(--color-bg-secondary)] md:flex">
 			{@render settingsNav()}
 		</aside>
 		<div class="min-w-0 flex-1 overflow-y-auto" data-testid="settings-content">
