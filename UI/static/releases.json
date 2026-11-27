@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v0.4.4",
+    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.4",
+    "body": "## What's changed\n\n### Fixes\n\n- **The settings sidebar scrolls again.** (#429, KUA-335)\n  - When the navigation is taller than the window, the sidebar scrolls so every entry stays reachable, including \"Instance configuration\" at the bottom.\n- **Codex, Pi, Goose and Crush show their own logos again.** (#428, KUA-336)\n  - Each of the four agents renders its icon wherever agents are listed, instead of a missing placeholder or the generic fallback.\n  - Sizing and alignment match the other agent icons, including in compact and list views; agents without a configured icon keep the existing fallback.",
+    "published_at": "2026-11-27T10:53:27Z",
+    "prerelease": false,
+    "force_upgrade": false,
+    "minimum_supported_version": null,
+    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.4",
+    "upgrade_message": null
+  },
+  {
     "tag_name": "v0.4.3",
     "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.4.3",
     "body": "## What's changed\n\n### New\n\n- **Every decision that waits on you is pinned at the top of the task room.** (#427, KUA-328)\n  - Open requests, asks, approvals and pauses become cards that say what is asked, who asks and why, with Approve, Decline, reply and the lead's A/B/C choices inline.\n  - An answered card moves into the thread as a normal post.\n  - Pending decisions are counted on the task row, in the issue's task block and as a sidebar badge, and each also lands in your Inbox and as a notification (push, and Telegram where lead reports already go).\n  - A task paused on an unanswered decision says \"Waiting on your decision: …\" and links to the card instead of offering Continue.\n- **A \"Needs me\" list gathers every task waiting on you across issues.** (#427, KUA-328)\n- **The task room reads as a conversation.** (#426, KUA-323)\n  - Member and owner posts are the main view, with role avatars and replies attached to the post they answer.\n  - Kuayle facts, stall summaries and turn summaries move into a separate system section, without repeated stall summaries.\n  - A composer addresses @all or one role and reaches that member's next turn without pausing the workflow.\n  - Each turn's full output (summary, diff, files) opens on demand.\n\n### Improvements\n\n- **Mobile covers the assistant chat, approvals and the workflow canvas.** (#425, KUA-327)\n  - Chat controls are touch-sized, code and tables scroll locally, and the composer stays clear of the keyboard and safe areas.\n  - Workflow toolbar controls no longer overlap graph ports and drag zones, and reduced-motion preferences are respected.\n\n### Upgrade notes\n\n- **Migrations:** 000214 runs on startup. Back up the database first.",
@@ -1086,17 +1097,6 @@
     "force_upgrade": false,
     "minimum_supported_version": null,
     "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.10",
-    "upgrade_message": null
-  },
-  {
-    "tag_name": "v0.0.9",
-    "html_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.9",
-    "body": "## What's Changed\r\n* Alberto/kua 27 addsearch global search of issues should also sear by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/20\r\n* Alberto/kua 37 fixprompt copy images are not included in the prom by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/21\r\n* feat(workspace): add default labels on workspace creation by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/22\r\n* fix(views): remove filter preview from save dialog and view list by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/23\r\n* feat(issues): add default prefill for issue creation dialog by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/24\r\n* feat(websocket): dispatch real-time updates for GitHub events by @carbogninalberto in https://github.com/carbogninalberto/kuayle/pull/25\r\n\r\n\r\n**Full Changelog**: https://github.com/carbogninalberto/kuayle/compare/v0.0.8...v0.0.9",
-    "published_at": "2026-07-06T19:08:32Z",
-    "prerelease": false,
-    "force_upgrade": false,
-    "minimum_supported_version": null,
-    "upgrade_url": "https://github.com/carbogninalberto/kuayle/releases/tag/v0.0.9",
     "upgrade_message": null
   }
 ]
