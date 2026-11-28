@@ -295,7 +295,7 @@ func notebookRunWith(t *testing.T, scenario notebookScenario, prepared func(*not
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1},
 		agentRun: run,
 		provider: &domain.DevMachineAgentProvider{MachineID: machineID, ProviderID: scenario.provider, ImageRef: "kuayle/agent:test", Enabled: true},
-		services: []domain.DevMachineService{{ServiceType: "ide", Status: "running", ContainerID: &container}},
+		services: []domain.DevMachineService{{ServiceType: "terminal", Status: "running", ContainerID: &container}},
 		envVars:  []domain.DevMachineEnvVar{{Name: "OPENAI_API_KEY", EncryptedValue: sealed}, {Name: "ANTHROPIC_API_KEY", EncryptedValue: sealed}},
 	}}
 	if scenario.noDeveloper {
@@ -605,7 +605,7 @@ func TestAFailedCollectionIsNotBlamedOnTheAgent(t *testing.T) {
 // record leaves it there for the next collection, which records it once.
 func TestNotebookUpdateStaysInTheOutboxUntilItIsRecorded(t *testing.T) {
 	container := "developer"
-	services := []domain.DevMachineService{{ServiceType: "ide", Status: "running", ContainerID: &container}}
+	services := []domain.DevMachineService{{ServiceType: "terminal", Status: "running", ContainerID: &container}}
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New()}
 	update := domain.AgentOutboxFile{Worktree: "/workspace/tasks/eng-9", Name: "notebook.json", Data: []byte(`{"done":["x"]}`), Ack: "eyJkb25lIjpbIngiXX0="}
 	store := &notebookStoreFake{managerStoreFake: &managerStoreFake{machine: machine}, recordErr: errors.New("database is down")}

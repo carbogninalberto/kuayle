@@ -506,6 +506,22 @@ func TestWorkspaceTransferRoundTrip(t *testing.T) {
 	require.NoError(t, db.Get(&importedScriptType, `SELECT a.content_type FROM assets a JOIN workspaces w ON w.id=a.workspace_id WHERE w.slug=$1`, scriptSlug))
 	require.Equal(t, "application/octet-stream", importedScriptType)
 
+	// Archives exported before Development Environments were removed carry a
+	// (cleared) environment_id column on scope settings; they still import.
+	legacySlug := "transfer-legacy-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM workspaces WHERE slug=$1`, legacySlug) })
+	legacyArchive := mutateWorkspaceArchive(t, archive.Path, func(_ *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {
+		require.NotEmpty(t, data.Tables["dev_machine_scope_settings"])
+		for _, row := range data.Tables["dev_machine_scope_settings"] {
+			row["environment_id"] = nil
+		}
+	})
+	_, err = transferService.Import(ctx, legacyArchive, "Legacy", legacySlug, userID)
+	require.NoError(t, err)
+	var legacyScopeRepoCount int
+	require.NoError(t, db.Get(&legacyScopeRepoCount, `SELECT COUNT(*) FROM dev_machine_scope_settings s JOIN workspaces w ON w.id=s.workspace_id WHERE w.slug=$1 AND s.github_repo_id IS NOT NULL`, legacySlug))
+	require.Equal(t, 1, legacyScopeRepoCount)
+
 	missingSlug := "transfer-missing-" + strings.ReplaceAll(uuid.New().String(), "-", "")[:8]
 	missingEmail := "missing-" + uuid.New().String() + "@example.test"
 	missingArchive := mutateWorkspaceArchive(t, archive.Path, func(manifest *dto.WorkspaceExportManifest, data *dto.WorkspaceTransferData) {

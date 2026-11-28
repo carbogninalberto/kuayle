@@ -256,12 +256,12 @@ class UpdateFlowTests(unittest.TestCase):
         self.raw['services']['machine-manager'] = {'image': 'old-manager'}
         ghcr = m.REGISTRY + '/kuayle'
         self.image_listing([
-            f'{ghcr}-api:v1.2.1', f'{ghcr}-dev-machine-ide:v1.0.0', f'{ghcr}:v0.9.0',
+            f'{ghcr}-api:v1.2.1', f'{ghcr}-dev-machine-headless:v1.0.0', f'{ghcr}:v0.9.0',
             'local/instance-machine-manager:v1.1.0', f'{ghcr}-dev-machine-docker:v1.1.9',
             # The release being installed and the previous one stay for rollback.
-            f'{ghcr}-api:v1.2.2', f'{ghcr}-api:v1.2.3', 'local/instance-dev-machine-ide:v1.2.2',
+            f'{ghcr}-api:v1.2.2', f'{ghcr}-api:v1.2.3', 'local/instance-dev-machine-headless:v1.2.2',
             # Other projects, custom tags and moving tags are never touched.
-            'local/other-dev-machine-ide:v1.0.0', 'library/postgres:v1.0.0', f'{m.REGISTRY}/elsewhere:v1.0.0',
+            'local/other-dev-machine-headless:v1.0.0', 'library/postgres:v1.0.0', f'{m.REGISTRY}/elsewhere:v1.0.0',
             # A project whose name extends this one owns its own local builds.
             'local/instance-staging-machine-manager:v1.0.0', 'local/instance-unknown:v1.0.0',
             f'{ghcr}-api:latest', f'{ghcr}-updater:release-fix', f'{ghcr}-api:v1.0.0-fix',
@@ -270,7 +270,7 @@ class UpdateFlowTests(unittest.TestCase):
         with patch('sys.stdout', out):
             self.updater.update()
         self.assertEqual(sorted(self.removed()), sorted([
-            f'{ghcr}-api:v1.2.1', f'{ghcr}-dev-machine-ide:v1.0.0', f'{ghcr}:v0.9.0',
+            f'{ghcr}-api:v1.2.1', f'{ghcr}-dev-machine-headless:v1.0.0', f'{ghcr}:v0.9.0',
             'local/instance-machine-manager:v1.1.0', f'{ghcr}-dev-machine-docker:v1.1.9']))
         # An image still used by a container is kept, and the update still succeeds.
         self.assertIn('Release v1.2.3 completed successfully', out.getvalue())
@@ -398,7 +398,7 @@ class UpdateFlowTests(unittest.TestCase):
             'backend': {'environment': {}},
             'machine-manager': {'build': {'context': '../BE', 'dockerfile': 'Dockerfile.machine-manager'}, 'environment': {}},
             'machine-gateway': {'build': {'context': '../BE', 'dockerfile': 'Dockerfile.machine-gateway'}, 'environment': {}},
-            'dev-machine-ide': {'profiles': ['dev-machine-images'], 'image': '${DEV_MACHINE_IDE_IMAGE:-default}', 'build': {'context': '../devmachine', 'dockerfile': 'ide/Dockerfile'}},
+            'dev-machine-headless': {'profiles': ['dev-machine-images'], 'image': '${DEV_MACHINE_HEADLESS_IMAGE:-default}', 'build': {'context': '../devmachine', 'dockerfile': 'headless/Dockerfile'}},
         }}
         self.updater.model = lambda config=None, raw=False: reference if config and str(config).endswith('docker-compose.yml') else self.raw
         original_run, original_compose = self.updater.run, self.updater.compose
@@ -413,7 +413,7 @@ class UpdateFlowTests(unittest.TestCase):
                 return 'backend\nfrontend\nmachine-manager\nmachine-gateway'
             return original_compose(*args, **kwargs)
         self.updater.run, self.updater.compose = run, compose
-        return ['machine-manager', 'machine-gateway', 'dev-machine-ide']
+        return ['machine-manager', 'machine-gateway', 'dev-machine-headless']
 
     def test_dev_profile_pulls_published_release_images_and_records_digests(self):
         services = self.dev_profile()
@@ -425,10 +425,10 @@ class UpdateFlowTests(unittest.TestCase):
             self.assertIn(['docker', 'pull', m.published_repository(name) + ':v1.2.3'], self.calls)
         self.assertFalse(any(c[0] == 'build' for c in self.calls))
         candidate = json.loads((self.updater.runtime / 'release-candidate.json').read_text())['services']
-        digest = m.published_repository('dev-machine-ide') + '@sha256:new'
-        self.assertEqual(candidate['dev-machine-ide']['image'], digest)
-        self.assertEqual(candidate['machine-manager']['environment']['DEV_MACHINE_IDE_IMAGE'], digest)
-        self.assertEqual(candidate['backend']['environment']['DEV_MACHINE_IDE_IMAGE'], digest)
+        digest = m.published_repository('dev-machine-headless') + '@sha256:new'
+        self.assertEqual(candidate['dev-machine-headless']['image'], digest)
+        self.assertEqual(candidate['machine-manager']['environment']['DEV_MACHINE_HEADLESS_IMAGE'], digest)
+        self.assertEqual(candidate['backend']['environment']['DEV_MACHINE_HEADLESS_IMAGE'], digest)
         state = json.loads(self.updater.state.read_text())
         self.assertEqual(state['dev_machine_images'], {name: m.published_repository(name) + '@sha256:new' for name in services})
         self.assertEqual(state['dev_machine_builds'], [])
@@ -512,7 +512,7 @@ class UpdateFlowTests(unittest.TestCase):
         services = self.dev_profile()
         pulled = {name: m.published_repository(name) + '@sha256:new' for name in services}
         self.installed_dev_release(pulled, [])
-        self.raw['services']['dev-machine-ide']['image'] = 'local/instance-dev-machine-ide:v1.2.3'
+        self.raw['services']['dev-machine-headless']['image'] = 'local/instance-dev-machine-headless:v1.2.3'
         with patch('sys.stdout', io.StringIO()):
             self.updater.update()
         self.assertTrue(self.activated, 'drifted references are repaired')

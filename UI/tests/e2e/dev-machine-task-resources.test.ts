@@ -85,7 +85,6 @@ async function mockPolicyApi(page: Page, taskMachine: Record<string, number>, ro
 			if (request.method() === 'DELETE') return route.fulfill({ status: 204, body: '' });
 			return route.fulfill({ json: { workspace_id: workspaceId } });
 		}
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machines')
 			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path === '/api/workspaces/test/agent-automations' || path === '/api/workspaces/test/agent-automation-runs')

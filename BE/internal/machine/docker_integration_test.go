@@ -28,9 +28,9 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 
 	routingKey := strings.ReplaceAll(uuid.NewString(), "-", "")[:20]
 	gatewayName := "kuayle-integration-gateway-" + routingKey
+	headlessImage := integrationImage("KUAYLE_TEST_HEADLESS_IMAGE", "kuayle/dev-machine-headless:0.1.0")
 	runtime, err := NewDockerRuntime(DockerConfig{
 		GatewayContainerName: gatewayName,
-		IngestURL:            "https://example.invalid/api/dev-machine-ingest",
 		EgressDenylist:       "169.254.169.254,metadata.google.internal",
 	})
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 
 	gateway, err := runtime.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: &container.Config{
-			Image:      "kuayle/dev-machine-ide:0.1.0",
+			Image:      headlessImage,
 			Entrypoint: []string{"/bin/sleep"},
 			Cmd:        []string{"180"},
 		},
@@ -59,16 +59,10 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		BaseBranch: "main", WorkingBranch: "kuayle/integration-test",
 	}
 	services := []domain.DevMachineService{
-		integrationService(machine, "collector", "collector", "kuayle/dev-machine-collector:0.1.0", 8091),
 		integrationService(machine, "egress", "egress", "kuayle/dev-machine-egress:0.1.0", 3128),
-		integrationService(machine, "ide", "ide", "kuayle/dev-machine-ide:0.1.0", 8080),
-		integrationService(machine, "terminal", "terminal", "kuayle/dev-machine-ide:0.1.0", 7681),
-		integrationService(machine, "browser", "browser", "kuayle/dev-machine-browser:0.1.0", 3000),
+		integrationService(machine, "terminal", "terminal", headlessImage, 7681),
 	}
-	secrets := map[string]map[string]string{
-		"collector": {"KUAYLE_MACHINE_TOKEN": "integration-test-token", "KUAYLE_BROWSER_CDP_TOKEN": "integration-cdp-token"},
-		"browser":   {"KUAYLE_BROWSER_CDP_TOKEN": "integration-cdp-token"},
-	}
+	secrets := map[string]map[string]string{}
 
 	networkName, volumeName, containers, err := runtime.Spawn(ctx, machine, services, secrets)
 	require.NoError(t, err)
@@ -77,7 +71,6 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	require.Equal(t, "21474836480", volumeInspection.Volume.Options["size"])
 	require.Equal(t, "21474836480", volumeInspection.Volume.Labels[workspaceQuotaLabel])
 	machine.Status = domain.DevMachineStatusRunning
-	require.Equal(t, containers["ide"], containers["terminal"])
 	machine.DockerNetworkName = &networkName
 	machine.WorkspaceVolumeName = &volumeName
 	for index := range services {
@@ -116,7 +109,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 		}
 	}
 	for _, service := range services {
-		if service.ServiceType == "ide" {
+		if service.ServiceType == "terminal" {
 			_, err := runtime.execOutput(ctx, *service.ContainerID, []string{"/bin/sh", "-c", "touch /workspace/.kuayle-write-test && rm /workspace/.kuayle-write-test"})
 			require.NoError(t, err)
 			output, err := runtime.execOutput(ctx, *service.ContainerID, []string{"/bin/sh", "-c", "printf '#!/bin/sh\\necho home-exec-ok\\n' > /home/kuayle/.kuayle-exec-test && chmod +x /home/kuayle/.kuayle-exec-test && /home/kuayle/.kuayle-exec-test; status=$?; rm -f /home/kuayle/.kuayle-exec-test; exit $status"})
@@ -171,7 +164,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	run := &domain.DevMachineAgentRun{
 		ID: uuid.New(), Mode: "task", CommandArgv: command,
 	}
-	provider := &domain.DevMachineAgentProvider{ImageRef: "kuayle/dev-machine-agent-claude:0.1.0"}
+	provider := &domain.DevMachineAgentProvider{ImageRef: headlessImage}
 	execution, err := runtime.RunAgent(ctx, machine, run, provider, nil, map[string]string{
 		"GITHUB_TOKEN": "integration-github-token",
 	}, nil)
@@ -186,7 +179,7 @@ func TestDockerRuntimeLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	customExecution, err := runtime.RunAgent(ctx, machine, &domain.DevMachineAgentRun{
 		ID: uuid.New(), Mode: "task", CommandArgv: customCommand,
-	}, &domain.DevMachineAgentProvider{ImageRef: "kuayle/dev-machine-ide:0.1.0", IsCustom: true}, nil, map[string]string{
+	}, &domain.DevMachineAgentProvider{ImageRef: headlessImage, IsCustom: true}, nil, map[string]string{
 		"TEST_SECRET": "custom-secret-value", "GITHUB_TOKEN": "custom-github-token",
 	}, nil)
 	require.NoError(t, err)
@@ -206,7 +199,7 @@ exit 1`
 	require.NoError(t, err)
 	limitedExecution, err := runtime.RunAgent(ctx, machine, &domain.DevMachineAgentRun{
 		ID: uuid.New(), Mode: "task", CommandArgv: limitCommand,
-	}, &domain.DevMachineAgentProvider{ImageRef: "kuayle/dev-machine-ide:0.1.0", IsCustom: true}, nil, nil, nil)
+	}, &domain.DevMachineAgentProvider{ImageRef: headlessImage, IsCustom: true}, nil, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, limitedExecution.ExitCode)
 	usageLimit, limited := domain.DetectUsageLimit(limitedExecution.Stdout, limitedExecution.Stderr, "", time.Now())
@@ -230,9 +223,9 @@ exit 1`
 			ID: limitedRunID, MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, TaskID: &limitedTaskID,
 			ProviderID: "opencode", Mode: "task", Status: domain.DevMachineAgentRunStatusQueued, MaxRuntimeSeconds: 60, CommandArgv: limitCommand,
 		},
-		provider: &domain.DevMachineAgentProvider{MachineID: machine.ID, ProviderID: "opencode", ImageRef: "kuayle/dev-machine-ide:0.1.0", Enabled: true, IsCustom: true},
+		provider: &domain.DevMachineAgentProvider{MachineID: machine.ID, ProviderID: "opencode", ImageRef: headlessImage, Enabled: true, IsCustom: true},
 	}
-	manager := NewManager(managerStore, runtime, agent.NewRegistry(agent.NewOpenCodeProvider("kuayle/dev-machine-ide:0.1.0")), nil, make([]byte, 32), make([]byte, 32), "test")
+	manager := NewManager(managerStore, runtime, agent.NewRegistry(agent.NewOpenCodeProvider(headlessImage)), nil, make([]byte, 32), make([]byte, 32), "test")
 	require.NoError(t, manager.runAgent(ctx, &managedMachine, &domain.DevMachineOperation{
 		MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, AgentRunID: &limitedRunID, Action: domain.DevMachineOpRunAgent, Generation: 1,
 	}))
@@ -323,9 +316,10 @@ func requireContainerRunning(t *testing.T, ctx context.Context, runtime *DockerR
 // machine that allows sudo and whose developer container holds a
 // developer-scoped secret and the owner's agent sign-ins. The preview command
 // stands for code an agent wrote: it reports what it can reach. It must run
-// in its own container, see neither the secret nor the sign-ins, be unable to
-// use sudo, and be reachable from the gateway by the preview port's name
-// while the developer container serves nothing on that port.
+// in its own container, see neither the secret nor the sign-ins, get the
+// agent-class sudo relaxation, and be reachable from the gateway by the
+// preview port's name while the developer container serves nothing on that
+// port.
 func requirePreviewRunsOutsideTheDeveloperContainer(t *testing.T, ctx context.Context, runtime *DockerRuntime, machine *domain.DevMachine, services []domain.DevMachineService, gatewayID string) {
 	t.Helper()
 	developer := developerContainerID(services)
@@ -334,7 +328,8 @@ func requirePreviewRunsOutsideTheDeveloperContainer(t *testing.T, ctx context.Co
 	_, err := runtime.execOutput(ctx, developer, []string{"/bin/sh", "-c", `test -s /run/kuayle-secrets/DEV_ONLY_FIXTURE && test -s "${HOME:-/home/kuayle}/.kuayle/agent-sign-ins/claude-code.json" && mkdir -p /workspace/tasks/preview-fixture`})
 	require.NoError(t, err, "the developer container holds the secret and the sign-ins")
 
-	// The policy allows sudo on this machine; only the developer container
+	// The policy allows sudo on this machine; previews get the agent-class
+	// relaxation whatever the policy, so it changes nothing for them.
 	// would be relaxed by it.
 	sudoMachine := *machine
 	sudoMachine.SudoEnabled = true
@@ -357,10 +352,10 @@ exec python3 -m http.server "$PORT" --bind "$HOST"`}
 	require.NoError(t, err)
 	require.NotEqual(t, developer, inspection.Container.ID, "the preview has its own container")
 	require.True(t, inspection.Container.State.Running)
-	require.True(t, inspection.Container.HostConfig.ReadonlyRootfs)
+	require.False(t, inspection.Container.HostConfig.ReadonlyRootfs, "a preview may install system packages with sudo")
 	require.False(t, inspection.Container.HostConfig.Privileged)
-	require.Equal(t, []string{"ALL"}, []string(inspection.Container.HostConfig.CapDrop))
-	require.Contains(t, inspection.Container.HostConfig.SecurityOpt, "no-new-privileges=true")
+	require.Equal(t, []string{"CAP_NET_RAW"}, []string(inspection.Container.HostConfig.CapDrop), "the agent-class relaxation, never more")
+	require.NotContains(t, inspection.Container.HostConfig.SecurityOpt, "no-new-privileges=true")
 	require.NotZero(t, inspection.Container.HostConfig.Memory)
 	require.NotNil(t, inspection.Container.HostConfig.PidsLimit)
 	require.Len(t, inspection.Container.Mounts, 1, "only the workspace volume")
@@ -373,13 +368,13 @@ exec python3 -m http.server "$PORT" --bind "$HOST"`}
 		report, err = runtime.execOutput(ctx, gatewayID, []string{"curl", "-fsS", "--noproxy", "*", "--max-time", "5", "http://" + host + ":4100/report.txt"})
 		return err == nil
 	}, 30*time.Second, 500*time.Millisecond, "the preview answers on the machine network")
-	for _, line := range []string{"scoped=absent", "sign-ins=absent", "sudo=refused", "rootfs=read-only", "uid=1000", "port=4100 host=0.0.0.0"} {
+	for _, line := range []string{"scoped=absent", "sign-ins=absent", "sudo=works", "uid=1000", "port=4100 host=0.0.0.0"} {
 		require.Contains(t, report, line)
 	}
 	for _, forbidden := range []string{"DEV_ONLY_FIXTURE", "developer-only-fixture", "sign-in-fixture", "TOKEN", "API_KEY", "KUAYLE_SECRET", "KUAYLE_MACHINE", "DOCKER_"} {
 		require.NotContains(t, report, forbidden)
 	}
-	_, err = runtime.execOutput(ctx, gatewayID, []string{"curl", "-fsS", "--noproxy", "*", "--max-time", "3", "http://" + machine.RoutingKey + "-ide:4100/report.txt"})
+	_, err = runtime.execOutput(ctx, gatewayID, []string{"curl", "-fsS", "--noproxy", "*", "--max-time", "3", "http://" + machine.RoutingKey + "-terminal:4100/report.txt"})
 	require.Error(t, err, "the developer container serves nothing on the preview port")
 	scan, err := runtime.ScanPorts(ctx, machine, services)
 	require.NoError(t, err)
@@ -395,5 +390,5 @@ exec python3 -m http.server "$PORT" --bind "$HOST"`}
 	require.NoError(t, runtime.RemovePreviews(ctx, machine))
 	_, err = runtime.client.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
 	require.True(t, errdefs.IsNotFound(err), "a stopping machine takes its previews with it")
-	requireContainerRunning(t, ctx, runtime, "ide", developer)
+	requireContainerRunning(t, ctx, runtime, "terminal", developer)
 }

@@ -100,9 +100,9 @@ func main() {
 
 	// Dev Machine agent registry
 	devMachineAgentReg := agent.NewRegistry(
-		agent.NewClaudeCodeProvider(cfg.DevMachine.ClaudeCodeImage),
-		agent.NewOpenCodeProvider(cfg.DevMachine.OpenCodeImage),
-		agent.NewCodexProvider(cfg.DevMachine.CodexImage),
+		agent.NewClaudeCodeProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewOpenCodeProvider(cfg.DevMachine.HeadlessImage),
+		agent.NewCodexProvider(cfg.DevMachine.HeadlessImage),
 		agent.NewPiProvider(cfg.DevMachine.HeadlessImage),
 		agent.NewQwenCodeProvider(cfg.DevMachine.HeadlessImage),
 		agent.NewCrushProvider(cfg.DevMachine.HeadlessImage),
@@ -119,10 +119,9 @@ func main() {
 		devMachineRepo, devMachineAgentReg, cfg.DevMachine.Enabled, cfg.DevMachine.Domain,
 		devMachineEncKey, time.Duration(cfg.DevMachine.TicketTTLSeconds)*time.Second,
 		service.DevMachineImages{
-			IDE: cfg.DevMachine.IDEImage, Headless: cfg.DevMachine.HeadlessImage, Browser: cfg.DevMachine.BrowserImage,
-			Collector: cfg.DevMachine.CollectorImage,
-			Egress:    cfg.DevMachine.EgressImage,
-			Docker:    cfg.DevMachine.DockerImage,
+			Headless: cfg.DevMachine.HeadlessImage,
+			Egress:   cfg.DevMachine.EgressImage,
+			Docker:   cfg.DevMachine.DockerImage,
 		}, cfg.FrontendURL,
 	)
 	devMachineSvc.SetModelDiscovery(cfg.AIAllowPrivateNetwork)
@@ -601,14 +600,12 @@ func main() {
 		wikiPublish:       handler.NewWikiPublishHandler(wikiPublishSvc, cfg.FrontendURL),
 		openapi:           handler.NewOpenAPIHandler(buildinfo.Version),
 	}, &appMiddleware{
-		auth:                   mw.AuthWithSessionVersions(cfg.JWTSecret, patRepo, passkeySvc, refreshRepo, cfg.DevMachine.AllowSameSite),
-		authRateLimit:          mw.RateLimit(5, 10),
-		publicRateLimit:        mw.RateLimit(2, 5),
-		publicAssetRateLimit:   mw.RateLimit(10, 20),
-		workspaceMembership:    mw.WorkspaceMembership(workspaceRepo, ssoSvc),
-		devMachineDemoGuard:    mw.DevMachineDemoGuard(cfg.DemoDevMachineAllowed),
-		machineEventsRateLimit: mw.MachineTokenRateLimit(20, 40),
-		machineLogsRateLimit:   mw.MachineTokenRateLimit(50, 100),
+		auth:                 mw.AuthWithSessionVersions(cfg.JWTSecret, patRepo, passkeySvc, refreshRepo, cfg.DevMachine.AllowSameSite),
+		authRateLimit:        mw.RateLimit(5, 10),
+		publicRateLimit:      mw.RateLimit(2, 5),
+		publicAssetRateLimit: mw.RateLimit(10, 20),
+		workspaceMembership:  mw.WorkspaceMembership(workspaceRepo, ssoSvc),
+		devMachineDemoGuard:  mw.DevMachineDemoGuard(cfg.DemoDevMachineAllowed),
 		// Per client address, like the other limits; tool calls are single requests.
 		mcpRateLimit: mw.RateLimit(10, 20),
 	})

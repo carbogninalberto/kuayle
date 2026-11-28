@@ -69,7 +69,6 @@ func TestCredentialHelperScriptsDoNotReferencePersistentCheckoutToken(t *testing
 	repoRoot := repoRootFromCaller(t)
 	paths := []string{
 		filepath.Join(repoRoot, "BE", "internal", "machine", "docker_checkout.go"),
-		filepath.Join(repoRoot, "devmachine", "ide", "start.sh"),
 		filepath.Join(repoRoot, "devmachine", "common", "kuayle-agent-runner"),
 		filepath.Join(repoRoot, "BE", "internal", "machine", "docker.go"),
 	}
@@ -85,7 +84,7 @@ func TestCredentialHelperScriptsDoNotReferencePersistentCheckoutToken(t *testing
 
 func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
-	tmuxConfigBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "tmux.conf"))
+	tmuxConfigBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "tmux.conf"))
 	require.NoError(t, err)
 	tmuxConfig := string(tmuxConfigBytes)
 	expectedTmuxOptions := []string{
@@ -110,12 +109,12 @@ func TestTerminalRuntimeConfiguresFullColorTUI(t *testing.T) {
 	require.NotContains(t, tmuxConfig, "escape-time")
 	require.NotContains(t, tmuxConfig, "mouse on")
 
-	sessionScriptBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
+	sessionScriptBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "kuayle-terminal-session"))
 	require.NoError(t, err)
 	require.Contains(t, string(sessionScriptBytes), "export COLORTERM=truecolor\n")
 	require.Contains(t, string(sessionScriptBytes), "export TERM=\"${TERM:-xterm-256color}\"\n")
 
-	dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "Dockerfile"))
+	dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "headless", "Dockerfile"))
 	require.NoError(t, err)
 	require.Contains(t, string(dockerfileBytes), "ncurses-term")
 }
@@ -140,19 +139,18 @@ func TestAgentCLIInstallerRejectsUnknownArchitecture(t *testing.T) {
 // block characters) with "_", which breaks Codex, OpenCode and other TUIs.
 func TestDeveloperTerminalsUseUTF8(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
-	for _, image := range []string{"ide", "headless"} {
-		dockerfile, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
-		require.NoError(t, err)
-		require.Regexp(t, `(?m)^ENV HOME=/home/kuayle \\\n\s+LANG=C\.UTF-8`, string(dockerfile), image)
-	}
-	session, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"))
+	dockerfile, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "headless", "Dockerfile"))
+	require.NoError(t, err)
+	require.Regexp(t, `(?m)^ENV HOME=/home/kuayle \\\n\s+LANG=en_US\.UTF-8 \\\n\s+LC_ALL=en_US\.UTF-8`, string(dockerfile))
+	require.Contains(t, string(dockerfile), "locale-gen")
+	session, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "kuayle-terminal-session"))
 	require.NoError(t, err)
 	require.Contains(t, string(session), "exec tmux -u new-session")
 }
 
 func TestDeveloperImagesBuildCrushWithPatchedGo(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
-	for _, image := range []string{"ide", "headless"} {
+	for _, image := range []string{"headless"} {
 		dockerfileBytes, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
 		dockerfile := string(dockerfileBytes)
@@ -301,7 +299,6 @@ func TestDeveloperStartScriptsShareWorkspaceSetup(t *testing.T) {
 	}
 
 	for _, relativePath := range []string{
-		filepath.Join("devmachine", "ide", "start.sh"),
 		filepath.Join("devmachine", "headless", "kuayle-headless-start"),
 	} {
 		scriptBytes, err := os.ReadFile(filepath.Join(repoRoot, relativePath))
@@ -318,19 +315,15 @@ func TestDeveloperStartScriptsShareWorkspaceSetup(t *testing.T) {
 func TestRuntimeImagesBundleTheSharedStartHelper(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	for _, relativePath := range []string{
-		filepath.Join("devmachine", "agent", "Dockerfile"),
-		filepath.Join("devmachine", "browser", "Dockerfile"),
-		filepath.Join("devmachine", "collector", "Dockerfile"),
 		filepath.Join("devmachine", "egress", "Dockerfile"),
 		filepath.Join("devmachine", "headless", "Dockerfile"),
-		filepath.Join("devmachine", "ide", "Dockerfile"),
 	} {
 		content, err := os.ReadFile(filepath.Join(repoRoot, relativePath))
 		require.NoError(t, err)
 		require.Contains(t, string(content), "common/start-common.sh", relativePath)
 	}
 	// Images that write the model server Codex config also need its catalog generator.
-	for _, image := range []string{"agent", "headless", "ide"} {
+	for _, image := range []string{"headless"} {
 		content, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
 		require.Contains(t, string(content), "common/codex-model-catalog.cjs", image)
@@ -555,7 +548,7 @@ func TestStartCommonKeepsCodexPackagesOnTheWorkspaceVolume(t *testing.T) {
 	info, err := os.Lstat(filepath.Join(otherHome, ".codex", "packages"))
 	require.NoError(t, err)
 	require.True(t, info.IsDir())
-	for _, script := range []string{"common/kuayle-agent-runner", "headless/kuayle-headless-start", "ide/start.sh"} {
+	for _, script := range []string{"common/kuayle-agent-runner", "headless/kuayle-headless-start"} {
 		content, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", script))
 		require.NoError(t, err)
 		require.Contains(t, string(content), "link_codex_packages", script)
@@ -638,7 +631,7 @@ func TestTerminalSessionCloseKillsOnlyTheNamedSessionAndIsIdempotent(t *testing.
 	logPath := filepath.Join(tempDir, "tmux.log")
 	require.NoError(t, os.WriteFile(statePath, []byte("term-test"), 0o600))
 	writeFakeTmux(t, filepath.Join(fakeBin, "tmux"))
-	script := filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh")
+	script := filepath.Join(repoRoot, "devmachine", "common", "kuayle-terminal-session")
 
 	run := func() error {
 		cmd := exec.Command("sh", script, "--close", "term-test")
@@ -669,7 +662,7 @@ func TestTerminalSessionCloseReportsPersistentTmuxFailure(t *testing.T) {
 	logPath := filepath.Join(tempDir, "tmux.log")
 	require.NoError(t, os.WriteFile(statePath, []byte("term-test"), 0o600))
 	writeFakeTmux(t, filepath.Join(fakeBin, "tmux"))
-	cmd := exec.Command("sh", filepath.Join(repoRoot, "devmachine", "ide", "terminal-session.sh"), "--close", "term-test")
+	cmd := exec.Command("sh", filepath.Join(repoRoot, "devmachine", "common", "kuayle-terminal-session"), "--close", "term-test")
 	cmd.Env = []string{
 		"PATH=" + fakeBin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"KUAYLE_FAKE_TMUX_STATE=" + statePath,

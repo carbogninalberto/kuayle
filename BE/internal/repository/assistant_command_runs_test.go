@@ -213,8 +213,8 @@ func TestTemporaryMachineBundleRechecksTheOwnersRole(t *testing.T) {
 			ID: id, WorkspaceID: f.ws, CreatedByUserID: &owner, RoutingKey: routingKey, Name: "tmp-" + routingKey[:8],
 			Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
 			MachineSize: "custom", Profile: domain.DevMachineProfileHeadless, CPUMillis: 1000, MemoryMB: 2048, DiskGB: 20, PidsLimit: 512,
-			ServicesConfig: []byte(`{}`), Labels: []byte(`{}`), TemporaryExpiresAt: &expires,
-		}, nil, nil, nil, nil, nil, &domain.DevMachineOperation{
+			Labels: []byte(`{}`), TemporaryExpiresAt: &expires,
+		}, nil, nil, nil, nil, &domain.DevMachineOperation{
 			ID: uuid.New(), MachineID: id, WorkspaceID: f.ws, Action: domain.DevMachineOpSpawn,
 			Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1", RequestedByUserID: &owner, MaxAttempts: 5,
 		})

@@ -30,15 +30,10 @@ advances. Product checks and images continue to verify the recorded PR head.
 | Root `Dockerfile` | All-in-one readiness. |
 | `UI/Dockerfile`, `UI/Caddyfile` | Web-image readiness. |
 | `BE/Dockerfile*` | The corresponding API, gateway, manager or updater image. Docker lifecycle uses separate runtime images and is not selected for these Dockerfile-only edits. |
-| `devmachine/{ide,headless,browser,collector,egress,docker}/` | That image on both architectures, backend script tests and Docker lifecycle. `docker` is the per-machine Docker daemon. |
-| `devmachine/agent/`, shared agent runner | All three provider images on both architectures, backend tests and Docker lifecycle. |
-| Shared live inbox hook and Claude managed settings | All three provider images; backend tests and Docker lifecycle. |
-| Shared agent CLI installer | IDE and headless images; backend tests and Docker lifecycle. |
-| Shared Docker CLI installer | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
-| Shared scoped startup and agent runner logic | IDE, headless, browser, collector, egress and all three provider images; backend tests and Docker lifecycle. |
-| Shared service entrypoint | IDE, headless, browser, collector and egress images; backend tests and Docker lifecycle. |
-| Shared terminal and shell scripts | IDE and headless images; backend tests and Docker lifecycle. |
-| Shared npm security patch/cache tests, agent CLI flag check | IDE, headless and all three provider images; backend tests and Docker lifecycle. |
+| `devmachine/{headless,egress,docker}/` | That image on both architectures, backend script tests and Docker lifecycle. `headless` is the single machine image (developer terminal and every agent run); `docker` is the per-machine Docker daemon. |
+| Shared start helper and service entrypoint (`devmachine/common/start-common.sh`, `kuayle-service-entrypoint`) | Headless and egress images; backend tests and Docker lifecycle. |
+| Other `devmachine/common/` inputs (agent runner and CLI installer, CLI flag check, Docker CLI and plugin builds, live inbox hook and Claude managed settings, `kuayle-screenshot`, terminal and shell scripts, npm security patch/cache tests, skills) | Headless image; backend tests and Docker lifecycle. |
+| Any other `devmachine/` input | Every runtime image (headless, egress and docker). |
 | `devmachine/security/` | Backend and Docker lifecycle checks for host policy; no independent image build. |
 | `CLI/` (Rust CLI and SDK, installers, `deny.toml`) | CLI Checks on Linux and Windows (`fmt`, `clippy -D warnings` for source and release features, tests; installer tests on Linux) and CLI Security Scan (`cargo deny`: RustSec advisories, licenses, bans, sources). No image consumes the CLI. `CLI/README.md` follows the documentation rule. |
 | `selfhosting/` scripts and configuration | Update-recovery and profile-preflight tests only; no image is built from these files. |
@@ -100,11 +95,11 @@ Each browser runner installs the OS libraries it needs even on a cache hit.
   and source/image evidence on the planned native architectures. The duplicate PR
   `Build Images` and `Container Security Scan` jobs are intentionally skipped.
 - [Build & Push](../../.github/workflows/build.yml) owns selected dev-machine image
-  builds and HIGH/CRITICAL scans on the planned architectures, including IDE and headless
-  smoke tests. The shared steps live in the
+  builds and HIGH/CRITICAL scans on the planned architectures, including the
+  machine image's smoke test. The shared steps live in the
   [dev-machine-image action](../../.github/actions/dev-machine-image/action.yml).
   [Security Scan](../../.github/workflows/security.yml) retains the updater image;
-  the ten duplicate PR runtime-image scans are omitted there.
+  the duplicate PR scans of the dev-machine images are omitted there.
 - PR Go race tests run in [Tests](../../.github/workflows/test.yml) with database
   coverage. Tests owns the frontend npm audit on PRs and pushes to main, alongside
   type and unit checks. Security Scan runs govulncheck, vet and Go build on PRs.
@@ -117,8 +112,8 @@ Each browser runner installs the OS libraries it needs even on a cache hit.
   reported or its `review_by` date has passed, so exceptions are removed or
   re-reviewed. Only add an advisory with no available fix that is outside the
   shipped app; its tests are in [npm-audit.test.mjs](npm-audit.test.mjs).
-- Docker lifecycle uses [Buildx Bake](runtime-integration.hcl) to load six
-  amd64 images from the checked-out Compose definitions on the quota-capable
+- Docker lifecycle uses [Buildx Bake](runtime-integration.hcl) to load the
+  headless and egress amd64 images from the checked-out Compose definitions on the quota-capable
   runner. It reads the native image builds' cache scopes and uses the same UTC
   security refresh date. The job allows 90 minutes for cold builds and keeps
   the Go lifecycle test's five-minute timeout.
@@ -302,14 +297,15 @@ Crush, Goose and Kimi (GitHub releases), the newest stable
 version published at least `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` ago (default 48,
 range 0-720, the same setting and default as the runtime refresh), so a
 compromised release has time to be withdrawn before it reaches published images.
-It updates the shared installer, all provider Dockerfile pins, and Goose/Kimi
+It updates the shared installer, the Crush pin in `devmachine/headless/Dockerfile`
+(every other CLI is pinned in `devmachine/common/install-agent-clis.sh`), and Goose/Kimi
 SHA-256 pins for amd64 and arm64 from the chosen release's asset metadata. The
-images then run `devmachine/common/check-agent-cli-flags.sh` while building, so a
+machine image then runs `devmachine/common/check-agent-cli-flags.sh` while building, so a
 new version whose help no longer lists a flag or value Kuayle passes it fails
 the build before it is published.
 Missing assets/digests, invalid versions, HTTP failures or unexpected pin layouts
 stop the refresh before any files are written. Run it only when an update is
-intended: it writes four tracked runtime files, prints the resolved versions as
+intended: it writes two tracked runtime files, prints the resolved versions as
 JSON on stdout and one line per CLI on stderr saying what it chose and why.
 
 Selection rules:

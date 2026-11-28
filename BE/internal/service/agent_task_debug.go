@@ -223,7 +223,7 @@ func buildTaskTrace(raw *repository.TaskTraceRows, secrets []string, limits trac
 		entries = append(entries, domain.TraceEntry{Kind: "operation", ID: operation.ID.String(), Start: operation.CreatedAt, End: operation.CompletedAt,
 			Outcome: traceOutcome(string(operation.Status)), Reason: reason, RunID: operation.AgentRunID, Data: map[string]any{
 				"action": string(operation.Action), "machine_id": operation.MachineID, "agent_task_id": operation.AgentTaskID,
-				"checkout_id": operation.CheckoutID, "environment_id": operation.EnvironmentID, "terminal_session_id": operation.TerminalSessionID,
+				"checkout_id": operation.CheckoutID, "terminal_session_id": operation.TerminalSessionID,
 				"generation": operation.Generation, "attempts": operation.Attempts, "max_attempts": operation.MaxAttempts,
 				"error_code": operation.ErrorCode, "error_message": operation.ErrorMessage, "available_at": operation.AvailableAt,
 				"updated_at": operation.UpdatedAt,

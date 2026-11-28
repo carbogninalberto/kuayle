@@ -76,9 +76,7 @@ func (p *builtinProvider) ParseResult(stdout, stderr string, exitCode int) RunRe
 }
 
 func NewClaudeCodeProvider(image string) Provider {
-	if image == "" {
-		image = "ghcr.io/kuayle/dev-machine-agent-claude:0.1.0"
-	}
+	image = headlessProviderImage(image)
 	return &builtinProvider{
 		metadata: Metadata{
 			ID:              "claude-code",
@@ -438,9 +436,7 @@ func parseAssistantJSONResult(stdout, stderr string, exitCode int) RunResult {
 var shellTools = map[string]bool{"bash": true, "shell": true, "sh": true}
 
 func NewOpenCodeProvider(image string) Provider {
-	if image == "" {
-		image = "ghcr.io/kuayle/dev-machine-agent-opencode:0.1.0"
-	}
+	image = headlessProviderImage(image)
 	return &openCodeProvider{
 		metadata: Metadata{
 			ID:              "opencode",
@@ -453,9 +449,7 @@ func NewOpenCodeProvider(image string) Provider {
 }
 
 func NewCodexProvider(image string) Provider {
-	if image == "" {
-		image = "ghcr.io/kuayle/dev-machine-agent-codex:0.1.0"
-	}
+	image = headlessProviderImage(image)
 	return &builtinProvider{
 		metadata: Metadata{
 			ID:              "codex",

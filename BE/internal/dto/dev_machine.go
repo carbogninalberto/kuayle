@@ -15,11 +15,6 @@ type DevMachineRepoInput struct {
 	URL      string `json:"url" validate:"required,url"`
 }
 
-type DevMachineServicesInput struct {
-	IDE     bool `json:"ide"`
-	Browser bool `json:"browser"`
-}
-
 type DevMachineAgentInput struct {
 	Provider string `json:"provider" validate:"required,oneof=claude-code opencode codex pi qwen-code crush kimi goose custom"`
 	Mode     string `json:"mode" validate:"required,oneof=interactive autonomous"`
@@ -29,29 +24,25 @@ type DevMachineAgentInput struct {
 type DevMachineEnvVarInput struct {
 	Name          string  `json:"name" validate:"required,max=255"`
 	Value         string  `json:"value" validate:"required,max=65536"`
-	TargetService string  `json:"target_service" validate:"required,oneof=ide terminal agent collector"`
+	TargetService string  `json:"target_service" validate:"required,oneof=terminal agent"`
 	Provider      *string `json:"provider,omitempty"`
 	Secret        *bool   `json:"secret,omitempty"`
 	TTLMinutes    *int    `json:"ttl_minutes,omitempty" validate:"omitempty,min=1,max=1440"`
 }
 
 type CreateDevMachineRequest struct {
-	Name               string                  `json:"name" validate:"omitempty,min=3,max=255"`
-	IssueID            *string                 `json:"issue_id,omitempty" validate:"omitempty,uuid"`
-	ProjectID          *string                 `json:"project_id,omitempty" validate:"omitempty,uuid"`
-	Repo               *DevMachineRepoInput    `json:"repo,omitempty"`
-	BaseBranch         string                  `json:"base_branch,omitempty" validate:"omitempty,max=255"`
-	WorkingBranch      string                  `json:"working_branch,omitempty" validate:"omitempty,max=255"`
-	Size               string                  `json:"size" validate:"required,oneof=small medium large custom"`
-	CPUMillis          int                     `json:"cpu_millis"`
-	MemoryMB           int                     `json:"memory_mb"`
-	DiskGB             int                     `json:"disk_gb"`
-	Services           DevMachineServicesInput `json:"services"`
-	Agents             []DevMachineAgentInput  `json:"agents" validate:"max=4,dive"`
-	EnvVars            []DevMachineEnvVarInput `json:"env_vars" validate:"max=64,dive"`
-	EnvironmentID      *string                 `json:"environment_id,omitempty" validate:"omitempty,uuid"`
-	EnvironmentBuilder bool                    `json:"environment_builder"`
-	Profile            string                  `json:"profile,omitempty" validate:"omitempty,oneof=standard headless"`
+	Name          string                  `json:"name" validate:"omitempty,min=3,max=255"`
+	IssueID       *string                 `json:"issue_id,omitempty" validate:"omitempty,uuid"`
+	ProjectID     *string                 `json:"project_id,omitempty" validate:"omitempty,uuid"`
+	Repo          *DevMachineRepoInput    `json:"repo,omitempty"`
+	BaseBranch    string                  `json:"base_branch,omitempty" validate:"omitempty,max=255"`
+	WorkingBranch string                  `json:"working_branch,omitempty" validate:"omitempty,max=255"`
+	Size          string                  `json:"size" validate:"required,oneof=small medium large custom"`
+	CPUMillis     int                     `json:"cpu_millis"`
+	MemoryMB      int                     `json:"memory_mb"`
+	DiskGB        int                     `json:"disk_gb"`
+	Agents        []DevMachineAgentInput  `json:"agents" validate:"max=4,dive"`
+	EnvVars       []DevMachineEnvVarInput `json:"env_vars" validate:"max=64,dive"`
 }
 
 type DevMachineNameAvailabilityResponse struct {
@@ -60,11 +51,10 @@ type DevMachineNameAvailabilityResponse struct {
 }
 
 type DevMachineScopeSettingRequest struct {
-	ScopeType     string  `json:"scope_type" validate:"required,oneof=workspace team project issue"`
-	ScopeID       *string `json:"scope_id,omitempty" validate:"omitempty,uuid"`
-	GitHubRepoID  *string `json:"github_repo_id,omitempty" validate:"omitempty,uuid"`
-	BaseBranch    *string `json:"base_branch,omitempty" validate:"omitempty,max=255"`
-	EnvironmentID *string `json:"environment_id,omitempty" validate:"omitempty,uuid"`
+	ScopeType    string  `json:"scope_type" validate:"required,oneof=workspace team project issue"`
+	ScopeID      *string `json:"scope_id,omitempty" validate:"omitempty,uuid"`
+	GitHubRepoID *string `json:"github_repo_id,omitempty" validate:"omitempty,uuid"`
+	BaseBranch   *string `json:"base_branch,omitempty" validate:"omitempty,max=255"`
 
 	AgentProvider     *string `json:"agent_provider,omitempty" validate:"omitempty,max=64"`
 	AgentInstructions *string `json:"agent_instructions,omitempty"`
@@ -140,11 +130,6 @@ type PurgeDevMachinesResponse struct {
 	SkippedActive  int `json:"skipped_active"`
 	SkippedRuntime int `json:"skipped_runtime"`
 	SkippedRecent  int `json:"skipped_recent"`
-}
-
-type CreateDevMachineEnvironmentRequest struct {
-	Name            string `json:"name" validate:"required,min=3,max=255"`
-	SourceMachineID string `json:"source_machine_id" validate:"required,uuid"`
 }
 
 type CreateTerminalSessionRequest struct {
@@ -386,23 +371,6 @@ type DevMachinePolicyRequest struct {
 	MaxTemporaryMachines *int `json:"max_temporary_machines,omitempty"`
 	// TaskFilesMax is optional: omitted, the current limit is kept.
 	TaskFilesMax *int `json:"task_files_max,omitempty"`
-}
-
-type CollectorEventInput struct {
-	AgentRunID *string    `json:"agent_run_id,omitempty" validate:"omitempty,uuid"`
-	Source     string     `json:"source" validate:"required,oneof=agent browser collector filesystem git process shell"`
-	EventType  string     `json:"event_type" validate:"required,max=128"`
-	Payload    any        `json:"payload"`
-	OccurredAt *time.Time `json:"occurred_at,omitempty"`
-}
-
-type CollectorLogInput struct {
-	AgentRunID *string `json:"agent_run_id,omitempty" validate:"omitempty,uuid"`
-	ServiceID  *string `json:"service_id,omitempty" validate:"omitempty,uuid"`
-	Stream     string  `json:"stream" validate:"required,oneof=stdout stderr pty system"`
-	Sequence   int64   `json:"sequence" validate:"min=0"`
-	Content    string  `json:"content" validate:"required,max=65536"`
-	Truncated  bool    `json:"truncated"`
 }
 
 // AppPort is one exposed port of a machine.

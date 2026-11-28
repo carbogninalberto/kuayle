@@ -25,7 +25,7 @@ func (r *DockerRuntime) ReadSignIn(ctx context.Context, services []domain.DevMac
 	if !ok {
 		return "", fmt.Errorf("agent %q has no sign-in file", provider)
 	}
-	for _, serviceType := range []string{"terminal", "ide"} {
+	for _, serviceType := range []string{"terminal"} {
 		for _, service := range services {
 			if service.ServiceType != serviceType || service.ContainerID == nil {
 				continue

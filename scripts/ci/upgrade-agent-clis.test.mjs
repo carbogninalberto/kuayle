@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import test from 'node:test';
 import { upgradeAgentClis } from './upgrade-agent-clis.mjs';
 
-const files = ['devmachine/common/install-agent-clis.sh', 'devmachine/agent/Dockerfile', 'devmachine/ide/Dockerfile', 'devmachine/headless/Dockerfile'];
+const files = ['devmachine/common/install-agent-clis.sh', 'devmachine/headless/Dockerfile'];
 const names = ['CLAUDE_CODE', 'OPENCODE', 'CODEX', 'PI', 'QWEN', 'CRUSH', 'GOOSE', 'KIMI'];
 const now = Date.parse('2026-11-10T12:00:00Z');
 const hoursAgo = hours => new Date(now - hours * 3600000).toISOString();
@@ -44,12 +44,11 @@ function metadata(url, published = [['9.8.7', 72]]) {
 const respond = build => async (url) => ({ ok: true, json: async () => build(url) });
 const checksums = (installer, name) => [...installer.matchAll(new RegExp(`${name}_sha256=(\\w+)`, 'g'))].map(m => m[1]);
 function assertPins(root, expected) {
-  const [installer, agent, ide, headless] = read(root);
+  const [installer, headless] = read(root);
   for (const name of ['CLAUDE_CODE', 'OPENCODE', 'CODEX', 'PI', 'QWEN', 'GOOSE', 'KIMI']) {
     assert.match(installer, new RegExp(`^${name}_VERSION=${expected}$`, 'm'));
   }
-  for (const name of ['CLAUDE_CODE', 'OPENCODE', 'CODEX']) assert.match(agent, new RegExp(`^ARG ${name}_VERSION=${expected}$`, 'm'));
-  for (const text of [ide, headless]) assert.match(text, new RegExp(`^ARG CRUSH_VERSION=${expected}$`, 'm'));
+  assert.match(headless, new RegExp(`^ARG CRUSH_VERSION=${expected}$`, 'm'));
   return installer;
 }
 
@@ -136,8 +135,8 @@ test('never downgrades and keeps the pins when nothing newer is old enough', asy
 for (const scenario of ['http', 'version', 'no-stable-release', 'tag', 'asset', 'digest', 'layout']) {
   test(`fails without writing any pins on invalid ${scenario}`, async (t) => {
     const root = fixture(t);
-    if (scenario === 'layout') rmSync(join(root, files[3]));
-    const existing = files.filter(file => scenario !== 'layout' || file !== files[3]);
+    if (scenario === 'layout') rmSync(join(root, files[1]));
+    const existing = files.filter(file => scenario !== 'layout' || file !== files[1]);
     const before = existing.map(file => readFileSync(join(root, file), 'utf8'));
     await assert.rejects(upgradeAgentClis(root, async (url) => {
       let data = metadata(url);
@@ -163,14 +162,10 @@ test('resolves each npm CLI from the package the images install', async (t) => {
     requested.push(url);
     return { ok: true, json: async () => metadata(url) };
   }, { now });
-  const [installer, agent] = read(root);
+  const [installer] = read(root);
   const registry = 'https://registry.npmjs.org/';
   const packages = requested.filter(url => url.startsWith(registry)).map(url => decodeURIComponent(url.slice(registry.length)));
   assert.equal(packages.length, 5);
   assert.ok(packages.includes('@earendil-works/pi-coding-agent'), 'Pi is resolved from its patched scope');
   for (const pkg of packages) assert.ok(installer.includes(`"${pkg}@\${`), `install-agent-clis.sh installs ${pkg}`);
-  // The agent image's CLIs, not npm itself.
-  const agentPackages = [...agent.matchAll(/"([^"]+)@\$\{(?!NPM_)[A-Z_]+_VERSION\}"/g)].map(match => match[1]);
-  assert.equal(agentPackages.length, 3);
-  for (const pkg of agentPackages) assert.ok(packages.includes(pkg), `the agent image's ${pkg} is resolved`);
 });

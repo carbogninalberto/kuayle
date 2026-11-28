@@ -77,10 +77,10 @@ func TestValidationRunsExactCommandWithoutHarnessOrCredentialHandoff(t *testing.
 	}
 	require.Equal(t, checkout.WorkspacePath, config.WorkingDir)
 	require.Equal(t, "1000:1000", config.User)
-	require.True(t, host.ReadonlyRootfs)
+	require.False(t, host.ReadonlyRootfs, "a check may install system packages with sudo")
 	require.False(t, host.Privileged)
-	require.Contains(t, host.CapDrop, "ALL")
-	require.Contains(t, host.SecurityOpt, "no-new-privileges=true")
+	require.Equal(t, []string{"CAP_NET_RAW"}, []string(host.CapDrop))
+	require.NotContains(t, host.SecurityOpt, "no-new-privileges=true")
 	require.Len(t, host.Mounts, 1)
 	require.Equal(t, "workspace", host.Mounts[0].Source)
 	for _, env := range config.Env {

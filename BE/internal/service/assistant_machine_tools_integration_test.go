@@ -84,7 +84,7 @@ func newMachineToolsFixture(t *testing.T) machineToolsFixture {
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: f.ws, CreatedByUserID: &f.user, Name: "eng-1-dark-mode", RoutingKey: "0123456789abcdef0123",
 		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, ListeningPorts: pq.Int64Array{3000}}
 	store := &portStoreFake{devMachineStoreFake: &devMachineStoreFake{policy: testPolicy(f.ws), machine: machine,
-		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machine.ID, ServiceKey: "ide", ServiceType: "ide", Status: "running", InternalPort: 8080, ContainerID: &containerID}}}}
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machine.ID, ServiceKey: "terminal", ServiceType: "terminal", Status: "running", InternalPort: 7681, ContainerID: &containerID}}}}
 	machines := newTestDevMachineService(store)
 	preferred := 5173
 	tasks := &machineTasksFake{task: &domain.AgentTask{ID: *started.TaskID, WorkspaceID: f.ws, IssueID: delegation.IssueID, CreatorID: f.user, State: "awaiting_review",
@@ -223,7 +223,7 @@ func TestAssistantExposesPortsAfterApprovalAndReusesExistingOnes(t *testing.T) {
 	require.True(t, listed.Ports[0].Listening)
 
 	for arguments, message := range map[string]string{
-		`{"identifier":"ENG-1","port":8080}`:               "belongs to the machine's",
+		`{"identifier":"ENG-1","port":7681}`:               "belongs to the machine's",
 		`{"identifier":"ENG-1","port":80}`:                 "between 1024 and 65535",
 		`{"identifier":"ENG-1","port":3000,"label":"<b>"}`: "a label has at most 40",
 	} {

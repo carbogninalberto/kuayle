@@ -1,6 +1,5 @@
 DELETE /api/auth/passkey/credentials/:id
 DELETE /api/workspaces/:slug
-DELETE /api/workspaces/:slug/dev-machine-environments/:environmentId
 DELETE /api/workspaces/:slug/dev-machine-scope-setting
 DELETE /api/workspaces/:slug/dev-machines/:machineId
 DELETE /api/workspaces/:slug/dev-machines/bulk
@@ -44,8 +43,6 @@ GET /api/workspaces/:slug/analytics/distribution
 GET /api/workspaces/:slug/analytics/insights
 GET /api/workspaces/:slug/analytics/overview
 GET /api/workspaces/:slug/assets/:assetId
-GET /api/workspaces/:slug/dev-machine-environments
-GET /api/workspaces/:slug/dev-machine-environments/:environmentId
 GET /api/workspaces/:slug/dev-machine-names/availability
 GET /api/workspaces/:slug/dev-machine-names/suggestion
 GET /api/workspaces/:slug/dev-machine-policy
@@ -134,8 +131,6 @@ POST /api/auth/passkey/register/begin
 POST /api/auth/passkey/register/complete
 POST /api/auth/refresh
 POST /api/auth/register
-POST /api/dev-machine-ingest/events
-POST /api/dev-machine-ingest/logs
 POST /api/github/webhook
 POST /api/invite/:token/accept
 POST /api/notifications/:id/archive
@@ -147,13 +142,11 @@ POST /api/notifications/:id/unsnooze
 POST /api/notifications/mark-all-read
 POST /api/system/update
 POST /api/workspaces
-POST /api/workspaces/:slug/dev-machine-environments
 POST /api/workspaces/:slug/dev-machines
 POST /api/workspaces/:slug/dev-machines/:machineId/activity
 POST /api/workspaces/:slug/dev-machines/:machineId/checkouts
 POST /api/workspaces/:slug/dev-machines/:machineId/pause
 POST /api/workspaces/:slug/dev-machines/:machineId/permanent-delete
-POST /api/workspaces/:slug/dev-machines/:machineId/services/:service/launch
 POST /api/workspaces/:slug/dev-machines/:machineId/start
 POST /api/workspaces/:slug/dev-machines/:machineId/stop
 POST /api/workspaces/:slug/dev-machines/:machineId/teardown

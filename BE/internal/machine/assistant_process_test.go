@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDockerAssistantProcessStartsInAReadOnlyContainer(t *testing.T) {
+func TestDockerAssistantProcessStartsInItsOwnContainer(t *testing.T) {
 	machine, services, _ := previewFixture()
 	docker := &previewDockerFake{}
 	runtime := &DockerRuntime{client: docker.serve(t)}
@@ -26,7 +26,7 @@ func TestDockerAssistantProcessStartsInAReadOnlyContainer(t *testing.T) {
 	require.True(t, running)
 	require.Len(t, docker.created, 1)
 	created := docker.created[0]
-	require.True(t, created.HostConfig.ReadonlyRootfs)
+	require.False(t, created.HostConfig.ReadonlyRootfs, "agent-class containers may use sudo")
 	require.True(t, created.HostConfig.Mounts[0].ReadOnly)
 	require.Equal(t, "/workspace", created.HostConfig.Mounts[0].Target)
 	require.Empty(t, created.HostConfig.PortBindings)

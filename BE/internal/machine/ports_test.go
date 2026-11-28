@@ -141,7 +141,6 @@ func portMachine() (*domain.DevMachine, []domain.DevMachineService) {
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), CreatedByUserID: &creator, RoutingKey: "0123456789abcdef0123",
 		Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning}
 	services := []domain.DevMachineService{
-		{ID: uuid.New(), MachineID: machine.ID, ServiceType: "ide", Status: "running", InternalPort: 8080, ContainerID: &container},
 		{ID: uuid.New(), MachineID: machine.ID, ServiceType: "terminal", Status: "running", InternalPort: 7681, ContainerID: &container},
 	}
 	return machine, services
@@ -194,7 +193,7 @@ func TestPortScanReportsPortsPublishedByTheDockerDaemon(t *testing.T) {
 	state := portState(t, runtime)
 	require.Equal(t, []int{3000, 5173, 5432}, state.Listening)
 	require.Equal(t, []int{3000, 5432}, state.Docker, "kuayle-ports shows where they listen")
-	require.Equal(t, []int{2376, 7681, 8080}, state.Reserved)
+	require.Equal(t, []int{2376, 7681}, state.Reserved)
 
 	runtime.scan = PortScan{Listening: []int{3000}, Docker: []int{3000}}
 	require.NoError(t, manager.syncMachinePorts(context.Background(), store.machine, store.services))
@@ -248,9 +247,9 @@ func TestPortScanAppliesAgentRequestsAndPublishesTheState(t *testing.T) {
 	task := uuid.New()
 	store.appPorts.worktreeTask = map[string]uuid.UUID{"/workspace/tasks/eng-1": task}
 	store.appPorts.ports = []domain.DevMachinePort{{ID: uuid.New(), Port: 5173, Source: "user"}}
-	runtime.scan = PortScan{Listening: []int{3000, 7681, 8080, 5173}, Requests: []PortRequest{
+	runtime.scan = PortScan{Listening: []int{3000, 7681, 5173}, Requests: []PortRequest{
 		request("expose-3000.json", `{"port":3000,"label":"web","cwd":"/workspace/tasks/eng-1"}`),
-		request("expose-8080.json", `{"port":8080}`),
+		request("expose-7681.json", `{"port":7681}`),
 		request("unexpose-5173", ``),
 		request("expose-4000.json", `{"port":4001}`),
 	}}
@@ -271,12 +270,12 @@ func TestPortScanAppliesAgentRequestsAndPublishesTheState(t *testing.T) {
 		{Port: 5173, URL: "https://0123456789abcdef0123-5173.machines.example.test", Source: "user"},
 	}, sortedPorts(state.Ports))
 	require.Equal(t, []int{3000, 5173}, state.Listening)
-	require.Equal(t, []int{7681, 8080}, state.Reserved, "kuayle-ports hides the machine's own services")
+	require.Equal(t, []int{7681}, state.Reserved, "kuayle-ports hides the machine's own services")
 	reasons := map[int]string{}
 	for _, refusal := range state.Refused {
 		reasons[refusal.Port] = refusal.Reason
 	}
-	require.Contains(t, reasons[8080], "service")
+	require.Contains(t, reasons[7681], "service")
 	require.Contains(t, reasons[5173], "only ports exposed by agents")
 	require.Contains(t, reasons[4000], "does not match")
 
@@ -359,7 +358,7 @@ func TestTaskPreviewsGetTheirOwnProcessAndPort(t *testing.T) {
 
 	// A preferred service port is never used.
 	runtime.scan = PortScan{}
-	service := 8080
+	service := 7681
 	store.appPorts.target = previewTarget(store.machine, &service)
 	store.appPorts.target.Task.CheckoutID = store.checkout.ID
 	op = &domain.DevMachineOperation{AgentTaskID: &store.appPorts.target.Task.ID}
@@ -438,7 +437,7 @@ func TestStopPreviewRemovesOnlyThatTasksPreview(t *testing.T) {
 // machine's listening ports, for the owner's page and for kuayle-ports.
 func TestPortScanReportsListeningPreviewPorts(t *testing.T) {
 	manager, store, runtime := newPortManager()
-	runtime.scan = PortScan{Listening: []int{5173}, Preview: []int{4100, 5173, 8080}}
+	runtime.scan = PortScan{Listening: []int{5173}, Preview: []int{4100, 5173, 7681}}
 	require.NoError(t, manager.syncMachinePorts(context.Background(), store.machine, store.services))
 	require.Equal(t, []int{4100, 5173}, store.appPorts.listening, "reported once, and never a port of the machine's services")
 	require.Empty(t, store.appPorts.docker)
@@ -452,7 +451,7 @@ func TestMachineStopAndProvisioningRemoveThePreviewContainers(t *testing.T) {
 	machineID, workspaceID := uuid.New(), uuid.New()
 	store := &managerStoreFake{
 		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusQueued},
-		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal"}},
 	}
 	runtime := &runtimeFake{}
 	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), make([]byte, 32), "test")

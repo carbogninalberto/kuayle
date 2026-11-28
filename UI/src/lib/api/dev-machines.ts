@@ -16,11 +16,10 @@ import type {
 	DevMachineService,
 	DevMachinePolicy,
 	DevMachineCheckout,
-	DevMachineEnvironment,
 	DevMachineScopeSetting,
 	DevMachineRepositoryDefaults,
 	EnvironmentStatus,
-	LaunchMachineServiceResponse,
+	LaunchMachinePortResponse,
 	MigrationAction,
 	MigrationActionInput,
 	MigrationActionList,
@@ -141,16 +140,6 @@ export function refreshPackageIndex(slug: string, machineId: string): Promise<En
 	return api.post(`${base(slug)}/dev-machines/${machineId}/environment-status/package-index/refresh`);
 }
 
-function launchMachineService(
-	slug: string,
-	machineId: string,
-	service: string,
-	checkoutId?: string
-): Promise<LaunchMachineServiceResponse> {
-	const query = checkoutId ? `?checkout_id=${encodeURIComponent(checkoutId)}` : '';
-	return api.post(`${base(slug)}/dev-machines/${machineId}/services/${service}/launch${query}`);
-}
-
 export function listMachinePorts(slug: string, machineId: string): Promise<AppPortList> {
 	return api.get(`${base(slug)}/dev-machines/${machineId}/ports`);
 }
@@ -203,7 +192,7 @@ export function deleteMachineMigrationAction(slug: string, machineId: string, ac
 	return api.delete(`${base(slug)}/dev-machines/${machineId}/migration-actions/${actionId}`);
 }
 
-function launchMachinePort(slug: string, machineId: string, portId: string): Promise<LaunchMachineServiceResponse> {
+function launchMachinePort(slug: string, machineId: string, portId: string): Promise<LaunchMachinePortResponse> {
 	return api.post(`${base(slug)}/dev-machines/${machineId}/ports/${portId}/launch`);
 }
 
@@ -225,32 +214,6 @@ export async function launchMachinePortWhenReady(
 	}
 	if (response.status !== 'ready' || !response.launch_url) throw new Error('App port is not ready');
 	return response.launch_url;
-}
-
-export async function launchMachineServiceWithResume(
-	slug: string,
-	machineId: string,
-	service: string,
-	checkoutId?: string,
-	options: ResumeRetryOptions = {}
-): Promise<LaunchMachineServiceResponse> {
-	const deadline = Date.now() + (options.timeoutMs ?? 120_000);
-	let response = await launchMachineService(slug, machineId, service, checkoutId);
-	while (response.status === 'resuming' || response.status === 'pending') {
-		options.onStatus?.(response.status);
-		await waitForLaunchRetry(slug, machineId, response.retry_after_seconds, deadline, options.onStatus);
-		response = await launchMachineService(slug, machineId, service, checkoutId);
-	}
-	if (response.status !== 'ready' || !response.launch_url) {
-		throw new Error('Dev Machine service is not ready');
-	}
-	if (service === 'ide' && !checkoutId && options.defaultFolder !== false) {
-		response = {
-			...response,
-			launch_url: appendQueryParam(response.launch_url, 'folder', options.defaultFolderPath ?? '/workspace/tasks')
-		};
-	}
-	return response;
 }
 
 export async function resumePausedMachine(
@@ -336,7 +299,6 @@ export function updateDevMachineScopeSetting(
 		scope_id?: string;
 		github_repo_id?: string;
 		base_branch?: string;
-		environment_id?: string;
 		agent_provider?: string;
 		agent_instructions?: string;
 		compose_file?: string;
@@ -356,21 +318,6 @@ export function deleteDevMachineScopeSetting(
 	const query = new URLSearchParams({ scope_type: scopeType });
 	if (scopeId) query.set('scope_id', scopeId);
 	return api.delete(`${base(slug)}/dev-machine-scope-setting?${query}`);
-}
-
-export function listDevMachineEnvironments(slug: string): Promise<DevMachineEnvironment[]> {
-	return api.get(`${base(slug)}/dev-machine-environments`);
-}
-
-export function snapshotDevMachineEnvironment(
-	slug: string,
-	input: { name: string; source_machine_id: string }
-): Promise<DevMachineEnvironment> {
-	return api.post(`${base(slug)}/dev-machine-environments`, input);
-}
-
-export function deleteDevMachineEnvironment(slug: string, environmentId: string): Promise<void> {
-	return api.delete(`${base(slug)}/dev-machine-environments/${environmentId}`);
 }
 
 function createTerminalSession(
@@ -466,8 +413,6 @@ export function updateDevMachinePolicy(
 
 interface ResumeRetryOptions {
 	timeoutMs?: number;
-	defaultFolder?: boolean;
-	defaultFolderPath?: string;
 	onStatus?: (status: 'resuming' | 'pending', machine?: DevMachine) => void;
 }
 
@@ -515,17 +460,6 @@ async function waitForLaunchRetry(
 
 function sleep(ms: number) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function appendQueryParam(url: string, key: string, value: string): string {
-	try {
-		const parsed = new URL(url);
-		if (!parsed.searchParams.has(key)) parsed.searchParams.set(key, value);
-		return parsed.toString();
-	} catch {
-		const separator = url.includes('?') ? '&' : '?';
-		return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
-	}
 }
 
 export type MergeMethod = 'merge' | 'squash' | 'rebase';

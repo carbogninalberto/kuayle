@@ -38,12 +38,12 @@ func TestBulkPurgeMachinesHonoursAgeGuardAndReportsSkips(t *testing.T) {
 	fixture, db := purgeFixture(t)
 	ctx := context.Background()
 
-	justDestroyed := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
-	oldDestroyed := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
-	recentExpired := fixture.insertMachine(t, domain.DevMachineStatusExpired, domain.DevMachineStatusExpired, false)
-	failedWithRuntime := fixture.insertMachine(t, domain.DevMachineStatusFailed, domain.DevMachineStatusRunning, false)
-	destroyedBusy := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
-	running := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	justDestroyed := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed)
+	oldDestroyed := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed)
+	recentExpired := fixture.insertMachine(t, domain.DevMachineStatusExpired, domain.DevMachineStatusExpired)
+	failedWithRuntime := fixture.insertMachine(t, domain.DevMachineStatusFailed, domain.DevMachineStatusRunning)
+	destroyedBusy := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed)
+	running := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err := db.Exec(`UPDATE dev_machines SET destroyed_at=now() WHERE id=$1`, justDestroyed)
 	require.NoError(t, err)
 	_, err = db.Exec(`UPDATE dev_machines SET destroyed_at=now()-interval '30 days',updated_at=now()-interval '30 days' WHERE id IN ($1,$2)`, oldDestroyed, destroyedBusy)
@@ -73,8 +73,8 @@ func TestBulkPurgeMachinesHonoursAgeGuardAndReportsSkips(t *testing.T) {
 	require.True(t, machineExists(t, db, running), "live machines are never purged")
 
 	// Selected IDs narrow the purge to those machines in this workspace.
-	other := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
-	kept := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
+	other := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed)
+	kept := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed)
 	result, err = fixture.repository.BulkPurgeMachines(ctx, uuid.New(), domain.DevMachinePurge{MachineIDs: []uuid.UUID{other}})
 	require.NoError(t, err)
 	require.Zero(t, result.Removed, "another workspace cannot purge these machines")
@@ -90,7 +90,7 @@ func TestBulkPurgeMachinesHonoursAgeGuardAndReportsSkips(t *testing.T) {
 func TestPermanentDeleteOfDestroyedMachinePurgesWithoutTeardown(t *testing.T) {
 	fixture, db := purgeFixture(t)
 	ctx := context.Background()
-	machineID := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed, false)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusDestroyed, domain.DevMachineStatusDestroyed)
 
 	operation, err := fixture.repository.RequestPermanentDelete(ctx, fixture.workspaceID, machineID, &fixture.userID)
 	require.NoError(t, err)

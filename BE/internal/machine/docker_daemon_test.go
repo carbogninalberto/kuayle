@@ -98,8 +98,8 @@ func TestDeveloperEnvironmentPointsTheDockerCLIAtTheDaemon(t *testing.T) {
 func TestHasDockerServiceAndVolumeName(t *testing.T) {
 	machine := dockerTestMachine()
 	require.Equal(t, "kuayle-docker-"+machine.RoutingKey, dockerVolumeName(machine))
-	require.False(t, hasDockerService([]domain.DevMachineService{{ServiceType: "ide"}}))
-	require.True(t, hasDockerService([]domain.DevMachineService{{ServiceType: "ide"}, {ServiceType: "docker"}}))
+	require.False(t, hasDockerService([]domain.DevMachineService{{ServiceType: "terminal"}}))
+	require.True(t, hasDockerService([]domain.DevMachineService{{ServiceType: "terminal"}, {ServiceType: "docker"}}))
 }
 
 func TestParseDiskUsageKiB(t *testing.T) {

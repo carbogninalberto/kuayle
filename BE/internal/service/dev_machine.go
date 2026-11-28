@@ -28,20 +28,16 @@ import (
 )
 
 var (
-	ErrDevMachinesDisabled      = errors.New("dev machines are disabled")
-	ErrMachineNotFound          = errors.New("dev machine not found")
-	ErrAgentRunNotFound         = errors.New("agent run not found")
-	ErrEnvironmentNotFound      = errors.New("development environment not found")
-	ErrEnvironmentInUse         = errors.New("development environment is in use")
-	ErrEnvironmentInvalidState  = errors.New("development environment cannot be deleted in its current state")
-	ErrEnvironmentCleanupActive = errors.New("development environment cleanup is blocked by active work")
-	ErrTerminalSessionNotFound  = errors.New("terminal session not found")
-	ErrInvalidOperation         = errors.New("operation is not valid for the current machine state")
-	ErrMachineQuota             = errors.New("dev machine quota exceeded")
-	ErrProviderNotAllowed       = errors.New("agent provider is not allowed")
-	ErrRepositoryNotAllowed     = errors.New("repository is not allowed")
-	ErrServiceNotAvailable      = errors.New("machine service is not available")
-	ErrCheckoutNotEligible      = errors.New("machine is not eligible for this issue checkout")
+	ErrDevMachinesDisabled     = errors.New("dev machines are disabled")
+	ErrMachineNotFound         = errors.New("dev machine not found")
+	ErrAgentRunNotFound        = errors.New("agent run not found")
+	ErrTerminalSessionNotFound = errors.New("terminal session not found")
+	ErrInvalidOperation        = errors.New("operation is not valid for the current machine state")
+	ErrMachineQuota            = errors.New("dev machine quota exceeded")
+	ErrProviderNotAllowed      = errors.New("agent provider is not allowed")
+	ErrRepositoryNotAllowed    = errors.New("repository is not allowed")
+	ErrServiceNotAvailable     = errors.New("machine service is not available")
+	ErrCheckoutNotEligible     = errors.New("machine is not eligible for this issue checkout")
 	// ErrCheckoutFailed means the worktree could not be prepared after retries.
 	ErrCheckoutFailed          = errors.New("worktree preparation failed")
 	ErrCheckoutNotReady        = errors.New("repository checkout is not ready")
@@ -97,11 +93,8 @@ func machineQuotaCountError(workspaceCount, workspaceLimit, userCount, userLimit
 }
 
 type DevMachineImages struct {
-	IDE       string
-	Headless  string
-	Browser   string
-	Collector string
-	Egress    string
+	Headless string
+	Egress   string
 	// Docker is the machine Docker daemon image, used when the workspace
 	// policy allows it.
 	Docker string
@@ -173,22 +166,6 @@ type temporaryMachine struct {
 func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid.UUID, req dto.CreateDevMachineRequest, machineID uuid.UUID, temporary *temporaryMachine) (*domain.DevMachine, *domain.DevMachineOperation, error) {
 	if err := s.RequireMachineUse(userID); err != nil {
 		return nil, nil, err
-	}
-	profile := req.Profile
-	if profile == "" {
-		profile = domain.DevMachineProfileStandard
-	}
-	switch profile {
-	case domain.DevMachineProfileStandard:
-		req.Services.IDE = true
-	case domain.DevMachineProfileHeadless:
-		if req.Services.IDE || req.Services.Browser {
-			return nil, nil, fmt.Errorf("%w: headless machines do not include the IDE or browser", ErrInvalidMachineInput)
-		}
-		req.Services.IDE = false
-		req.Services.Browser = false
-	default:
-		return nil, nil, fmt.Errorf("%w: unsupported machine profile %q", ErrInvalidMachineInput, profile)
 	}
 	if req.Repo != nil {
 		if err := validateRepository(*req.Repo); err != nil {
@@ -264,23 +241,6 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		defaults = &domain.DevMachineScopeSetting{}
 	}
 
-	var environmentID *uuid.UUID
-	if req.EnvironmentID != nil {
-		parsed, parseErr := uuid.Parse(*req.EnvironmentID)
-		if parseErr != nil {
-			return nil, nil, fmt.Errorf("%w: invalid environment_id", ErrInvalidMachineInput)
-		}
-		if err := s.validateReadyEnvironment(ctx, workspaceID, parsed); err != nil {
-			return nil, nil, err
-		}
-		environmentID = &parsed
-	} else if !req.EnvironmentBuilder && defaults.EnvironmentID != nil {
-		if err := s.validateReadyEnvironment(ctx, workspaceID, *defaults.EnvironmentID); err != nil {
-			return nil, nil, err
-		}
-		environmentID = defaults.EnvironmentID
-	}
-
 	var repositoryModel *domain.GitHubRepoModel
 	var baseBranch, workingBranch string
 	if req.Repo != nil {
@@ -327,15 +287,13 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 	if err != nil {
 		return nil, nil, err
 	}
-	servicesConfig, _ := json.Marshal(req.Services)
 	now := time.Now().UTC()
 	machine := &domain.DevMachine{
 		ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: routingKey,
 		Name: name, Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning,
 		Generation: 1, ProjectID: projectID, IssueID: issueID, BaseBranch: baseBranch, WorkingBranch: workingBranch,
-		MachineSize: req.Size, Profile: profile, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 4096,
-		ServicesConfig: servicesConfig, Labels: json.RawMessage(`{}`), EnvironmentID: environmentID,
-		EnvironmentBuilder: req.EnvironmentBuilder, LastActivityAt: &now,
+		MachineSize: req.Size, Profile: domain.DevMachineProfileHeadless, CPUMillis: cpuMillis, MemoryMB: memoryMB, DiskGB: diskGB, PidsLimit: 4096,
+		Labels: json.RawMessage(`{}`), LastActivityAt: &now,
 		SudoEnabled: policy.AllowSudo && temporary == nil,
 	}
 	if temporary != nil {
@@ -357,17 +315,6 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		services = append(services, newService(machine.WorkspaceID, machine.ID, dockerServiceType, dockerServiceType,
 			"kuayle-"+machine.RoutingKey+"-docker", s.images.Docker, machine.RoutingKey+"-docker", dockerDaemonPort))
 	}
-	if machine.EnvironmentID != nil && machine.Profile != domain.DevMachineProfileHeadless {
-		environment, _ := s.store.GetEnvironment(ctx, workspaceID, *machine.EnvironmentID)
-		if environment != nil {
-			environmentImageRef := readyEnvironmentImageRef(environment)
-			for index := range services {
-				if services[index].ServiceType == "ide" || services[index].ServiceType == "terminal" {
-					services[index].ImageRef = environmentImageRef
-				}
-			}
-		}
-	}
 	volumeName := "kuayle-workspace-" + routingKey
 	volumes := []domain.DevMachineVolume{{
 		ID: uuid.New(), MachineID: machineID, VolumeType: "workspace", RuntimeName: volumeName,
@@ -384,48 +331,12 @@ func (s *DevMachineService) create(ctx context.Context, workspaceID, userID uuid
 		}
 		envVars = append(envVars, dockerSecrets...)
 	}
-	collectorToken, err := randomHex(32)
-	if err != nil {
-		return nil, nil, err
-	}
-	encryptedCollectorToken, err := cryptoutil.Encrypt(collectorToken, s.encryptionKey)
-	if err != nil {
-		return nil, nil, err
-	}
-	envVars = append(envVars, domain.DevMachineEnvVar{
-		ID: uuid.New(), MachineID: machineID, TargetService: "collector", Name: "KUAYLE_MACHINE_TOKEN",
-		EncryptedValue: encryptedCollectorToken, EncryptionKeyVersion: 1, IsSecret: true,
-	})
-	if req.Services.Browser {
-		browserCDPToken, err := randomHex(32)
-		if err != nil {
-			return nil, nil, err
-		}
-		encryptedBrowserCDPToken, err := cryptoutil.Encrypt(browserCDPToken, s.encryptionKey)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, targetService := range []string{"browser", "collector"} {
-			envVars = append(envVars, domain.DevMachineEnvVar{
-				ID: uuid.New(), MachineID: machineID, TargetService: targetService, Name: "KUAYLE_BROWSER_CDP_TOKEN",
-				EncryptedValue: encryptedBrowserCDPToken, EncryptionKeyVersion: 1, IsSecret: true,
-			})
-		}
-	}
-	collectorTokenHash := sha256.Sum256([]byte(collectorToken))
-	tokens := []domain.DevMachineToken{{
-		ID: uuid.New(), MachineID: machineID, TokenHash: hex.EncodeToString(collectorTokenHash[:]),
-		Scopes: json.RawMessage(`["events:write","logs:write","heartbeat:write"]`),
-	}}
 	operation := &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpSpawn,
 		Status: domain.DevMachineOpStatusPending, Generation: machine.Generation,
 		IdempotencyKey: fmt.Sprintf("spawn:%d", machine.Generation), RequestedByUserID: &userID, MaxAttempts: 5,
 	}
-	if err := s.store.CreateBundle(ctx, machine, providers, services, volumes, envVars, tokens, operation); err != nil {
-		if errors.Is(err, repository.ErrEnvironmentUnavailable) {
-			return nil, nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
-		}
+	if err := s.store.CreateBundle(ctx, machine, providers, services, volumes, envVars, operation); err != nil {
 		if errors.Is(err, repository.ErrMachineQuota) {
 			return nil, nil, newMachineQuotaError(err.Error(), err)
 		}
@@ -498,30 +409,6 @@ func (s *DevMachineService) resolveRequestedContext(ctx context.Context, workspa
 	return issue, project, issueID, projectID, nil
 }
 
-func (s *DevMachineService) validateReadyEnvironment(ctx context.Context, workspaceID, environmentID uuid.UUID) error {
-	environment, err := s.store.GetEnvironment(ctx, workspaceID, environmentID)
-	if err != nil {
-		return err
-	}
-	if environment == nil || environment.Status != "ready" {
-		return fmt.Errorf("%w: invalid development environment", ErrInvalidMachineInput)
-	}
-	if !strings.HasPrefix(readyEnvironmentImageRef(environment), "sha256:") {
-		return fmt.Errorf("%w: invalid development environment", ErrInvalidMachineInput)
-	}
-	return nil
-}
-
-func readyEnvironmentImageRef(environment *domain.DevMachineEnvironment) string {
-	if environment == nil {
-		return ""
-	}
-	if environment.ImageDigest != nil && strings.HasPrefix(strings.TrimSpace(*environment.ImageDigest), "sha256:") {
-		return strings.TrimSpace(*environment.ImageDigest)
-	}
-	return strings.TrimSpace(environment.ImageRef)
-}
-
 func splitRepositoryFullName(fullName string) (string, string) {
 	parts := strings.SplitN(fullName, "/", 2)
 	if len(parts) != 2 {
@@ -580,26 +467,15 @@ func (s *DevMachineService) buildProviders(machineID uuid.UUID, policy *domain.D
 	return providers, nil
 }
 
+// buildServices is every machine's own containers: the egress proxy and the
+// developer terminal on the single machine image. A Docker daemon is added
+// when the workspace allows it.
 func (s *DevMachineService) buildServices(machine *domain.DevMachine) []domain.DevMachineService {
 	base := "kuayle-" + machine.RoutingKey + "-"
-	services := []domain.DevMachineService{
-		newService(machine.WorkspaceID, machine.ID, "collector", "collector", base+"collector", s.images.Collector, machine.RoutingKey+"-collector", 8091),
+	return []domain.DevMachineService{
 		newService(machine.WorkspaceID, machine.ID, "egress", "egress", base+"egress", s.images.Egress, machine.RoutingKey+"-egress", 3128),
+		newService(machine.WorkspaceID, machine.ID, "terminal", "terminal", base+"terminal", s.images.Headless, machine.RoutingKey+"-terminal", 7681),
 	}
-	var config dto.DevMachineServicesInput
-	_ = json.Unmarshal(machine.ServicesConfig, &config)
-	if machine.Profile == domain.DevMachineProfileHeadless {
-		services = append(services, newService(machine.WorkspaceID, machine.ID, "terminal", "terminal", base+"terminal", s.images.Headless, machine.RoutingKey+"-terminal", 7681))
-		return services
-	}
-	if config.IDE {
-		services = append(services, newService(machine.WorkspaceID, machine.ID, "ide", "ide", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 8080))
-		services = append(services, newService(machine.WorkspaceID, machine.ID, "terminal", "terminal", base+"ide", s.images.IDE, machine.RoutingKey+"-ide", 7681))
-	}
-	if config.Browser {
-		services = append(services, newService(machine.WorkspaceID, machine.ID, "browser", "browser", base+"browser", s.images.Browser, machine.RoutingKey+"-browser", 3000))
-	}
-	return services
 }
 
 func newService(workspaceID, machineID uuid.UUID, serviceType, key, name, image, host string, port int) domain.DevMachineService {
@@ -979,21 +855,7 @@ func (s *DevMachineService) UpdateScopeSetting(ctx context.Context, workspaceID 
 	} else if request.BaseBranch != nil {
 		return nil, fmt.Errorf("%w: github_repo_id is required when base_branch is provided", ErrInvalidMachineInput)
 	}
-	if request.EnvironmentID != nil {
-		environmentID, _ := uuid.Parse(*request.EnvironmentID)
-		environment, err := s.store.GetEnvironment(ctx, workspaceID, environmentID)
-		if err != nil {
-			return nil, err
-		}
-		if environment == nil || environment.Status != "ready" {
-			return nil, fmt.Errorf("%w: invalid development environment", ErrInvalidMachineInput)
-		}
-		setting.EnvironmentID = &environmentID
-	}
 	if err := s.store.UpsertScopeSetting(ctx, setting); err != nil {
-		if errors.Is(err, repository.ErrEnvironmentUnavailable) {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
-		}
 		return nil, err
 	}
 	return setting, nil
@@ -1089,9 +951,6 @@ func (s *DevMachineService) checkoutIssue(ctx context.Context, workspaceID, mach
 	if setting.GitHubRepoID == nil {
 		return nil, ErrNoDevelopmentRepository
 	}
-	if setting.EnvironmentID != nil && (machine.EnvironmentID == nil || *machine.EnvironmentID != *setting.EnvironmentID) {
-		return nil, fmt.Errorf("%w: issue requires a different development environment", ErrCheckoutNotEligible)
-	}
 	linkedRepository, err := s.store.GetLinkedRepository(ctx, workspaceID, *setting.GitHubRepoID)
 	if err != nil {
 		return nil, err
@@ -1183,78 +1042,6 @@ func (s *DevMachineService) ListCheckouts(ctx context.Context, workspaceID, mach
 	}
 	items, err := s.store.ListCheckouts(ctx, workspaceID, machineID)
 	return nonNilSlice(items), err
-}
-
-func (s *DevMachineService) ListEnvironments(ctx context.Context, workspaceID uuid.UUID) ([]domain.DevMachineEnvironment, error) {
-	items, err := s.store.ListEnvironments(ctx, workspaceID)
-	return nonNilSlice(items), err
-}
-
-func (s *DevMachineService) GetEnvironment(ctx context.Context, workspaceID, environmentID uuid.UUID) (*domain.DevMachineEnvironment, error) {
-	environment, err := s.store.GetEnvironment(ctx, workspaceID, environmentID)
-	if err == nil && (environment == nil || environment.Status == "delete_requested") {
-		return nil, ErrEnvironmentNotFound
-	}
-	return environment, err
-}
-
-func (s *DevMachineService) RequestEnvironmentDeletion(ctx context.Context, workspaceID, environmentID uuid.UUID) error {
-	if err := s.store.RequestEnvironmentDeletion(ctx, workspaceID, environmentID); err != nil {
-		if errors.Is(err, repository.ErrEnvironmentInUse) {
-			return ErrEnvironmentInUse
-		}
-		if errors.Is(err, repository.ErrEnvironmentInvalidState) {
-			return ErrEnvironmentInvalidState
-		}
-		if errors.Is(err, repository.ErrEnvironmentDeletionConflict) {
-			return ErrEnvironmentCleanupActive
-		}
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrEnvironmentNotFound
-		}
-		return err
-	}
-	return nil
-}
-
-func (s *DevMachineService) SnapshotEnvironment(ctx context.Context, workspaceID, userID uuid.UUID, request dto.CreateDevMachineEnvironmentRequest) (*domain.DevMachineEnvironment, error) {
-	if err := s.RequireMachineUse(userID); err != nil {
-		return nil, err
-	}
-	machineID, _ := uuid.Parse(request.SourceMachineID)
-	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
-	if err != nil {
-		return nil, err
-	}
-	stable := machine.Status == machine.DesiredStatus && (machine.Status == domain.DevMachineStatusPaused || machine.Status == domain.DevMachineStatusStopped)
-	if !stable {
-		return nil, fmt.Errorf("%w: machine must be stably paused or stopped before saving an environment", ErrInvalidOperation)
-	}
-	if !machine.EnvironmentBuilder {
-		return nil, fmt.Errorf("%w: only an Environment Builder can be saved as a development environment", ErrInvalidOperation)
-	}
-	environmentID := uuid.New()
-	environment := &domain.DevMachineEnvironment{
-		ID: environmentID, WorkspaceID: workspaceID, Name: strings.TrimSpace(request.Name),
-		ImageRef: "kuayle/dev-environment-" + environmentID.String() + ":snapshot", Status: "pending",
-		SourceMachineID: &machineID, CreatedByUserID: &userID,
-	}
-	if environment.Name == "" || strings.ContainsAny(environment.Name, "\x00\r\n") {
-		return nil, fmt.Errorf("%w: invalid development environment name", ErrInvalidMachineInput)
-	}
-	operation := &domain.DevMachineOperation{
-		ID: uuid.New(), MachineID: machineID, EnvironmentID: &environmentID, WorkspaceID: workspaceID,
-		Action: domain.DevMachineOpSnapshotEnvironment, Status: domain.DevMachineOpStatusPending,
-		Generation: machine.Generation, IdempotencyKey: "snapshot-environment:" + environmentID.String(),
-		RequestedByUserID: &userID, MaxAttempts: 2,
-	}
-	if err := s.store.CreateEnvironment(ctx, environment, operation); err != nil {
-		if errors.Is(err, repository.ErrMachineStateConflict) {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
-		}
-		return nil, err
-	}
-	return environment, nil
 }
 
 func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineID, userID uuid.UUID, action domain.DevMachineOperationAction, idempotencyKey string) (*domain.DevMachineOperation, error) {
@@ -1349,7 +1136,7 @@ func (s *DevMachineService) Lifecycle(ctx context.Context, workspaceID, machineI
 		if errors.Is(err, repository.ErrIdempotencyKeyConflict) {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
-		if errors.Is(err, repository.ErrActiveAgentRun) || errors.Is(err, repository.ErrMachineStateConflict) || errors.Is(err, repository.ErrEnvironmentUnavailable) {
+		if errors.Is(err, repository.ErrActiveAgentRun) || errors.Is(err, repository.ErrMachineStateConflict) {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidOperation, err)
 		}
 		if errors.Is(err, repository.ErrMachineQuota) {
@@ -1754,62 +1541,11 @@ func selectReadyAgentCheckout(checkouts []domain.DevMachineCheckout) (*domain.De
 	return nil, fmt.Errorf("%w: prepare an issue checkout before starting an agent", ErrCheckoutNotReady)
 }
 
-func (s *DevMachineService) LaunchService(ctx context.Context, workspaceID, machineID, userID uuid.UUID, serviceKey string, checkoutID *uuid.UUID) (*dto.LaunchServiceResponse, error) {
-	if err := s.RequireMachineUse(userID); err != nil {
-		return nil, err
-	}
-	if _, err := s.enabledPolicy(ctx, workspaceID); err != nil {
-		return nil, err
-	}
-	machine, err := s.GetForUser(ctx, workspaceID, machineID, userID)
-	if err != nil {
-		return nil, err
-	}
-	if serviceKey == "terminal" {
-		return nil, ErrTerminalSessionRequired
-	}
-	if s.domain == "" {
-		return nil, fmt.Errorf("dev machine domain is not configured")
-	}
-	if pending, handled, err := s.pendingLaunch(ctx, workspaceID, machine, userID); handled || err != nil {
-		return pending, err
-	}
-	service, err := s.store.GetService(ctx, workspaceID, machineID, serviceKey)
-	if err != nil {
-		return nil, err
-	}
-	if service == nil || service.MachineID != machineID || service.ServiceKey != serviceKey || service.Status != "running" {
-		return nil, ErrServiceNotAvailable
-	}
-	if service.ServiceType == "terminal" {
-		return nil, ErrTerminalSessionRequired
-	}
-	if service.ServiceType != "ide" && service.ServiceType != "browser" {
-		return nil, ErrServiceNotAvailable
-	}
-	return s.issueLaunch(ctx, workspaceID, machine, service, userID, checkoutID, "")
-}
-
-func (s *DevMachineService) issueLaunch(ctx context.Context, workspaceID uuid.UUID, machine *domain.DevMachine, service *domain.DevMachineService, userID uuid.UUID, checkoutID *uuid.UUID, hostSuffix string) (*dto.LaunchServiceResponse, error) {
+// issueLaunch issues a single-use ticket that opens an app port of the
+// machine (its host ends in hostSuffix) in the owner's browser.
+func (s *DevMachineService) issueLaunch(ctx context.Context, workspaceID uuid.UUID, machine *domain.DevMachine, service *domain.DevMachineService, userID uuid.UUID, hostSuffix string) (*dto.LaunchServiceResponse, error) {
 	machineID := machine.ID
-	var err error
-	var checkout *domain.DevMachineCheckout
-	if checkoutID != nil {
-		checkout, err = s.store.GetCheckout(ctx, workspaceID, machineID, *checkoutID)
-		if err != nil {
-			return nil, err
-		}
-		if checkout == nil {
-			return nil, ErrCheckoutNotFound
-		}
-		if checkout.Status != "ready" {
-			return nil, fmt.Errorf("%w: selected checkout must be ready", ErrCheckoutNotReady)
-		}
-	}
 	host := machine.RoutingKey + hostSuffix + "." + s.domain
-	if service.ServiceType == "browser" {
-		host = machine.RoutingKey + "-browser." + s.domain
-	}
 	raw, err := randomHex(32)
 	if err != nil {
 		return nil, err
@@ -1831,14 +1567,6 @@ func (s *DevMachineService) issueLaunch(ctx context.Context, workspaceID uuid.UU
 	s.emit(ctx, machine, nil, &userID, "gateway", "service.launch_requested", map[string]any{"service": service.ServiceType})
 	launchPath := "/"
 	query := url.Values{"ticket": []string{raw}}
-	if service.ServiceType == "browser" {
-		query.Set("autoconnect", "true")
-		query.Set("resize", "remote")
-		query.Set("enable_webrtc", "false")
-	}
-	if checkout != nil && service.ServiceType == "ide" {
-		query.Set("folder", checkout.WorkspacePath)
-	}
 	launchURL := (&url.URL{Scheme: "https", Host: host, Path: launchPath, RawQuery: query.Encode()}).String()
 	return &dto.LaunchServiceResponse{Status: "ready", LaunchURL: launchURL, ExpiresAt: ticket.ExpiresAt}, nil
 }
@@ -2125,107 +1853,6 @@ func nonNilSlice[T any](items []T) []T {
 		return []T{}
 	}
 	return items
-}
-
-func (s *DevMachineService) IngestEvent(ctx context.Context, rawToken string, input dto.CollectorEventInput) error {
-	if !s.enabled {
-		return ErrDevMachinesDisabled
-	}
-	token, machine, err := s.authenticateMachineToken(ctx, rawToken, "events:write")
-	if err != nil {
-		return err
-	}
-	var runID *uuid.UUID
-	if input.AgentRunID != nil {
-		parsed, _ := uuid.Parse(*input.AgentRunID)
-		run, err := s.store.GetAgentRun(ctx, machine.WorkspaceID, parsed)
-		if err != nil {
-			return err
-		}
-		if run == nil || run.MachineID != token.MachineID {
-			return ErrAgentRunNotFound
-		}
-		runID = &parsed
-	}
-	secrets, err := s.machineSecretValues(ctx, machine.WorkspaceID, machine.ID)
-	if err != nil {
-		return err
-	}
-	payload, _ := json.Marshal(redactPayload(input.Payload, secrets))
-	if input.Payload == nil {
-		payload = []byte(`{}`)
-	}
-	occurredAt := time.Now().UTC()
-	if input.OccurredAt != nil && input.OccurredAt.Before(occurredAt.Add(5*time.Minute)) && input.OccurredAt.After(occurredAt.Add(-24*time.Hour)) {
-		occurredAt = input.OccurredAt.UTC()
-	}
-	return s.store.CreateEvent(ctx, &domain.DevMachineEvent{
-		WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: runID,
-		Source: input.Source, EventType: redactText(input.EventType, secrets), Payload: payload, OccurredAt: occurredAt,
-	})
-}
-
-func (s *DevMachineService) IngestLog(ctx context.Context, rawToken string, input dto.CollectorLogInput) error {
-	if !s.enabled {
-		return ErrDevMachinesDisabled
-	}
-	_, machine, err := s.authenticateMachineToken(ctx, rawToken, "logs:write")
-	if err != nil {
-		return err
-	}
-	var runID, serviceID *uuid.UUID
-	if input.AgentRunID != nil {
-		parsed, _ := uuid.Parse(*input.AgentRunID)
-		run, err := s.store.GetAgentRun(ctx, machine.WorkspaceID, parsed)
-		if err != nil {
-			return err
-		}
-		if run == nil || run.MachineID != machine.ID {
-			return ErrAgentRunNotFound
-		}
-		runID = &parsed
-	}
-	if input.ServiceID != nil {
-		parsed, _ := uuid.Parse(*input.ServiceID)
-		services, err := s.store.ListServices(ctx, machine.WorkspaceID, machine.ID)
-		if err != nil {
-			return err
-		}
-		matched := false
-		for _, service := range services {
-			if service.ID == parsed {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return ErrServiceNotAvailable
-		}
-		serviceID = &parsed
-	}
-	secrets, err := s.machineSecretValues(ctx, machine.WorkspaceID, machine.ID)
-	if err != nil {
-		return err
-	}
-	return s.store.CreateLogChunk(ctx, &domain.DevMachineLogChunk{
-		WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, AgentRunID: runID, ServiceID: serviceID,
-		Stream: input.Stream, Sequence: input.Sequence, Content: redactText(input.Content, secrets), Truncated: input.Truncated,
-	})
-}
-
-func (s *DevMachineService) authenticateMachineToken(ctx context.Context, rawToken, scope string) (*domain.DevMachineToken, *domain.DevMachine, error) {
-	if len(rawToken) != 64 {
-		return nil, nil, ErrMachineAuthentication
-	}
-	hash := sha256.Sum256([]byte(rawToken))
-	token, machine, err := s.store.AuthenticateMachineToken(ctx, hex.EncodeToString(hash[:]), scope)
-	if err != nil {
-		return nil, nil, err
-	}
-	if token == nil || machine == nil {
-		return nil, nil, ErrMachineAuthentication
-	}
-	return token, machine, nil
 }
 
 func (s *DevMachineService) GetPolicy(ctx context.Context, workspaceID uuid.UUID) (*domain.DevMachineWorkspacePolicy, error) {

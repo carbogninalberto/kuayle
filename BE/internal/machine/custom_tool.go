@@ -98,11 +98,7 @@ func (r *DockerRuntime) RunTool(ctx context.Context, machine *domain.DevMachine,
 	if err != nil {
 		return nil, err
 	}
-	if machine.EnvironmentID != nil {
-		if err := r.ensureEnvironmentImage(ctx, image, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
-			return nil, err
-		}
-	} else if err := r.ensureImage(ctx, image); err != nil {
+	if err := r.ensureImage(ctx, image); err != nil {
 		return nil, err
 	}
 	name := toolContainerName(machine, run.ID)
@@ -271,7 +267,7 @@ func (m *Manager) runTool(ctx context.Context, machine *domain.DevMachine, op *d
 	}
 	image := ""
 	for _, service := range services {
-		if service.ServiceType == "ide" || service.ServiceType == "terminal" {
+		if service.ServiceType == "terminal" {
 			image = service.ImageRef
 			break
 		}

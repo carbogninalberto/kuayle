@@ -157,7 +157,7 @@ func (r *DockerRuntime) scopeMachineResources(ctx context.Context, machine *doma
 		return fmt.Errorf("machine routing key cannot name a machine slice")
 	}
 	hostConfig.CgroupParent = name
-	if serviceType == "collector" || serviceType == "egress" {
+	if serviceType == "egress" {
 		return nil
 	}
 	hostConfig.Resources = sharedMachineResources(machine, hostConfig.Resources)

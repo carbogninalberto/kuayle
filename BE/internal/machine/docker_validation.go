@@ -24,11 +24,7 @@ func (r *DockerRuntime) RunManualCheck(ctx context.Context, machine *domain.DevM
 	if json.Unmarshal(step.CommandArgv, &argv) != nil || len(argv) == 0 || domain.ValidateTestCommand(argv) != nil {
 		return nil, fmt.Errorf("invalid check command")
 	}
-	if machine.EnvironmentID != nil {
-		if err := r.ensureEnvironmentImage(ctx, image, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
-			return nil, err
-		}
-	} else if err := r.ensureImage(ctx, image); err != nil {
+	if err := r.ensureImage(ctx, image); err != nil {
 		return nil, err
 	}
 	key := checkContainerKey(run, step)

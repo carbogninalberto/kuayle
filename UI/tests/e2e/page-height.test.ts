@@ -323,12 +323,11 @@ const machine = (number: number) => ({
 	base_branch: 'main',
 	working_branch: `kuayle/task-${number}`,
 	machine_size: 'medium',
-	profile: 'developer',
+	profile: 'headless',
 	cpu_millis: 4000,
 	memory_mb: 8192,
 	disk_gb: 40,
 	pids_limit: 1024,
-	environment_builder: false,
 	created_at: createdAt,
 	updated_at: createdAt
 });

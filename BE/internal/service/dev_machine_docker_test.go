@@ -34,10 +34,11 @@ func TestCreateAddsTheDockerDaemonOnlyWhenTheWorkspaceAllowsIt(t *testing.T) {
 		policy.AllowDocker = allowed
 		store := &devMachineStoreFake{policy: policy}
 		svc := NewDevMachineService(store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{Docker: "kuayle/dev-machine-docker:test"})
-		machine, _, err := svc.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{Name: "docker-machine", Size: "small", Services: dto.DevMachineServicesInput{IDE: true}})
+		machine, _, err := svc.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{Name: "docker-machine", Size: "small"})
 		require.NoError(t, err)
-		var docker []string
+		var docker, serviceTypes []string
 		for _, service := range store.createdServices {
+			serviceTypes = append(serviceTypes, service.ServiceType)
 			if service.ServiceType == "docker" {
 				docker = append(docker, service.ServiceKey)
 				require.Equal(t, "kuayle/dev-machine-docker:test", service.ImageRef)
@@ -61,10 +62,12 @@ func TestCreateAddsTheDockerDaemonOnlyWhenTheWorkspaceAllowsIt(t *testing.T) {
 			secrets[envVar.TargetService][envVar.Name] = value
 		}
 		if !allowed {
+			require.ElementsMatch(t, []string{"egress", "terminal"}, serviceTypes)
 			require.Empty(t, docker)
 			require.Empty(t, secrets)
 			continue
 		}
+		require.ElementsMatch(t, []string{"egress", "terminal", "docker"}, serviceTypes)
 		require.Equal(t, []string{"docker"}, docker)
 		require.ElementsMatch(t, []string{"KUAYLE_DOCKER_TLS_CA", "KUAYLE_DOCKER_TLS_CERT", "KUAYLE_DOCKER_TLS_KEY"}, keys(secrets[dockerServiceType]))
 		require.ElementsMatch(t, []string{"KUAYLE_DOCKER_CA", "KUAYLE_DOCKER_CERT", "KUAYLE_DOCKER_KEY"}, keys(secrets[dockerClientTarget]))

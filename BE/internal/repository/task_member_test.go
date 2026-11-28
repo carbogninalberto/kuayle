@@ -25,7 +25,7 @@ type memberFixture struct {
 func newMemberFixture(t *testing.T) *memberFixture {
 	t.Helper()
 	f := &memberFixture{roomFixture: newRoomFixture(t)}
-	f.machine = f.env.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	f.machine = f.env.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err := f.db.Exec(`UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, f.task.ID, f.machine)
 	require.NoError(t, err)
 	return f

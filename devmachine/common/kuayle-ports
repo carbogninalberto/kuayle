@@ -115,7 +115,7 @@ is_docker_port() {
   docker_ports | grep -qx "$1"
 }
 
-# Ports of the machine's own services (IDE, terminal...), never exposed.
+# Ports of the machine's own services (terminal, Docker daemon...), never exposed.
 reserved_ports() {
   state_json | sed -n 's/.*"reserved":\[\([0-9,]*\)\].*/\1/p' | tr ',' '\n'
 }

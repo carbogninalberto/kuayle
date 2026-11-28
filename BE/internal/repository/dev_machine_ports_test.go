@@ -19,12 +19,12 @@ func taskMachine(t *testing.T, db *sqlx.DB, task domain.AgentTask) domain.DevMac
 	return machine
 }
 
-func runningIDE(t *testing.T, store *DevMachineRepository, machine domain.DevMachine) *domain.DevMachineService {
+func runningTerminal(t *testing.T, store *DevMachineRepository, machine domain.DevMachine) *domain.DevMachineService {
 	t.Helper()
-	ide := &domain.DevMachineService{ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, ServiceType: "ide", ServiceKey: "ide", ContainerName: "ide", ImageRef: "fixture", InternalHost: "ide", InternalPort: 8080, Status: "pending", HealthStatus: "unknown"}
-	require.NoError(t, store.CreateRuntimeService(context.Background(), ide))
-	require.NoError(t, store.UpdateServiceRuntime(context.Background(), ide.ID, "container", "running", "healthy", nil))
-	return ide
+	terminal := &domain.DevMachineService{ID: uuid.New(), WorkspaceID: machine.WorkspaceID, MachineID: machine.ID, ServiceType: "terminal", ServiceKey: "terminal", ContainerName: "terminal", ImageRef: "fixture", InternalHost: "terminal", InternalPort: 7681, Status: "pending", HealthStatus: "unknown"}
+	require.NoError(t, store.CreateRuntimeService(context.Background(), terminal))
+	require.NoError(t, store.UpdateServiceRuntime(context.Background(), terminal.ID, "container", "running", "healthy", nil))
+	return terminal
 }
 
 func appPort(machine domain.DevMachine, port int, source string, task *uuid.UUID) *domain.DevMachinePort {
@@ -44,22 +44,22 @@ func TestAppPortsRouteToTheDeveloperServiceWithoutALimit(t *testing.T) {
 		return service
 	}
 	require.Nil(t, route(5173), "nothing is exposed yet")
-	ide := runningIDE(t, store, machine)
+	terminal := runningTerminal(t, store, machine)
 	require.NoError(t, store.CreatePort(ctx, appPort(machine, 5173, "user", nil)))
 	served := route(5173)
 	require.NotNil(t, served)
-	require.Equal(t, ide.ID, served.ID, "tickets name the developer service")
+	require.Equal(t, terminal.ID, served.ID, "tickets name the developer service")
 	require.Equal(t, "port:5173", served.ServiceType)
 	require.Equal(t, 5173, served.InternalPort)
-	require.Equal(t, "ide", served.InternalHost)
+	require.Equal(t, "terminal", served.InternalHost)
 	require.Nil(t, route(5174))
-	_, ideRoute, err := store.GetRoute(ctx, machine.RoutingKey, "ide")
+	_, terminalRoute, err := store.GetRoute(ctx, machine.RoutingKey, "terminal")
 	require.NoError(t, err)
-	require.Equal(t, 8080, ideRoute.InternalPort, "the IDE route is unchanged")
+	require.Equal(t, 7681, terminalRoute.InternalPort, "the terminal route is unchanged")
 
-	_, err = db.Exec(`INSERT INTO dev_machine_ports(workspace_id,machine_id,port,source,created_by_user_id) VALUES($1,$2,8080,'user',$3)`, machine.WorkspaceID, machine.ID, *machine.CreatedByUserID)
+	_, err = db.Exec(`INSERT INTO dev_machine_ports(workspace_id,machine_id,port,source,created_by_user_id) VALUES($1,$2,7681,'user',$3)`, machine.WorkspaceID, machine.ID, *machine.CreatedByUserID)
 	require.NoError(t, err)
-	require.Nil(t, route(8080), "a service port is never routed, even when stored")
+	require.Nil(t, route(7681), "a service port is never routed, even when stored")
 
 	require.ErrorIs(t, store.CreatePort(ctx, appPort(machine, 5173, "agent", nil)), ErrPortExists)
 	for port := 3000; port < 3030; port++ {
@@ -86,7 +86,7 @@ func TestTaskPreviewPortsRouteToThePreviewContainerNotTheDeveloper(t *testing.T)
 	db, _, ctx, task := reviewableTask(t)
 	store := NewDevMachineRepository(db)
 	machine := taskMachine(t, db, task)
-	ide := runningIDE(t, store, machine)
+	terminal := runningTerminal(t, store, machine)
 	route := func(port int) *domain.DevMachineService {
 		t.Helper()
 		_, service, err := store.GetRoute(ctx, machine.RoutingKey, domain.AppPortService(port))
@@ -106,11 +106,11 @@ func TestTaskPreviewPortsRouteToThePreviewContainerNotTheDeveloper(t *testing.T)
 	served := route(4100)
 	require.NotNil(t, served)
 	require.Equal(t, machine.RoutingKey+"-preview-4100", served.InternalHost, "the preview container's name on the machine network")
-	require.NotEqual(t, ide.InternalHost, served.InternalHost)
+	require.NotEqual(t, terminal.InternalHost, served.InternalHost)
 	require.Equal(t, 4100, served.InternalPort)
 	require.Equal(t, "port:4100", served.ServiceType)
-	require.Equal(t, ide.ID, served.ID, "tickets and sessions keep naming the developer service, bound to the port's host")
-	require.Equal(t, "ide", route(5173).InternalHost, "the owner's ports are unchanged")
+	require.Equal(t, terminal.ID, served.ID, "tickets and sessions keep naming the developer service, bound to the port's host")
+	require.Equal(t, "terminal", route(5173).InternalHost, "the owner's ports are unchanged")
 
 	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{4100, 5173}, nil))
 	require.Equal(t, domain.DevMachinePortTargetPreview, target(4100), "a developer process on the same number never takes the preview's route")
@@ -136,7 +136,7 @@ func TestTaskPreviewPortsRouteToThePreviewContainerNotTheDeveloper(t *testing.T)
 	_, err := db.Exec(`UPDATE dev_machine_ports SET target='developer' WHERE id=$1`, preview.ID)
 	require.NoError(t, err)
 	require.NoError(t, store.SetListeningPorts(ctx, machine.ID, []int{4100, 5173}, nil))
-	require.Equal(t, "ide", route(4100).InternalHost)
+	require.Equal(t, "terminal", route(4100).InternalHost)
 	require.NoError(t, store.SetTaskPreview(ctx, task.ID, domain.AgentTaskPreviewRunning, nil, preview))
 	require.Equal(t, domain.DevMachinePortTargetPreview, target(4100), "starting it again moves it to its container")
 	require.Equal(t, domain.DevMachinePortTargetDeveloper, target(5173), "other ports are not touched")
@@ -158,7 +158,7 @@ func TestAppPortsPublishedByTheDaemonRouteToTheDockerService(t *testing.T) {
 	db, _, ctx, task := reviewableTask(t)
 	store := NewDevMachineRepository(db)
 	machine := taskMachine(t, db, task)
-	ide := runningIDE(t, store, machine)
+	terminal := runningTerminal(t, store, machine)
 	route := func(port int) *domain.DevMachineService {
 		t.Helper()
 		_, service, err := store.GetRoute(ctx, machine.RoutingKey, domain.AppPortService(port))
@@ -182,10 +182,10 @@ func TestAppPortsPublishedByTheDaemonRouteToTheDockerService(t *testing.T) {
 	runningDocker(t, store, machine)
 	served := route(3000)
 	require.NotNil(t, served)
-	require.Equal(t, ide.ID, served.ID, "tickets and sessions keep naming the developer service")
+	require.Equal(t, terminal.ID, served.ID, "tickets and sessions keep naming the developer service")
 	require.Equal(t, machine.RoutingKey+"-docker", served.InternalHost)
 	require.Equal(t, 3000, served.InternalPort)
-	require.Equal(t, "ide", route(5173).InternalHost, "developer ports are unchanged")
+	require.Equal(t, "terminal", route(5173).InternalHost, "developer ports are unchanged")
 
 	require.NoError(t, store.CreatePort(ctx, appPort(machine, 8025, "agent", nil)))
 	require.Equal(t, domain.DevMachinePortTargetDocker, target(8025), "a new port only the daemon publishes starts there")
@@ -224,19 +224,19 @@ func TestDeletingAnAppPortRevokesOnlyItsHostSessions(t *testing.T) {
 	db, _, ctx, task := reviewableTask(t)
 	store := NewDevMachineRepository(db)
 	machine := taskMachine(t, db, task)
-	ide := runningIDE(t, store, machine)
+	terminal := runningTerminal(t, store, machine)
 	port := appPort(machine, 5173, "task", &task.ID)
 	require.NoError(t, store.CreatePort(ctx, port))
 	session := func(host string) uuid.UUID {
 		id := uuid.New()
 		_, err := db.Exec(`INSERT INTO dev_machine_access_sessions(id,workspace_id,machine_id,service_id,user_id,token_hash,bound_host,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '1 hour')`,
-			id, machine.WorkspaceID, machine.ID, ide.ID, *machine.CreatedByUserID, strings.Repeat(strings.ReplaceAll(id.String(), "-", ""), 2), host)
+			id, machine.WorkspaceID, machine.ID, terminal.ID, *machine.CreatedByUserID, strings.Repeat(strings.ReplaceAll(id.String(), "-", ""), 2), host)
 		require.NoError(t, err)
 		return id
 	}
 	portSession := session(machine.RoutingKey + "-5173.machines.example.test")
 	otherPort := session(machine.RoutingKey + "-5174.machines.example.test")
-	ideSession := session(machine.RoutingKey + ".machines.example.test")
+	terminalSession := session(machine.RoutingKey + "-terminal.machines.example.test")
 
 	ports, err := store.ListPorts(ctx, machine.WorkspaceID, machine.ID)
 	require.NoError(t, err)
@@ -263,7 +263,7 @@ func TestDeletingAnAppPortRevokesOnlyItsHostSessions(t *testing.T) {
 	}
 	require.True(t, revoked(portSession))
 	require.False(t, revoked(otherPort))
-	require.False(t, revoked(ideSession))
+	require.False(t, revoked(terminalSession))
 	var stops int
 	require.NoError(t, db.Get(&stops, `SELECT count(*) FROM dev_machine_operations WHERE action='stop_preview' AND agent_task_id=$1`, task.ID))
 	require.Equal(t, 1, stops, "removing a task's port stops its preview")

@@ -16,7 +16,7 @@ import (
 func TestStepRunsPlaceEachRunOnItsWorkflowStep(t *testing.T) {
 	db, repo, ctx, legacy, fixture := taskRecoveryFixture(t)
 	ws := legacy.WorkspaceID
-	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	insertRun := func(task uuid.UUID, provider, model, status, summary, result, offset string) uuid.UUID {
 		t.Helper()
 		var id uuid.UUID

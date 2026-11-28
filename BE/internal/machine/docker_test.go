@@ -183,7 +183,7 @@ func TestParseHostDiskUsage(t *testing.T) {
 	}
 }
 
-func TestHostDiskUsageReturnsUnknownWithoutRunningManagedCollector(t *testing.T) {
+func TestHostDiskUsageReturnsUnknownWithoutRunningDeveloperContainer(t *testing.T) {
 	dockerClient := &dockerClientFake{}
 	runtime := &DockerRuntime{config: DockerConfig{DiskQuotaMode: "monitored"}, client: dockerClient}
 
@@ -192,12 +192,36 @@ func TestHostDiskUsageReturnsUnknownWithoutRunningManagedCollector(t *testing.T)
 	require.ErrorIs(t, err, ErrHostDiskUnknown)
 	require.False(t, dockerClient.containerListOptions.All)
 	require.Equal(t, map[string]bool{
-		"com.kuayle.managed=true":      true,
-		"com.kuayle.service=collector": true,
+		"com.kuayle.managed=true":     true,
+		"com.kuayle.service=terminal": true,
 	}, dockerClient.containerListOptions.Filters["label"])
 }
 
-func TestHostDiskUsageUsesConfiguredPathWithoutListingCollectors(t *testing.T) {
+// Without a configured host path, the free space of the Docker data root is
+// read with df in a running developer (terminal) container.
+func TestHostDiskUsageMeasuresInARunningDeveloperContainer(t *testing.T) {
+	labels := func(service string) map[string]string {
+		return map[string]string{"com.kuayle.managed": "true", "com.kuayle.service": service}
+	}
+	dockerClient := &logExecClient{
+		dockerClientFake: &dockerClientFake{containers: []container.Summary{
+			{ID: "stopped-terminal", Labels: labels("terminal"), State: container.StateExited},
+			{ID: "egress", Labels: labels("egress"), State: container.StateRunning},
+			{ID: "running-terminal", Labels: labels("terminal"), State: container.StateRunning},
+		}},
+		stdout: "Filesystem 1-blocks Used Available Capacity Mounted on\n/dev/sdb 1000000 400000 600000 40% /workspace\n",
+	}
+	runtime := &DockerRuntime{config: DockerConfig{DiskQuotaMode: "monitored"}, client: dockerClient}
+
+	usage, err := runtime.HostDiskUsage(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, HostDiskUsage{TotalBytes: 1000000, FreeBytes: 600000}, usage)
+	require.Equal(t, "running-terminal", dockerClient.target)
+	require.Equal(t, []string{"df", "-B1", "-P", "/workspace"}, dockerClient.exec.Cmd)
+}
+
+func TestHostDiskUsageUsesConfiguredPathWithoutListingContainers(t *testing.T) {
 	dockerClient := &dockerClientFake{}
 	statfsCalls := 0
 	runtime := &DockerRuntime{
@@ -221,7 +245,7 @@ func TestHostDiskUsageUsesConfiguredPathWithoutListingCollectors(t *testing.T) {
 	require.Zero(t, dockerClient.containerListCalls)
 }
 
-func TestHostDiskUsageFallsBackToCollectorWhenPathEmpty(t *testing.T) {
+func TestHostDiskUsageFallsBackToDeveloperContainerWhenPathEmpty(t *testing.T) {
 	dockerClient := &dockerClientFake{}
 	statfsCalls := 0
 	runtime := &DockerRuntime{
@@ -303,32 +327,28 @@ func TestInteractiveToolingTmpfsAllowsExecutables(t *testing.T) {
 	runtime := &DockerRuntime{}
 
 	agentConfig := runtime.secureHostConfig(machine, "agent", "network", "volume", false)
-	ideConfig := runtime.secureHostConfig(machine, "ide", "network", "volume", false)
 	terminalConfig := runtime.secureHostConfig(machine, "terminal", "network", "volume", false)
-	collectorConfig := runtime.secureHostConfig(machine, "collector", "network", "volume", false)
+	egressConfig := runtime.secureHostConfig(machine, "egress", "network", "volume", false)
 
 	require.False(t, strings.Contains(agentConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(agentConfig.Tmpfs["/tmp"], "exec"))
-	require.False(t, strings.Contains(ideConfig.Tmpfs["/tmp"], "noexec"))
-	require.True(t, strings.Contains(ideConfig.Tmpfs["/tmp"], "exec"))
 	require.False(t, strings.Contains(terminalConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(terminalConfig.Tmpfs["/tmp"], "exec"))
-	require.True(t, strings.Contains(collectorConfig.Tmpfs["/tmp"], "noexec"))
+	require.True(t, strings.Contains(egressConfig.Tmpfs["/tmp"], "noexec"))
 	require.True(t, strings.Contains(agentConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
-	require.True(t, strings.Contains(ideConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
 	// Docker mounts tmpfs noexec unless exec is explicit; tools such as Codex
 	// install and run managed binaries from the home directory.
 	require.Contains(t, strings.Split(agentConfig.Tmpfs["/home/kuayle"], ","), "exec")
-	require.Contains(t, strings.Split(ideConfig.Tmpfs["/home/kuayle"], ","), "exec")
-	require.Contains(t, strings.Split(collectorConfig.Tmpfs["/home/kuayle"], ","), "noexec")
+	require.Contains(t, strings.Split(terminalConfig.Tmpfs["/home/kuayle"], ","), "exec")
+	require.Contains(t, strings.Split(egressConfig.Tmpfs["/home/kuayle"], ","), "noexec")
 	require.True(t, strings.Contains(terminalConfig.Tmpfs["/run/kuayle-secrets"], "noexec"))
 
 	// KUA-175: an agent CLI is PID 1 and does not reap the orphaned git
 	// children it leaves behind; they become zombies counted by PidsLimit
 	// until the run crashes at the limit. Docker's bundled init reaps them.
 	for name, config := range map[string]*container.HostConfig{
-		"agent": agentConfig, "ide": ideConfig, "terminal": terminalConfig,
-		"collector": collectorConfig, "check": runtime.secureHostConfig(machine, "check", "network", "volume", false),
+		"agent": agentConfig, "terminal": terminalConfig,
+		"egress": egressConfig, "check": runtime.secureHostConfig(machine, "check", "network", "volume", false),
 	} {
 		require.NotNil(t, config.Init, "%s runs without an init process", name)
 		require.True(t, *config.Init, "%s runs without an init process", name)
@@ -353,16 +373,11 @@ func TestHeadlessTerminalUsesDeveloperContainerSecurityAndResources(t *testing.T
 // on machines with a small PID budget. Support containers keep their share.
 func TestBuildContainersGetAProcessBudgetForParallelToolchains(t *testing.T) {
 	runtime := &DockerRuntime{}
-	for _, profile := range []string{domain.DevMachineProfileStandard, domain.DevMachineProfileHeadless} {
-		machine := &domain.DevMachine{MemoryMB: 12288, CPUMillis: 4000, PidsLimit: 512, Profile: profile}
-		for _, docker := range []bool{false, true} {
-			for _, service := range []string{"terminal", "ide"} {
-				pids := *runtime.secureHostConfig(machine, service, "network", "volume", docker).Resources.PidsLimit
-				require.Equal(t, int64(1024), pids, "%s on a %s machine (docker=%t)", service, profile, docker)
-			}
-			require.Equal(t, int64(32), *runtime.secureHostConfig(machine, "collector", "network", "volume", docker).Resources.PidsLimit)
-			require.Equal(t, int64(32), *runtime.secureHostConfig(machine, "egress", "network", "volume", docker).Resources.PidsLimit)
-		}
+	machine := &domain.DevMachine{MemoryMB: 12288, CPUMillis: 4000, PidsLimit: 512, Profile: domain.DevMachineProfileHeadless}
+	for _, docker := range []bool{false, true} {
+		pids := *runtime.secureHostConfig(machine, "terminal", "network", "volume", docker).Resources.PidsLimit
+		require.Equal(t, int64(1024), pids, "terminal (docker=%t)", docker)
+		require.Equal(t, int64(32), *runtime.secureHostConfig(machine, "egress", "network", "volume", docker).Resources.PidsLimit)
 	}
 }
 
@@ -389,21 +404,13 @@ func TestAgentPIDLimitStaysWithinMachineBudget(t *testing.T) {
 
 func TestDeveloperContainerIDSupportsHeadlessTerminalOnlyMachines(t *testing.T) {
 	terminalContainer := "headless-developer"
-	collectorContainer := "collector"
+	egressContainer := "egress"
 	services := []domain.DevMachineService{
-		{ServiceKey: "collector", ServiceType: "collector", ContainerID: &collectorContainer},
+		{ServiceKey: "egress", ServiceType: "egress", ContainerID: &egressContainer},
 		{ServiceKey: "terminal", ServiceType: "terminal", ContainerID: &terminalContainer},
 	}
 
 	require.Equal(t, terminalContainer, developerContainerID(services))
-}
-
-func TestOnlyStandardTerminalSharesTheIDEContainerDuringSpawn(t *testing.T) {
-	terminal := domain.DevMachineService{ServiceKey: "terminal", ServiceType: "terminal"}
-	ide := domain.DevMachineService{ServiceKey: "ide", ServiceType: "ide"}
-
-	require.False(t, terminalUsesSharedIDEContainer(terminal, []domain.DevMachineService{terminal}))
-	require.True(t, terminalUsesSharedIDEContainer(terminal, []domain.DevMachineService{ide, terminal}))
 }
 
 func TestAgentRuntimeEnvironmentAppliesNonSecretInvocationValues(t *testing.T) {
@@ -428,25 +435,23 @@ func TestSpawnCleanupPlanOnlyIncludesInvocationOwnedResources(t *testing.T) {
 	containers := map[string]string{}
 	createdContainers := map[string]string{}
 
-	recordSpawnServiceContainer(containers, createdContainers, "collector", "collector-created", true)
-	recordSpawnServiceContainer(containers, createdContainers, "ide", "ide-reused", false)
-	recordSpawnServiceContainer(containers, createdContainers, "terminal", "ide-reused", false)
+	recordSpawnServiceContainer(containers, createdContainers, "egress", "egress-created", true)
+	recordSpawnServiceContainer(containers, createdContainers, "terminal", "terminal-reused", false)
 
-	cleanup := planSpawnFailureCleanup(createdContainers, map[string]string{"gateway": "gateway", "ide": "ide-reused"}, false, true)
+	cleanup := planSpawnFailureCleanup(createdContainers, map[string]string{"gateway": "gateway", "terminal": "terminal-reused"}, false, true)
 
 	require.Equal(t, map[string]string{
-		"collector": "collector-created",
+		"egress": "egress-created",
 	}, cleanup.Containers)
 	require.Equal(t, map[string]string{
-		"gateway": "gateway",
-		"ide":     "ide-reused",
+		"gateway":  "gateway",
+		"terminal": "terminal-reused",
 	}, cleanup.NetworkConnections)
 	require.False(t, cleanup.RemoveNetwork)
 	require.True(t, cleanup.RemoveVolume)
 	require.Equal(t, map[string]string{
-		"collector": "collector-created",
-		"ide":       "ide-reused",
-		"terminal":  "ide-reused",
+		"egress":   "egress-created",
+		"terminal": "terminal-reused",
 	}, containers)
 }
 
@@ -463,22 +468,6 @@ func TestPausedStartActionRestartsInsteadOfPureUnpause(t *testing.T) {
 	require.Equal(t, containerStartRestart, serviceStartAction(domain.DevMachineStatusPaused, true, true))
 	require.Equal(t, containerStartRestart, serviceStartAction(domain.DevMachineStatusPaused, true, false))
 	require.Equal(t, containerStartUnpause, serviceStartAction(domain.DevMachineStatusRunning, true, true))
-}
-
-func TestStartPlanDeduplicatesSharedIDEAndTerminalContainer(t *testing.T) {
-	sharedContainer := "developer-container"
-	browserContainer := "browser-container"
-	services := []domain.DevMachineService{
-		{ID: uuid.New(), ServiceKey: "terminal", ServiceType: "terminal", ContainerID: &sharedContainer},
-		{ID: uuid.New(), ServiceKey: "ide", ServiceType: "ide", ContainerID: &sharedContainer},
-		{ID: uuid.New(), ServiceKey: "browser", ServiceType: "browser", ContainerID: &browserContainer},
-	}
-
-	planned := plannedStartServices(domain.DevMachineStatusPaused, services)
-
-	require.Len(t, planned, 2)
-	require.Equal(t, "ide", planned[0].ServiceKey)
-	require.Equal(t, "browser", planned[1].ServiceKey)
 }
 
 func TestTerminateTerminalTreatsAbsentStoppedRuntimeAsClosed(t *testing.T) {
@@ -507,39 +496,9 @@ func TestInstallSecretsClearsStaleFilesBeforeActiveValuesAndReady(t *testing.T) 
 	require.Equal(t, []string{"clear", "write:ACTIVE_SECRET=active-value", "write:.ready="}, calls)
 }
 
-func TestMissingImmutableLocalImageRefusesPull(t *testing.T) {
+func TestMissingImageRefusesPullOnlyWhenPullingIsDisabled(t *testing.T) {
 	require.NoError(t, missingImageError("registry.example/kuayle/app:latest", true))
 	require.ErrorContains(t, missingImageError("registry.example/kuayle/app:latest", false), "pulling is disabled")
-
-	err := missingImageError("sha256:local-environment", true)
-	require.True(t, errors.Is(err, ErrLocalEnvironmentMissing))
-	require.ErrorContains(t, err, "sha256:local-environment")
-}
-
-func TestValidateEnvironmentImageLabelsRequiresExpectedWorkspaceAndEnvironment(t *testing.T) {
-	workspaceID, environmentID := uuid.New(), uuid.New()
-	labels := map[string]string{
-		"com.kuayle.managed":        "true",
-		"com.kuayle.kind":           "dev-machine-environment",
-		"com.kuayle.workspace-id":   workspaceID.String(),
-		"com.kuayle.environment-id": environmentID.String(),
-	}
-
-	require.NoError(t, validateEnvironmentImageLabels(labels, workspaceID, environmentID))
-	require.Error(t, validateEnvironmentImageLabels(labels, uuid.New(), environmentID))
-	require.Error(t, validateEnvironmentImageLabels(labels, workspaceID, uuid.New()))
-	require.Error(t, validateEnvironmentImageLabels(map[string]string{"com.kuayle.managed": "true"}, workspaceID, environmentID))
-}
-
-func TestEnvironmentImageReferencesPreferDigestAndCleanupFallsBackToTag(t *testing.T) {
-	digest := "sha256:immutable"
-	environment := &domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot", ImageDigest: &digest}
-
-	require.Equal(t, digest, environmentImmutableImageID(environment))
-	require.Equal(t, digest, environmentImmutableImageID(&domain.DevMachineEnvironment{ImageRef: digest}))
-	require.Empty(t, environmentImmutableImageID(&domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot"}))
-	require.Equal(t, digest, environmentImageCleanupReference(environment))
-	require.Equal(t, "kuayle/dev-environment-test:snapshot", environmentImageCleanupReference(&domain.DevMachineEnvironment{ImageRef: "kuayle/dev-environment-test:snapshot"}))
 }
 
 // A machine created while the workspace allows sudo gets developer containers
@@ -547,38 +506,52 @@ func TestEnvironmentImageReferencesPreferDigestAndCleanupFallsBackToTag(t *testi
 // sudo, with Docker's default capabilities minus raw sockets: never
 // privileged, never NET_ADMIN or SYS_ADMIN, still on the machine network
 // behind the egress proxy and still under the configured seccomp and AppArmor
-// profiles. Agent attempts and the support containers stay locked.
+// profiles. The support containers stay locked.
 func TestSudoMachinesRelaxOnlyTheDeveloperContainers(t *testing.T) {
 	runtime := &DockerRuntime{config: DockerConfig{SeccompProfile: "/etc/kuayle/seccomp.json", AppArmorProfile: "kuayle-machine"}}
 	sudo := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512, SudoEnabled: true}
 	locked := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512}
 
-	for _, serviceType := range []string{"ide", "terminal"} {
-		relaxed := runtime.secureHostConfig(sudo, serviceType, "machine-network", "workspace-volume", false)
-		require.False(t, relaxed.ReadonlyRootfs, serviceType)
-		require.False(t, relaxed.Privileged, serviceType)
-		require.NotContains(t, relaxed.SecurityOpt, "no-new-privileges=true", serviceType)
-		require.Contains(t, relaxed.SecurityOpt, "seccomp=/etc/kuayle/seccomp.json", serviceType)
-		require.Contains(t, relaxed.SecurityOpt, "apparmor=kuayle-machine", serviceType)
-		require.Empty(t, relaxed.CapAdd, serviceType)
-		require.Equal(t, []string{"NET_RAW"}, relaxed.CapDrop, serviceType)
-		require.Equal(t, container.NetworkMode("machine-network"), relaxed.NetworkMode, serviceType)
-		require.Empty(t, relaxed.Binds, serviceType)
-		for _, mounted := range relaxed.Mounts {
-			require.NotContains(t, mounted.Source, "docker.sock", serviceType)
-		}
+	relaxed := runtime.secureHostConfig(sudo, "terminal", "machine-network", "workspace-volume", false)
+	requireSudoRelaxation(t, relaxed, "terminal")
+	same := runtime.secureHostConfig(locked, "terminal", "machine-network", "workspace-volume", false)
+	require.Equal(t, same.Resources, relaxed.Resources, "sudo does not change the container's resources")
+	require.True(t, same.ReadonlyRootfs)
+	require.Equal(t, []string{"ALL"}, same.CapDrop)
+	require.Contains(t, same.SecurityOpt, "no-new-privileges=true")
+	hostConfig := runtime.secureHostConfig(sudo, "egress", "machine-network", "workspace-volume", false)
+	require.True(t, hostConfig.ReadonlyRootfs)
+	require.Equal(t, []string{"ALL"}, hostConfig.CapDrop)
+	require.Contains(t, hostConfig.SecurityOpt, "no-new-privileges=true")
+}
 
-		same := runtime.secureHostConfig(locked, serviceType, "machine-network", "workspace-volume", false)
-		require.Equal(t, same.Resources, relaxed.Resources, "sudo does not change the container's resources")
-		require.True(t, same.ReadonlyRootfs, serviceType)
-		require.Equal(t, []string{"ALL"}, same.CapDrop, serviceType)
-		require.Contains(t, same.SecurityOpt, "no-new-privileges=true", serviceType)
+// Agent-class containers (attempts, checks, previews, tools and commands) may
+// always gain root through the image's sudo, so an agent can install the
+// system packages a project needs, on every machine: the same relaxation as a
+// sudo developer container, never more.
+func TestAgentContainersAlwaysAllowSudo(t *testing.T) {
+	runtime := &DockerRuntime{config: DockerConfig{SeccompProfile: "/etc/kuayle/seccomp.json", AppArmorProfile: "kuayle-machine"}}
+	for _, machine := range []*domain.DevMachine{
+		{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512},
+		{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512, SudoEnabled: true},
+	} {
+		requireSudoRelaxation(t, runtime.secureHostConfig(machine, "agent", "machine-network", "workspace-volume", false), "agent")
 	}
-	for _, serviceType := range []string{"agent", "collector", "browser", "egress"} {
-		hostConfig := runtime.secureHostConfig(sudo, serviceType, "machine-network", "workspace-volume", false)
-		require.True(t, hostConfig.ReadonlyRootfs, serviceType)
-		require.Equal(t, []string{"ALL"}, hostConfig.CapDrop, serviceType)
-		require.Contains(t, hostConfig.SecurityOpt, "no-new-privileges=true", serviceType)
+}
+
+func requireSudoRelaxation(t *testing.T, relaxed *container.HostConfig, serviceType string) {
+	t.Helper()
+	require.False(t, relaxed.ReadonlyRootfs, serviceType)
+	require.False(t, relaxed.Privileged, serviceType)
+	require.NotContains(t, relaxed.SecurityOpt, "no-new-privileges=true", serviceType)
+	require.Contains(t, relaxed.SecurityOpt, "seccomp=/etc/kuayle/seccomp.json", serviceType)
+	require.Contains(t, relaxed.SecurityOpt, "apparmor=kuayle-machine", serviceType)
+	require.Empty(t, relaxed.CapAdd, serviceType)
+	require.Equal(t, []string{"NET_RAW"}, relaxed.CapDrop, serviceType)
+	require.Equal(t, container.NetworkMode("machine-network"), relaxed.NetworkMode, serviceType)
+	require.Empty(t, relaxed.Binds, serviceType)
+	for _, mounted := range relaxed.Mounts {
+		require.NotContains(t, mounted.Source, "docker.sock", serviceType)
 	}
 }
 
@@ -597,8 +570,7 @@ func TestAgentAttemptsDoNotRunCLIsFromTheWorkspaceNpmPrefix(t *testing.T) {
 }
 
 // Each container's CPU, memory and process limits are a share of the machine.
-// A headless machine (agent task machines) has no IDE or browser, so its agent
-// gets half of the machine; with a Docker daemon the daemon takes 40% and the
+// The agent gets half of the machine and the developer terminal 40%; with a Docker daemon the daemon takes 40% and the
 // agent and terminal keep 35% each, ceilings that may overlap.
 func TestContainerSharesSplitTheMachine(t *testing.T) {
 	runtime := &DockerRuntime{}
@@ -622,20 +594,11 @@ func TestContainerSharesSplitTheMachine(t *testing.T) {
 		return sum
 	}
 	headless := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512, Profile: domain.DevMachineProfileHeadless}
-	split := shares(headless, false, "agent", "terminal", "collector", "egress")
-	require.Equal(t, map[string]int64{"agent": 50, "terminal": 40, "collector": 5, "egress": 5}, split)
+	split := shares(headless, false, "agent", "terminal", "egress")
+	require.Equal(t, map[string]int64{"agent": 50, "terminal": 40, "egress": 5}, split)
 	require.Equal(t, int64(4096)*1024*1024, runtime.secureHostConfig(headless, "agent", "network", "volume", false).Resources.Memory, "an 8 GiB task machine gives its agent 4 GiB")
-	require.Equal(t, int64(100), total(split))
-	split = shares(headless, true, "agent", "terminal", "collector", "egress")
-	require.Equal(t, map[string]int64{"agent": 35, "terminal": 35, "collector": 5, "egress": 5, "docker": 40}, split)
-	require.Equal(t, int64(120), total(split), "with a daemon the agent and terminal ceilings overlap")
-
-	// Standard machines keep their split; Docker does not change it.
-	standard := &domain.DevMachine{MemoryMB: 8192, CPUMillis: 4000, PidsLimit: 512, Profile: domain.DevMachineProfileStandard}
-	for _, docker := range []bool{false, true} {
-		split = shares(standard, docker, "ide", "browser", "agent", "collector", "egress")
-		require.Equal(t, int64(25), split["ide"])
-		require.Equal(t, int64(25), split["browser"])
-		require.Equal(t, int64(35), split["agent"])
-	}
+	require.LessOrEqual(t, total(split), int64(100))
+	split = shares(headless, true, "agent", "terminal", "egress")
+	require.Equal(t, map[string]int64{"agent": 35, "terminal": 35, "egress": 5, "docker": 40}, split)
+	require.Equal(t, int64(115), total(split), "with a daemon the agent and terminal ceilings overlap")
 }

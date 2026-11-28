@@ -228,7 +228,7 @@ func TestLiveInboxHookIsSilentWithoutAnInbox(t *testing.T) {
 // Claude Code reads the hook from the agent image's managed settings, which
 // the repository's .claude settings cannot replace and the agent cannot edit
 // (read-only root filesystem).
-func TestClaudeAgentImageInstallsTheLiveInboxHook(t *testing.T) {
+func TestTheMachineImageInstallsTheClaudeLiveInboxHook(t *testing.T) {
 	repoRoot := repoRootFromCaller(t)
 	data, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "common", "claude-managed-settings.json"))
 	require.NoError(t, err)
@@ -254,7 +254,7 @@ func TestClaudeAgentImageInstallsTheLiveInboxHook(t *testing.T) {
 	require.GreaterOrEqual(t, settings.Hooks["Stop"][0].Hooks[0].Timeout, 25, "the Stop hook waits for a reply to be collected")
 	require.Equal(t, "*", settings.Hooks["PostToolUse"][0].Matcher, "every tool call can deliver")
 
-	dockerfile, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "agent", "Dockerfile"))
+	dockerfile, err := os.ReadFile(filepath.Join(repoRoot, "devmachine", "headless", "Dockerfile"))
 	require.NoError(t, err)
 	require.Contains(t, string(dockerfile), "common/kuayle-live-inbox-hook.cjs")
 	require.Contains(t, string(dockerfile), "common/claude-managed-settings.json")

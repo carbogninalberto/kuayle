@@ -51,7 +51,6 @@ test('lists the tasks on a machine and handles actions without applying stale po
 		memory_mb: 8192,
 		disk_gb: 20,
 		pids_limit: 1024,
-		environment_builder: false,
 		created_at: '2026-07-13T00:00:00Z',
 		updated_at: '2026-07-13T00:00:00Z'
 	};
@@ -159,10 +158,10 @@ test('lists the tasks on a machine and handles actions without applying stale po
 					{
 						id: '00000000-0000-0000-0000-000000000051',
 						machine_id: machineId,
-						service_type: 'ide',
-						service_key: 'ide',
-						container_name: 'kuayle-test-ide',
-						image_ref: 'kuayle/dev-machine-ide:0.1.0',
+						service_type: 'terminal',
+						service_key: 'terminal',
+						container_name: 'kuayle-test-terminal',
+						image_ref: 'kuayle/dev-machine:0.1.0',
 						status: 'running',
 						health_status: 'healthy'
 					}
@@ -179,7 +178,7 @@ test('lists the tasks on a machine and handles actions without applying stale po
 						id: 1,
 						workspace_id: machine.workspace_id,
 						machine_id: machineId,
-						source: 'collector',
+						source: 'lifecycle',
 						event_type: 'machine_a_event',
 						payload: {},
 						occurred_at: '2026-07-13T00:00:00Z',
@@ -306,7 +305,6 @@ test('lists the tasks on a machine and handles actions without applying stale po
 	await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible();
 	// The Apps tab also carries the named migrations the assistant can run after approval.
 	await expect(page.getByRole('region', { name: 'Migrations' })).toContainText('No migrations configured');
-	await expect(page.getByTitle('Save development environment')).toHaveCount(0);
 	// Machines stay up until their user pauses or stops them: no inactivity controls.
 	await expect(page.getByRole('switch', { name: 'Keep running' })).toHaveCount(0);
 	await expect(page.getByRole('heading', { name: 'Inactivity' })).toHaveCount(0);
@@ -462,7 +460,6 @@ test('creates a generic machine with an accessible size and no lifetime controls
 					allow_custom_providers: false
 				}
 			});
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
 			createPayload = request.postDataJSON();
 			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000060', ...createPayload } });
@@ -515,9 +512,10 @@ test('creates a generic machine with an accessible size and no lifetime controls
 		size: 'custom',
 		cpu_millis: 4000,
 		memory_mb: 8192,
-		disk_gb: 100,
-		services: { ide: true, browser: true }
+		disk_gb: 100
 	});
+	// Every machine is the same headless type: the request names no profile, IDE, browser or environment.
+	for (const removed of ['profile', 'services', 'environment_id', 'environment_builder']) expect(createPayload).not.toHaveProperty(removed);
 	expect(createPayload).not.toHaveProperty('keep_running');
 	expect(availabilityRequests).toContain('taken-machine');
 	expect(availabilityRequests).toContain('fresh-machine');
@@ -608,7 +606,6 @@ test('snaps slider keyboard input and raises memory with vCPU', async ({ page })
 				}
 			});
 		}
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
 			createPayload = request.postDataJSON();
 			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000062', ...createPayload } });
@@ -658,385 +655,6 @@ test('snaps slider keyboard input and raises memory with vCPU', async ({ page })
 		memory_mb: 12288,
 		disk_gb: 75
 	});
-});
-
-test('creates an environment builder with policy-compatible custom resources', async ({ page }) => {
-	const workspaceId = '00000000-0000-0000-0000-000000000002';
-	let createPayload: Record<string, unknown> | undefined;
-
-	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
-		route.fulfill({ json: [] })
-	);
-	await page.route('**/api/**', async (route) => {
-		const request = route.request();
-		const url = new URL(request.url());
-		const path = url.pathname;
-		if (path === '/api/auth/me')
-			return route.fulfill({
-				json: {
-					id: '00000000-0000-0000-0000-000000000001',
-					email: 'owner@example.com',
-					name: 'Owner',
-					display_name: 'Owner',
-					avatar_url: null
-				}
-			});
-		if (path === '/api/preferences')
-			return route.fulfill({
-				json: {
-					font_size: 'default',
-					pointer_cursors: true,
-					theme_mode: 'dark',
-					light_theme: 'light',
-					dark_theme: 'dark',
-					workflow_sort_mode: 'default',
-					workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'],
-					team_workflow_sort_overrides: {},
-					issues_group_by: 'status'
-				}
-			});
-		if (path === '/api/workspaces')
-			return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
-		if (path === '/api/workspaces/test')
-			return route.fulfill({
-				json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' }
-			});
-		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`))
-			return route.fulfill({ json: [] });
-		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
-		if (path === '/api/workspaces/test/dev-machine-policy')
-			return route.fulfill({
-				json: {
-					workspace_id: workspaceId,
-					enabled: true,
-					max_concurrent_machines: 5,
-					max_machines_per_user: 2,
-					max_daily_agent_runs: 25,
-					max_disk_gb: 75,
-					allowed_providers: ['opencode'],
-					allowed_repositories: [],
-					allow_custom_providers: false,
-					size_options: {
-						cpu_millis: [1000, 2000, 4000, 6000, 8000, 12000, 16000],
-						memory_mb: [2048, 4096, 8192, 12288, 16384, 24576, 32768, 49152, 65536],
-						disk_gb: [20, 30, 40, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2048]
-					}
-				}
-			});
-		if (path === '/api/workspaces/test/github/status')
-			return route.fulfill({ json: { configured: true, installed: true, global_app: false, repos: [] } });
-		if (path === '/api/workspaces/test/dev-machine-scope-setting')
-			return route.fulfill({ json: { workspace_id: workspaceId } });
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
-		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
-			createPayload = request.postDataJSON();
-			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000061', ...createPayload } });
-		}
-		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
-	});
-
-	await page.goto('/test/settings/dev-machines?tab=policy');
-	const builderButton = page.getByRole('button', { name: 'New Environment Builder' });
-	await builderButton.click();
-	const dialog = page.getByRole('dialog');
-	const cpu = dialog.getByRole('slider', { name: 'vCPU' });
-	const memory = dialog.getByRole('slider', { name: 'Memory' });
-	const disk = dialog.getByRole('slider', { name: 'Disk' });
-	await expect(cpu).toHaveAttribute('aria-valuetext', '4 vCPU');
-	await expect(memory).toHaveAttribute('aria-valuetext', '8 GB');
-	await expect(disk).toHaveAttribute('aria-valuetext', '50 GB');
-	await disk.focus();
-	await disk.press('End');
-	await expect(disk).toHaveAttribute('aria-valuetext', '75 GB');
-	await expect(dialog.getByText('4 vCPU · 8 GB RAM · 75 GB disk', { exact: true })).toBeVisible();
-	await dialog.getByRole('button', { name: 'Create', exact: true }).click();
-	await expect.poll(() => createPayload).toBeTruthy();
-	expect(createPayload).toMatchObject({
-		size: 'custom',
-		cpu_millis: 4000,
-		memory_mb: 8192,
-		disk_gb: 75,
-		services: { ide: true, browser: false },
-		agents: [],
-		env_vars: [],
-		environment_builder: true
-	});
-	expect(createPayload).not.toHaveProperty('keep_running');
-});
-
-test('blocks environment builder creation when the policy has no disk options', async ({ page }) => {
-	const workspaceId = '00000000-0000-0000-0000-000000000002';
-	let createPayload: Record<string, unknown> | undefined;
-
-	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
-		route.fulfill({ json: [] })
-	);
-	await page.route('**/api/**', async (route) => {
-		const request = route.request();
-		const path = new URL(request.url()).pathname;
-		if (path === '/api/auth/me')
-			return route.fulfill({
-				json: {
-					id: '00000000-0000-0000-0000-000000000001',
-					email: 'owner@example.com',
-					name: 'Owner',
-					display_name: 'Owner',
-					avatar_url: null
-				}
-			});
-		if (path === '/api/preferences')
-			return route.fulfill({
-				json: {
-					font_size: 'default',
-					pointer_cursors: true,
-					theme_mode: 'dark',
-					light_theme: 'light',
-					dark_theme: 'dark',
-					workflow_sort_mode: 'default',
-					workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'],
-					team_workflow_sort_overrides: {},
-					issues_group_by: 'status'
-				}
-			});
-		if (path === '/api/workspaces')
-			return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
-		if (path === '/api/workspaces/test')
-			return route.fulfill({
-				json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' }
-			});
-		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`))
-			return route.fulfill({ json: [] });
-		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
-		if (path === '/api/workspaces/test/dev-machine-policy')
-			return route.fulfill({
-				json: {
-					workspace_id: workspaceId,
-					enabled: true,
-					max_concurrent_machines: 5,
-					max_machines_per_user: 2,
-					max_daily_agent_runs: 25,
-					max_disk_gb: 100,
-					allowed_providers: ['opencode'],
-					allowed_repositories: [],
-					allow_custom_providers: false,
-					size_options: {
-						cpu_millis: [1000, 2000, 4000, 6000, 8000, 12000, 16000],
-						memory_mb: [2048, 4096, 8192, 12288, 16384, 24576, 32768, 49152, 65536],
-						disk_gb: []
-					}
-				}
-			});
-		if (path === '/api/workspaces/test/github/status')
-			return route.fulfill({ json: { configured: true, installed: true, global_app: false, repos: [] } });
-		if (path === '/api/workspaces/test/dev-machine-scope-setting')
-			return route.fulfill({ json: { workspace_id: workspaceId } });
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
-		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
-			createPayload = request.postDataJSON();
-			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000063', ...createPayload } });
-		}
-		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
-	});
-
-	await page.goto('/test/settings/dev-machines?tab=policy');
-	await page.getByRole('button', { name: 'New Environment Builder' }).click();
-	const dialog = page.getByRole('dialog');
-	await expect(dialog.getByRole('slider', { name: 'Disk' })).toBeDisabled();
-	await expect(
-		dialog.getByText(
-			'Increase the workspace maximum disk policy to at least 20 GB before creating an Environment Builder',
-			{ exact: true }
-		)
-	).toBeVisible();
-	await expect(dialog.getByRole('button', { name: 'Create', exact: true })).toBeDisabled();
-	expect(createPayload).toBeUndefined();
-});
-
-test('retries a code-server launch while a paused machine resumes', async ({ page }) => {
-	const workspaceId = '00000000-0000-0000-0000-000000000002';
-	const machineId = '00000000-0000-0000-0000-000000000070';
-	let launchRequests = 0;
-	let failedLaunchRequests = 0;
-	let failLaunch = false;
-	let machineGets = 0;
-	const machine = {
-		id: machineId,
-		workspace_id: workspaceId,
-		routing_key: 'pausedmachine00000001',
-		name: 'Paused machine',
-		status: 'paused',
-		desired_status: 'paused',
-		generation: 1,
-		repo_url: '',
-		repo_owner: '',
-		repo_name: '',
-		base_branch: '',
-		working_branch: '',
-		machine_size: 'medium',
-		cpu_millis: 4000,
-		memory_mb: 8192,
-		disk_gb: 50,
-		pids_limit: 1024,
-		environment_builder: true,
-		created_at: '2026-07-13T00:00:00Z',
-		updated_at: '2026-07-13T00:00:00Z'
-	};
-	const unhandledPaths: string[] = [];
-
-	await page.route('https://raw.githubusercontent.com/carbogninalberto/kuayle/main/UI/static/releases.json', (route) =>
-		route.fulfill({ json: [] })
-	);
-	await page.route('**/api/**', async (route) => {
-		const request = route.request();
-		const path = new URL(request.url()).pathname;
-		if (path === '/api/auth/me')
-			return route.fulfill({
-				json: {
-					id: '00000000-0000-0000-0000-000000000001',
-					email: 'test@example.com',
-					name: 'Test User',
-					display_name: 'Test User',
-					avatar_url: null
-				}
-			});
-		if (path === '/api/preferences')
-			return route.fulfill({
-				json: {
-					font_size: 'default',
-					pointer_cursors: true,
-					theme_mode: 'dark',
-					light_theme: 'light',
-					dark_theme: 'dark',
-					workflow_sort_mode: 'default',
-					workflow_sort_order: ['backlog', 'unstarted', 'started', 'completed', 'cancelled'],
-					team_workflow_sort_overrides: {},
-					issues_group_by: 'status'
-				}
-			});
-		if (path === '/api/workspaces')
-			return route.fulfill({ json: [{ id: workspaceId, name: 'Test Workspace', slug: 'test' }] });
-		if (path === '/api/workspaces/test')
-			return route.fulfill({
-				json: { id: workspaceId, name: 'Test Workspace', slug: 'test', current_user_role: 'owner' }
-			});
-		if (['teams', 'projects', 'labels', 'members', 'views'].some((part) => path === `/api/workspaces/test/${part}`))
-			return route.fulfill({ json: [] });
-		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
-		if (path === `/api/workspaces/test/dev-machines/${machineId}`) {
-			machineGets += 1;
-			if (machineGets > 1) Object.assign(machine, { status: 'running', desired_status: 'running' });
-			return route.fulfill({ json: machine });
-		}
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/environment-status` && request.method() === 'GET') {
-			return route.fulfill({ json: environmentStatus });
-		}
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`)
-			return route.fulfill({
-				json: [
-					{
-						id: 'svc-ide',
-						machine_id: machineId,
-						service_type: 'ide',
-						service_key: 'ide',
-						container_name: 'ide',
-						image_ref: 'ide:1',
-						status: machine.status === 'running' ? 'running' : 'stopped',
-						health_status: machine.status === 'running' ? 'healthy' : 'paused'
-					}
-				]
-			});
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/checkouts`) return route.fulfill({ json: [] });
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/events`) return route.fulfill({ json: [] });
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/logs`) return route.fulfill({ json: [] });
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/tasks`) return route.fulfill({ json: [] });
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/resource-usage`) return route.fulfill({ json: [] });
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/services/ide/launch` && request.method() === 'POST') {
-			if (failLaunch) {
-				failedLaunchRequests += 1;
-				if (failedLaunchRequests === 1)
-					return route.fulfill({ status: 202, json: { status: 'pending', retry_after_seconds: 1 } });
-				return route.fulfill({ status: 500, json: { error: { message: 'Resume failed' } } });
-			}
-			launchRequests += 1;
-			if (launchRequests <= 2) {
-				Object.assign(machine, { desired_status: 'running' });
-				return route.fulfill({
-					status: 202,
-					json: {
-						status: 'resuming',
-						retry_after_seconds: 1,
-						operation: {
-							id: 'op-resume',
-							action: 'start',
-							status: 'pending',
-							generation: 2,
-							idempotency_key: 'launch-resume',
-							attempts: 0,
-							created_at: '2026-07-13T00:00:00Z'
-						}
-					}
-				});
-			}
-			return route.fulfill({
-				status: 201,
-				json: {
-					status: 'ready',
-					launch_url: 'https://code.example.test/?ticket=redacted'
-				}
-			});
-		}
-		// The machine page reads the policy to label the workspace disk limit.
-		if (path === '/api/workspaces/test/dev-machine-policy') {
-			return route.fulfill({
-				json: {
-					workspace_id: '00000000-0000-0000-0000-000000000002',
-					enabled: true,
-					max_concurrent_machines: 5,
-					max_machines_per_user: 2,
-					max_daily_agent_runs: 25,
-					max_disk_gb: 100,
-					allowed_providers: ['opencode'],
-					allowed_repositories: [],
-					allow_custom_providers: false,
-					disk_quota_mode: 'hard'
-				}
-			});
-		}
-		// The run dialog reads the workspace model servers.
-		if (path === '/api/workspaces/test/agent-model-servers') return route.fulfill({ json: [] });
-		if (path.endsWith('/ports')) return route.fulfill({ json: { ports: [], listening: [], scanned_at: null } });
-		// The machine page's migrations card lists named migration actions on load.
-		if (path.endsWith('/migration-actions')) return route.fulfill({ json: { actions: [] } });
-		unhandledPaths.push(`${request.method()} ${path}`);
-		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
-	});
-
-	await page.goto(`/test/machines/${machineId}`);
-	await expect(page.getByText('Paused machine', { exact: true })).toBeVisible();
-	const popupPromise = page.waitForEvent('popup');
-	await page
-		.getByRole('button', { name: /Code Editor/ })
-		.first()
-		.click();
-	await popupPromise;
-	await expect.poll(() => launchRequests).toBeGreaterThanOrEqual(2);
-	await expect(page.locator('.app-toast-shell')).toHaveCount(1);
-	await expect.poll(() => launchRequests).toBe(3);
-	await expect(page.getByText('Dev Machine is ready', { exact: true })).toBeVisible();
-	await expect(page.locator('.app-toast-shell')).toHaveCount(1);
-
-	failLaunch = true;
-	const failedPopupPromise = page.waitForEvent('popup');
-	await page
-		.getByRole('button', { name: /Code Editor/ })
-		.first()
-		.click();
-	const failedPopup = await failedPopupPromise;
-	await expect.poll(() => failedLaunchRequests).toBe(2);
-	await expect(page.getByText('Resume failed', { exact: true })).toBeVisible();
-	await expect(page.locator('.app-toast-shell')).toHaveCount(1);
-	await expect.poll(() => failedPopup.isClosed()).toBe(true);
-	expect(unhandledPaths).toEqual([]);
 });
 
 test('keeps multiple docked terminals alive across collapse and navigation', async ({ page }) => {
@@ -1125,7 +743,6 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 			memory_mb: 8192,
 			disk_gb: 50,
 			pids_limit: 1024,
-			environment_builder: false,
 			created_at: '2026-07-13T00:00:00Z',
 			updated_at: '2026-07-13T00:00:00Z'
 		};
@@ -1185,16 +802,6 @@ test('keeps multiple docked terminals alive across collapse and navigation', asy
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/services`)
 			return route.fulfill({
 				json: [
-					{
-						id: 'svc-ide',
-						machine_id: machineId,
-						service_type: 'ide',
-						service_key: 'ide',
-						container_name: 'ide',
-						image_ref: 'ide:1',
-						status: 'running',
-						health_status: 'healthy'
-					},
 					{
 						id: 'svc-terminal',
 						machine_id: machineId,
@@ -1529,7 +1136,6 @@ test('keeps Dev Machines in Settings with machine and policy tabs, and redirects
 		}
 		if (path === '/api/workspaces/test/github/status') return route.fulfill({ json: { installed: false, repos: [] } });
 		if (path === '/api/workspaces/test/dev-machine-scope-setting') return route.fulfill({ json: { workspace_id: workspaceId } });
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machine-merge-methods') return route.fulfill({ json: {} });
 		unhandled.push(`${request.method()} ${path}`);
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
@@ -1569,7 +1175,6 @@ test('stops Issue Machine Picker work on dismissal or when a checkout is retired
 	let checkoutRequests = 0;
 	let terminalRequests = 0;
 	let checkoutDelay: ReturnType<typeof createRequestDelay> | null = null;
-	let launchDelay: ReturnType<typeof createRequestDelay> | null = null;
 	const issue = {
 		id: issueId,
 		identifier: 'TST-43',
@@ -1604,7 +1209,6 @@ test('stops Issue Machine Picker work on dismissal or when a checkout is retired
 		memory_mb: 8192,
 		disk_gb: 50,
 		pids_limit: 1024,
-		environment_builder: false,
 		created_at: '2026-07-13T00:00:00Z',
 		updated_at: '2026-07-13T00:00:00Z'
 	};
@@ -1714,23 +1318,6 @@ test('stops Issue Machine Picker work on dismissal or when a checkout is retired
 			delay?.markCompleted();
 			return;
 		}
-		if (path === `/api/workspaces/test/dev-machines/${machineId}/services/ide/launch` && request.method() === 'POST') {
-			const delay = launchDelay;
-			if (delay) {
-				launchDelay = null;
-				delay.markStarted();
-				await delay.released;
-			}
-			await route.fulfill({
-				status: 201,
-				json: {
-					status: 'ready',
-					launch_url: 'https://code.example.test/?ticket=redacted'
-				}
-			});
-			delay?.markCompleted();
-			return;
-		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}/terminal-sessions` && request.method() === 'POST') {
 			terminalRequests += 1;
 			return route.fulfill({ status: 202, json: { status: 'pending' } });
@@ -1738,7 +1325,7 @@ test('stops Issue Machine Picker work on dismissal or when a checkout is retired
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
 	});
 
-	async function openPicker(action: 'Open Code Editor' | 'Open Terminal') {
+	async function openPicker(action: 'Open Terminal') {
 		await page.getByTitle('Issue actions').click();
 		await page.getByRole('button', { name: action }).click();
 		const picker = page.getByRole('dialog', { name: 'Choose Dev Machine' });
@@ -1763,23 +1350,9 @@ test('stops Issue Machine Picker work on dismissal or when a checkout is retired
 	await page.getByTitle('Issue actions').click();
 	await expect(page.getByRole('button', { name: 'Run Agent' })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'View tasks on machine' })).toBeVisible();
+	// Machines have no code editor: the terminal is the only way in.
+	await expect(page.getByRole('button', { name: 'Open Code Editor' })).toHaveCount(0);
 	await page.keyboard.press('Escape');
-
-	launchDelay = createRequestDelay();
-	const delayedLaunch = launchDelay;
-	const idePicker = await openPicker('Open Code Editor');
-	const popupPromise = page.waitForEvent('popup');
-	await idePicker.getByRole('button', { name: 'Open Code Editor' }).click();
-	const popup = await popupPromise;
-	await delayedLaunch.started;
-	await page.keyboard.press('Escape');
-	await expect.poll(() => popup.isClosed()).toBe(true);
-	delayedLaunch.release();
-	await delayedLaunch.completed;
-	await page.waitForTimeout(50);
-	expect(popup.isClosed()).toBe(true);
-	await expect(page.getByRole('heading', { name: 'Choose Dev Machine' })).toHaveCount(0);
-	await expect(page).toHaveURL('/test/issue/TST-43');
 
 	checkout.status = 'retired';
 	const priorCheckoutRequests = checkoutRequests;
@@ -1884,7 +1457,6 @@ test('searches linked repositories in IssueRepositoryDialog and saves selection'
 			return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path === '/api/workspaces/test/github/status')
 			return route.fulfill({ json: { configured: true, installed: true, repos } });
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machine-scope-setting' && request.method() === 'GET')
 			return route.fulfill({ json: { workspace_id: workspaceId, issue_id: issueId } });
 		if (path === '/api/workspaces/test/dev-machine-scope-setting' && request.method() === 'PUT') {
@@ -1946,7 +1518,6 @@ test('bounds machine telemetry during long-running sessions', async ({ page }) =
 		memory_mb: 8192,
 		disk_gb: 20,
 		pids_limit: 1024,
-		environment_builder: false,
 		created_at: '2026-07-13T00:00:00Z',
 		updated_at: '2026-07-13T00:00:00Z'
 	};
@@ -2141,7 +1712,6 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 					allow_custom_providers: false
 				}
 			});
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
 			createPayload = request.postDataJSON();
 			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000064', ...createPayload } });
@@ -2152,8 +1722,10 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 	await page.goto('/test/machines');
 	await page.getByRole('region', { name: 'Dev Machines' }).getByRole('button', { name: 'New machine' }).first().click();
 	const dialog = page.getByRole('dialog');
-	await dialog.getByRole('radio', { name: 'Headless (terminal + agents)' }).click();
+	// One machine type: no profile choice, browser service or development environment.
+	await expect(dialog.getByRole('radio')).toHaveCount(0);
 	await expect(dialog.getByRole('switch', { name: 'Browser' })).toHaveCount(0);
+	await expect(dialog.getByText('Development environment')).toHaveCount(0);
 
 	const provider = dialog.getByRole('combobox', { name: 'Provider' });
 	await provider.click();
@@ -2164,11 +1736,9 @@ test('creates a headless machine with a new built-in provider', async ({ page })
 	await dialog.getByRole('button', { name: 'Create machine' }).click();
 
 	await expect.poll(() => createPayload).toBeTruthy();
-	expect(createPayload).toMatchObject({
-		profile: 'headless',
-		services: { ide: false, browser: false },
-		agents: [{ provider: 'pi', mode: 'autonomous' }]
-	});
+	expect(createPayload).toMatchObject({ agents: [{ provider: 'pi', mode: 'autonomous' }] });
+	expect(createPayload).not.toHaveProperty('profile');
+	expect(createPayload).not.toHaveProperty('services');
 });
 
 test('creates a Codex machine without an API key for subscription sign-in', async ({ page }) => {
@@ -2252,7 +1822,6 @@ test('creates a Codex machine without an API key for subscription sign-in', asyn
 					allow_custom_providers: false
 				}
 			});
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
 			createPayload = request.postDataJSON();
 			return route.fulfill({ status: 201, json: { id: '00000000-0000-0000-0000-000000000064', ...createPayload } });

@@ -19,19 +19,19 @@ const (
 	terminalCodexFile  = `{"tokens":{"access_token":"fixture-terminal-codex-0001"}}`
 )
 
-// terminalSignInFixture is a running standard machine owned by a user whose
+// terminalSignInFixture is a running machine owned by a user whose
 // workspace allows Claude Code and Codex.
 func terminalSignInFixture(t *testing.T) (*managerStoreFake, *runtimeFake, *Manager, uuid.UUID, []byte) {
 	t.Helper()
 	owner := uuid.New()
 	workspaceID := uuid.New()
-	ide := "container-ide"
+	developer := "container-developer"
 	store := &managerStoreFake{
 		machine: &domain.DevMachine{
 			ID: uuid.New(), WorkspaceID: workspaceID, CreatedByUserID: &owner, RoutingKey: "0123456789abcdef0123",
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1,
 		},
-		services: []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide", ContainerID: &ide, Status: "running"}},
+		services: []domain.DevMachineService{{ServiceKey: "terminal", ServiceType: "terminal", ContainerID: &developer, Status: "running"}},
 		policy:   &domain.DevMachineWorkspacePolicy{WorkspaceID: workspaceID, AllowedProviders: json.RawMessage(`["claude-code","codex","opencode"]`)},
 	}
 	key := cryptoutil.DeriveKey("terminal-sign-in-test")

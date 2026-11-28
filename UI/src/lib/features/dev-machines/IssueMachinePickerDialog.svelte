@@ -1,15 +1,10 @@
-<script module lang="ts">
-	export type IssueMachineIntent = 'ide' | 'terminal';
-</script>
-
 <script lang="ts">
 	import * as RadioGroup from '$lib/components/ui/radio-group/index.js';
-	import { ExternalLink, LoaderCircle, Plus, Settings2, SquareTerminal } from '@lucide/svelte';
+	import { LoaderCircle, Plus, Settings2, SquareTerminal } from '@lucide/svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		ensureIssueCheckoutReady,
-		launchMachineServiceWithResume,
 		listDevMachines,
 		resumePausedMachine
 	} from '$lib/api/dev-machines';
@@ -23,14 +18,12 @@
 		open = $bindable(false),
 		slug,
 		issue,
-		intent,
 		oncreate,
 		onrepository
 	}: {
 		open: boolean;
 		slug: string;
 		issue: Issue;
-		intent: IssueMachineIntent;
 		oncreate?: () => void;
 		onrepository?: () => void;
 	} = $props();
@@ -42,60 +35,47 @@
 	let submitting = $state(false);
 	let errorMessage = $state('');
 	let requestGeneration = 0;
-	let activePopup: Window | null = null;
-	let activePopupGeneration = 0;
 
 	const selectedMachine = $derived(machines.find((machine) => machine.id === selectedMachineId));
-	const actionLabel = $derived(intent === 'ide' ? m['machines.open_code_editor_action']() : m['machines.open_terminal_action']());
 
 	$effect(() => {
 		const currentOpen = open;
 		const currentSlug = slug;
 		const currentIssueId = issue.id;
-		const currentIntent = intent;
 		const generation = ++requestGeneration;
-		closePopup();
 		machines = [];
 		selectedMachineId = '';
 		loading = currentOpen;
 		submitting = false;
 		errorMessage = '';
 		if (!currentOpen) return;
-		void loadMachines(currentSlug, currentIssueId, currentIntent, generation);
+		void loadMachines(currentSlug, currentIssueId, generation);
 		return () => {
 			if (requestGeneration === generation) requestGeneration++;
-			closePopup(generation);
 		};
 	});
 
-	function isCurrentRequest(currentSlug: string, currentIssueId: string, currentIntent: IssueMachineIntent, generation: number) {
-		return open && slug === currentSlug && issue.id === currentIssueId && intent === currentIntent && requestGeneration === generation;
+	function isCurrentRequest(currentSlug: string, currentIssueId: string, generation: number) {
+		return open && slug === currentSlug && issue.id === currentIssueId && requestGeneration === generation;
 	}
 
-	function closePopup(generation?: number) {
-		if (!activePopup || (generation !== undefined && activePopupGeneration !== generation)) return;
-		activePopup.close();
-		activePopup = null;
-		activePopupGeneration = 0;
-	}
-
-	async function loadMachines(currentSlug: string, currentIssueId: string, currentIntent: IssueMachineIntent, generation: number) {
+	async function loadMachines(currentSlug: string, currentIssueId: string, generation: number) {
 		try {
 			const response = await listDevMachines(currentSlug, undefined, 1, 100);
-			if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
+			if (!isCurrentRequest(currentSlug, currentIssueId, generation)) return;
 			machines = (response.data ?? []).filter((machine) => !machine.delete_requested_at && !['destroyed', 'expired', 'tearing_down'].includes(machine.status));
-			const preferred = machines.find((machine) => !disabledReason(machine, currentIntent));
+			const preferred = machines.find((machine) => !disabledReason(machine));
 			selectedMachineId = preferred?.id ?? '';
 		} catch (error) {
-			if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
+			if (!isCurrentRequest(currentSlug, currentIssueId, generation)) return;
 			machines = [];
 			errorMessage = messageFromError(error, 'Unable to load Dev Machines');
 		} finally {
-			if (isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) loading = false;
+			if (isCurrentRequest(currentSlug, currentIssueId, generation)) loading = false;
 		}
 	}
 
-	function disabledReason(machine: DevMachine, currentIntent = intent): string {
+	function disabledReason(machine: DevMachine): string {
 		if (machine.status === 'running' && machine.desired_status === 'running') return '';
 		if (machine.status === 'paused' && (machine.desired_status === 'paused' || machine.desired_status === 'running')) return '';
 		if (machine.status === 'stopped') return 'Start this machine first';
@@ -107,45 +87,30 @@
 		if (!selectedMachine || disabledReason(selectedMachine) || submitting) return;
 		const currentSlug = slug;
 		const currentIssueId = issue.id;
-		const currentIntent = intent;
 		const generation = requestGeneration;
 		submitting = true;
 		errorMessage = '';
-		const popup = currentIntent === 'ide' ? window.open('about:blank', '_blank') : null;
-		if (popup) popup.opener = null;
-		activePopup = popup;
-		activePopupGeneration = popup ? generation : 0;
 		try {
 			let machine = selectedMachine;
 			if (machine.status === 'paused') {
 				machine = await resumePausedMachine(currentSlug, machine.id);
-				if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
+				if (!isCurrentRequest(currentSlug, currentIssueId, generation)) return;
 			}
 			const checkout = await ensureIssueCheckoutReady(currentSlug, machine.id, currentIssueId);
-			if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
-			if (currentIntent === 'terminal') {
-				dock.open({
-					slug: currentSlug,
-					machineId: machine.id,
-					machineName: machine.name,
-					checkoutId: checkout.id,
-					checkoutLabel: `${checkout.repository_full_name} - ${checkout.working_branch}`
-				});
-			} else {
-				const launch = await launchMachineServiceWithResume(currentSlug, machine.id, 'ide', checkout.id);
-				if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
-				if (popup && launch.launch_url) popup.location.replace(launch.launch_url);
-				else throw new Error('Pop-up blocked. Allow pop-ups for this site and try again.');
-				activePopup = null;
-				activePopupGeneration = 0;
-			}
+			if (!isCurrentRequest(currentSlug, currentIssueId, generation)) return;
+			dock.open({
+				slug: currentSlug,
+				machineId: machine.id,
+				machineName: machine.name,
+				checkoutId: checkout.id,
+				checkoutLabel: `${checkout.repository_full_name} - ${checkout.working_branch}`
+			});
 			open = false;
 		} catch (error) {
-			if (!isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) return;
+			if (!isCurrentRequest(currentSlug, currentIssueId, generation)) return;
 			errorMessage = messageFromError(error, 'Unable to prepare this Dev Machine');
 		} finally {
-			closePopup(generation);
-			if (isCurrentRequest(currentSlug, currentIssueId, currentIntent, generation)) submitting = false;
+			if (isCurrentRequest(currentSlug, currentIssueId, generation)) submitting = false;
 		}
 	}
 
@@ -219,8 +184,8 @@
 				<Button variant="ghost" onclick={openRepositorySettings}><Settings2 class="size-3.5" />{m['machines.defaults']()}</Button>
 			</div>
 			<Button onclick={confirmSelection} disabled={!selectedMachine || !!disabledReason(selectedMachine) || submitting || loading}>
-				{#if submitting}<LoaderCircle class="size-3.5 animate-spin" />{:else if intent === 'terminal'}<SquareTerminal class="size-3.5" />{:else}<ExternalLink class="size-3.5" />{/if}
-				{submitting ? m['machines.preparing']() : actionLabel}
+				{#if submitting}<LoaderCircle class="size-3.5 animate-spin" />{:else}<SquareTerminal class="size-3.5" />{/if}
+				{submitting ? m['machines.preparing']() : m['machines.open_terminal_action']()}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

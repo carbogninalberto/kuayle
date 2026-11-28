@@ -20,7 +20,7 @@ func TestUpdateMachineMaxTasksSetsAndClearsOnlyTheLimit(t *testing.T) {
 	db := isolatedPrivacyDatabase(t, databaseURL)
 	fixture := newEnvironmentRaceFixture(t, db)
 	ctx := context.Background()
-	machineID := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	before, err := fixture.repository.GetMachineInternal(ctx, machineID)
 	require.NoError(t, err)
 

@@ -164,11 +164,7 @@ func (r *DockerRuntime) StartPreview(ctx context.Context, machine *domain.DevMac
 	if image == "" {
 		return fmt.Errorf("developer environment is unavailable")
 	}
-	if machine.EnvironmentID != nil {
-		if err := r.ensureEnvironmentImage(ctx, image, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
-			return err
-		}
-	} else if err := r.ensureImage(ctx, image); err != nil {
+	if err := r.ensureImage(ctx, image); err != nil {
 		return err
 	}
 	// A restart replaces the task's previous preview, wherever it ran.

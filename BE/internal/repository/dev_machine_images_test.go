@@ -29,7 +29,7 @@ func TestEnqueueImageUpdateOnlyForIdleRunningMachines(t *testing.T) {
 	fixture := newEnvironmentRaceFixture(t, db)
 	repo, ctx, ws := fixture.repository, context.Background(), fixture.workspaceID
 
-	idle := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	idle := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	operation := imageUpdateOperation(idle, ws, "update-images:1")
 	queued, err := repo.EnqueueImageUpdate(ctx, operation)
 	require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestEnqueueImageUpdateOnlyForIdleRunningMachines(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, queued, "an update with the same key is not queued twice")
 
-	used := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	used := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`UPDATE dev_machines SET last_activity_at=NOW() - INTERVAL '5 minutes' WHERE id=$1`, used)
 	require.NoError(t, err)
 	queued, err = repo.EnqueueImageUpdate(ctx, imageUpdateOperation(used, ws, "update-images:1"))
@@ -66,7 +66,7 @@ func TestEnqueueImageUpdateOnlyForIdleRunningMachines(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, queued)
 
-	working := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	working := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`INSERT INTO dev_machine_operations(machine_id,workspace_id,action,status,generation,idempotency_key)
 		VALUES($1,$2,'run_agent','leased',1,'run:1')`, working, ws)
 	require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestEnqueueImageUpdateOnlyForIdleRunningMachines(t *testing.T) {
 		{domain.DevMachineStatusRunning, domain.DevMachineStatusStopped},
 		{domain.DevMachineStatusPaused, domain.DevMachineStatusPaused},
 	} {
-		machine := fixture.insertMachine(t, state[0], state[1], false)
+		machine := fixture.insertMachine(t, state[0], state[1])
 		queued, err = repo.EnqueueImageUpdate(ctx, imageUpdateOperation(machine, ws, "update-images:1"))
 		require.NoError(t, err)
 		require.False(t, queued, "%s machine wanting %s", state[0], state[1])

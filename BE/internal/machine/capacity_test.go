@@ -204,7 +204,7 @@ func TestPurgeTaskSessionRemovesOnlyTheTasksTranscripts(t *testing.T) {
 	task, checkoutID := uuid.New(), uuid.New()
 	volume := "workspace"
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), Status: domain.DevMachineStatusPaused, WorkspaceVolumeName: &volume}
-	store := &managerStoreFake{machine: machine, checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, ScopeKey: task.String()}, services: []domain.DevMachineService{{ServiceType: "ide", ImageRef: "developer:fixture"}}}
+	store := &managerStoreFake{machine: machine, checkout: &domain.DevMachineCheckout{ID: checkoutID, MachineID: machine.ID, ScopeKey: task.String()}, services: []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "developer:fixture"}}}
 	runtime := &purgeRuntimeFake{runtimeFake: &runtimeFake{}}
 	manager := &Manager{store: store, runtime: runtime}
 	require.NoError(t, manager.purgeTaskSession(context.Background(), machine, &domain.DevMachineOperation{CheckoutID: &checkoutID}))

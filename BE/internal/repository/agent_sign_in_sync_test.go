@@ -30,19 +30,19 @@ func TestAgentSignInChangesQueueASyncForTheOwnersRunningMachines(t *testing.T) {
 	elsewhere := newEnvironmentRaceFixture(t, db)
 	store := fixture.repository
 
-	owned := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
-	stopped := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
+	owned := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
+	stopped := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped)
 	other := uuid.New()
 	_, err = db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,'Other','test')`, other, other.String()+"@example.test")
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM users WHERE id=$1`, other) })
-	othersMachine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	othersMachine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`UPDATE dev_machines SET created_by_user_id=$2 WHERE id=$1`, othersMachine, other)
 	require.NoError(t, err)
 	// The same user's machine in another workspace.
 	_, err = db.Exec(`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'member')`, elsewhere.workspaceID, fixture.userID)
 	require.NoError(t, err)
-	foreign := elsewhere.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	foreign := elsewhere.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`UPDATE dev_machines SET created_by_user_id=$2 WHERE id=$1`, foreign, fixture.userID)
 	require.NoError(t, err)
 
@@ -93,7 +93,7 @@ func TestRefreshAgentSignInOnlyUpdatesMatchingCredentials(t *testing.T) {
 	fixture := newEnvironmentRaceFixture(t, db)
 	store := fixture.repository
 	workspace, user := fixture.workspaceID, fixture.userID
-	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 
 	completeSyncs := func() {
 		t.Helper()

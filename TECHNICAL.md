@@ -4,22 +4,22 @@ Production architecture and implementation contract for isolated, multi-containe
 
 ## Status
 
-The repository includes the Dev Machines control plane, PostgreSQL schema, lifecycle manager, authenticated gateway, provider adapters, runtime images, activity collector, self-hosted Compose profiles, and product UI. The subsystem is disabled by default and must be configured explicitly by a self-hosted operator.
+The repository includes the Dev Machines control plane, PostgreSQL schema, lifecycle manager, authenticated gateway, provider adapters, the single machine image and its egress and Docker companion images, self-hosted Compose profiles, and product UI. The subsystem is disabled by default and must be configured explicitly by a self-hosted operator.
 
 Dev Machines target trusted self-hosted workspaces. Docker hardening reduces risk, but ordinary containers are not a sufficient isolation boundary for mutually hostile tenants. Operators requiring hostile multi-tenant execution must replace the runtime interface with VM or microVM isolation.
 
 ## Principles
 
-- A Dev Machine is a logical workspace composed of cooperating containers. It is never a monolithic IDE/browser/agent container.
+- A Dev Machine is a logical workspace composed of cooperating containers: a developer terminal, on-demand agent containers, an egress proxy and an optional Docker daemon. Every developer and agent container runs the one machine image (`DEV_MACHINE_HEADLESS_IMAGE`).
 - Generic machine creation does not require repository, branch, issue, project, or manual TTL input. Friendly random names are case-insensitively unique per creator within a workspace and can be checked through the availability API.
-- Repository and environment defaults resolve from issue, then project, then team, then workspace. A manually used machine has affinity to one repository and can host multiple issue worktrees from it. A machine that agent tasks use serves several repositories: each repository is cached once on the machine and every task gets its own worktree. Tasks in the same environment can share a suitable running machine under the [task machine reuse](#task-machine-reuse) rules.
+- Repository defaults resolve from issue, then project, then team, then workspace. A manually used machine has affinity to one repository and can host multiple issue worktrees from it. A machine that agent tasks use serves several repositories: each repository is cached once on the machine and every task gets its own worktree. Tasks in the same workspace can share a suitable running machine under the [task machine reuse](#task-machine-reuse) rules.
 - The Kuayle API does not receive the Docker socket.
-- Agent, developer, browser, collector, egress, and gateway containers do not receive the host Docker socket. A machine may have its own sandboxed Docker daemon (see [Machine Docker daemon](#machine-docker-daemon)), never the host's.
+- Agent, developer, egress, and gateway containers do not receive the host Docker socket. A machine may have its own sandboxed Docker daemon (see [Machine Docker daemon](#machine-docker-daemon)), never the host's.
 - The Machine Manager is the only Dev Machines runtime component with Docker socket access and is treated as host-privileged. The separately optional system updater also mounts the socket when enabled.
 - Machine services never publish host ports. Caddy and the Machine Gateway are the only public ingress path.
 - Every machine has an isolated internal Docker network and a dedicated workspace volume.
-- code-server and ttyd run in the same developer container with a shared filesystem, processes, `HOME`, tools, and tmux.
-- Human browser sessions, machine tokens, and GitHub credentials are distinct credentials with different scopes and lifetimes.
+- ttyd and the terminal's tmux sessions run in the developer container with a shared filesystem, processes, `HOME`, and tools.
+- Human browser sessions, agent run credentials, and GitHub credentials are distinct credentials with different scopes and lifetimes.
 - Top-level browser launches and native terminal WebSockets use distinct one-time ticket flows.
 - PostgreSQL is the durable source of truth. Runtime operations are leased, retried, idempotent, and reconcilable after process restarts.
 - Agent providers produce a common Kuayle result model regardless of CLI implementation.
@@ -50,11 +50,10 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
                 v                                           v
        machine-a private network                    machine-b private network
        +----------------------+                    +----------------------+
-       | developer            |                    | developer            |
+       | developer terminal   |                    | developer terminal   |
        | agent-*              |                    | agent-*              |
-       | browser              |                    | browser              |
-       | collector            |                    | collector            |
        | egress proxy         |                    | egress proxy         |
+       | docker (optional)    |                    | docker (optional)    |
        | workspace volume     |                    | workspace volume     |
        +----------------------+                    +----------------------+
 ```
@@ -64,32 +63,31 @@ Dev Machines target trusted self-hosted workspaces. Docker hardening reduces ris
 | Component | Trust boundary | Responsibility |
 |---|---|---|
 | Kuayle API | Application control plane | RBAC, machine and run APIs, policy admission, secret encryption, one-time launch tickets |
-| PostgreSQL | Durable control plane | Desired/observed state, operation leases, events, logs, tokens, sessions, results, Git refs |
+| PostgreSQL | Durable control plane | Desired/observed state, operation leases, events, logs, sessions, results, Git refs |
 | Machine Manager | Host privileged | Docker networks, volumes, containers, resource limits, secrets handoff, lifecycle, cleanup |
 | Machine Gateway | Unprivileged ingress | Host parsing, browser ticket exchange, native terminal ticket exchange, session authorization, header stripping, HTTP/WebSocket proxying, access audit |
 | Caddy | Public ingress | Main-domain and wildcard-machine TLS termination |
-| Collector | Per-machine data plane | Filesystem, root-checkout Git, browser CDP, and heartbeat events |
 | Egress proxy | Per-machine network policy | Public-destination validation, private-address blocking, optional domain allow/deny lists |
 
 ## Machine Topology
 
 ```text
 Dev Machine
-├── developer           code-server:8080 (standard) or ttyd:7681 (headless), tmux, Git checkouts
-├── agent-*             on-demand container per built-in provider or custom run
-├── browser             optional Chrome, CDP, KasmVNC
-├── collector           activity and heartbeat collection
+├── terminal            developer container: ttyd:7681, tmux, Git checkouts
+├── agent-*             on-demand container per agent run, check, preview, tool or command
 ├── egress              outbound HTTP/HTTPS policy proxy
 ├── docker              optional rootless Docker daemon (workspace policy allow_docker)
 ├── private network     Docker bridge with internal=true
 └── workspace volume    repository worktrees and generated artifacts
 ```
 
-Every created container has a deterministic name and labels containing `workspace_id`, `machine_id`, and `routing_key`. Runtime discovery never depends on a publicly exposed port. Collector and egress services are always represented; developer/terminal and browser services depend on machine configuration, and agent services are created for individual runs.
+Every created container has a deterministic name and labels containing `workspace_id`, `machine_id`, and `routing_key`. Runtime discovery never depends on a publicly exposed port. Every machine has the `profile` `headless` and the `terminal` and `egress` service records (plus `docker` when the workspace allows a daemon); agent services are created for individual runs.
 
-The shared workspace is writable by developer and agent containers. The collector receives it read-only. Browser and egress containers do not receive the workspace mount. Per-container home, `/tmp`, `/run`, and secret paths use tmpfs scratch mounts.
+The shared workspace is writable by developer and agent containers. The egress container does not receive the workspace mount. Per-container home, `/tmp`, `/run`, and secret paths use tmpfs scratch mounts.
 
-Standard machines represent the developer container as separate `ide` and `terminal` service records that point at one container: code-server listens on `8080`, ttyd listens on `7681`, and terminal sessions attach to named tmux sessions under the same `HOME`, process tree, tools, and `/workspace` used by code-server. Headless machines expose only the `terminal` developer-service record plus collector and egress; the terminal uses the headless developer image, which also serves as the autonomous image for the five new built-in CLIs. Development Environment image selection does not replace that headless image. Headless developer containers retain the standard developer security, tmpfs executable scratch space, workspace mount, and terminal-session scripts.
+The terminal and every agent-class container run the single machine image, `DEV_MACHINE_HEADLESS_IMAGE` (`devmachine/headless`, see its [README](devmachine/headless/README.md)): an unminimized Ubuntu with common tools, all eight built-in agent CLIs, a fixed font set, Playwright with its Chromium and `kuayle-screenshot`. ttyd listens on `7681`, and terminal sessions attach to named tmux sessions under the container's `HOME`, process tree, tools, and `/workspace`.
+
+**Upgrading from the multi-image layout (migration 215).** Earlier releases also had `standard` machines with a code-server IDE (sharing its container with the terminal), an optional KasmVNC/Chrome browser, an activity collector, provider-specific agent images and Development Environment snapshots. `000215_single_machine_image` makes every machine `headless`: a standard machine's terminal keeps its record with no image, so the next start (or the idle image update of a running machine) replaces the IDE container with a terminal container from the single image, and a machine without a terminal gets one. The `ide`, `browser` and `collector` service rows are deleted (their containers are removed at the next provisioning, `removeRetiredServiceContainers`), variables targeted at `ide` move to `terminal` (an existing terminal variable of the same name wins), and browser and collector variables, `dev_machine_tokens`, `dev_machine_environments`, `snapshot_environment` operations and the `environment_id`, `environment_builder` and `services_config` columns are dropped. The workspace volume is kept. The machine manager removes leftover snapshot images (label `com.kuayle.kind=dev-machine-environment`) when it starts (`RemoveEnvironmentImages`). The down migration restores the schema only, not the removed data.
 
 Agent containers are created on demand, one per run (`kuayle-<routing key>-agent-<run>`). Tasks can share a machine up to its [task limit](#task-machine-reuse), each in its own worktree. A user's own (non-task) agent run keeps the machine to itself (partial unique index `idx_dev_machine_agent_runs_one_active_manual`).
 
@@ -99,9 +97,7 @@ The manager creates `kuayle-machine-{routing-key}` with Docker's `Internal` opti
 
 No machine workload joins the PostgreSQL, Redis, API, or Compose control network. The egress container is the only machine service also attached to the shared external `kuayle-machine-egress` network.
 
-Chrome's debugging endpoint binds only to browser-container loopback. Browser-enabled machines receive a dedicated encrypted credential scoped to the browser and collector services; an authenticated relay exposes only the read-only target-list endpoint needed for navigation telemetry and does not proxy CDP control or WebSocket endpoints.
-
-Workloads receive `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`, and their lowercase spellings (curl, wget and apt read only `http_proxy` for plain HTTP), pointing to their machine's egress container. The developer images keep these variables through `sudo` (`env_keep` in `/etc/sudoers.d/kuayle`), so `sudo apt-get update` and package installs on a machine that allows sudo reach the distribution mirrors through the proxy. The proxy:
+Workloads receive `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`, and their lowercase spellings (curl, wget and apt read only `http_proxy` for plain HTTP), pointing to their machine's egress container. The machine image keeps these variables through `sudo` (`env_keep` in `/etc/sudoers.d/kuayle`), so `sudo apt-get update` and package installs (in agent containers, and in the terminal of a machine that allows sudo) reach the distribution mirrors through the proxy. The proxy:
 
 - rejects IP-literal destinations;
 - resolves hostnames itself and rejects private, loopback, link-local, multicast, and unspecified addresses;
@@ -110,7 +106,7 @@ Workloads receive `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`, and their lowercas
 - resolves and dials the validated public address to reduce DNS-rebinding exposure.
 
 An empty domain allowlist permits public Internet destinations while still blocking private address ranges. Operators can fail closed by configuring an explicit allowlist.
-An explicit allowlist must include the Kuayle ingestion host plus every Git and provider API hostname required by configured agents; for OpenCode with an OpenCode API key (`OPENCODE_API_KEY`) that includes `opencode.ai`.
+An explicit allowlist must include every Git and provider API hostname required by configured agents, and the distribution mirrors and package registries agents install from; for OpenCode with an OpenCode API key (`OPENCODE_API_KEY`) that includes `opencode.ai`.
 
 A machine's own Docker daemon (the `docker` service) is only on the machine network; the containers it runs live in its namespaces and leave the machine network only through the egress proxy (see [Machine Docker daemon](#machine-docker-daemon)).
 
@@ -134,12 +130,10 @@ Required host patterns are:
 
 | Host | Service |
 |---|---|
-| `{routing-key}.{DEV_MACHINE_DOMAIN}` | IDE |
 | `{routing-key}-terminal.{DEV_MACHINE_DOMAIN}` | Native terminal WebSocket |
-| `{routing-key}-browser.{DEV_MACHINE_DOMAIN}` | Browser/KasmVNC |
 | `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}` | App port of the developer container or of the machine's Docker daemon, 1024–65535 (optional, see below) |
 
-Routing keys are random lowercase hexadecimal strings. The gateway performs an exact configured-domain suffix check and rejects suffix-confusion hosts.
+Routing keys are random lowercase hexadecimal strings. The gateway performs an exact configured-domain suffix check and rejects suffix-confusion hosts and every other host shape, including the bare routing key and the `-browser` host of earlier releases.
 
 Caddy has one fixed wildcard route. Per-machine Caddy configuration is unnecessary. Teardown removes the database route and private network, so stale hosts return not found without a proxy reload.
 
@@ -158,8 +152,8 @@ host, `{routing-key}-{port}.{DEV_MACHINE_DOMAIN}`, with a canonical port number
 from the earlier one-port `dev_machine_previews`, which it drops. Ports are not
 container service rows, so machine lifecycle code is unaffected, and they
 outlive tasks. Ports used by any of the machine's own services are refused when
-exposed and never routed, so an app port host can never reach code-server or
-the terminal without their dedicated protections.
+exposed and never routed, so an app port host can never reach the terminal
+or the Docker daemon API without their dedicated protections.
 
 Session-only routes, for the machine's creator (workspace administrators may
 also read the list):
@@ -175,13 +169,13 @@ also read the list):
   `preview`.
 - `PATCH /dev-machines/:machineId/ports/:portId` `{label}` renames it (`null`
   or `""` clears); `DELETE` removes it and revokes that host's sessions.
-- `POST /dev-machines/:machineId/ports/:portId/launch` returns the launch
-  response of the IDE path (`status`, `launch_url`, 201 ready or 202 starting).
+- `POST /dev-machines/:machineId/ports/:portId/launch` returns a launch
+  response (`status`, `launch_url`, 201 ready or 202 starting).
 
-Launch uses the IDE's browser-cookie path: a one-time ticket for the running
+Launch uses the [browser-cookie path](#browser-cookie-launch-path): a one-time ticket for the running
 developer service row, bound to the port's host, exchanged for a `__Host-`
-HttpOnly session cookie valid only on that host. IDE sessions and other ports'
-sessions never authorize each other, only the machine creator is admitted,
+HttpOnly session cookie valid only on that host. Sessions of different ports
+never authorize each other, only the machine creator is admitted,
 Kuayle credentials and the gateway session cookie are stripped before proxying,
 and upstream cookies stay host-only. A direct visit without a session gets 401;
 people open ports from Kuayle. WebSockets (for example hot reload) use the
@@ -219,8 +213,8 @@ it to `listening_ports`. Such a port moves only between `preview` and `docker`
 `developer`: a process in the developer container on the same number does not
 receive the preview's traffic. Tickets and sessions are unchanged here too.
 
-Agents and people in the developer container use `kuayle-ports` (IDE and
-headless images): `kuayle-ports [list]` shows listening ports and their URLs,
+Agents and people in the developer container use `kuayle-ports` (machine
+image): `kuayle-ports [list]` shows listening ports and their URLs,
 `kuayle-ports expose PORT [--label TEXT]` and `kuayle-ports unexpose PORT`
 write a request to `~/.kuayle/ports/requests/` and wait up to 30 seconds for the
 answer in `~/.kuayle/ports/state.json` (`{ports:[{port,label,url,source}],
@@ -234,18 +228,24 @@ ports. The start scripts install the Kuayle-owned `kuayle-qa` skill for Claude
 Code, Codex and OpenCode (`~/.claude/skills/kuayle-qa/SKILL.md`,
 `~/.codex/skills/kuayle-qa/SKILL.md`, `~/.config/opencode/skill/kuayle-qa/SKILL.md`), refreshed on every start, and the
 `kuayle-agents` messaging skill, which the agent runner also installs in each
-autonomous attempt's container. Autonomous
-agent attempts run in separate, temporary agent containers whose servers stop
-with the run, so their prompt points the reviewer at the task preview below or
-at `kuayle-ports` in the machine terminal instead.
+autonomous attempt's container. Autonomous agent attempts run in separate,
+temporary agent containers whose servers stop with the run. An agent checks its
+own work there: the machine image ships Playwright (`PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright`,
+the version `WEB/package-lock.json` locks) and `kuayle-screenshot URL FILE
+[--width --height --scale --full-page --wait-for SEL --dark --timeout]`
+(`devmachine/common/kuayle-screenshot.cjs`), which renders with a fixed
+viewport, scale, `en-US` locale, UTC time zone, colour scheme, reduced motion
+and no font hinting, so screenshots are comparable across machines. People try
+the change through the task preview below, or by starting the app in the
+machine terminal and exposing it with `kuayle-ports`; the attempt's prompt says
+which.
 
 Task previews (see the [agent task contract](BE/docs/agent-tasks.md#app-ports-and-qa))
 add `task` ports. A preview runs agent-written code, so it runs in a container
 of its own, `kuayle-{routing-key}-preview-{taskId}`, created like a check
-container: the developer image and the workspace volume, but none of the
-developer container's secrets, agent sign-ins or sudo (read-only root, no
-capabilities, `no-new-privileges` even where the workspace allows sudo), and
-only `PORT`, `HOST`, the proxy and its temporary directory in its environment
+container: the machine image and the workspace volume, but none of the
+developer container's secrets or agent sign-ins (it gets the agent-class
+[sudo relaxation](#sudo-in-machines), like every agent container), and only `PORT`, `HOST`, the proxy and its temporary directory in its environment
 (plus the Docker daemon client on a machine with a daemon, as attempts get).
 It still serves that code to the creator's browser, so it never starts by
 itself: only the task's creator starts it, from the task card or by approving
@@ -258,69 +258,77 @@ remove controls; a task card starts, stops and opens its app.
 
 ## Sudo in machines
 
-Workspace administrators can allow passwordless `sudo` in the developer
-containers (IDE and terminal) of new machines, for example to `apt-get install`
-system packages. It is off by default: migration 93 adds
-`dev_machine_workspace_policies.allow_sudo` (Settings → Dev Machines → policy)
-and `dev_machines.sudo_enabled`, which records the switch when a machine is
-created. A policy update that omits `allow_sudo` keeps the current value, and a
-workspace import resets it to off. Once it is turned off, spawning or starting
-a machine created with sudo fails with `sudo_not_allowed` (the machine must be
-recreated): its containers keep the configuration they were created with.
+The machine image installs `sudo` with an `/etc/sudoers.d/kuayle` rule
+(`NOPASSWD:ALL` for UID 1000), inert under the default `no-new-privileges` and
+`CapDrop: ALL`. `secureHostConfig` relaxes that configuration for two kinds of
+container:
 
-**Containers.** Both developer images install `sudo` with an
-`/etc/sudoers.d/kuayle` rule (`NOPASSWD:ALL` for UID 1000), inert under the
-default `no-new-privileges` and `CapDrop: ALL`. For `sudo_enabled` machines,
-`secureHostConfig` gives `ide` and `terminal` containers a writable root
-filesystem, no `no-new-privileges`, and Docker's default capability set minus
-`NET_RAW`. They are never privileged, get no `NET_ADMIN`/`SYS_ADMIN`/`CapAdd`,
-no host mounts or Docker socket, keep the configured seccomp/AppArmor profiles,
-resources and machine network, so egress still goes through the machine's
-proxy. Root-filesystem changes last until the container is recreated; only
-`/workspace` (and the in-memory home until a restart) is kept otherwise.
+- **Agent-class containers, always.** Agent attempts, manual checks, task
+  previews, custom tool runs, approved assistant commands and assistant
+  processes (all created as service type `agent`) can run `sudo apt-get
+  install` for the system packages a project needs, because the image ships no
+  compilers (`build-essential` pulls `linux-libc-dev`, whose kernel advisories
+  fail the image scan) and Development Environments no longer exist.
+- **The developer terminal, when the workspace allows it.** Workspace
+  administrators can allow passwordless `sudo` in the terminal of new machines.
+  It is off by default: migration 93 adds
+  `dev_machine_workspace_policies.allow_sudo` (Settings → Dev Machines →
+  policy) and `dev_machines.sudo_enabled`, which records the switch when a
+  machine is created. A policy update that omits `allow_sudo` keeps the current
+  value, and a workspace import resets it to off. Once it is turned off,
+  spawning or starting a machine created with sudo fails with
+  `sudo_not_allowed` (the machine must be recreated): its containers keep the
+  configuration they were created with.
 
-**Agent attempts stay locked.** Agent containers, collector, browser and egress
-never get these relaxations. Autonomous attempts run unattended on prompts that
-can include untrusted issue, comment and repository content; root there would
-widen what a prompt injection can do (install persistent tooling, read every
-file regardless of ownership) without a person to notice, while agents already
-have everything they need in their images. The agent images ship no `sudo`;
-attempts of the providers that run on the headless image keep its sudoers rule
-inert under the locked configuration, and their `PATH` omits the workspace npm
-prefix below, so they run the image's pinned CLIs. Anything an agent writes to
-`/workspace` (including that prefix and Git hooks) can still run later in a
-person's terminal, with sudo if the machine has it; review agent changes as
-before. A task preview is not such a run: Kuayle executes the worktree's
-preview command in the task's own preview container, which is never relaxed
-for sudo and holds none of the developer container's secrets (see
-[App ports](#app-ports)), and only when the task's creator asks, never when a
-task reaches review.
+**Containers.** A relaxed container has a writable root filesystem, no
+`no-new-privileges`, and Docker's default capability set minus `NET_RAW`. It
+is never privileged, gets no `NET_ADMIN`/`SYS_ADMIN`/`CapAdd`, no host mounts
+or Docker socket, and keeps the configured seccomp/AppArmor profiles, resources
+and machine network, so egress still goes through the machine's proxy. The
+egress and Docker daemon containers never get this relaxation. Root-filesystem
+changes last until the container is recreated: system packages an agent
+installs are gone at the next attempt, check or command, while language
+dependencies on `/workspace` (for example `node_modules` or a Python virtual
+environment in the worktree) persist.
 
-Assistant command runs (`run_command`, `run_command_write`) use that same
-locked container configuration, so a machine's sudo setting never applies to
-them. Packages installed with sudo in the terminal stay in that container and
-do not reach command runs; bake them into a Development Environment instead
-(see [system packages](BE/docs/conversations.md#system-packages)). A
-`run_migration` run is the same locked container with one injected variable:
-the named migration action's connection secret, decrypted at run time and
-redacted from the stored output (see
+**What this allows.** Autonomous attempts run unattended on prompts that can
+include untrusted issue, comment and repository content, so a prompt-injected
+agent can act as root inside its own container: install tooling, read every
+file in the container regardless of ownership, or edit
+`/etc/claude-code/managed-settings.json` (which then affects only that run). It
+still cannot leave the container's network, reach private addresses or bypass
+the egress proxy's lists, and it holds only the run's own credentials. Anything
+an agent writes to `/workspace` (including the npm prefix below and Git hooks)
+can still run later in a person's terminal, with sudo if the machine has it;
+review agent changes as before. Agent attempts' `PATH` omits that workspace npm
+prefix, so they run the image's pinned CLIs. A task preview runs the worktree's
+preview command in the task's own preview container, which holds none of the
+developer container's secrets (see [App ports](#app-ports)), and only when the
+task's creator asks, never when a task reaches review.
+
+Assistant command runs (`run_command`, `run_command_write`) use the same
+agent-class configuration, so they can install the packages they need for
+their own run (see [system packages](BE/docs/conversations.md#system-packages)).
+A `run_migration` run is the same container with one injected variable: the
+named migration action's connection secret, decrypted at run time and redacted
+from the stored output (see
 [database migrations from chat](BE/docs/conversations.md#database-migrations-from-chat)).
 
-**Upgrading CLIs without sudo.** Both developer images point npm's global
+**Upgrading CLIs without sudo.** The machine image points npm's global
 config at `/etc/npmrc` (`NPM_CONFIG_GLOBALCONFIG`), which sets
 `prefix=/workspace/.kuayle/npm-global` and lets Claude Code's install script
 run (`allow-scripts=@anthropic-ai/claude-code`), and put
 `/workspace/.kuayle/npm-global/bin` first on `PATH`. `npm i -g
 @anthropic-ai/claude-code` or `claude update` therefore works on every machine,
 with or without sudo, and the upgrade survives restarts on the workspace volume
-(the terminal, IDE and agent containers of a machine share it; agents keep
-using their images' pinned CLIs). Project and `~/.npmrc` settings override `/etc/npmrc`.
+(the terminal and agent containers of a machine share it; agents keep
+using the image's pinned CLIs). Project and `~/.npmrc` settings override `/etc/npmrc`.
 
 **Agent CLI updates.** Releases pin every built-in agent CLI in the images
 (`scripts/ci/upgrade-agent-clis.mjs` raises the pins at release time, to the
 newest stable versions published at least 48 hours earlier, and never lowers
 them; see [release agent CLI refresh](scripts/ci/README.md#release-agent-cli-refresh)).
-Each image build, and the IDE and headless smoke tests, run
+The image build and its smoke test run
 `devmachine/common/check-agent-cli-flags.sh`: it fails when a CLI's help no
 longer lists a flag or fixed value the adapters in `BE/internal/agent/providers.go`
 pass (its list is kept equal to the adapters by
@@ -337,7 +345,7 @@ the release (below), and atomically switches the volume's `current` link to it,
 keeping the previous release. Unchanged versions are discarded. The helper runs as root (the volume's
 owner) without capabilities, with `no-new-privileges` and a read-only root
 filesystem, on the shared `kuayle-machine-egress` network, with no machine data
-or secrets: the CLI volume is its only mount. Agent runs of built-in providers and the developer terminal and IDE
+or secrets: the CLI volume is its only mount. Agent runs of built-in providers and the developer terminal
 created afterwards mount the volume read-only at `/opt/kuayle/agent-clis` with
 `/opt/kuayle/agent-clis/current/node_modules/.bin` ahead of the image's CLIs on
 `PATH` (after `/workspace/.kuayle/npm-global/bin` in developer containers, which
@@ -379,7 +387,7 @@ home, as before); and notebooks and agent settings, which are in the
 database. Only `releases/`, `current` and `rejected` on the
 `kuayle-agent-clis` volume change.
 
-**Environment status.** Both developer images delete apt's package index
+**Environment status.** The machine image deletes apt's package index
 (`/var/lib/apt/lists`) at the end of their build to stay small, so `apt install`
 finds no package until `apt-get update` runs. The machine dashboard's
 "Environment status" card says so: the machine manager probes the running
@@ -403,10 +411,10 @@ reached only through the egress proxy) is shown, not hidden
 
 `TestSudoMachinesGetRootWithoutLeavingTheSandbox`
 (`KUAYLE_SUDO_INTEGRATION=1`, `KUAYLE_TEST_DISK_QUOTA_MODE=monitored` on a
-developer machine, and the `KUAYLE_TEST_{HEADLESS,COLLECTOR,EGRESS}_IMAGE`
-images) spawns a real headless machine and checks root, the capability set,
-that root cannot bypass the egress proxy, global npm installs, a restart, and
-that agent and non-sudo containers cannot use sudo.
+developer machine, and the `KUAYLE_TEST_{HEADLESS,EGRESS}_IMAGE` images)
+spawns a real machine and checks root, the capability set, that root cannot
+bypass the egress proxy, global npm installs, a restart, that an agent
+container gets sudo, and that the terminal of a machine without sudo cannot use it.
 
 ## Machine Docker daemon
 
@@ -465,8 +473,8 @@ delivered as scoped secrets. Only the daemon gets the server key; developer
 containers and agent attempts get the client material, which the start scripts
 write to the in-memory `~/.docker` (mode 0600) before unsetting it; agent
 output redacts the client key. Developer containers have `DOCKER_HOST`,
-`DOCKER_TLS_VERIFY=1` and `DOCKER_CERT_PATH`; the browser, collector and egress
-containers get nothing. Port 2376 is a service port, never an app port.
+`DOCKER_TLS_VERIFY=1` and `DOCKER_CERT_PATH`; the egress container gets
+nothing. Port 2376 is a service port, never an app port.
 
 **Storage.** The daemon's data root is a dedicated volume,
 `kuayle-docker-{routing-key}`, created with the workspace volume's quota mode
@@ -487,8 +495,7 @@ volume provisions the machine again. Teardown removes the container and the
 volume. The Docker CLI 29.10.0 (`devmachine/common/install-docker-cli.sh`, SHA-256
 checked) and the Compose 5.6.1 and Buildx 0.38.1 plugins
 (`devmachine/common/build-docker-plugins.sh`, built from pinned release commits
-with dependency floors) are installed in the IDE, headless and provider agent
-images. Advisories with no fixed release are accepted only through
+with dependency floors) are installed in the machine image. Advisories with no fixed release are accepted only through
 `.trivyignore.yaml`, per package version and with an expiry date.
 
 Manual checks keep the restricted Compose subset (see agent tasks): a
@@ -501,10 +508,10 @@ Main Kuayle cookies remain host-only. They are never broadened to the machine do
 
 ### Browser-cookie launch path
 
-This path is used for top-level code-server and browser launches.
+This path is used for top-level [app port](#app-ports) launches.
 
-1. An authenticated user calls the service launch endpoint from the Kuayle UI.
-2. The API checks workspace membership, Dev Machine permission, machine state, and service eligibility.
+1. An authenticated user calls the port's launch endpoint from the Kuayle UI.
+2. The API checks workspace membership, Dev Machine permission, machine state, and that the port is exposed.
 3. The API creates a random one-time ticket. Only its SHA-256 hash is stored.
 4. The ticket is bound to user, workspace, machine, service, exact host, and a short expiry (default 60 seconds, configurable via `DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS`).
 5. The browser follows the returned HTTPS URL.
@@ -534,7 +541,7 @@ Machine access decisions are persisted in `dev_machine_access_logs` without quer
 With `PUBLIC_DEMO_MODE` on, only the users listed in `SYSADMINS` may use Dev Machines; an empty list admits no one. The rule (`config.DemoDevMachineAllowed`) is enforced in four places:
 
 - **Routes.** `DevMachineDemoGuard` answers 403 on every Dev Machine, coding task, automation, agent message and agent sign-in route.
-- **Services.** `service.MachineAccess` applies the same rule wherever work reaches a machine without those routes. The task service refuses creating, retrying, reviewing, checking, previewing, messaging, continuing after sign-in and opening a terminal for the caller, so assistant approvals, automations, review follow-ups and GitHub mentions are covered. The Dev Machine service refuses creating or starting a machine, checkouts, agent runs, service and terminal launches, app ports and environment snapshots for the user it acts for. The task worker acts as the task's creator: a task of an excluded user fails with the reason instead of running. A custom tool's test run answers the same 403 as the routes. The services do not refuse stopping a machine or a preview, or cancelling a task: those only release resources.
+- **Services.** `service.MachineAccess` applies the same rule wherever work reaches a machine without those routes. The task service refuses creating, retrying, reviewing, checking, previewing, messaging, continuing after sign-in and opening a terminal for the caller, so assistant approvals, automations, review follow-ups and GitHub mentions are covered. The Dev Machine service refuses creating or starting a machine, checkouts, agent runs, terminal launches and app ports for the user it acts for. The task worker acts as the task's creator: a task of an excluded user fails with the reason instead of running. A custom tool's test run answers the same 403 as the routes. The services do not refuse stopping a machine or a preview, or cancelling a task: those only release resources.
 - **Assistant.** Tools and approvals marked `machine` in the action policy table (`delegate_issue`, `request_agent_review`, `follow_up_task`, `message_task`, `start_preview`, `start_process`, `expose_port`, `run_check`, `run_custom_tool`) are refused when requested, and again when approved: the approval ends as failed with the reason and nothing is queued. The preview and port tools that need no approval are refused too.
 - **Gateway.** Ticket exchanges and existing machine sessions recheck `SYSADMINS` on every request.
 
@@ -543,17 +550,6 @@ A new path that starts work on a machine must call `MachineAccess` (through `Dev
 The xterm client preserves the PTY byte stream by disabling end-of-line conversion, uses a line height of `1` and letter spacing `0`, and enables the Unicode 11 addon with `allowProposedApi` for full-screen TUIs. End-of-line conversion must remain off because rewriting LF as CRLF returns the cursor to column zero and corrupts TUIs that use LF to move rows while preserving their column. It renders with `@xterm/addon-webgl` and `customGlyphs`, so box-drawing, block and Powerline characters are drawn by xterm and borders join regardless of the font; on WebGL context loss or without WebGL2 it falls back to the DOM renderer (xterm 6 has no canvas renderer), and the terminal container's `data-renderer` attribute records which one is active. The font is JetBrains Mono, self-hosted from `@fontsource/jetbrains-mono` (OFL-1.1) with a system monospace and emoji fallback stack; the client waits up to three seconds for its regular and bold faces before xterm measures cells. Layout-driven fits are debounced (50 ms) and a resize frame reaches ttyd only when columns or rows change, so a dock drag produces one PTY/tmux resize rather than a storm; ttyd resizes the PTY and tmux follows. Binary output frames are passed to xterm as `Uint8Array` views, coalesced into one write per animation frame, and governed by ttyd flow control ([terminal-io.ts](UI/src/lib/features/dev-machines/terminal-io.ts)): every 100 KB a write carries a parse callback, more than 10 outstanding callbacks send ttyd `PAUSE` and fewer than 4 send `RESUME`, so neither the client queue nor xterm's buffer grows without bound; scrollback is 5,000 lines. The developer image installs `ncurses-term`, ttyd runs with `TERM=xterm-256color`, and tmux uses `tmux-256color` with RGB, synchronized-output, styled-underline, hyperlink, strikethrough and overline features for that outer terminal, focus and extended-key events, passthrough, and a 50,000-line history; terminal sessions export `COLORTERM=truecolor`. tmux keeps its default escape time (10 ms in the image's tmux 3.6) and mouse mode stays off: escape sequences cross a WebSocket and may arrive split, and a shorter escape time would turn the tail of a split sequence into typed text.
 
 The terminal dock can cover the viewport as an in-page full-screen layer. The layer refits xterm and restores terminal focus without reserving browser fullscreen. Its button and `Ctrl+Shift+F` toggle the mode; Escape remains available to the attached TUI and does not exit the layer.
-
-## Machine and Collector Tokens
-
-Collectors use random machine tokens rather than user sessions. Token hashes, scopes, expiry, revocation, and last-use timestamps are stored in `dev_machine_tokens`.
-
-Initial collector scopes are:
-
-- `events:write`
-- `logs:write`
-
-Heartbeat is submitted through the event-ingestion endpoint. The raw token is encrypted as a collector-only secret and delivered through tmpfs. Event and log ingestion endpoints reject expired, revoked, incorrectly scoped, or destroyed-machine tokens.
 
 ## Provider Abstraction
 
@@ -584,7 +580,7 @@ Initial providers:
 | `goose` | Goose | none | interactive, autonomous |
 | `custom` | Admin-configured argv CLI | explicit configuration | interactive, autonomous |
 
-Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The IDE developer image pins all eight built-in CLI versions for terminal use. Pi, Qwen Code, Crush, Kimi, and Goose use `DEV_MACHINE_HEADLESS_IMAGE` for both developer-terminal and autonomous execution. The existing three built-ins retain their provider-specific agent images. Custom providers must be enabled by workspace policy and are currently launched through the autonomous dashboard flow. Provider-specific agent images remain separately pinned by tag or digest in configuration and runtime Dockerfiles; custom provider images must also be pinned.
+Provider adapters can construct both invocation modes, but the current product dialogs queue autonomous runs only and there is no UI/gateway endpoint for attaching to an interactive agent container. The machine image pins all eight built-in CLI versions, and every built-in provider runs on `DEV_MACHINE_HEADLESS_IMAGE` for both developer-terminal and autonomous execution (the provider-specific Claude Code, OpenCode and Codex images and their `DEV_MACHINE_{CLAUDE,OPENCODE,CODEX}_IMAGE` settings were removed). Custom providers must be enabled by workspace policy, are currently launched through the autonomous dashboard flow, and their images must be pinned by tag or digest.
 
 Codex, Claude Code, OpenCode and Pi runs accept an optional `model` and `thinking`; Codex and Claude Code also an optional `model_server_id`. All three are rejected for the other providers (`harnessAcceptsModel` and `harnessRunsOnModelServer` in `BE/internal/service/dev_machine.go` are the two rules). A Codex or Claude Code run uses the chosen model server, or the workspace default when it speaks the harness's protocol (OpenAI-compatible for Codex, Anthropic-compatible for Claude Code); without one the harness uses its own sign-in and takes any valid model name. A model on a server must be offered by it when its model list is known; thinking levels are `off`, `low`, `medium`, `high`, `xhigh`, and `max` (Claude Code 2.1.330 accepts `low`, `medium`, `high`, `xhigh` and `max` for `--effort` and `CLAUDE_CODE_EFFORT_LEVEL`; Codex maps `off` to `none`). A run on the harness's own sign-in fills the model and thinking level it did not choose from the [workspace default](#agent-model-defaults). The server is recorded on the run (`model_server_id`). Codex receives the server and model entirely as argv `-c` overrides (`model_provider="kuayle"`, its `base_url`, `env_key="KUAYLE_MODEL_API_KEY"`, `wire_api="responses"`), so a user-managed `config.toml` cannot redirect a run; model names and URLs are restricted to characters that need no TOML quoting. Claude Code receives the model as argv and the thinking level through the validated non-secret `CLAUDE_CODE_EFFORT_LEVEL` container environment; `off` omits that variable.
 
@@ -615,7 +611,7 @@ Completed autonomous provider stdout/stderr is collected and redacted before per
 
 ### Human and Agent
 
-The user opens authenticated IDE and browser links from Kuayle and attaches native terminal tabs rendered by the main UI. Terminal tabs speak `ttyd.v1` over the dedicated terminal host and attach to tmux sessions inside the developer container. All eight built-in CLIs are available directly from that terminal. Headless machines omit code-server and browser access and expose only the terminal plus agent workflow. Agents run only as [agent tasks](BE/docs/agent-tasks.md) started from an issue chat (or an automation); each attempt is a `dev_machine_agent_runs` record that runs in a separate container autonomously to completion under a timeout. The manual "Run agent" dialog, its run list and trace sheet, and the `agent-runs` HTTP routes were retired; existing run records stay as task attempts.
+The user attaches native terminal tabs rendered by the main UI and opens exposed app ports from Kuayle. Terminal tabs speak `ttyd.v1` over the dedicated terminal host and attach to tmux sessions inside the developer container. All eight built-in CLIs are available directly from that terminal. There is no in-browser IDE or remote browser. Agents run only as [agent tasks](BE/docs/agent-tasks.md) started from an issue chat (or an automation); each attempt is a `dev_machine_agent_runs` record that runs in a separate container autonomously to completion under a timeout. The manual "Run agent" dialog, its run list and trace sheet, and the `agent-runs` HTTP routes were retired; existing run records stay as task attempts.
 
 ### Agent Only
 
@@ -666,9 +662,9 @@ Every reconciliation pass inspects Docker networks, volumes, gateway attachment,
 
 Resource names and labels are deterministic. Missing resources during teardown count as success. A partial spawn removes containers, disconnects the gateway, and removes the private network and workspace volume before retrying.
 
-The production repository currently supplies services to the runtime in egress, collector, developer, then browser order; the Docker runtime starts them in caller-provided order rather than computing dependencies itself. Developer and browser containers publish file-based Docker health checks.
+The production repository currently supplies services to the runtime in egress, then terminal order (plus the Docker daemon when the workspace allows it); the Docker runtime starts them in caller-provided order rather than computing dependencies itself. The terminal container publishes a file-based Docker health check.
 
-Machines have no lifetime. The one exception is an assistant temporary machine (`dev_machines.temporary_expires_at`, migration 159), which reconciliation permanently deletes 30 minutes after it was created; see [commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines). A booted machine stays up until its user pauses, stops, tears down or deletes it: nothing pauses idle machines, stops them after a maximum runtime, tears them down when they expire, or stops an idle machine to make room for another (a spawn or start that waits for host CPU or memory keeps waiting, see host admission below). Agent tasks do not pause or stop their machine when they finish or are cancelled, so the next task can reuse it (see [task machine reuse](#task-machine-reuse)). Only the host disk floor still stops running machines, to protect the host. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`, which orders machines for reuse. Each agent run, check and custom tool run keeps its own time limit (`max_runtime_seconds`, 3600 seconds by default, 10800 seconds (three hours) for task attempts, up to 86400). Migration `000101_dev_machines_persistent` drops `dev_machines.expires_at`, `max_runtime_minutes` and `keep_running` and the workspace policy's `max_runtime_minutes` and `idle_pause_minutes`; existing machines keep running whatever their old expiry, and the machine's own credentials (collector token, browser CDP token, Docker TLS material) no longer expire with it. Docker TLS material is issued for ten years and discarded at teardown; Docker-enabled machines created before migration 101 keep certificates that end a day after their old expiry, so recreate them to use Docker beyond that. Rollback restores the columns with a 480-minute runtime and a lifetime of one day counted from the rollback, after which the previous release tears machines down again.
+Machines have no lifetime. The one exception is an assistant temporary machine (`dev_machines.temporary_expires_at`, migration 159), which reconciliation permanently deletes 30 minutes after it was created; see [commands and temporary machines](BE/docs/conversations.md#commands-and-temporary-machines). A booted machine stays up until its user pauses, stops, tears down or deletes it: nothing pauses idle machines, stops them after a maximum runtime, tears them down when they expire, or stops an idle machine to make room for another (a spawn or start that waits for host CPU or memory keeps waiting, see host admission below). Agent tasks do not pause or stop their machine when they finish or are cancelled, so the next task can reuse it (see [task machine reuse](#task-machine-reuse)). Only the host disk floor still stops running machines, to protect the host. Gateway requests, native terminal WebSockets, API activity touches, checkouts, and agent runs update `last_activity_at`, which orders machines for reuse. Each agent run, check and custom tool run keeps its own time limit (`max_runtime_seconds`, 3600 seconds by default, 10800 seconds (three hours) for task attempts, up to 86400). Migration `000101_dev_machines_persistent` drops `dev_machines.expires_at`, `max_runtime_minutes` and `keep_running` and the workspace policy's `max_runtime_minutes` and `idle_pause_minutes`; existing machines keep running whatever their old expiry, and the machine's own credentials (at the time a collector token, a browser CDP token and Docker TLS material) no longer expire with it. Docker TLS material is issued for ten years and discarded at teardown; Docker-enabled machines created before migration 101 keep certificates that end a day after their old expiry, so recreate them to use Docker beyond that. Rollback restores the columns with a 480-minute runtime and a lifetime of one day counted from the rollback, after which the previous release tears machines down again.
 
 Starting a stopped or paused machine is idempotent. When its workspace volume was never recorded (its first spawn failed), the volume no longer exists, or a service container is missing, the start provisions the machine again from its deterministic names and reuses whatever still exists. The developer start scripts accept a workspace volume that already holds Kuayle state (`.kuayle/`, `repos/`, `tasks/`) or the user's work: a repository machine's root checkout is cloned into `.kuayle/root-checkout`, its files are moved into `/workspace` without replacing existing paths, and `.git` is moved last, so an existing `/workspace/.git` means the root is prepared and an interrupted preparation completes on the next start. The working branch is selected only when the root checkout is created; a restart keeps the current branch and local commits.
 
@@ -756,7 +752,8 @@ attempt within seconds as `<seq>.json` files in a per-run Docker volume mounted
 read-only at `/run/kuayle/inbox` in the agent container, outside the worktree;
 the manager fills it through a writer container that is never started. Claude
 Code receives them after each tool call (and before it stops) through a
-`PostToolUse`/`Stop` hook installed in the agent image's managed settings.
+`PostToolUse`/`Stop` hook installed in the machine image's managed settings
+(`/etc/claude-code/managed-settings.json`).
 Without a running attempt they go into the next attempt's prompt. During an
 attempt the manager also collects the outbox every 5 seconds, and files
 addressed `{"to":"orchestrator"}` (optionally `"kind":"question"`) are recorded
@@ -924,7 +921,7 @@ A `custom` size picks CPU (1, 2, 4, 6, 8, 12 or 16 vCPU) and memory (2, 4, 8, 12
 
 **Task machines.** Machines Kuayle creates itself for agent tasks (issue delegations, the assistant's delegate tool and automations all go through agent tasks) are headless custom machines sized by the workspace policy's `task_machine_cpu_millis`, `task_machine_memory_mb` and `task_machine_disk_gb` (Settings → Dev Machines → Policy → Task machines). The defaults are 4 vCPU, 8 GB and 20 GB; migration 90 gives existing workspaces the same values (task machines were previously `small`, whose 4 GB left an agent such as Claude Code 1.4 GB and was OOM-killed under builds). The same size rules apply, and the task disk must stay within `max_disk_gb`. Changes affect task machines created afterwards; reused task machines keep their size.
 
-The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). On standard machines the IDE (which also serves the terminal) and browser each receive 25%, an agent run 35%, and the collector and egress 5% each. Headless machines (task machines among them) have no IDE or browser, so the agent receives 50% and the terminal container 40%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the headless shares add up to the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). PID limits count threads. Agent containers, including manual checks and custom tools, get at least 4,096 PIDs up to the machine's configured PID limit, or their share if higher. Migration 194 raises the machine default from 512 to 4,096 and updates machines with the previous default. The IDE and terminal retain their 1,024-PID floor. Other services keep their share, with at least 256 for the browser and 32 otherwise. Manual checks keep the 35% agent share because their compose services share another 30%. When agent tasks share a machine, the memory limit of each agent attempt and manual check container is the agent share divided by the tasks with a running attempt or check there, the new one included (`agentMemoryBytes`, counted from the machine's running agent containers when a container is created and again on resize), with at least 1 GB (`agentMinimumMemoryBytes`) and never more than the undivided share. The limits then add up to about the agent share instead of a multiple of the machine, so a busy machine reclaims cache and slows down rather than the kernel stopping agents with exit code 137; a container keeps the limit it started with until the machine is resized. CPU and PID limits apply per container without division among tasks. These CPU and memory shares apply to machines that do not share their resources ([shared machine resources](#shared-machine-resources)); PID shares always apply. Non-builder workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available. Environment Builder deliberately relaxes the developer container root filesystem so owners/admins can install tooling before snapshot, and a workspace that allows sudo relaxes its developer containers (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
+The manager assigns a bounded percentage of the profile to each service and applies Docker `NanoCPUs`, memory, memory-swap, and PID limits (`containerSharePercent` in `BE/internal/machine/docker.go`). An agent run receives 50%, the terminal container 40% and the egress proxy 5%; with a Docker daemon, which takes 40%, the agent and the terminal receive 35% each. Shares are per-container ceilings, not reservations: without Docker the shares add up to about the machine, and with Docker the agent and terminal ceilings overlap (120%) so the terminal people use by hand is not squeezed below the agent. An 8 GB task machine therefore gives its agent 4 GB (2.8 GB with Docker). PID limits count threads. Agent containers, including manual checks and custom tools, get at least 4,096 PIDs up to the machine's configured PID limit, or their share if higher. Migration 194 raises the machine default from 512 to 4,096 and updates machines with the previous default. The terminal retains its 1,024-PID floor. Other services keep their share, with at least 32. Manual checks keep the 35% agent share because their compose services share another 30%. When agent tasks share a machine, the memory limit of each agent attempt and manual check container is the agent share divided by the tasks with a running attempt or check there, the new one included (`agentMemoryBytes`, counted from the machine's running agent containers when a container is created and again on resize), with at least 1 GB (`agentMinimumMemoryBytes`) and never more than the undivided share. The limits then add up to about the agent share instead of a multiple of the machine, so a busy machine reclaims cache and slows down rather than the kernel stopping agents with exit code 137; a container keeps the limit it started with until the machine is resized. CPU and PID limits apply per container without division among tasks. These CPU and memory shares apply to machines that do not share their resources ([shared machine resources](#shared-machine-resources)); PID shares always apply. Workloads use a read-only root filesystem, tmpfs scratch paths, `CapDrop=ALL`, `no-new-privileges`, the Docker default seccomp profile or a configured replacement, and AppArmor where available, except that agent-class containers always, and the terminal of a workspace that allows sudo, get the sudo relaxation (see [Sudo in machines](#sudo-in-machines)). Docker's `json-file` logs rotate at 10 MiB with three files per container, and removal paths also remove anonymous image volumes.
 
 **Live resize.** `PATCH /dev-machines/:machineId` with any of `cpu_millis`,
 `memory_mb` and `disk_gb` (omitted values keep the current size; a request
@@ -954,34 +951,32 @@ A rejected resize clears the pending size and records `resize_error`. Events:
 it was created with (`dev_machine_services.image_ref`,
 `dev_machine_agent_providers.image_ref`); the manager moves them to the
 installed release's images, its `DEV_MACHINE_*_IMAGE` settings. A new run of a
-built-in agent uses the release's agent image and records it on the provider; a
+built-in agent uses the release's machine image and records it on the provider; a
 run that already has a container keeps its image so it can resume, and a custom
-agent keeps its configured image. A machine's own containers (collector, egress,
-Docker daemon, browser, and the IDE or headless terminal) are recreated from the
-release images: when a stopped machine starts, and, for a running machine, by an
+agent keeps its configured image. A machine's own containers (egress, Docker daemon
+and terminal) are recreated from the release images: when a stopped machine starts, and, for a running machine, by an
 `update_images` operation (migration `000108_machine_image_updates`) that
 reconciliation queues for an outdated machine or one with finished run
 containers, only while the machine is idle: no other queued or running
 operation, no unfinished agent run, no running task preview and no activity
-through the gateway or API (`last_activity_at`, which an open terminal or IDE
+through the gateway or API (`last_activity_at`, which an open terminal
 connection renews every minute) in the last 15 minutes. The
 operation re-checks this when it runs, removes the machine's finished agent,
 check and never-started live inbox writer containers and the inbox volumes no
 container uses (they would keep old images in use; a failed removal fails the
 operation, which is retried), removes any outdated containers, records the new images and provisions the machine again like a
 recovery, then records `machine.images_updated` with each service's old and new
-image. Containers keep no state of their own (read-only root, in-memory `/tmp`
-and home), and the workspace and Docker volumes stay, so this is like a restart:
+image. Containers keep no state the machine relies on (in-memory `/tmp` and home;
+packages installed with sudo in the root filesystem are lost), and the workspace and Docker volumes stay, so this is like a restart:
 running processes and detached terminal sessions end. A paused machine keeps its frozen
-processes and is not recreated. The developer container of a machine built from
-a Development Environment keeps the environment's image. A busy or failed
+processes and is not recreated. A busy or failed
 update is queued again after an hour. A manager without release images
 configured leaves machine images alone.
 
 **Resource limit visibility.** An exited agent or check container is inspected
 for Docker's `State.OOMKilled` (set for any out-of-memory kill in its cgroup, a
 killed compiler included); the manager also follows Docker `oom` events for
-Kuayle containers (terminal, editor, Docker daemon, check services) as they
+Kuayle containers (terminal, Docker daemon, check services) as they
 happen, reporting each container once per minute. A kill records
 `resource_limit_kind=memory` with a message such as "Out of memory: the agent
 container reached its 1.4 GiB memory limit (or, on a machine that shares its
@@ -1013,11 +1008,10 @@ Workspace policy controls:
 
 ### Task machine reuse
 
-A new task uses a running machine owned by its creator in the same workspace
-and environment. The machine must have a standard or headless profile and
-satisfy the workspace's sudo and Docker policies. Builders, temporary machines
-and machines being deleted are excluded. A manual agent session or pending or
-leased stop, pause, teardown, snapshot, check, tool or command also excludes
+A new task uses a running machine owned by its creator in the same workspace.
+The machine must satisfy the workspace's sudo and Docker policies. Temporary
+machines and machines being deleted are excluded. A manual agent session or
+pending or leased stop, pause, teardown, check, tool or command also excludes
 the machine.
 
 [ReserveMachine](BE/internal/repository/agent_task.go) picks an idle machine
@@ -1058,14 +1052,14 @@ cgroup driver with cgroup v2, every container of a **new** machine runs in one
 systemd slice, `kuayle-<routing key>.slice` (a child of `kuayle.slice`), whose
 `MemoryMax` is the machine's memory, whose `MemorySwapMax` is
 `DEV_MACHINE_SWAP_PERCENT` of it (default 50) and whose `CPUQuota` is the
-machine's CPUs. Workload containers (editor, terminal, browser, agent runs,
+machine's CPUs. Workload containers (terminal, agent runs,
 checks, custom tools, the Docker daemon and check services) get the machine's
 memory and CPUs as their own limits and unlimited swap, so any of them may use
 the whole machine; CPU is throttled at the machine's quota, and when the machine
 as a whole runs out of memory the kernel stops the largest process in the slice
 and the alert reads "Out of memory: the machine reached its 16 GiB memory limit
-and a process in the Docker daemon container was stopped." The collector and
-egress proxy keep their 5% CPU and memory limits inside the slice. PID shares
+and a process in the Docker daemon container was stopped." The egress proxy
+keeps its 5% CPU and memory limits inside the slice. PID shares
 are unchanged. Swap holds idle pages; a
 runaway process still reaches `MemoryMax` and is killed, and host swap is shared
 by all machines, so it is a ceiling rather than a reservation. Swapped pages are
@@ -1137,7 +1131,7 @@ The manager still samples workspace usage, stores resource telemetry, emits `res
 
 `DEV_MACHINE_DISK_QUOTA_MODE=monitored` is an explicit operator opt-in for hosts whose Docker data root cannot provide project quotas (for example ext4). The manager then skips the startup quota probe and creates workspace volumes without the `size` option, labelled `com.kuayle.workspace-quota-mode=monitored` and with the limit in `com.kuayle.workspace-quota-bytes`. The workspace volume is the only unbounded write surface: root filesystems are read-only, `/tmp` and home directories are size-limited tmpfs, and container logs are capped. Because those tmpfs mounts are small (256 MiB `/tmp`, 512 MiB home, where the images keep Go's caches), check, manual check, custom tool, preview and autonomous agent containers point `TMPDIR`/`TMP`/`TEMP`, `GOTMPDIR`, `GOCACHE`, `GOMODCACHE`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, `npm_config_cache`, `PIP_CACHE_DIR` and `YARN_CACHE_FOLDER` at a per-run directory `/workspace/.kuayle/tmp/<container key>` on the workspace volume (`BE/internal/machine/run_tmp.go`). These settings override a custom image's own `XDG_DATA_HOME` and `XDG_STATE_HOME`. A fixed shell prelude recreates the directory when the container starts and unsets the overrides if it cannot. Checks, tools and previews remove the directory when their commands end. The manager removes an attempt's directory through the developer container once the attempt ends. An OpenCode task attempt links `opencode/` in its data and state directories to the task's session directory `/workspace/.kuayle/agent-sessions/<task>/opencode/`, so the next attempt continues its session with `--session`; a Goose task attempt links its data directory's `goose/sessions` there the same way (see [native session resume](BE/docs/agent-tasks.md#native-session-resume-and-handoff)). Interactive attempts keep the tmpfs defaults.
 
-Enforcement becomes detect-and-stop: every 30-second reconciliation measures `/workspace`, warns at 90 % and stops the machine at 100 % (the volume is kept). A host free-space floor protects co-located workloads: when the Docker data-root filesystem (measured with `statfs` on a read-only mount of it in the manager, or through a running collector when no mount is configured) has less free space than `DEV_MACHINE_HOST_DISK_MIN_FREE_GB` or `DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT`, every running machine is stopped with `resource.host_disk_floor` and new starts fail with `host_disk_low` until a fresh measurement shows space has been recovered. A fast writer can exceed its limit between two checks, so the floor must leave enough headroom for that overshoot. The workspace policy API reports `disk_quota_mode`, and the UI labels limits as monitored and warns administrators. Hard mode remains the default and recommended configuration.
+Enforcement becomes detect-and-stop: every 30-second reconciliation measures `/workspace` (with `du` run in the machine's terminal container), warns at 90 % and stops the machine at 100 % (the volume is kept). A host free-space floor protects co-located workloads: when the Docker data-root filesystem (measured with `statfs` on a read-only mount of it in the manager, or with `df` in a running machine's terminal container when no mount is configured) has less free space than `DEV_MACHINE_HOST_DISK_MIN_FREE_GB` or `DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT`, every running machine is stopped with `resource.host_disk_floor` and new starts fail with `host_disk_low` until a fresh measurement shows space has been recovered. A fast writer can exceed its limit between two checks, so the floor must leave enough headroom for that overshoot. The workspace policy API reports `disk_quota_mode`, and the UI labels limits as monitored and warns administrators. Hard mode remains the default and recommended configuration.
 
 ## Secrets
 
@@ -1150,8 +1144,8 @@ Secret flow:
 3. Agent runs receive only names explicitly selected in `allowed_secrets`; required provider names must also resolve to active, unexpired, non-revoked stored secrets before a run is queued.
 4. The manager creates a tmpfs at `/run/kuayle-secrets` and copies files after container start, so secret values do not appear in Docker container configuration.
 5. A small entrypoint loads values only into the target child process and removes the files.
-6. Browser and egress containers receive no workspace secrets.
-7. Manager-captured provider logs are redacted with the exact injected values. IDE command telemetry redacts common key/token/secret/password patterns.
+6. The egress container receives no workspace secrets.
+7. Manager-captured provider logs are redacted with the exact injected values.
 
 Reserved `KUAYLE_*` variables and `GITHUB_TOKEN` cannot be supplied by users.
 
@@ -1161,9 +1155,9 @@ Settings → Agent configuration manages workspace model servers and which codin
 
 Model discovery calls `GET <openai>/models` with a bearer key, or `GET <anthropic>/v1/models` with `x-api-key`, through a client that dials only public addresses unless `AI_ALLOW_PRIVATE_NETWORK` is set and never follows redirects. A saved server's key is only sent to the URLs saved with it. At most 500 IDs matching `[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}` are kept. Discovery returns labels from `display_name` or `name` as an optional `model_names` map keyed by ID. The settings form saves the map alongside the IDs. Pickers use the ID as the label when a server supplies no display name or when its list predates label storage.
 
-Servers are workspace data rather than machine snapshots. The IDE and terminal containers receive the default server; an agent run receives only the server recorded on it. The manager copies `KUAYLE_MODEL_API_KEY`, `KUAYLE_MODEL`, `KUAYLE_MODEL_THINKING`, `KUAYLE_MODEL_LIST`, `KUAYLE_MODEL_OPENAI_BASE_URL` and, for an Anthropic-compatible server, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and the Claude Code model aliases into `/run/kuayle-secrets`; browser, collector and egress containers never receive them. Rotating a key therefore applies the next time the developer or agent container starts.
+Servers are workspace data. The terminal container receives the default server; an agent run receives only the server recorded on it. The manager copies `KUAYLE_MODEL_API_KEY`, `KUAYLE_MODEL`, `KUAYLE_MODEL_THINKING`, `KUAYLE_MODEL_LIST`, `KUAYLE_MODEL_OPENAI_BASE_URL` and, for an Anthropic-compatible server, `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and the Claude Code model aliases into `/run/kuayle-secrets`; the egress container never receives them. Rotating a key therefore applies the next time the developer or agent container starts.
 
-The IDE and headless start scripts and the autonomous agent runner create `$HOME/.codex/config.toml` (mode 0600) for the default server only when the file is absent, map Codex `off` to `none`, and leave an existing user-managed configuration unchanged. They also generate `$HOME/.codex/model-catalogs/kuayle.json` from the installed Codex's bundled catalog (`codex-model-catalog.cjs`) for the server's models, so Codex's `/model` picker offers only those; if generation fails, the config omits the catalog and the configured model still works. Because the home directory is a small in-memory tmpfs, the same scripts link `~/.codex/packages` (Codex's managed app-server, about 400 MB per version) to `/workspace/.kuayle/codex-packages`, so the download lives on the machine's workspace volume and is shared by its terminal and agent containers.
+The terminal start script and the autonomous agent runner create `$HOME/.codex/config.toml` (mode 0600) for the default server only when the file is absent, map Codex `off` to `none`, and leave an existing user-managed configuration unchanged. They also generate `$HOME/.codex/model-catalogs/kuayle.json` from the installed Codex's bundled catalog (`codex-model-catalog.cjs`) for the server's models, so Codex's `/model` picker offers only those; if generation fails, the config omits the catalog and the configured model still works. Because the home directory is a small in-memory tmpfs, the same scripts link `~/.codex/packages` (Codex's managed app-server, about 400 MB per version) to `/workspace/.kuayle/codex-packages`, so the download lives on the machine's workspace volume and is shared by its terminal and agent containers.
 
 ### Agent sign-in
 
@@ -1171,7 +1165,7 @@ A Codex or Claude Code run without a model server uses the agent's own account. 
 
 **Connect Codex from Settings.** In Settings > Agent configuration > Your sign-ins, connect your ChatGPT account before starting a machine. Enable device code login in ChatGPT Security settings, or ask your ChatGPT workspace admin to enable it. Open the verification page and enter the code shown in Kuayle. Keep the dialog open until Kuayle confirms the connection. The session-only `POST /agent-sign-ins/codex/device/{start,poll,cancel}` routes scope each attempt to the caller and workspace. The API runs the pinned Codex App Server over stdio using an isolated temporary home. Only the public prompt and status reach the UI. The authenticated poll stores the encrypted file with `DEV_MACHINE_ENCRYPTION_KEY` in `agent_sign_ins`. Attempts expire after 15 minutes. A new attempt replaces the previous one for that user in that workspace. Active attempts live in the API process, so clustered deployments need session affinity for the start, poll and cancel requests. An API restart requires a new attempt. Native API installations need `codex` on the server's path. Dev Machine provider policy and credential precedence still apply when machines and tasks use the sign-in.
 
-**Continue after sign-in.** A task creator can retry a stopped task with their saved Codex sign-in or Claude Code token. The task panel offers Claude Code token entry and terminal sign-in. Codex also offers terminal sign-in as a fallback. The terminal opens with `claude /login` or `codex login --device-auth`. When a user continues without saved credentials, `POST /agent-tasks/:taskId/sign-in` queues a `capture_sign_in` operation. The manager reads `~/.claude/.credentials.json` or `~/.codex/auth.json` from the machine's terminal or IDE container, accepts a JSON object of at most 64 KiB, encrypts it, and retries the task. Only the creator of a task stopped for sign-in can continue, and `request_id` makes repeated requests converge. Missing terminal credentials return `409 SIGN_IN_NOT_FOUND`. The manager saves a run's refreshed credentials only if the stored credentials still match what the run started with. This preserves replacements and removals made while a run was active.
+**Continue after sign-in.** A task creator can retry a stopped task with their saved Codex sign-in or Claude Code token. The task panel offers Claude Code token entry and terminal sign-in. Codex also offers terminal sign-in as a fallback. The terminal opens with `claude /login` or `codex login --device-auth`. When a user continues without saved credentials, `POST /agent-tasks/:taskId/sign-in` queues a `capture_sign_in` operation. The manager reads `~/.claude/.credentials.json` or `~/.codex/auth.json` from the machine's terminal container, accepts a JSON object of at most 64 KiB, encrypts it, and retries the task. Only the creator of a task stopped for sign-in can continue, and `request_id` makes repeated requests converge. Missing terminal credentials return `409 SIGN_IN_NOT_FOUND`. The manager saves a run's refreshed credentials only if the stored credentials still match what the run started with. This preserves replacements and removals made while a run was active.
 
 ### Token usage and cost
 
@@ -1211,7 +1205,7 @@ Later runs of that user receive the sign-in as the scoped secret `KUAYLE_CLAUDE_
 
 **OpenCode API key.** OpenCode has no terminal sign-in Kuayle can capture, and an `opencode auth login` made in a terminal does not reach a run, whose home is in memory. A user instead saves an OpenCode API key (for example the key of an OpenCode Go subscription, opencode's `opencode-go` provider) with the same `PUT /agent-sign-ins/opencode/token` (`{"token": "..."}`, the same one line of 20-1024 printable ASCII characters; no prefix is assumed). It is stored like the Claude Code token: encrypted with `DEV_MACHINE_ENCRYPTION_KEY` into `agent_sign_ins` with `kind='token'`, per workspace and user, and never returned (migration `000141_opencode_api_key` allows `opencode` there, as a token only; rolling back deletes saved OpenCode keys). An API key has no known lifetime, so `expires_at` stays null and the API reports no expiry estimate: the one-year estimate applies only to `claude setup-token`. Every OpenCode run requested by that user (tasks, workflow steps, reviews and retries) receives it as the scoped secret `OPENCODE_API_KEY`, the environment variable opencode's provider catalog declares for `opencode-go`, through `/run/kuayle-secrets` like other run secrets and redacted from output; runs of other agents never receive it. An `OPENCODE_API_KEY` machine secret the run is allowed to use takes precedence, as `ANTHROPIC_API_KEY` does for Claude Code. An OpenCode run without a saved key is not stopped for sign-in, because OpenCode can be configured in other ways; a missing or rejected key shows as the agent's own error. Kuayle does not verify the key when it is saved. With an explicit `DEV_MACHINE_EGRESS_ALLOWLIST`, add `opencode.ai`.
 
-**Sign-ins in the owner's own terminal.** The machine owner's terminal and IDE shells use the owner's own sign-ins, so `claude` and `codex` start signed in. Only the machine's creator (`created_by_user_id`), in the machine's workspace, is read; a machine never receives another user's sign-in, and only agents the workspace policy allows (`allowed_providers`) are included. An agent the developer container already reaches through the workspace's default model server or an API key secret of the `ide`/`terminal` service is left out. The manager writes the set (a saved Claude Code token with its expiry in Unix seconds, `claude-code.token-expires`; the captured Claude Code credentials file; the Codex `auth.json`; a saved OpenCode API key, `opencode.api-key`; and a `managed` list) as a tar archive on stdin into `~/.kuayle/agent-sign-ins` (0700, files 0600) in the container's in-memory home, never on the workspace volume and never in argv or the container environment. It does so after every spawn, start and recovery, and on a `sync_agent_sign_ins` operation (migration `000103_agent_sign_in_sync`) that saving, replacing or deleting a sign-in (including a terminal capture and a run's refreshed sign-in) queues in the same transaction for each running machine the user owns in that workspace; a pending sync is not queued twice, and rollback refuses while one is queued. `kuayle-agent-sign-in.sh`, sourced by `kuayle-shell` for each interactive shell, exports the token as `CLAUDE_CODE_OAUTH_TOKEN` (the same environment variable a run gets) until its recorded expiry, then falls back to the captured file (an expired token is never synced at all). It exports a saved OpenCode API key as `OPENCODE_API_KEY` unless the shell already has one; the key is synced only when the policy allows `opencode` and the `ide`/`terminal` service has no `OPENCODE_API_KEY` secret, OpenCode is not listed in `managed`, and a missing key prints no hint. It installs a credentials file only where the user has no login of their own: a copy in `~/.kuayle/agent-sign-ins-installed` recognises Kuayle's file, so a later change replaces it, and a removal, or Kuayle no longer signing that agent in (the policy stopped allowing it, or a model server or API key now configures it), deletes it, while a login the user made in the terminal is never overwritten or removed and keeps precedence over the token. Changes therefore apply to the next shell; a shell that is already open keeps its environment. Without a sign-in for a managed agent, the first pane of each terminal tab prints how to sign in (`claude setup-token` saved under Settings > Agent configuration > Your sign-ins, or `codex login --device-auth`). Every start also pre-seeds `~/.claude.json` (`kuayle-claude-config.cjs`) with `hasCompletedOnboarding` when it is missing, so the first-run screens are skipped while values the user set, and their own login, are kept. Workspace trust is never pre-granted: a checkout's committed `.claude/settings.json` hooks run with the user's permissions and could read the synced sign-in, so Claude Code keeps asking the user to trust each checkout. A refreshed credentials file can diverge between a terminal and Kuayle's copy when both refresh the same OAuth login; the saved token has no refresh and avoids this.
+**Sign-ins in the owner's own terminal.** The machine owner's terminal shells use the owner's own sign-ins, so `claude` and `codex` start signed in. Only the machine's creator (`created_by_user_id`), in the machine's workspace, is read; a machine never receives another user's sign-in, and only agents the workspace policy allows (`allowed_providers`) are included. An agent the developer container already reaches through the workspace's default model server or an API key secret of the `terminal` service is left out. The manager writes the set (a saved Claude Code token with its expiry in Unix seconds, `claude-code.token-expires`; the captured Claude Code credentials file; the Codex `auth.json`; a saved OpenCode API key, `opencode.api-key`; and a `managed` list) as a tar archive on stdin into `~/.kuayle/agent-sign-ins` (0700, files 0600) in the container's in-memory home, never on the workspace volume and never in argv or the container environment. It does so after every spawn, start and recovery, and on a `sync_agent_sign_ins` operation (migration `000103_agent_sign_in_sync`) that saving, replacing or deleting a sign-in (including a terminal capture and a run's refreshed sign-in) queues in the same transaction for each running machine the user owns in that workspace; a pending sync is not queued twice, and rollback refuses while one is queued. `kuayle-agent-sign-in.sh`, sourced by `kuayle-shell` for each interactive shell, exports the token as `CLAUDE_CODE_OAUTH_TOKEN` (the same environment variable a run gets) until its recorded expiry, then falls back to the captured file (an expired token is never synced at all). It exports a saved OpenCode API key as `OPENCODE_API_KEY` unless the shell already has one; the key is synced only when the policy allows `opencode` and the `terminal` service has no `OPENCODE_API_KEY` secret, OpenCode is not listed in `managed`, and a missing key prints no hint. It installs a credentials file only where the user has no login of their own: a copy in `~/.kuayle/agent-sign-ins-installed` recognises Kuayle's file, so a later change replaces it, and a removal, or Kuayle no longer signing that agent in (the policy stopped allowing it, or a model server or API key now configures it), deletes it, while a login the user made in the terminal is never overwritten or removed and keeps precedence over the token. Changes therefore apply to the next shell; a shell that is already open keeps its environment. Without a sign-in for a managed agent, the first pane of each terminal tab prints how to sign in (`claude setup-token` saved under Settings > Agent configuration > Your sign-ins, or `codex login --device-auth`). Every start also pre-seeds `~/.claude.json` (`kuayle-claude-config.cjs`) with `hasCompletedOnboarding` when it is missing, so the first-run screens are skipped while values the user set, and their own login, are kept. Workspace trust is never pre-granted: a checkout's committed `.claude/settings.json` hooks run with the user's permissions and could read the synced sign-in, so Claude Code keeps asking the user to trust each checkout. A refreshed credentials file can diverge between a terminal and Kuayle's copy when both refresh the same OAuth login; the saved token has no refresh and avoids this.
 
 `GET /agent-sign-ins` lists the caller's own status for Claude Code, Codex and OpenCode (`supports_token`; `token` with `saved_at`, `expires_at` (null for an OpenCode API key), `expired`; `terminal` with `saved_at`), and `DELETE /agent-sign-ins/:provider[?kind=token|credentials]` removes the caller's token, terminal sign-in, or both. These routes are session-only, refused for guests, and always act on the signed-in user: admins cannot read or remove anyone else's sign-ins. Removing a token deletes only Kuayle's encrypted copy; the token stays valid until it expires unless the user revokes it in their claude.ai settings. Codex has no equivalent token and keeps the terminal capture of `~/.codex/auth.json`. Removing an OpenCode API key likewise deletes only Kuayle's copy; the key is revoked in the user's OpenCode account.
 
@@ -1243,17 +1237,17 @@ The Go plan list is fetched with the model discovery client (public addresses on
 
 Settings → Agent configuration → Default model and effort sets, per workspace, the model and effort Codex and Claude Code use on their own sign-in (`agent_model_defaults`, one row per workspace and agent; migration `000109_agent_model_defaults`). `GET /agent-model-defaults` (`dev_machine:read`) lists both agents, configured or not, with the accepted `thinking_levels`; `PUT /agent-model-defaults/:provider` (`dev_machine:admin`, owners and admins only) takes `{"model","thinking"}` with the same model-name pattern and levels as runs, and both empty removes the default. For production without a model server, setting Claude Code to `claude-opus-5-5` and `medium` makes its runs start with `--model claude-opus-5-5` and `CLAUDE_CODE_EFFORT_LEVEL=medium`.
 
-The default is resolved when each run is created (`createAgentRun`), not when a task is accepted: tasks keep storing only an explicit choice, and a run fills each of model and thinking that it left empty. Every new task, including those delegated from chat (`delegate_issue`) and automations, and every new attempt of an open task (retry, follow-up, sign-in continuation, review) therefore uses the default current at that moment. A run that already exists keeps the model and effort recorded on it, including while it is recovered, and resuming a Claude Code session in a new attempt applies the current default to that attempt. A run that uses a model server, chosen or the workspace default speaking the agent's protocol, ignores the agent default; the server's default model and thinking level apply as before. IDE and terminal shells are not affected.
+The default is resolved when each run is created (`createAgentRun`), not when a task is accepted: tasks keep storing only an explicit choice, and a run fills each of model and thinking that it left empty. Every new task, including those delegated from chat (`delegate_issue`) and automations, and every new attempt of an open task (retry, follow-up, sign-in continuation, review) therefore uses the default current at that moment. A run that already exists keeps the model and effort recorded on it, including while it is recovered, and resuming a Claude Code session in a new attempt applies the current default to that attempt. A run that uses a model server, chosen or the workspace default speaking the agent's protocol, ignores the agent default; the server's default model and thinking level apply as before. Terminal shells are not affected.
 
 Migration `000109` also widens the `thinking` checks of `dev_machine_agent_runs` and `agent_model_servers` to `medium` and `xhigh`. Rolling it back drops the defaults and maps `medium` to `high` and `xhigh` to `max` on runs, servers and tasks, which is not reversible.
 
-## Scoped Settings, Worktrees, and Environments
+## Scoped Settings and Worktrees
 
-Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, development environment, Compose file for checks (migration 68), preview command and preferred port (migrations 71 and 85), preferred coding agent and/or agent instructions (at most 8000 characters), and the pull request description template (migration 172, at most 8000 characters using only `{{description}}`, `{{changes}}`, `{{verification}}`, `{{screenshots}}`, `{{notes}}` and `{{issue}}`) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions and the Compose file path are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting an environment, or vice versa.
+Development defaults are stored in `dev_machine_scope_settings`. A setting may provide a linked GitHub repository, base branch, Compose file for checks (migration 68), preview command and preferred port (migrations 71 and 85), preferred coding agent and/or agent instructions (at most 8000 characters), and the pull request description template (migration 172, at most 8000 characters using only `{{description}}`, `{{changes}}`, `{{verification}}`, `{{screenshots}}`, `{{notes}}` and `{{issue}}`) for a workspace, team, project, or issue. Each value is resolved independently in this order: issue, project, team, workspace (migration 65). The preferred agent is the default for task delegation from chat and the task composer when the workspace policy allows it; instructions and the Compose file path are snapshotted onto each task when it is accepted or retried and placed ahead of the task in the native prompt. This lets an issue override only the repository while inheriting the rest, or vice versa.
 
 `GET /dev-machine-repository-defaults` (`dev_machine:read`, optional `issue_id` or `project_id`) reports the effective repository with the scope that supplied it, the value inherited without the most specific scope's own setting, and the linked repositories the policy allows. Issues and projects are read with machine-creation visibility (public teams of the request workspace). A refused default is reported with `allowed: false` rather than replaced. The create-machine dialog preselects the effective repository and sends `repo` only for an explicit choice, so the server keeps applying the configured repository and base branch; the issue defaults dialog names the inherited repository. The assistant's `get_issue` reports an issue's `development_repository`, and `delegate_issue` resolves it when approval is requested: it asks the user only when no scope configures one, refuses a repository the policy disallows, and shows the resolved repository on the approval (the task resolves it again when it runs). A task with no resolvable repository is blocked with a reason naming where to set one.
 
-Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready manual checkouts from the same repository. Task checkouts (`/workspace/tasks/{issue-key}-{task-id}`) do not use or change the machine's repository affinity, so one task machine serves several repositories; the environment must still match.
+Machine creation accepts optional issue/project/repository information but does not require it. If no repository resolves, legacy repository fields remain empty and the machine starts as a generic developer workspace. When an issue is opened, `POST /dev-machines/:machineId/checkouts` resolves the issue's development settings, enforces the machine's repository affinity, and creates an idempotent issue worktree under `/workspace/tasks/{issue-key}`. A machine can hold multiple ready manual checkouts from the same repository. Task checkouts (`/workspace/tasks/{issue-key}-{task-id}`) do not use or change the machine's repository affinity, so one task machine serves several repositories.
 
 For placement and capacity, see [task machine reuse](#task-machine-reuse).
 
@@ -1267,18 +1261,14 @@ The [checkout script](BE/internal/machine/docker_checkout.go) borrows the
 cache's objects and refs in a temporary Git directory with isolated
 configuration and disabled hooks. It fetches from the fixed GitHub URL with
 a token scoped to that repository and removes the token before writing the
-worktree. The IDE and terminal credential helper answers only for HTTPS on
+worktree. The terminal's credential helper answers only for HTTPS on
 `github.com`. Publication and worktree scans use the same Git isolation.
 See [what publication runs](BE/docs/agent-tasks.md#what-publication-runs) and
 [KS-39](SECURITY_AUDIT.md#ks-39--checkout-leaked-the-repository-token-critical).
 
-Development Environments are immutable local OCI images created from owner/admin-created Environment Builder machines. Environment Builders run the developer container with a writable root filesystem so tooling can be installed intentionally. Snapshot requests are accepted only while the builder is `paused` or `stopped`; the environment moves `pending -> building -> ready` or `failed`. The snapshot commits the developer container layer with Kuayle environment/workspace labels, may leave a human-readable local tag (`kuayle/dev-environment-{id}:snapshot`), and records the immutable local image ID (`sha256:...`) as both `image_ref` and `image_digest` once ready. Machine creation uses only that immutable local ID, verifies the image labels match the expected workspace/environment, and never registry-pulls a missing local snapshot ID. The repository workspace named volume, `/run/kuayle-secrets`, `/tmp`, and other tmpfs scratch mounts are not part of the image. Selected shell and code-server customization is copied into an image template before commit; files in that template whose names contain `history`, `token`, or `credential` are removed. The complete writable developer layer is still committed, so operators must scrub any other sensitive data before snapshotting.
-
-Environment deletion is two-phase. The API marks an environment `delete_requested`; the manager removes only the immutable local image ID after verifying the Kuayle environment/workspace labels and only then deletes the database record. Operators migrating hosts must move any required local OCI images separately from PostgreSQL and Docker volumes.
-
 ## GitHub Integration
 
-Dev Machines use GitHub App installation tokens. The IDE and terminal use
+Dev Machines use GitHub App installation tokens. The terminal uses
 the machine's root repository. Task publication uses the checkout's
 repository, which may be any repository the policy allows. Task attempts
 run without a GitHub token.
@@ -1418,22 +1408,16 @@ own grants and preserve manually assigned members. See the [self-hosting guide](
 
 | Event | Source |
 |---|---|
-| file created/modified/deleted, or one `files.changed` summary (counts and 25 sample paths) when a 2-second scan sees more than 25 changes | collector filesystem scan, skipping `.git`, `node_modules`, build and cache trees and `.kuayle/tmp` |
-| command finished and exit code | IDE shell hook |
-| root-checkout branch changed | Git post-checkout hook |
-| root-checkout commit created | Git post-commit hook and collector HEAD scan |
-| root-checkout push started | Git pre-push hook |
-| browser navigation | collector polling Chrome CDP, query and fragment removed |
 | agent provider event | provider JSON-line parser |
 | service and resource state | manager lifecycle and Docker sampling |
 | machine opened/denied | gateway access audit |
 | lifecycle changes | API and manager |
 
-Activity is operational telemetry, not tamper-proof security auditing. Trusted workspace code can bypass in-container hooks.
+Activity is operational telemetry, not tamper-proof security auditing. Machines no longer report file changes, shell commands, root-checkout Git hooks or browser navigation (the activity collector was removed; the terminal's start script deletes the collector's old Git hooks from a root checkout).
 
-Structured events use a monotonic `BIGSERIAL` cursor. Completed autonomous agent stdout/stderr uses cursor-addressable `dev_machine_log_chunks`; chunk writes are idempotent per stream and sequence, so a slow or failed write is retried (15 seconds an attempt, for up to three minutes) before the run fails with `agent_output_persistence_failed`. If stopping such a run's container fails, the manager kills it. The schema reserves a PTY stream, but native terminal and interactive-agent PTY output is not currently persisted. Issue worktrees do not install the root-checkout Git hooks. API reads are workspace-scoped. High-volume log retention should be configured and periodically pruned by operators.
+Structured events use a monotonic `BIGSERIAL` cursor. Completed autonomous agent stdout/stderr uses cursor-addressable `dev_machine_log_chunks`; chunk writes are idempotent per stream and sequence, so a slow or failed write is retried (15 seconds an attempt, for up to three minutes) before the run fails with `agent_output_persistence_failed`. If stopping such a run's container fails, the manager kills it. The schema reserves a PTY stream, but native terminal and interactive-agent PTY output is not currently persisted. API reads are workspace-scoped. High-volume log retention should be configured and periodically pruned by operators.
 
-Dev Machines live in Settings → Dev Machines, which has two tabs: **Machines** (the user's machines, manual creation for hand-run development and the admin cleanup of old machines; members and above) and **Policy** (the workspace policy, environments, defaults and automations; editable by owners and admins). The sidebar has no Dev Machines entry. `/:slug/machines` redirects there, keeping an `issue_id` filter, and `/:slug/machines/:machineId` stays the machine page that task cards and issues link to. The machine page exposes status, services, resource samples, cursor-paginated events and logs, checkouts, terminal sessions, app ports, lifecycle/delete controls and **Tasks on this machine**: the agent tasks that used it (active first, then the most recently updated, at most 30), each with its issue, state, agent and a link to its chat. It reads `GET /dev-machines/:machineId/tasks`, a session-only route that answers only the machine's owner (others get 404) and applies the same workspace-membership, task-creator and issue-team checks as the agent queue. Native terminal attachment is implemented in the Kuayle UI with `@xterm/xterm`; ttyd's own web page is not exposed.
+Dev Machines live in Settings → Dev Machines, which has two tabs: **Machines** (the user's machines, manual creation for hand-run development and the admin cleanup of old machines; members and above) and **Policy** (the workspace policy, defaults and automations; editable by owners and admins). The sidebar has no Dev Machines entry. `/:slug/machines` redirects there, keeping an `issue_id` filter, and `/:slug/machines/:machineId` stays the machine page that task cards and issues link to. The machine page exposes status, services, resource samples, cursor-paginated events and logs, checkouts, terminal sessions, app ports, lifecycle/delete controls and **Tasks on this machine**: the agent tasks that used it (active first, then the most recently updated, at most 30), each with its issue, state, agent and a link to its chat. It reads `GET /dev-machines/:machineId/tasks`, a session-only route that answers only the machine's owner (others get 404) and applies the same workspace-membership, task-creator and issue-team checks as the agent queue. Native terminal attachment is implemented in the Kuayle UI with `@xterm/xterm`; ttyd's own web page is not exposed.
 
 ## Database Schema
 
@@ -1445,7 +1429,6 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_services` | Container image/name/ID, service type, private endpoint, health |
 | `dev_machine_volumes` | Workspace/scratch/artifact volume names and monitored usage |
 | `dev_machine_env_vars` | Encrypted, target-scoped, provider-scoped values with TTL/revocation |
-| `dev_machine_tokens` | Hashed machine tokens, scopes, expiry, revocation |
 | `dev_machine_agent_providers` | Enabled providers, pinned images, modes, secret declarations, custom config |
 | `dev_machine_agent_runs` | Prompt snapshot, policy, argv, lifecycle, normalized result |
 | `dev_machine_agent_run_steps` | Ordered provider/run execution steps |
@@ -1459,17 +1442,16 @@ Migration `000033_dev_machines` creates:
 | `dev_machine_access_logs` | Allowed and denied gateway requests |
 | `dev_machine_resource_samples` | CPU, RAM, disk, PID, and network samples |
 | `dev_machine_workspace_policies` | Workspace quota and allowlist configuration |
-| `dev_machine_environments` | Immutable local OCI environment images and two-phase deletion state |
-| `dev_machine_scope_settings` | Workspace/team/project/issue repository, branch, and environment defaults |
+| `dev_machine_scope_settings` | Workspace/team/project/issue repository, branch, and other development defaults |
 | `dev_machine_checkouts` | Idempotent issue worktrees with repository and branch metadata |
 | `dev_machine_terminal_sessions` | User terminal tabs mapped to runtime tmux sessions and optional checkouts |
 | `dev_machine_runtime_credentials` | Encrypted, expiring runtime-secret registrations used for telemetry redaction |
 | `agent_model_servers` | Workspace model servers: protocol URLs, encrypted API key, model IDs and display names, default and fast model, thinking level, default flag |
 | `agent_model_defaults` | Workspace default model and effort per coding agent on its own sign-in |
 
-The migration creates the final scoped-workspace schema directly. Composite foreign keys bind workspace, machine, service, checkout, run, session, and environment tuples so cross-workspace identifiers are rejected by PostgreSQL rather than relying only on application checks. Rolling migration `000033` back is destructive for all Dev Machine control-plane records.
+The migration creates the final scoped-workspace schema directly. Composite foreign keys bind workspace, machine, service, checkout, run, and session tuples so cross-workspace identifiers are rejected by PostgreSQL rather than relying only on application checks. Migration `000215_single_machine_image` later drops `dev_machine_tokens` and `dev_machine_environments`. Rolling migration `000033` back is destructive for all Dev Machine control-plane records.
 
-Migration `000051_dev_machine_agents_headless` adds the `dev_machines.profile` value (`standard` or `headless`) and expands only the default workspace-policy provider allowlist to all seven built-ins. Existing workspace policies are not rewritten, so administrators retain their current allowlists until they opt in. The down migration removes the profile column and restores the previous default allowlist. Pi was added later without a migration: it is in the service's default allowlist for workspaces without a policy (`GetPolicy`) and in the Coding agents switches, while saved policies and the column default (used by no application write) are unchanged, so administrators opt in.
+Migration `000051_dev_machine_agents_headless` adds the `dev_machines.profile` value (`standard` or `headless`; migration 215 leaves only `headless`, see [Machine Topology](#machine-topology)) and expands only the default workspace-policy provider allowlist to all seven built-ins. Existing workspace policies are not rewritten, so administrators retain their current allowlists until they opt in. The down migration removes the profile column and restores the previous default allowlist. Pi was added later without a migration: it is in the service's default allowlist for workspaces without a policy (`GetPolicy`) and in the Coding agents switches, while saved policies and the column default (used by no application write) are unchanged, so administrators opt in.
 
 Migration `000052_dev_machine_deepseek` adds workspace model credentials and persists each agent run's non-secret command environment so a Claude Code effort override survives queueing.
 
@@ -1506,10 +1488,6 @@ GET    /api/workspaces/:slug/dev-machine-scope-setting
 GET    /api/workspaces/:slug/dev-machine-repository-defaults
 PUT    /api/workspaces/:slug/dev-machine-scope-setting
 DELETE /api/workspaces/:slug/dev-machine-scope-setting
-GET    /api/workspaces/:slug/dev-machine-environments
-POST   /api/workspaces/:slug/dev-machine-environments
-GET    /api/workspaces/:slug/dev-machine-environments/:environmentId
-DELETE /api/workspaces/:slug/dev-machine-environments/:environmentId
 GET    /api/workspaces/:slug/dev-machine-providers
 GET    /api/workspaces/:slug/agent-model-servers
 POST   /api/workspaces/:slug/agent-model-servers
@@ -1536,7 +1514,6 @@ GET    /api/workspaces/:slug/dev-machines/:machineId/logs
 GET    /api/workspaces/:slug/dev-machines/:machineId/services
 GET    /api/workspaces/:slug/dev-machines/:machineId/providers
 GET    /api/workspaces/:slug/dev-machines/:machineId/resource-usage
-POST   /api/workspaces/:slug/dev-machines/:machineId/services/:service/launch
 GET    /api/workspaces/:slug/dev-machines/:machineId/terminal-sessions
 POST   /api/workspaces/:slug/dev-machines/:machineId/terminal-sessions
 POST   /api/workspaces/:slug/dev-machines/:machineId/terminal-sessions/:sessionId/close
@@ -1546,28 +1523,19 @@ GET    /api/workspaces/:slug/dev-machines/:machineId/tasks   (session only)
 
 Agent runs are created, read and cancelled only through the session-only agent task routes (see the [agent task contract](BE/docs/agent-tasks.md)); the former manual `agent-runs` routes return 404.
 
-Collector-only endpoints use scoped machine tokens:
-
-```text
-POST /api/dev-machine-ingest/events
-POST /api/dev-machine-ingest/logs
-```
-
-Lifecycle APIs return `202 Accepted` with an operation record. `/teardown` retains history; admin DELETE and `/permanent-delete` routes record a purge request and return `202 Accepted` while the manager performs the safe hard purge. Selected bulk deletion deduplicates machine IDs and returns per-item `accepted`, `not_found`, `conflict`, or `failed` results. Create returns the queued machine. Service launches and terminal sessions may return `ready`, `pending`, or `resuming` with `retry_after_seconds`. Events and logs use `after_id` cursors.
+Lifecycle APIs return `202 Accepted` with an operation record. `/teardown` retains history; admin DELETE and `/permanent-delete` routes record a purge request and return `202 Accepted` while the manager performs the safe hard purge. Selected bulk deletion deduplicates machine IDs and returns per-item `accepted`, `not_found`, `conflict`, or `failed` results. Create returns the queued machine. App port launches and terminal sessions may return `ready`, `pending`, or `resuming` with `retry_after_seconds`. Events and logs use `after_id` cursors.
 
 Example create payload:
 
 ```json
 {
   "size": "medium",
-  "profile": "standard",
-  "services": { "ide": true, "browser": true },
   "agents": [{ "provider": "opencode", "mode": "autonomous" }],
   "env_vars": []
 }
 ```
 
-Create requests accept `profile: "standard" | "headless"`; omission means standard. Headless requests must omit both `services.ide` and `services.browser`.
+Every machine is created with the `headless` profile: requests have no `profile`, `services`, `environment_id` or `environment_builder` field. The generic service launch route (`POST …/services/:service/launch`, which opened the IDE and browser) and the `/dev-machine-environments` and `/api/dev-machine-ingest` routes were removed in migration 215's release.
 
 ### Public OpenAPI reference
 
@@ -1907,7 +1875,6 @@ Required configuration when enabled:
 | `DEV_MACHINE_DOMAIN` | Machine base domain; separate registrable domain by default (`machines.localhost` for local development) |
 | `DEV_MACHINE_ALLOW_SAME_SITE` | Default false. Explicit personal/trusted opt-in requiring an exact HTTPS frontend origin; enables host-prefixed app cookies and exact-origin browser request protection. Switching requires a new login. |
 | `DEV_MACHINE_ENCRYPTION_KEY` | Independent secret-encryption passphrase, at least 32 characters |
-| `DEV_MACHINE_INGEST_URL` | Public HTTPS collector ingestion base URL |
 | `DEV_MACHINE_GATEWAY_CONTAINER` | Stable gateway container name attached to private networks |
 | `DEV_MACHINE_GATEWAY_DB_USER` | Dedicated PostgreSQL login provisioned for the Internet-facing gateway |
 | `DEV_MACHINE_GATEWAY_DB_PASSWORD` | Independent gateway database password used by the provisioning job |
@@ -1923,18 +1890,18 @@ Required configuration when enabled:
 | `DEV_MACHINE_HOST_DISK_MIN_FREE_PERCENT` | Monitored mode: minimum free percentage of the Docker data root (default 15) |
 | `DEV_MACHINE_HOST_DISK_MIN_FREE_GB` | Monitored mode: minimum free GiB of the Docker data root (default 25) |
 | `DEV_MACHINE_DOCKER_ROOT` | Host path of Docker's data root, mounted read-only into the manager (default `/var/lib/docker`) |
-| `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to a running collector when empty) |
+| `DEV_MACHINE_HOST_DISK_PATH` | In-container path measured for host free space (Compose sets the mount point; falls back to `df` in a running machine's terminal container when empty) |
 | `DEV_MACHINE_HOST_RESERVED_CPU_MILLIS`, `DEV_MACHINE_HOST_RESERVED_MEMORY_MB`, `DEV_MACHINE_CPU_OVERCOMMIT` | Host admission for spawning/starting machines (defaults 1000, 2048, 2): Docker host CPU/memory minus these reserves bounds the sum of live machines' requests; memory is never overcommitted, CPU up to the factor. Machines that do not fit wait in the queue without consuming retries |
 | `DEV_MACHINE_AGENT_CLI_REFRESH_HOURS`, `DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS` | Agent CLI updates (defaults 6 and 48, each 0-720): how often the manager installs the latest npm-distributed agent CLIs into the shared read-only volume, and how long a version must have been published; the manager also checks the volume on every start. A refresh interval of 0 turns updates off and machines use their image's CLIs. See [Sudo in machines](#sudo-in-machines), "Agent CLI updates" |
 | `DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS` | How long a stopping machine manager lets operations other than agent runs and checks finish before stopping them (default 90 seconds, 0 stops immediately). Interrupted assistant commands are marked failed. Other operations are handed to the next manager. Agent runs and checks are not bounded by it: they keep running and the next manager re-adopts them. Keep it at least 60 seconds below the manager's Compose `stop_grace_period` (150s), so cleanups finish. See [machine manager restarts](BE/docs/agent-tasks.md#machine-manager-restarts) |
 | `DEV_MACHINE_SLICES`, `DEV_MACHINE_SWAP_PERCENT` | Shared machine resources (defaults `auto`, 50): with `auto`, new machines on hosts with Docker's systemd cgroup driver and cgroup v2 share their CPU and memory in one systemd slice, with a swap ceiling of the given percentage of the machine's memory (0-100); `off` keeps per-container shares. See [shared machine resources](#shared-machine-resources) |
 | `DEV_MACHINE_AGENT_GIT_NAME`, `DEV_MACHINE_AGENT_GIT_EMAIL` | Default commit author for agent task publications (default `Kuayle Agent <agent@kuayle.invalid>`). A workspace can override it with a username and verified email in its coding-agent policy (migration 70), so GitHub attributes agent commits to that account. Pull requests are opened by the GitHub App installation. Control characters and angle brackets are rejected |
 | `DEV_MACHINE_DOCKER_GID` | Numeric host group owner of the mounted Docker socket; obtain it on Linux with `stat -c '%g' /var/run/docker.sock` (Docker Desktop commonly uses `0`) |
-| `DEV_MACHINE_HEADLESS_IMAGE` | Headless developer and new built-in provider image (default `ghcr.io/kuayle/dev-machine-headless:0.1.0`) |
+| `DEV_MACHINE_HEADLESS_IMAGE` | The single machine image: developer terminal and every built-in agent, check, preview, tool and command container (default `ghcr.io/kuayle/dev-machine-headless:0.1.0`) |
 | `DEV_MACHINE_DOCKER_IMAGE` | Machine Docker daemon image (default `ghcr.io/kuayle/dev-machine-docker:0.1.0`), used when a workspace policy allows Docker |
 | `DEV_MACHINE_DOCKER_RUNTIME` | Optional OCI runtime for daemon containers, e.g. `sysbox-runc`; then no profile relaxations are applied |
 | `DEV_MACHINE_DOCKER_SECCOMP_PROFILE`, `DEV_MACHINE_DOCKER_APPARMOR_PROFILE` | Daemon container profiles without a runtime (default `unconfined`; `default` keeps Docker's, which breaks rootless Docker) |
-| `DEV_MACHINE_*_IMAGE` | Other pinned runtime image references; the IDE developer image contains all built-in CLIs and the existing provider-specific agent images remain separately pinned |
+| `DEV_MACHINE_EGRESS_IMAGE` | Egress proxy image, also used for the workspace volume initializer |
 
 Compose passes the same `DEV_MACHINES_ENABLED` value to the backend, gateway, and manager. The `dev-machines` profile's database-provisioning prerequisite exits before modifying grants or starting the control plane unless that value is exactly `true`; the gateway and manager also retain their own fail-closed startup checks.
 
@@ -1944,21 +1911,19 @@ Compose places the Internet-facing gateway only on an internal `machine-control`
 
 Valid-looking unknown wildcard hosts are bounded before they can exhaust the database: route lookups use a 60-per-second source limit, a 500-per-second process limit, and a 32-query concurrency cap; missing routes are cached for 30 seconds. Attacker-controlled source and negative-route state is capped, and unknown-route audits are limited to one per source per five minutes and ten total writes per minute. The manager deletes access logs older than 90 days in batches of 1,000. Malformed or out-of-domain hosts are rejected before any database operation.
 
-The self-hosting `dev-machine-images` profile builds the IDE, headless developer, browser, collector, egress, and built-in provider agent images locally. The headless image combines the ttyd developer terminal with the autonomous agent-run entrypoint, while the IDE image retains code-server and ttyd. Environment Builder snapshot bytes are additional local OCI images in the host Docker image store, while their references and lifecycle metadata are stored in `dev_machine_environments`; snapshots are not Compose volumes. Backups and host migrations must account for PostgreSQL, Docker named volumes, and any environment images that should survive a host replacement.
+The self-hosting `dev-machine-images` profile builds the machine image (`devmachine/headless`, about 7.5 GB uncompressed), the egress proxy and the Docker daemon image locally. The machine image combines the ttyd developer terminal with the autonomous agent-run entrypoint. The IDE (code-server), browser (KasmVNC and Chrome), collector and provider-specific agent images, and their `DEV_MACHINE_{IDE,BROWSER,COLLECTOR,CLAUDE,OPENCODE,CODEX}_IMAGE` and `DEV_MACHINE_INGEST_URL` settings, were removed; leftover values are ignored. Backups and host migrations must account for PostgreSQL and Docker named volumes.
 
 `selfhosting/update.sh` detects an active Dev Machines profile without enabling it on other deployments. When active, it rebuilds runtime images before stopping the old gateway and manager, applies migrations with the new backend image, and starts the updated application and control plane only after the schema is current. If migration, role provisioning, or a later update step fails after the stop, its EXIT trap removes the upgrade marker, preserves the original failure status and container logs, and uses `docker compose start` to revive the same previous control-plane containers rather than recreating them from new images.
 
 ## Security Limitations
 
 - Docker hardening is not hostile multi-tenant isolation.
-- Pinned Chrome Stable packages for amd64 and arm64 run through KasmVNC in a separately hardened non-root container. The browser's internal sandbox is disabled because Docker namespace restrictions conflict with its setup. The browser must not receive provider or GitHub secrets.
 - Domain egress controls cannot prevent exfiltration to an explicitly allowed destination.
 - A machine's own Docker daemon (opt-in, `allow_docker`) runs with relaxed seccomp/AppArmor, unmasked proc/sys and `SETUID`/`SETGID` unless `DEV_MACHINE_DOCKER_RUNTIME` selects Sysbox. Machine users control a rootless daemon in its own user namespace, so a kernel user-namespace or mount vulnerability is more exposed from that container than from the other, fully confined, machine containers. It is never privileged and reaches nothing beyond the machine network and the egress proxy.
-- With sudo allowed (opt-in, `allow_sudo`), machine users are root in their IDE and terminal containers, with Docker's default capabilities minus `NET_RAW`, a writable root filesystem and no `no-new-privileges`. It is never privileged or given `NET_ADMIN`/`SYS_ADMIN`, and egress still goes through the proxy, but root in a container exposes more kernel surface (and anything readable inside the container regardless of file ownership) than the confined default. Agent attempts never get sudo.
+- Agent-class containers (attempts, checks, previews, custom tools, approved commands and assistant processes) always run with sudo, and with sudo allowed (opt-in, `allow_sudo`) so does the developer terminal: Docker's default capabilities minus `NET_RAW`, a writable root filesystem and no `no-new-privileges`. They are never privileged or given `NET_ADMIN`/`SYS_ADMIN`, and egress still goes through the proxy, but root in a container exposes more kernel surface (and anything readable inside the container regardless of file ownership) than the confined default. A prompt-injected agent can therefore install tools and change its container's system files, including the Claude Code managed settings and hooks, for the rest of that run (see [Sudo in machines](#sudo-in-machines)).
 - Compose support for checks is a constrained subset run by the manager, not `docker compose`. Builds, mounts, privileges, host networking and published ports are rejected, because arbitrary untrusted Compose execution needs an isolated Docker daemon. Image pulls run on the host daemon, outside the egress proxy, so `DEV_MACHINE_COMPOSE_IMAGES` restricts them to official Docker Hub images by default.
 - The default model server's key is delivered into every developer container, and a run's server key into its agent container, so any member who can create a machine can read it from a terminal or have an agent reveal it. The API never returns it, but treat model server keys as shared with those members (SECURITY_AUDIT.md KS-08).
-- A task preview runs in its own container without the developer container's secrets, sign-ins or sudo, but, like every agent attempt and check, it shares the machine's workspace volume and private network. It can therefore change files a person later runs in the terminal, and reach the machine's other containers on that network, where code-server and the terminal listen without the gateway's authentication (SECURITY_AUDIT.md KS-17). A preview has the isolation of an agent attempt, not more. Review agent changes before running them yourself (SECURITY_AUDIT.md KS-24).
-- Command and filesystem collection is best-effort and can be bypassed by trusted workspace code.
+- A task preview runs in its own container without the developer container's secrets or sign-ins, but, like every agent attempt and check, it shares the machine's workspace volume and private network. It can therefore change files a person later runs in the terminal, and reach the machine's other containers on that network, where the terminal listens without the gateway's authentication (SECURITY_AUDIT.md KS-17). A preview has the isolation of an agent attempt, not more. Review agent changes before running them yourself (SECURITY_AUDIT.md KS-24).
 - Provider adapters can construct interactive invocations, but agent tasks queue autonomous agent runs and no interactive-agent attach endpoint is exposed. Direct interactive use of the built-in CLIs is available through Kuayle's native xterm terminal; ttyd's web page is not exposed.
 - Workspace hard quotas require Docker local-volume project-quota support; the manager intentionally fails startup rather than run machines with an unbounded workspace.
 - A separate registrable domain provides browser site isolation by default. Personal/trusted installations can explicitly opt into same-site machines with host-prefixed app cookies and exact-origin mutation/WebSocket checks. This reduces defense in depth and logs a startup warning. Localhost development remains exempt.
@@ -1986,16 +1951,6 @@ status, desired status and expiry with a two-second database deadline and bounde
 concurrency. This listener has no Docker or application credential access. It must
 not be published; Caddy uses it to restrict on-demand issuance. Public workload
 traffic remains on port 8090. See [personal instances](docs/self-hosting.md#personal-instances-same-site-machines-and-https-without-dns-api-credentials) for a stock-Caddy setup without DNS API keys.
-
-IDE dependency refreshes are pinned in `devmachine/ide/Dockerfile` and
-`devmachine/ide/patch-security.cjs`. The latter installs body-parser with its
-complete nested dependency tree and Zod 4.6.7, preserves v3 root entrypoints for
-v3 consumers, and backports the upstream early collection upper-bound rejection
-to the still-unpatched bundled v3 implementation (GHSA-mrhx-c7xc-m3w5; upstream
-commit a0ebf970f2d752e5f58527cd2942ff48be4f46bd). Both CommonJS and ESM are tested
-during the build, including async parsing and valid inputs; parser smoke tests
-cover normal, malformed, oversized and aborted requests. No scanner exclusion is
-used. Remove/review these overrides when vendor packages incorporate the fixes.
 
 Migration 49 preserves machine access audit rows when machines or workspaces are
 permanently deleted. BEFORE DELETE triggers detach dependent workspace/machine/
@@ -2346,8 +2301,8 @@ user owns. They run for up to 30 minutes in an isolated container and use
 the authenticated app-port gateway. `get_process`, `stop_process` and the
 approved chat card expose their status and controls. See
 [ad-hoc processes from chat](BE/docs/conversations.md#ad-hoc-processes-from-chat).
-Commands never install system packages (KUA-180); those come from the
-machine's Development Environment image, see
+Commands run with sudo in their own container, so a command can install the
+system packages it needs; they last only for that run, see
 [system packages](BE/docs/conversations.md#system-packages).
 Commands never commit, branch or push a task checkout either (KUA-183);
 changes to a task's branch go through `follow_up_task` and publication, see

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"net/url"
 	"testing"
 	"time"
@@ -78,26 +79,26 @@ func newPortService(t *testing.T) (*DevMachineService, *portStoreFake, uuid.UUID
 	t.Helper()
 	workspaceID, userID, machineID := uuid.New(), uuid.New(), uuid.New()
 	containerID := "developer"
-	ide := domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide", Status: "running", InternalPort: 8080, ContainerID: &containerID}
+	terminal := domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal", Status: "running", InternalPort: 7681, ContainerID: &containerID}
 	store := &portStoreFake{devMachineStoreFake: &devMachineStoreFake{
 		policy: testPolicy(workspaceID),
 		machine: &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, CreatedByUserID: &userID, RoutingKey: "0123456789abcdef0123",
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusRunning,
 			ListeningPorts: pq.Int64Array{5173, 9229}},
-		services: []domain.DevMachineService{ide},
+		services: []domain.DevMachineService{terminal},
 	}}
-	return newTestDevMachineService(store), store, workspaceID, userID, machineID, ide
+	return newTestDevMachineService(store), store, workspaceID, userID, machineID, terminal
 }
 
 // Only the machine's creator exposes ports; ports of the machine's own services
 // are refused, and each port is launched on its own host.
 func TestAppPortsAreOwnerOnlyAvoidServicePortsAndLaunchOnTheirOwnHost(t *testing.T) {
-	svc, store, workspaceID, userID, machineID, ide := newPortService(t)
+	svc, store, workspaceID, userID, machineID, terminal := newPortService(t)
 	ctx := context.Background()
 	label := "web"
 	_, err := svc.CreatePort(ctx, workspaceID, machineID, uuid.New(), 5173, &label)
 	require.ErrorIs(t, err, ErrMachineNotFound, "only the machine owner exposes its ports")
-	_, err = svc.CreatePort(ctx, workspaceID, machineID, userID, 8080, nil)
+	_, err = svc.CreatePort(ctx, workspaceID, machineID, userID, 7681, nil)
 	require.ErrorIs(t, err, ErrPortReserved)
 	for _, port := range []int{80, 70000} {
 		_, err = svc.CreatePort(ctx, workspaceID, machineID, userID, port, nil)
@@ -141,7 +142,7 @@ func TestAppPortsAreOwnerOnlyAvoidServicePortsAndLaunchOnTheirOwnHost(t *testing
 	require.Equal(t, "0123456789abcdef0123-5173.machines.example.test", parsed.Host)
 	require.NotEmpty(t, parsed.Query().Get("ticket"))
 	ticket := store.createdTicket
-	require.Equal(t, ide.ID, ticket.ServiceID, "the ticket names the developer service it is served by")
+	require.Equal(t, terminal.ID, ticket.ServiceID, "the ticket names the developer service it is served by")
 	require.Equal(t, parsed.Host, ticket.BoundHost, "and is bound to the port's host only")
 	require.Equal(t, userID, ticket.UserID)
 	_, err = svc.LaunchPort(ctx, workspaceID, machineID, created.ID, uuid.New())
@@ -162,4 +163,48 @@ func TestAppPortsAreNotLimitedInNumber(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.Len(t, store.ports, 50)
+}
+
+// Opening a port of a paused machine queues a resume and answers with the
+// pending contract instead of a ticket.
+func TestLaunchPortPausedMachineQueuesResumeAndReturnsPendingContract(t *testing.T) {
+	svc, store, workspaceID, userID, machineID, _ := newPortService(t)
+	created, err := svc.CreatePort(context.Background(), workspaceID, machineID, userID, 5173, nil)
+	require.NoError(t, err)
+	store.machine.Status, store.machine.DesiredStatus, store.machine.Generation = domain.DevMachineStatusPaused, domain.DevMachineStatusPaused, 7
+
+	launch, err := svc.LaunchPort(context.Background(), workspaceID, machineID, created.ID, userID)
+
+	require.NoError(t, err)
+	require.Equal(t, "resuming", launch.Status)
+	require.Empty(t, launch.LaunchURL)
+	require.NotNil(t, launch.Operation)
+	require.Equal(t, string(domain.DevMachineOpStart), launch.Operation.Action)
+	require.Equal(t, domain.DevMachineStatusRunning, store.queuedDesired)
+	require.Nil(t, store.createdTicket)
+}
+
+func TestLaunchPortDoesNotAutoResumeStoppedMachine(t *testing.T) {
+	svc, store, workspaceID, userID, machineID, _ := newPortService(t)
+	created, err := svc.CreatePort(context.Background(), workspaceID, machineID, userID, 5173, nil)
+	require.NoError(t, err)
+	store.machine.Status, store.machine.DesiredStatus = domain.DevMachineStatusStopped, domain.DevMachineStatusStopped
+
+	_, err = svc.LaunchPort(context.Background(), workspaceID, machineID, created.ID, userID)
+
+	require.ErrorIs(t, err, ErrInvalidOperation)
+	require.Nil(t, store.queuedOperation)
+	require.Nil(t, store.createdTicket)
+}
+
+func TestLaunchPortMapsAccessTicketNoRowsToServiceUnavailable(t *testing.T) {
+	svc, store, workspaceID, userID, machineID, _ := newPortService(t)
+	created, err := svc.CreatePort(context.Background(), workspaceID, machineID, userID, 5173, nil)
+	require.NoError(t, err)
+	store.createAccessTicketErr = sql.ErrNoRows
+
+	_, err = svc.LaunchPort(context.Background(), workspaceID, machineID, created.ID, userID)
+
+	require.ErrorIs(t, err, ErrServiceNotAvailable)
+	require.Nil(t, store.createdTicket)
 }

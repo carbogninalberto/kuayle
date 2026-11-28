@@ -12,12 +12,12 @@ const goImage = (id, name) => ({ id, name, context: './BE', dockerfile: `./BE/Do
 // `package` is the GHCR repository published on release: kuayle-<Compose service>,
 // which selfhosting/release_update.py pulls for an active Dev Machines profile.
 const devImages = [goImage('gateway', 'Gateway'), goImage('manager', 'Manager'),
-  ...['ide', 'headless', 'browser', 'collector', 'egress', 'docker'].map((id) => ({ id, name: id === 'ide' ? 'IDE' : id[0].toUpperCase() + id.slice(1), context: './devmachine', dockerfile: `./devmachine/${id}/Dockerfile`, build_args: '', package: `kuayle-dev-machine-${id}` })),
-  ...[['claude', 'Claude', 'claude-code'], ['opencode', 'OpenCode', 'opencode'], ['codex', 'Codex', 'codex']].map(([id, name, provider]) => ({ id: `agent-${id}`, name: `Agent ${name}`, context: './devmachine', dockerfile: './devmachine/agent/Dockerfile', build_args: `PROVIDER=${provider}`, package: `kuayle-dev-machine-agent-${id}` }))
+  ...['headless', 'egress', 'docker'].map((id) => ({ id, name: id[0].toUpperCase() + id.slice(1), context: './devmachine', dockerfile: `./devmachine/${id}/Dockerfile`, build_args: '', package: `kuayle-dev-machine-${id}` })),
 ];
 const updater = goImage('updater', 'Updater');
-const agents = ['agent-claude', 'agent-opencode', 'agent-codex'];
-const runtimeImages = ['ide', 'headless', 'browser', 'collector', 'egress', 'docker', ...agents];
+// The single machine image (headless) serves the developer terminal and every
+// agent run; egress and docker are the machine's other containers.
+const runtimeImages = ['headless', 'egress', 'docker'];
 
 // Files no job reads: prose, images for docs, and repository metadata. Markdown
 // under UI/, WEB/ and devmachine/ is content that ships, so it keeps its checks.
@@ -159,28 +159,12 @@ export function planForPaths(paths, event = 'pull_request', includeArm64 = false
       // Go tests inspect and execute the start, terminal and runner scripts here.
       flags.backend = true;
       flags.runtime = true;
-      if (path === 'devmachine/common/install-agent-clis.sh') add(dev, ['ide', 'headless']);
-      else if (['devmachine/common/install-docker-cli.sh', 'devmachine/common/build-docker-plugins.sh'].includes(path)) add(dev, ['ide', 'headless', ...agents]);
-      else if (path === 'devmachine/common/start-common.sh') add(dev, ['ide', 'headless', 'browser', 'collector', 'egress', ...agents]);
-      else if (path === 'devmachine/common/kuayle-service-entrypoint') add(dev, ['ide', 'headless', 'browser', 'collector', 'egress']);
-      else if (path === 'devmachine/common/kuayle-agent-runner') add(dev, ['headless', ...agents]);
-      else if (['devmachine/common/kuayle-live-inbox-hook.cjs', 'devmachine/common/claude-managed-settings.json'].includes(path)) add(dev, agents);
-      else if (['devmachine/common/patch-npm-security.cjs', 'devmachine/common/test-http-cache-semantics.cjs', 'devmachine/common/check-agent-cli-flags.sh', 'devmachine/common/kuayle-say.cjs'].includes(path)) add(dev, ['ide', 'headless', ...agents]);
-      else if (path.startsWith('devmachine/agent/')) add(dev, agents);
-      else if (path.startsWith('devmachine/headless/')) add(dev, ['headless']);
-      else if ([
-        'devmachine/ide/command-event.js',
-        'devmachine/ide/shell.sh',
-        'devmachine/ide/terminal-session.sh',
-        'devmachine/ide/tmux.conf',
-        'devmachine/common/kuayle-agent-sign-in.sh',
-        'devmachine/common/kuayle-claude-config.cjs',
-        'devmachine/common/kuayle-task-claude',
-      ].includes(path)) add(dev, ['ide', 'headless']);
+      if (['devmachine/common/start-common.sh', 'devmachine/common/kuayle-service-entrypoint'].includes(path)) add(dev, ['headless', 'egress']);
+      else if (path.startsWith('devmachine/common/') || path.startsWith('devmachine/headless/')) add(dev, ['headless']);
       else if (path.startsWith('devmachine/security/')) { /* host policy; exercised by runtime tests */ }
       else {
         const area = path.split('/')[1];
-        add(dev, ['ide', 'browser', 'collector', 'egress', 'docker'].includes(area) ? [area] : runtimeImages);
+        add(dev, ['egress', 'docker'].includes(area) ? [area] : runtimeImages);
       }
       continue;
     }

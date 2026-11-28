@@ -33,12 +33,12 @@ func TestUpdateResourcesAppliesEachContainerShareOfTheNewSize(t *testing.T) {
 		return container.Summary{ID: id, Labels: labels}
 	}
 	run := uuid.NewString()
-	foreign := owned("foreign", "ide")
-	foreign.Labels = map[string]string{"com.kuayle.managed": "true", "com.kuayle.machine-id": uuid.NewString(), "com.kuayle.service": "ide"}
-	otherWorkspace := owned("other-workspace", "ide")
+	foreign := owned("foreign", "terminal")
+	foreign.Labels = map[string]string{"com.kuayle.managed": "true", "com.kuayle.machine-id": uuid.NewString(), "com.kuayle.service": "terminal"}
+	otherWorkspace := owned("other-workspace", "terminal")
 	otherWorkspace.Labels["com.kuayle.workspace-id"] = uuid.NewString()
 	dockerClient := &resizeDockerClientFake{dockerClientFake: &dockerClientFake{containers: []container.Summary{
-		owned("ide", "ide"), owned("collector", "collector"), owned("egress", "egress"), owned("browser", "browser"),
+		owned("terminal", "terminal"), owned("egress", "egress"),
 		owned("agent", "agent", "com.kuayle.agent-run-id", run),
 		owned("validation", "agent", "com.kuayle.agent-run-id", run, "com.kuayle.validation-id", uuid.NewString()),
 		owned("db", "compose", "com.kuayle.agent-run-id", run), owned("cache", "compose", "com.kuayle.agent-run-id", run),
@@ -51,7 +51,7 @@ func TestUpdateResourcesAppliesEachContainerShareOfTheNewSize(t *testing.T) {
 	require.Contains(t, dockerClient.containerListOptions.Filters["label"], "com.kuayle.machine-id="+machine.ID.String())
 	require.True(t, dockerClient.containerListOptions.All, "stopped containers start with the new limits")
 	expected := map[string]container.Resources{}
-	for _, service := range []string{"ide", "collector", "egress", "browser", "agent"} {
+	for _, service := range []string{"terminal", "egress", "agent"} {
 		expected[service] = runtime.secureHostConfig(machine, service, "", "", true).Resources
 	}
 	expected["validation"] = expected["agent"]

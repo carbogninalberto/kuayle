@@ -27,15 +27,13 @@ func noopMiddleware() echo.MiddlewareFunc {
 func TestRoutePermissionAnnotations(t *testing.T) {
 	e := echo.New()
 	registerRoutes(e, matrixHandlers(), &appMiddleware{
-		auth:                   noopMiddleware(),
-		authRateLimit:          noopMiddleware(),
-		publicRateLimit:        noopMiddleware(),
-		publicAssetRateLimit:   noopMiddleware(),
-		workspaceMembership:    noopMiddleware(),
-		devMachineDemoGuard:    noopMiddleware(),
-		machineEventsRateLimit: noopMiddleware(),
-		machineLogsRateLimit:   noopMiddleware(),
-		mcpRateLimit:           noopMiddleware(),
+		auth:                 noopMiddleware(),
+		authRateLimit:        noopMiddleware(),
+		publicRateLimit:      noopMiddleware(),
+		publicAssetRateLimit: noopMiddleware(),
+		workspaceMembership:  noopMiddleware(),
+		devMachineDemoGuard:  noopMiddleware(),
+		mcpRateLimit:         noopMiddleware(),
 	})
 
 	count := 0
@@ -87,8 +85,7 @@ func testMiddleware(auth echo.MiddlewareFunc) *appMiddleware {
 	return &appMiddleware{
 		auth: auth, authRateLimit: noopMiddleware(), publicRateLimit: noopMiddleware(),
 		publicAssetRateLimit: noopMiddleware(), workspaceMembership: noopMiddleware(),
-		devMachineDemoGuard: noopMiddleware(), machineEventsRateLimit: noopMiddleware(),
-		machineLogsRateLimit: noopMiddleware(), mcpRateLimit: noopMiddleware(),
+		devMachineDemoGuard: noopMiddleware(), mcpRateLimit: noopMiddleware(),
 	}
 }
 
@@ -120,7 +117,7 @@ func TestRegisteredRoutesRejectPATOutsideBoundaries(t *testing.T) {
 		{"GET", "/api/notifications", []string{"notifications:read"}, true},
 		{"GET", "/api/preferences", []string{"account:read"}, true},
 		{"GET", "/api/workspaces/acme/shared-links", []string{"account:read"}, false},
-		{"POST", "/api/workspaces/acme/dev-machines/example/services/terminal/launch", []string{"dev_machine:read"}, false},
+		{"POST", "/api/workspaces/acme/dev-machines/example/ports/example/launch", []string{"dev_machine:manage"}, false},
 		{"POST", "/api/workspaces/acme/dev-machines/example/terminal-sessions", []string{"dev_machine:read"}, false},
 		{"POST", "/api/workspaces/acme/dev-machines/example/terminal-sessions/example/close", []string{"dev_machine:read"}, false},
 		{"POST", "/api/workspaces/acme/dev-machines/example/activity", []string{"dev_machine:read"}, false},

@@ -51,7 +51,7 @@ type taskExecutionRuntime interface {
 // taskRuntimeStore is the repository work of a task runtime beyond the machine
 // service: reservation, attempt history and the execution steps it queues.
 type taskRuntimeStore interface {
-	ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error)
+	ReserveMachine(context.Context, domain.AgentTask, uuid.UUID) (repository.MachineReservation, error)
 	PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error)
 	TaskMember(context.Context, domain.AgentTask) (*domain.TaskMember, error)
 	CancelAttempt(context.Context, domain.AgentTask) error
@@ -605,10 +605,10 @@ type taskProfileSource interface {
 
 // taskMachineRequest creates the machine of an agent task, named after its
 // reservation and sized by the workspace's task machine resources.
-func taskMachineRequest(task domain.AgentTask, profile string, resources domain.TaskMachineResources) dto.CreateDevMachineRequest {
+func taskMachineRequest(task domain.AgentTask, resources domain.TaskMachineResources) dto.CreateDevMachineRequest {
 	issueID := task.IssueID.String()
 	return dto.CreateDevMachineRequest{
-		Name: "task-" + task.ReservedMachineID.String(), IssueID: &issueID, Profile: profile,
+		Name: "task-" + task.ReservedMachineID.String(), IssueID: &issueID,
 		Size: "custom", CPUMillis: resources.CPUMillis, MemoryMB: resources.MemoryMB, DiskGB: resources.DiskGB,
 		Agents: []dto.DevMachineAgentInput{{Provider: task.Provider, Mode: "autonomous"}},
 	}
@@ -662,7 +662,7 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 	// destroyed or deleting machine is replaced by a new reservation, and a
 	// machine created for this task that never started makes way for a slot.
 	reserve := func() error {
-		reservation, err := r.tasks.ReserveMachine(ctx, *task, *setting.GitHubRepoID, setting.EnvironmentID)
+		reservation, err := r.tasks.ReserveMachine(ctx, *task, *setting.GitHubRepoID)
 		if reservation.ReservedID != uuid.Nil {
 			// The reservation describes the task's machine even when it waits
 			// for a free task slot.
@@ -703,15 +703,11 @@ func (r *devMachineTaskRuntime) Prepare(ctx context.Context, task *domain.AgentT
 		}
 		// Named after the reservation: a destroyed earlier machine of the same
 		// task keeps its name as history.
-		profile := domain.DevMachineProfileHeadless
-		if setting.EnvironmentID != nil {
-			profile = domain.DevMachineProfileStandard
-		}
 		policy, policyErr := s.enabledPolicy(ctx, task.WorkspaceID)
 		if policyErr != nil {
 			return false, policyErr
 		}
-		machine, _, err = s.create(ctx, task.WorkspaceID, task.CreatorID, taskMachineRequest(*task, profile, policy.TaskMachine()), task.ReservedMachineID, nil)
+		machine, _, err = s.create(ctx, task.WorkspaceID, task.CreatorID, taskMachineRequest(*task, policy.TaskMachine()), task.ReservedMachineID, nil)
 		if err != nil {
 			return false, err
 		}

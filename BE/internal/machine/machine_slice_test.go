@@ -116,7 +116,7 @@ func TestSharedMachineWorkloadsMayUseTheWholeMachine(t *testing.T) {
 	hostConfigs := map[string]*container.HostConfig{
 		"terminal": runtime.secureHostConfig(machine, "terminal", "", "", true), "agent": runtime.secureHostConfig(machine, "agent", "", "", true),
 		"docker": runtime.dockerHostConfig(machine, "", "", ""), "compose": runtime.composeHostConfig(machine, "", 2),
-		"collector": runtime.secureHostConfig(machine, "collector", "", "", true), "egress": runtime.secureHostConfig(machine, "egress", "", "", true),
+		"egress": runtime.secureHostConfig(machine, "egress", "", "", true),
 	}
 	for service, hostConfig := range hostConfigs {
 		share := hostConfig.Resources
@@ -124,7 +124,7 @@ func TestSharedMachineWorkloadsMayUseTheWholeMachine(t *testing.T) {
 		require.NoError(t, runtime.scopeMachineResources(context.Background(), machine, service, labels, hostConfig))
 		require.Equal(t, "kuayle-0123456789abcdef0123.slice", hostConfig.CgroupParent, service)
 		require.Equal(t, *share.PidsLimit, *hostConfig.Resources.PidsLimit, "processes keep the share")
-		if service == "collector" || service == "egress" {
+		if service == "egress" {
 			require.Equal(t, share.NanoCPUs, hostConfig.Resources.NanoCPUs, "infrastructure keeps its small limits inside the slice")
 			require.Equal(t, share.Memory, hostConfig.Resources.Memory, "infrastructure keeps its small limit inside the slice")
 			require.Equal(t, share.MemorySwap, hostConfig.Resources.MemorySwap, service)
@@ -159,7 +159,7 @@ func TestSharedMachineResizeLimitsTheSliceFirst(t *testing.T) {
 	}
 	slices := &machineSlicesFake{}
 	dockerClient := &sliceDockerClientFake{dockerClientFake: &dockerClientFake{containers: []container.Summary{
-		owned("terminal", "terminal", true), owned("docker", "docker", true), owned("collector", "collector", false),
+		owned("terminal", "terminal", true), owned("docker", "docker", true), owned("egress", "egress", false),
 	}}, updates: map[string]container.Resources{}}
 	runtime := &DockerRuntime{client: dockerClient, slices: slices}
 	machine.MemoryMB, machine.CPUMillis = 32768, 8000
@@ -170,8 +170,8 @@ func TestSharedMachineResizeLimitsTheSliceFirst(t *testing.T) {
 	require.Equal(t, int64(-1), dockerClient.updates["docker"].MemorySwap)
 	require.Equal(t, int64(8_000_000_000), dockerClient.updates["docker"].NanoCPUs)
 	require.Equal(t, int64(8_000_000_000), dockerClient.updates["terminal"].NanoCPUs)
-	require.Equal(t, int64(32768)*1024*1024*5/100, dockerClient.updates["collector"].Memory)
-	require.Equal(t, int64(8000)*1_000_000*5/100, dockerClient.updates["collector"].NanoCPUs)
+	require.Equal(t, int64(32768)*1024*1024*5/100, dockerClient.updates["egress"].Memory)
+	require.Equal(t, int64(8000)*1_000_000*5/100, dockerClient.updates["egress"].NanoCPUs)
 
 	runtime.slices = nil
 	dockerClient.updates = map[string]container.Resources{}

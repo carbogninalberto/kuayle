@@ -30,7 +30,7 @@ which links back to the issue; no chat is embedded in the issue page. Each creat
 Conversations are never shared: [projects](#projects) and private folders only
 tag and filter the creator's own list.
 
-The native terminal, IDE, issue workflows and existing AI description expansion
+The native terminal, issue workflows and existing AI description expansion
 remain separate and retain their existing behavior. There is no new container
 or orchestration service.
 
@@ -1294,7 +1294,7 @@ decided not to cover it from chat, so it is not an open gap.
 | Write scratch files or generate an artifact | `run_command_write`: only the conversation's folder is writable, the rest of `/workspace` stays read-only | covered (KUA-153) |
 | Run tests ad hoc outside a task checkout | `run_command` on the user's machine with an approved `timeout_seconds` of up to 600 (60 by default) | covered (KUA-179) |
 | Install a language package | `run_command_write` in the conversation folder: `pip install --target ./pkgs` then `PYTHONPATH=./pkgs`, a venv (`python3 -m venv .venv`), or `npm install`; not `pip install --user`, since `$HOME` is a tmpfs lost after each run | covered (KUA-153) |
-| Install a system package (`apt-get install`) | The machine's image: packages added in an Environment Builder and saved as a Development Environment, then `run_command`/`run_command_write` with that machine's `machine_id`; static binaries can be downloaded into the conversation folder. No install from chat ([system packages](#system-packages)) | by design (KUA-180) |
+| Install a system package (`apt-get install`) | `sudo apt-get install …` inside the approved `run_command`/`run_command_write`, for that run only; static binaries can be downloaded into the conversation folder ([system packages](#system-packages)) | covered, per run (KUA-180) |
 | Run a database migration against a real database | `run_migration` (see [database migrations from chat](#database-migrations-from-chat)) | covered (KUA-181) |
 | Read a machine's container or agent logs, `docker ps` | `get_machine_logs` ([machine logs](#machine-logs-from-chat)) | covered (KUA-182) |
 | Publish work on a task checkout | `follow_up_task` for a new iteration, or `publish_task_changes` for a stopped task with unpublished changes. Both use [task publication](agent-tasks.md#publication). | approval required |
@@ -1343,7 +1343,7 @@ so, and the `start_temporary_machine` description repeats it.
 - `start_temporary_machine` (approval tool). It first looks for a machine to
   reuse, and then nothing starts and no card is shown: this conversation's
   live temporary machine, else the user's own running, non-temporary machine
-  (not an environment builder, not being deleted; machines of no issue first,
+  (not being deleted; machines of no issue first,
   then the most recently active), else the user's live temporary machine from
   another conversation. The result names the machine, its size,
   `reused` and the conversation folder
@@ -1393,8 +1393,9 @@ after the card was shown gets no machine; and the manager re-checks them on ever
 (`commandRunTransaction`).
 
 Execution reuses the custom tool sandbox. A fresh check container runs on the
-machine: developer image, the machine's workspace volume, egress only through
-the machine's proxy, all capabilities dropped, a read-only root, and no
+machine: the machine image, the machine's workspace volume, egress only through
+the machine's proxy, the agent-class [sudo relaxation](../../TECHNICAL.md#sudo-in-machines)
+(the `/workspace` mounts stay read-only as described below), and no
 credentials or environment variables of the machine. Its argv is fixed:
 `sh -c <bootstrap> kuayle-cmd <approved-seconds>`. The command reaches it only as
 `KUAYLE_COMMAND`, and the bootstrap runs it under `timeout -s KILL`. `/workspace`
@@ -1422,8 +1423,8 @@ machine.
 
 A temporary machine has no repository (the workspace's default repository and
 environment are ignored), no agents, no environment variables, no Docker
-daemon and no sudo, whatever the workspace policy allows; it cannot install
-system packages ([system packages](#system-packages)). Kuayle therefore
+daemon and no terminal sudo, whatever the workspace policy allows; its command
+runs still get the agent-class sudo ([system packages](#system-packages)). Kuayle therefore
 never mints a credential for it. It is never chosen for an agent task.
 `dev_machines.temporary_expires_at` is fixed at 30 minutes from creation and
 never extended. `Manager.reconcile` asks for the permanent deletion of every
@@ -1491,52 +1492,26 @@ environment byte for byte.
 
 #### System packages
 
-The command tools never install system packages, and there is no
-approval-gated or allowlisted `apt` for `run_command` or `run_command_write`
-(KUA-180). System packages come from the machine's image instead.
+Command runs are agent-class containers, so they get the
+[sudo relaxation](../../TECHNICAL.md#sudo-in-machines) on every machine,
+temporary ones included: an approved `run_command` or `run_command_write` may
+run `sudo apt-get install …` (through the machine's egress proxy) before the
+command that needs the package. There is no separate allowlisted or
+approval-gated `apt` tool (KUA-180); the install is part of the approved
+command text, and its maintainer scripts run as root in that container.
 
-Why this stays closed:
+Every run is a fresh container that is removed afterwards, so a system package
+lasts only for that run: install it in the same command that uses it.
+Packages installed with sudo in a machine's terminal stay in that terminal
+container and do not reach command runs either. Development Environments and
+Environment Builders, which used to bake packages into a machine image, were
+removed.
 
-- The command container is always locked down, whatever the machine's sudo
-  policy: a read-only root filesystem, all capabilities dropped,
-  `no-new-privileges`, and `User: "1000:1000"`. `secureHostConfig` relaxes only
-  `ide` and `terminal` containers on sudo machines, never command runs. `apt`
-  needs root, a writable `/usr` and `/var`, and several capabilities that are
-  dropped here.
-- Every run is a fresh container that is removed afterwards, so an install
-  into its root filesystem would not persist. Keeping it would mean committing
-  images or writing outside the conversation folder, which would undo the
-  write confinement of KUA-153.
-- Package maintainer scripts run as root, driven by commands the model
-  proposes. This is the same reasoning as agent attempts staying locked
-  ([sudo in machines](../../TECHNICAL.md#sudo-in-machines)): an approval card
-  and an allowlist do not change what root can do once those scripts run.
-- Temporary machines have no environment and expire after 30 minutes.
-
-To get system packages:
-
-1. An owner or admin starts an Environment Builder, installs the packages
-   there (`sudo apt-get install …` works because its root filesystem is
-   writable), stops or pauses it, and saves it as a
-   [Development Environment](../../TECHNICAL.md#scoped-settings-worktrees-and-environments).
-2. Create a machine with that environment, or use one that already has it.
-3. Give that machine's `machine_id` to `run_command` or `run_command_write`.
-   Commands then run in the environment's image, so the packages are there.
-
-This works only on the user's own machines, not on temporary ones.
-
-What does not work:
-
-- `sudo apt-get install` in a sudo machine's terminal or IDE does not reach
-  commands. Each command starts a new container from the machine's image; the
-  install changes only that terminal or IDE container until it is recreated.
-- A temporary machine always runs the stock developer image, with no
-  environment and no packages added to it.
-
-Non-root options for a one-off command:
+Other options for a one-off command:
 
 - A language package in the conversation folder (see the
-  [terminal capability matrix](#terminal-capability-matrix)).
+  [terminal capability matrix](#terminal-capability-matrix)), which persists
+  on the workspace volume.
 - A static or prebuilt binary fetched with `curl` through the machine's egress
   proxy into the conversation folder, then run from there as `./bin/tool` with
   `run_command_write`.
@@ -1558,8 +1533,8 @@ Why this stays closed:
   model wrote, so a repository-scoped token in that container would hand
   the model's shell a live write credential for the repository, for any
   command it proposes. An approval card does not change what that shell
-  can do once it runs — the same reasoning that keeps agent attempts
-  locked ([sudo in machines](../../TECHNICAL.md#sudo-in-machines)).
+  can do once it runs, and the container is root-capable through `sudo`
+  ([sudo in machines](../../TECHNICAL.md#sudo-in-machines)).
 - Command runs cannot write a task checkout anyway: `/workspace` is always
   mounted read-only and a write run gets only the conversation folder, where
   `git init` may commit to itself but never to the task worktree's `.git`

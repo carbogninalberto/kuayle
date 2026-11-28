@@ -119,8 +119,8 @@ func TestKuayleSayRefusesWhatKuayleWouldRefuseAndWritesNothing(t *testing.T) {
 	}
 }
 
-func TestTheAgentImagesInstallKuayleSay(t *testing.T) {
-	for _, image := range []string{"agent", "ide", "headless"} {
+func TestTheMachineImageInstallsKuayleSay(t *testing.T) {
+	for _, image := range []string{"headless"} {
 		dockerfile, err := os.ReadFile(filepath.Join(repoRootFromCaller(t), "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
 		require.Contains(t, string(dockerfile), "COPY --chmod=0755 common/kuayle-say.cjs /usr/local/bin/kuayle-say", image)

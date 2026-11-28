@@ -123,7 +123,7 @@ async function mockWorkspace(page: Page, options: { undoStatus?: number } = {}) 
 		}
 		if (path.endsWith('/github/status')) return route.fulfill({ json: { configured: false, repos: [] } });
 		if (path.endsWith('/dev-machine-scope-setting')) return route.fulfill({ json: {} });
-		if (['labels', 'members', 'views', 'projects', 'dev-machine-environments', 'issue-templates', 'templates'].some((p) => path.endsWith('/' + p)))
+		if (['labels', 'members', 'views', 'projects', 'issue-templates', 'templates'].some((p) => path.endsWith('/' + p)))
 			return route.fulfill({ json: [] });
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${path}` } } });
 	});

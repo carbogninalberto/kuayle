@@ -6,7 +6,7 @@ description: >-
 
 inputs:
   id:
-    description: Planner image id (for example ide or agent-claude)
+    description: Planner image id (for example headless or egress)
     required: true
   context:
     description: Docker build context
@@ -53,11 +53,6 @@ runs:
         tags: kuayle-dev-machine-${{ inputs.id }}:${{ inputs.architecture }}-ci
         cache-from: type=gha,scope=dev-machine-${{ inputs.id }}-${{ inputs.architecture }}
         cache-to: type=gha,mode=min,scope=dev-machine-${{ inputs.id }}-${{ inputs.architecture }}
-
-    - name: Smoke test native IDE runtime
-      if: inputs.id == 'ide'
-      shell: bash
-      run: ./devmachine/ide/smoke-test.sh kuayle-dev-machine-ide:${{ inputs.architecture }}-ci
 
     - name: Smoke test native headless runtime
       if: inputs.id == 'headless'

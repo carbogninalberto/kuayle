@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,7 +84,6 @@ type DockerConfig struct {
 	SeccompProfile         string
 	AppArmorProfile        string
 	PullImages             bool
-	IngestURL              string
 	EgressAllowlist        string
 	EgressDenylist         string
 	DiskQuotaMode          string
@@ -151,27 +151,29 @@ func (r *DockerRuntime) HostDiskUsage(ctx context.Context) (HostDiskUsage, error
 	if r.config.HostDiskPath != "" {
 		return r.hostDiskUsageFromPath()
 	}
+	// Without a mount of the Docker data root, any running developer
+	// container measures it: its workspace volume lives there.
 	filters := client.Filters{}.
 		Add("label", "com.kuayle.managed=true").
-		Add("label", "com.kuayle.service=collector")
+		Add("label", "com.kuayle.service=terminal")
 	containers, err := r.client.ContainerList(ctx, client.ContainerListOptions{Filters: filters})
 	if err != nil {
-		return HostDiskUsage{}, fmt.Errorf("list collector containers: %w", err)
+		return HostDiskUsage{}, fmt.Errorf("list developer containers: %w", err)
 	}
-	var collectorID string
+	var developerID string
 	for _, candidate := range containers.Items {
 		if candidate.State != container.StateRunning ||
 			candidate.Labels["com.kuayle.managed"] != "true" ||
-			candidate.Labels["com.kuayle.service"] != "collector" {
+			candidate.Labels["com.kuayle.service"] != "terminal" {
 			continue
 		}
-		collectorID = candidate.ID
+		developerID = candidate.ID
 		break
 	}
-	if collectorID == "" {
+	if developerID == "" {
 		return HostDiskUsage{}, ErrHostDiskUnknown
 	}
-	output, err := r.execOutput(ctx, collectorID, []string{"df", "-B1", "-P", "/workspace"})
+	output, err := r.execOutput(ctx, developerID, []string{"df", "-B1", "-P", "/workspace"})
 	if err != nil {
 		return HostDiskUsage{}, fmt.Errorf("read host disk usage: %w", err)
 	}
@@ -325,9 +327,11 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 			return "", "", nil, fmt.Errorf("create docker volume: %w", err)
 		}
 	}
+	// The small egress image changes the volume's owner before anything else
+	// mounts it.
 	var initImage string
 	for _, service := range services {
-		if service.ServiceType == "collector" {
+		if service.ServiceType == "egress" {
 			initImage = service.ImageRef
 			break
 		}
@@ -343,13 +347,11 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 	} else if connected {
 		createdMachineNetworkConnections["gateway"] = r.config.GatewayContainerName
 	}
+	if err := r.removeRetiredServiceContainers(ctx, machine); err != nil {
+		return "", "", nil, fmt.Errorf("remove retired services: %w", err)
+	}
 
-	terminalServices := make([]domain.DevMachineService, 0)
 	for _, service := range services {
-		if service.ServiceType == "terminal" && terminalUsesSharedIDEContainer(service, services) {
-			terminalServices = append(terminalServices, service)
-			continue
-		}
 		containerID, containerCreated, networkAttached, err := r.ensureService(ctx, machine, service, networkName, volumeName, secrets[service.ServiceKey], docker)
 		if networkAttached {
 			createdMachineNetworkConnections[service.ServiceKey] = containerID
@@ -366,30 +368,8 @@ func (r *DockerRuntime) Spawn(ctx context.Context, machine *domain.DevMachine, s
 			}
 		}
 	}
-	for _, service := range terminalServices {
-		containerID := containers["ide"]
-		if containerID == "" {
-			containerID = containers["terminal"]
-		}
-		if containerID == "" {
-			return "", "", nil, fmt.Errorf("start terminal: developer container is unavailable")
-		}
-		recordSpawnServiceContainer(containers, createdContainers, service.ServiceKey, containerID, false)
-	}
 	completed = true
 	return networkName, volumeName, containers, nil
-}
-
-func terminalUsesSharedIDEContainer(service domain.DevMachineService, services []domain.DevMachineService) bool {
-	if service.ServiceType != "terminal" {
-		return false
-	}
-	for _, candidate := range services {
-		if candidate.ServiceType == "ide" {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *DockerRuntime) connectNetwork(ctx context.Context, networkName, containerID string, endpoint *network.EndpointSettings) (bool, error) {
@@ -540,10 +520,7 @@ func plannedStartServices(machineStatus domain.DevMachineStatus, services []doma
 			continue
 		}
 		containerID := *service.ContainerID
-		if index, ok := indexByContainer[containerID]; ok {
-			if preferStartService(service, planned[index]) {
-				planned[index] = service
-			}
+		if _, ok := indexByContainer[containerID]; ok {
 			continue
 		}
 		indexByContainer[containerID] = len(planned)
@@ -557,13 +534,6 @@ func startIncludesService(machineStatus domain.DevMachineStatus, service domain.
 		return true
 	}
 	return machineStatus == domain.DevMachineStatusPaused && (service.Status == "running" || service.Status == "paused")
-}
-
-func preferStartService(candidate, current domain.DevMachineService) bool {
-	// The terminal endpoint shares the IDE container. Restart the shared
-	// developer container once and install the IDE secret set that its
-	// entrypoint was configured to consume.
-	return current.ServiceType == "terminal" && candidate.ServiceType == "ide"
 }
 
 func serviceStartAction(machineStatus domain.DevMachineStatus, running, paused bool) containerStartAction {
@@ -793,7 +763,7 @@ func (r *DockerRuntime) RunAgent(ctx context.Context, machine *domain.DevMachine
 	}
 	runtimeEnvironment := []string{
 		"HOME=/home/kuayle",
-		"KUAYLE_COLLECTOR_URL=http://" + machine.RoutingKey + "-collector:8091", "KUAYLE_SECRET_NAMES=" + strings.Join(secretNames, ","),
+		"KUAYLE_SECRET_NAMES=" + strings.Join(secretNames, ","),
 		"KUAYLE_AGENT_RUN_ID=" + run.ID.String(),
 	}
 	runtimeEnvironment = append(runtimeEnvironment, agentProxyEnvironment(machine)...)
@@ -1289,7 +1259,6 @@ func (r *DockerRuntime) CancelAgent(ctx context.Context, run *domain.DevMachineA
 // and custom tools that run beside them.
 func (r *DockerRuntime) Stats(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService) (ResourceUsage, error) {
 	var usage ResourceUsage
-	var collectorID string
 	containerIDs := make([]string, 0, len(services))
 	seen := make(map[string]bool, len(services))
 	for _, service := range services {
@@ -1298,9 +1267,6 @@ func (r *DockerRuntime) Stats(ctx context.Context, machine *domain.DevMachine, s
 		}
 		seen[*service.ContainerID] = true
 		containerIDs = append(containerIDs, *service.ContainerID)
-		if service.ServiceType == "collector" {
-			collectorID = *service.ContainerID
-		}
 	}
 	if machine != nil {
 		running, err := r.client.ContainerList(ctx, client.ContainerListOptions{Filters: make(client.Filters).
@@ -1344,8 +1310,8 @@ func (r *DockerRuntime) Stats(ctx context.Context, machine *domain.DevMachine, s
 			usage.NetworkTxBytes += int64(networkStats.TxBytes)
 		}
 	}
-	if collectorID != "" {
-		if disk, err := r.workspaceSize(ctx, collectorID); err == nil {
+	if developerID := developerContainerID(services); developerID != "" {
+		if disk, err := r.workspaceSize(ctx, developerID); err == nil {
 			usage.DiskBytes = disk
 		}
 	}
@@ -1464,98 +1430,7 @@ func (r *DockerRuntime) TerminateTerminal(ctx context.Context, machine *domain.D
 	return nil
 }
 
-func (r *DockerRuntime) SnapshotEnvironment(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, environment *domain.DevMachineEnvironment) (string, error) {
-	developerContainer := developerContainerID(services)
-	if developerContainer == "" {
-		return "", fmt.Errorf("developer container is unavailable")
-	}
-	inspection, err := r.client.ContainerInspect(ctx, developerContainer, client.ContainerInspectOptions{})
-	if err != nil {
-		return "", err
-	}
-	wasPaused, wasRunning := inspection.Container.State.Paused, inspection.Container.State.Running
-	if wasPaused {
-		if _, err := r.client.ContainerUnpause(ctx, developerContainer, client.ContainerUnpauseOptions{}); err != nil {
-			return "", err
-		}
-	} else if !wasRunning {
-		if _, err := r.client.ContainerStart(ctx, developerContainer, client.ContainerStartOptions{}); err != nil {
-			return "", err
-		}
-	}
-	restoreState := func() {
-		if wasPaused {
-			_, _ = r.client.ContainerPause(context.Background(), developerContainer, client.ContainerPauseOptions{})
-		} else if !wasRunning {
-			timeout := 10
-			_, _ = r.client.ContainerStop(context.Background(), developerContainer, client.ContainerStopOptions{Timeout: &timeout})
-		}
-	}
-	defer restoreState()
-	_, err = r.execOutputAs(ctx, developerContainer, []string{"/bin/sh", "-c", `set -eu
-rm -rf /opt/kuayle-home-template
-mkdir -p /opt/kuayle-home-template/.config /opt/kuayle-home-template/.local/share/code-server
-for file in .bashrc .profile; do [ ! -f "/home/kuayle/$file" ] || cp -a "/home/kuayle/$file" "/opt/kuayle-home-template/$file"; done
-[ ! -d /home/kuayle/.config/code-server ] || cp -a /home/kuayle/.config/code-server /opt/kuayle-home-template/.config/
-[ ! -d /home/kuayle/.local/share/code-server/extensions ] || cp -a /home/kuayle/.local/share/code-server/extensions /opt/kuayle-home-template/.local/share/code-server/
-find /opt/kuayle-home-template -type f \( -name '*history*' -o -name '*token*' -o -name '*credential*' \) -delete
-chown -R 1000:1000 /opt/kuayle-home-template`}, "0:0")
-	if err != nil {
-		return "", fmt.Errorf("prepare environment home template: %w", err)
-	}
-	restoreState()
-	response, err := r.client.ContainerCommit(ctx, developerContainer, client.ContainerCommitOptions{
-		Reference: environment.ImageRef, Comment: "Kuayle Development Environment " + environment.Name,
-		Author: "Kuayle", NoPause: true,
-		Changes: []string{
-			"LABEL com.kuayle.managed=true",
-			"LABEL com.kuayle.kind=dev-machine-environment",
-			"LABEL com.kuayle.environment-id=" + environment.ID.String(),
-			"LABEL com.kuayle.workspace-id=" + environment.WorkspaceID.String(),
-			"LABEL com.kuayle.source-machine-id=" + machine.ID.String(),
-			"LABEL com.kuayle.machine-id=",
-			"LABEL com.kuayle.routing-key=",
-			"LABEL com.kuayle.service=",
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	return response.ID, nil
-}
-
-func (r *DockerRuntime) DeleteEnvironmentImage(ctx context.Context, environment *domain.DevMachineEnvironment) error {
-	reference := environmentImageCleanupReference(environment)
-	if reference == "" {
-		return nil
-	}
-	inspection, err := r.client.ImageInspect(ctx, reference)
-	if errdefs.IsNotFound(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	labels := map[string]string{}
-	if inspection.Config != nil && inspection.Config.Labels != nil {
-		labels = inspection.Config.Labels
-	}
-	if err := validateEnvironmentImageLabels(labels, environment.WorkspaceID, environment.ID); err != nil {
-		return fmt.Errorf("environment image %s is not owned by Kuayle: %w", reference, err)
-	}
-	_, err = r.client.ImageRemove(ctx, reference, client.ImageRemoveOptions{Force: true, PruneChildren: true})
-	if errdefs.IsNotFound(err) {
-		return nil
-	}
-	return err
-}
-
 func developerContainerID(services []domain.DevMachineService) string {
-	for _, service := range services {
-		if service.ServiceType == "ide" && service.ContainerID != nil {
-			return *service.ContainerID
-		}
-	}
 	for _, service := range services {
 		if service.ServiceType == "terminal" && service.ContainerID != nil {
 			return *service.ContainerID
@@ -1575,7 +1450,56 @@ func dockerContainerID(services []domain.DevMachineService) string {
 }
 
 func isDeveloperService(serviceType string) bool {
-	return serviceType == "ide" || serviceType == "terminal"
+	return serviceType == "terminal"
+}
+
+// retiredServiceTypes are the machine services earlier releases ran and this
+// one does not: the code-server IDE, the browser and the activity collector.
+// An upgrade deletes their service records; their containers are removed the
+// next time the machine is provisioned.
+var retiredServiceTypes = []string{"ide", "browser", "collector"}
+
+// removeRetiredServiceContainers removes the machine's containers of retired
+// services. The workspace volume they shared stays.
+func (r *DockerRuntime) removeRetiredServiceContainers(ctx context.Context, machine *domain.DevMachine) error {
+	containers, err := r.client.ContainerList(ctx, client.ContainerListOptions{
+		All:     true,
+		Filters: make(client.Filters).Add("label", "com.kuayle.machine-id="+machine.ID.String()),
+	})
+	if err != nil {
+		return err
+	}
+	for _, item := range containers.Items {
+		if !ownedByMachine(item.Labels, machine.ID) || !slices.Contains(retiredServiceTypes, item.Labels["com.kuayle.service"]) {
+			continue
+		}
+		if _, err := r.client.ContainerRemove(ctx, item.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil && !errdefs.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// RemoveEnvironmentImages removes the Development Environment snapshots earlier
+// releases committed on this host; machines no longer use them. An image a
+// container still uses is left for a later start.
+func (r *DockerRuntime) RemoveEnvironmentImages(ctx context.Context) (int, error) {
+	images, err := r.client.ImageList(ctx, client.ImageListOptions{
+		Filters: make(client.Filters).Add("label", "com.kuayle.kind=dev-machine-environment"),
+	})
+	if err != nil {
+		return 0, err
+	}
+	removed := 0
+	for _, image := range images.Items {
+		if image.Labels["com.kuayle.managed"] != "true" || image.Labels["com.kuayle.kind"] != "dev-machine-environment" {
+			continue
+		}
+		if _, err := r.client.ImageRemove(ctx, image.ID, client.ImageRemoveOptions{PruneChildren: true}); err == nil {
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 func uniqueContainerIDs(services []domain.DevMachineService) []string {
@@ -1629,14 +1553,8 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 		}
 		return containerID, true, false, nil
 	}
-	if isDeveloperService(service.ServiceType) && machine.EnvironmentID != nil {
-		if err := r.ensureEnvironmentImage(ctx, service.ImageRef, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
-			return "", false, false, err
-		}
-	} else {
-		if err := r.ensureImage(ctx, service.ImageRef); err != nil {
-			return "", false, false, err
-		}
+	if err := r.ensureImage(ctx, service.ImageRef); err != nil {
+		return "", false, false, err
 	}
 	command, imageEnvironment, err := r.imageConfig(ctx, service.ImageRef)
 	if err != nil {
@@ -1655,19 +1573,12 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 	environment = append(environment, "KUAYLE_SECRET_NAMES="+strings.Join(secretNames, ","))
 	if service.ServiceType != "egress" {
 		environment = append(environment, proxyEnvironment(machine, docker && isDeveloperService(service.ServiceType))...)
-		environment = append(environment, "KUAYLE_COLLECTOR_URL=http://"+machine.RoutingKey+"-collector:8091")
 	}
 	if isDeveloperService(service.ServiceType) {
 		environment = append(environment, "KUAYLE_REPO_URL="+machine.RepoURL, "KUAYLE_BASE_BRANCH="+machine.BaseBranch, "KUAYLE_WORKING_BRANCH="+machine.WorkingBranch)
 		environment = append(environment, "SHELL=/usr/local/bin/kuayle-shell")
 		if docker {
 			environment = append(environment, dockerClientEnvironment(machine)...)
-		}
-	}
-	if service.ServiceType == "collector" {
-		environment = append(environment, "KUAYLE_INGEST_URL="+r.config.IngestURL)
-		if _, browserEnabled := secrets["KUAYLE_BROWSER_CDP_TOKEN"]; browserEnabled {
-			environment = append(environment, "KUAYLE_BROWSER_CDP_URL=http://"+machine.RoutingKey+"-browser:9222")
 		}
 	}
 	if service.ServiceType == "egress" {
@@ -1677,12 +1588,8 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 		Image: service.ImageRef, User: "1000:1000", WorkingDir: "/workspace", Env: append(imageEnvironment, environment...), Labels: labels,
 		Entrypoint: []string{"/usr/local/bin/kuayle-service-entrypoint"}, Cmd: command,
 	}
-	if service.ServiceType == "ide" {
-		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "test", "-f", "/workspace/.kuayle-ready"}, Interval: time.Second, Timeout: time.Second, Retries: 300}
-	} else if service.ServiceType == "terminal" && machine.Profile == domain.DevMachineProfileHeadless {
+	if service.ServiceType == "terminal" {
 		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "curl", "-fsS", "http://127.0.0.1:7681/"}, Interval: 10 * time.Second, Timeout: 2 * time.Second, StartPeriod: 10 * time.Second, Retries: 12}
-	} else if service.ServiceType == "browser" {
-		containerConfig.Healthcheck = &container.HealthConfig{Test: []string{"CMD", "/usr/local/bin/kuayle-browser-healthcheck"}, Interval: 10 * time.Second, Timeout: 2 * time.Second, StartPeriod: 10 * time.Second, Retries: 6}
 	}
 	hostConfig := r.secureHostConfig(machine, service.ServiceType, networkName, volumeName, docker)
 	if err := r.scopeMachineResources(ctx, machine, service.ServiceType, labels, hostConfig); err != nil {
@@ -1723,25 +1630,20 @@ func (r *DockerRuntime) ensureService(ctx context.Context, machine *domain.DevMa
 // limits a container of serviceType gets; docker reports whether the machine
 // runs a Docker daemon, which takes dockerShare itself.
 //
-// Standard machines: IDE (with the terminal) 25, browser 25, agent 35,
-// collector and egress 5 each. Headless machines (agent task machines among
-// them) have no IDE or browser, so the agent gets half of the machine: agent
-// 50 and terminal 40. With a daemon (40%) the agent and terminal get 35% each:
-// the shares are ceilings, not reservations, and the terminal is where people
-// run CLIs by hand, so it is not squeezed below the agent.
-func containerSharePercent(machine *domain.DevMachine, serviceType string, docker bool) int64 {
-	headless := machine.Profile == domain.DevMachineProfileHeadless
+// Every machine runs the terminal (the developer container), the egress
+// proxy and, when enabled, a Docker daemon beside its agent containers: agent
+// 50, terminal 40 and egress 5. With a daemon (40%) the agent and terminal get
+// 35% each: the shares are ceilings, not reservations, and the terminal is
+// where people run CLIs by hand, so it is not squeezed below the agent.
+func containerSharePercent(_ *domain.DevMachine, serviceType string, docker bool) int64 {
 	switch serviceType {
-	case "ide", "browser":
-		return 25
 	case "terminal":
-		// Only headless machines run a standalone terminal container.
-		if headless && docker {
+		if docker {
 			return 35
 		}
 		return 40
 	case "agent":
-		if headless && !docker {
+		if !docker {
 			return 50
 		}
 		return 35
@@ -1833,10 +1735,8 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 	pids := int64(machine.PidsLimit) * fraction / 100
 	if serviceType == "agent" {
 		pids = min(int64(machine.PidsLimit), max(pids, agentMinimumPids))
-	} else if serviceType == "ide" || serviceType == "terminal" {
+	} else if serviceType == "terminal" {
 		pids = max(pids, buildMinimumPids)
-	} else if serviceType == "browser" && pids < 256 {
-		pids = 256
 	} else if pids < 32 {
 		pids = 32
 	}
@@ -1847,17 +1747,16 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 	if r.config.AppArmorProfile != "" && r.config.AppArmorProfile != "default" {
 		securityOptions = append(securityOptions, "apparmor="+r.config.AppArmorProfile)
 	}
-	workspaceReadOnly := serviceType == "collector" || serviceType == "browser" || serviceType == "egress"
 	mounts := []mount.Mount{}
-	if serviceType != "browser" && serviceType != "egress" {
+	if serviceType != "egress" {
 		mounts = append(mounts, mount.Mount{
-			Type: mount.TypeVolume, Source: volumeName, Target: "/workspace", ReadOnly: workspaceReadOnly,
+			Type: mount.TypeVolume, Source: volumeName, Target: "/workspace",
 			VolumeOptions: &mount.VolumeOptions{NoCopy: true},
 		})
 	}
 	tmpOptions := "rw,noexec,nosuid,uid=1000,gid=1000,size=256m"
 	homeOptions := "rw,noexec,nosuid,uid=1000,gid=1000,size=512m"
-	if serviceType == "agent" || serviceType == "ide" || serviceType == "terminal" {
+	if serviceType == "agent" || serviceType == "terminal" {
 		// Compilers and OpenCode's native TUI renderer execute from temporary storage.
 		tmpOptions = "rw,exec,nosuid,uid=1000,gid=1000,size=256m"
 		// Docker defaults tmpfs to noexec; Codex runs its managed app-server from ~/.codex.
@@ -1884,24 +1783,19 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 		},
 		ShmSize: 64 * 1024 * 1024,
 	}
-	if machine.EnvironmentBuilder && serviceType == "ide" {
-		hostConfig.ReadonlyRootfs = false
-		hostConfig.CapDrop = nil
-		hostConfig.SecurityOpt = securityOptions[1:]
-	} else if machine.SudoEnabled && (serviceType == "ide" || serviceType == "terminal") {
-		// The workspace allows sudo: the image's passwordless sudoers rule takes
-		// effect once privileges may be gained, and packages can be installed
-		// into the root filesystem until the container is recreated. Docker's
-		// default capabilities apply minus NET_RAW (no raw sockets on the
-		// machine network); never privileged, NET_ADMIN or SYS_ADMIN, so root
-		// cannot change routes or firewall rules and egress still goes through
-		// the machine's proxy. Agent attempts are never relaxed.
+	if serviceType == "agent" || (machine.SudoEnabled && serviceType == "terminal") {
+		// Agent-class containers (attempts, checks, previews, tools and
+		// commands) always, and the developer container when the workspace
+		// allows sudo: the image's passwordless sudoers rule takes effect once
+		// privileges may be gained, and packages can be installed into the root
+		// filesystem until the container is recreated, so an agent can install
+		// the system packages a project needs. Docker's default capabilities
+		// apply minus NET_RAW (no raw sockets on the machine network); never
+		// privileged, NET_ADMIN or SYS_ADMIN, so root cannot change routes or
+		// firewall rules and egress still goes through the machine's proxy.
 		hostConfig.ReadonlyRootfs = false
 		hostConfig.CapDrop = []string{"NET_RAW"}
 		hostConfig.SecurityOpt = securityOptions[1:]
-	}
-	if serviceType == "browser" {
-		hostConfig.ShmSize = 512 * 1024 * 1024
 	}
 	return hostConfig
 }
@@ -1929,27 +1823,6 @@ func (r *DockerRuntime) ensureImage(ctx context.Context, reference string) error
 	defer reader.Close()
 	_, err = io.Copy(io.Discard, reader)
 	return err
-}
-
-func (r *DockerRuntime) ensureEnvironmentImage(ctx context.Context, reference string, workspaceID, environmentID uuid.UUID) error {
-	if !isImmutableLocalImageID(reference) {
-		return fmt.Errorf("%w: environment image reference %q is not an immutable local image ID", ErrLocalEnvironmentMissing, reference)
-	}
-	if err := r.ensureImage(ctx, reference); err != nil {
-		return err
-	}
-	inspection, err := r.client.ImageInspect(ctx, reference)
-	if err != nil {
-		return err
-	}
-	labels := map[string]string{}
-	if inspection.Config != nil && inspection.Config.Labels != nil {
-		labels = inspection.Config.Labels
-	}
-	if err := validateEnvironmentImageLabels(labels, workspaceID, environmentID); err != nil {
-		return fmt.Errorf("environment image %s is not valid for this machine: %w", reference, err)
-	}
-	return nil
 }
 
 // ImageIdentity is the local image ID a reference resolves to and its
@@ -2353,8 +2226,10 @@ func (b *cappedBuffer) Write(value []byte) (int, error) {
 	return originalLength, nil
 }
 
-func (r *DockerRuntime) workspaceSize(ctx context.Context, collectorID string) (int64, error) {
-	output, err := r.execOutput(ctx, collectorID, []string{"du", "-sb", "/workspace"})
+// workspaceSize measures the workspace volume from the developer container,
+// which mounts it.
+func (r *DockerRuntime) workspaceSize(ctx context.Context, developerID string) (int64, error) {
+	output, err := r.execOutput(ctx, developerID, []string{"du", "-sb", "/workspace"})
 	if err != nil {
 		return 0, err
 	}

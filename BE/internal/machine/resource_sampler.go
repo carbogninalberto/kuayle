@@ -232,7 +232,7 @@ func (m *Manager) enforceDiskUsage(ctx context.Context, machine *domain.DevMachi
 	}
 	limit := int64(machine.DiskGB) * 1024 * 1024 * 1024
 	if usage.DiskBytes >= limit*9/10 && usage.DiskBytes < limit && m.claimDiskQuotaWarning(machine.ID, machine.Generation) {
-		_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_warning", map[string]any{
+		_ = m.createEvent(ctx, machine, nil, "lifecycle", "resource.disk_quota_warning", map[string]any{
 			"used_bytes": usage.DiskBytes, "limit_bytes": limit, "percent": usage.DiskBytes * 100 / limit,
 		})
 	}
@@ -244,7 +244,7 @@ func (m *Manager) enforceDiskUsage(ctx context.Context, machine *domain.DevMachi
 		}
 		_ = m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation)
 		_ = m.store.RecordResourceLimit(ctx, machine.ID, domain.DevMachineResourceLimitDisk, domain.DiskLimitMessage(machine.DiskGB))
-		_ = m.createEvent(ctx, machine, nil, "collector", "resource.disk_quota_exceeded", map[string]any{"used_bytes": usage.DiskBytes, "limit_bytes": limit})
+		_ = m.createEvent(ctx, machine, nil, "lifecycle", "resource.disk_quota_exceeded", map[string]any{"used_bytes": usage.DiskBytes, "limit_bytes": limit})
 	}
 }
 

@@ -83,7 +83,7 @@ do not exist; use the package scripts in [UI/package.json](../UI/package.json) i
 | **Real-time**     | WebSocket (nhooyr.io)                | Workspace events, issue presence, and targeted notifications          |
 | **Storage**       | Local FS or S3-compatible            | AWS S3, Cloudflare R2, MinIO, SeaweedFS                               |
 | **Reverse Proxy** | Caddy                                | Production HTTPS and routing                                          |
-| **Dev Machines**  | Docker + Caddy + Go gateway/manager + code-server + ttyd/xterm + Chrome/KasmVNC | Opt-in multi-container development environments with issue worktrees and provider abstraction |
+| **Dev Machines**  | Docker + Caddy + Go gateway/manager + ttyd/xterm + one Ubuntu machine image (Playwright, agent CLIs) | Opt-in multi-container development environments with issue worktrees and provider abstraction |
 | **Infra**         | Docker + Docker Compose              | Local development and reference self-hosting stack                    |
 
 ## Project structure

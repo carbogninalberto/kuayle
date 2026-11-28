@@ -20,12 +20,11 @@ import (
 )
 
 var (
-	ErrWorkspaceSlugTaken                 = errors.New("workspace slug already taken")
-	ErrWorkspaceNotFound                  = errors.New("workspace not found")
-	ErrNotWorkspaceOwner                  = errors.New("only the workspace owner can perform this action")
-	ErrWorkspaceHasDevMachineRuntimes     = errors.New("workspace has non-destroyed dev machine runtimes")
-	ErrWorkspaceEnvironmentCleanupPending = errors.New("workspace environment cleanup is pending")
-	ErrWorkspaceLogoUnavailable           = errors.New("workspace logo uploads are not available")
+	ErrWorkspaceSlugTaken             = errors.New("workspace slug already taken")
+	ErrWorkspaceNotFound              = errors.New("workspace not found")
+	ErrNotWorkspaceOwner              = errors.New("only the workspace owner can perform this action")
+	ErrWorkspaceHasDevMachineRuntimes = errors.New("workspace has non-destroyed dev machine runtimes")
+	ErrWorkspaceLogoUnavailable       = errors.New("workspace logo uploads are not available")
 )
 
 type WorkspaceService struct {
@@ -265,9 +264,6 @@ func (s *WorkspaceService) Delete(ctx context.Context, slug string, userID uuid.
 	if err != nil {
 		if errors.Is(err, repository.ErrWorkspaceHasDevMachineRuntimes) {
 			return ErrWorkspaceHasDevMachineRuntimes
-		}
-		if errors.Is(err, repository.ErrWorkspaceEnvironmentCleanupPending) {
-			return ErrWorkspaceEnvironmentCleanupPending
 		}
 		return err
 	}

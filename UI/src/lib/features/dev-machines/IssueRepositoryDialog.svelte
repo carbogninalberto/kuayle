@@ -8,26 +8,23 @@
 	import { pullRequestTemplatePayload, pullRequestTemplateValue } from '$lib/features/dev-machines/pull-request-template';
 
 	import * as Dialog from '$lib/components/ui/dialog';
-	import * as Select from '$lib/components/ui/select';
 	import * as Command from '$lib/components/ui/command';
 	import { Button } from '$lib/components/ui/button';
 	import { Label } from '$lib/components/ui/label';
 	import ComboboxPopover from '$lib/components/shared/ComboboxPopover.svelte';
 	import { ChevronsUpDown, GitBranch } from '@lucide/svelte';
 	import { getGitHubStatus } from '$lib/api/github';
-	import { deleteDevMachineScopeSetting, getDevMachineRepositoryDefaults, getDevMachineScopeSetting, listDevMachineEnvironments, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
+	import { deleteDevMachineScopeSetting, getDevMachineRepositoryDefaults, getDevMachineScopeSetting, updateDevMachineScopeSetting } from '$lib/api/dev-machines';
 	import { repositorySourceLabel } from '$lib/features/dev-machines/repository-source';
 	import type { GitHubRepo } from '$lib/types/github';
-	import type { DevMachineEnvironment, DevelopmentRepository } from '$lib/types/dev-machine';
+	import type { DevelopmentRepository } from '$lib/types/dev-machine';
 	import type { Issue } from '$lib/types/issue';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	let { open = $bindable(false), slug, issue }: { open: boolean; slug: string; issue: Issue } = $props();
 	let repositories = $state<GitHubRepo[]>([]);
-	let environments = $state<DevMachineEnvironment[]>([]);
 	let repositoryId = $state('inherit');
-	let environmentId = $state('inherit');
 
 	let agentProvider = $state('inherit');
 	let agentInstructions = $state('');
@@ -41,7 +38,6 @@
 	let inheritedRepository = $state<DevelopmentRepository | null>(null);
 
 	const selectedRepository = $derived(repositories.find((item) => item.id === repositoryId));
-	const selectedEnvironment = $derived(environments.find((item) => item.id === environmentId));
 	// Name what "inherit" resolves to, so a team or project repository is visibly used.
 	const inheritLabel = $derived(
 		inheritedRepository
@@ -57,15 +53,13 @@
 	async function load() {
 		loading = true;
 		try {
-			const [github, setting, availableEnvironments, defaults] = await Promise.all([
-				getGitHubStatus(slug), getDevMachineScopeSetting(slug, 'issue', issue.id), listDevMachineEnvironments(slug),
+			const [github, setting, defaults] = await Promise.all([
+				getGitHubStatus(slug), getDevMachineScopeSetting(slug, 'issue', issue.id),
 				getDevMachineRepositoryDefaults(slug, { issueId: issue.id }).catch(() => null)
 			]);
 			inheritedRepository = defaults?.inherited_repository ?? null;
 			repositories = github.repos ?? [];
-			environments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			repositoryId = setting.github_repo_id ?? 'inherit';
-			environmentId = setting.environment_id ?? 'inherit';
 			agentProvider = setting.agent_provider ?? 'inherit'; agentInstructions = setting.agent_instructions ?? ''; pullRequestTemplate = pullRequestTemplateValue(setting.pull_request_template, true); composeFile = setting.compose_file ?? ''; previewCommand = setting.preview_command ? JSON.stringify(setting.preview_command) : ''; previewPort = setting.preview_port ? String(setting.preview_port) : '';
 		} catch (error) {
 			appToast.apiError(error, 'Failed to load issue development defaults');
@@ -79,14 +73,13 @@
 		try {
 
 			const template = pullRequestTemplatePayload(pullRequestTemplate, true);
-			if (repositoryId === 'inherit' && environmentId === 'inherit' && agentProvider === 'inherit' && !agentInstructions.trim() && !template.pull_request_template && !composeFile.trim() && !previewCommand.trim()) {
+			if (repositoryId === 'inherit' && agentProvider === 'inherit' && !agentInstructions.trim() && !template.pull_request_template && !composeFile.trim() && !previewCommand.trim()) {
 				await deleteDevMachineScopeSetting(slug, 'issue', issue.id);
 			} else {
 				await updateDevMachineScopeSetting(slug, {
 					scope_type: 'issue', scope_id: issue.id,
 					github_repo_id: selectedRepository?.id,
 					base_branch: selectedRepository?.default_branch,
-					environment_id: selectedEnvironment?.id,
 					agent_provider: agentProvider === 'inherit' ? undefined : agentProvider, agent_instructions: agentInstructions.trim() || undefined, compose_file: composeFile.trim() || undefined, ...previewSettingPayload(previewCommand, previewPort), ...template
 				});
 			}
@@ -119,7 +112,6 @@
 					{/each}
 				</ComboboxPopover>
 			</div>
-			<div class="space-y-1.5"><Label>{m['machines.environment']()}</Label><Select.Root type="single" value={environmentId} disabled={loading} onValueChange={(value) => value && (environmentId = value)}><Select.Trigger class="w-full">{selectedEnvironment?.name ?? m['machines.use_workspace_default']()}</Select.Trigger><Select.Content><Select.Item value="inherit" label={m['machines.use_inherited_default']()}>{m['machines.use_inherited_default']()}</Select.Item>{#each environments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 			<ComposeFileField bind:value={composeFile} disabled={loading || saving} /><PreviewSettingField bind:command={previewCommand} bind:port={previewPort} disabled={loading || saving} /><AgentDefaultsField bind:provider={agentProvider} bind:instructions={agentInstructions} disabled={loading || saving} /><PullRequestTemplateField bind:value={pullRequestTemplate} inherits disabled={loading || saving} />
 		</div>
 		<Dialog.Footer><Button variant="outline" onclick={() => (open = false)}>{m['common.cancel']()}</Button><Button onclick={save} disabled={loading || saving}>{saving ? m['common.saving']() : m['machines.save_defaults']()}</Button></Dialog.Footer>

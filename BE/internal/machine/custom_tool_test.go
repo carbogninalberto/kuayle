@@ -217,8 +217,8 @@ func TestToolContainerGetsArgumentsOnlyAsData(t *testing.T) {
 	}
 	require.Contains(t, input.Env, "GOCACHE=/workspace/.kuayle/tmp/tool-"+execution.Run.ID.String()+"/cache/go-build", "caches live on the workspace volume, not the small home tmpfs")
 	require.Equal(t, execution.Run.ID.String(), input.Labels["com.kuayle.tool-run-id"])
-	require.True(t, input.HostConfig.ReadonlyRootfs)
-	require.Contains(t, input.HostConfig.CapDrop, "ALL")
+	require.False(t, input.HostConfig.ReadonlyRootfs, "agent-class containers may use sudo")
+	require.Equal(t, []string{"CAP_NET_RAW"}, []string(input.HostConfig.CapDrop))
 	require.Len(t, input.HostConfig.Mounts, 1, "only the workspace volume, no credential files")
 
 	execution.Interpreter = "perl"

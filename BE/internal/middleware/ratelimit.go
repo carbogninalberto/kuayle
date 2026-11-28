@@ -1,12 +1,9 @@
 package middleware
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"math"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -79,12 +76,6 @@ func RateLimit(rate float64, burst int) echo.MiddlewareFunc {
 	return rateLimit(rate, burst, func(c *echo.Context) string { return "ip:" + c.RealIP() })
 }
 
-// MachineTokenRateLimit gives each collector credential its own bucket without
-// retaining the raw secret. Requests without a usable credential share an IP bucket.
-func MachineTokenRateLimit(rate float64, burst int) echo.MiddlewareFunc {
-	return rateLimit(rate, burst, machineTokenRateLimitKey)
-}
-
 func rateLimit(rate float64, burst int, key func(*echo.Context) string) echo.MiddlewareFunc {
 	rl := NewRateLimiter(rate, burst)
 	retryAfter := 1
@@ -100,15 +91,4 @@ func rateLimit(rate float64, burst int, key func(*echo.Context) string) echo.Mid
 			return next(c)
 		}
 	}
-}
-
-func machineTokenRateLimitKey(c *echo.Context) string {
-	parts := strings.Fields(c.Request().Header.Get(echo.HeaderAuthorization))
-	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") && len(parts[1]) == 64 {
-		if _, err := hex.DecodeString(parts[1]); err == nil {
-			fingerprint := sha256.Sum256([]byte(parts[1]))
-			return "machine-token:" + hex.EncodeToString(fingerprint[:])
-		}
-	}
-	return "ip:" + c.RealIP()
 }

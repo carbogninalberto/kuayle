@@ -26,5 +26,5 @@ func TestMachineContainersGetBothProxySpellings(t *testing.T) {
 	}
 	agent := agentProxyEnvironment(machine)
 	require.Contains(t, agent, "http_proxy=http://abc-egress:3128")
-	require.Contains(t, agent, "no_proxy=localhost,127.0.0.1,abc-collector")
+	require.Contains(t, agent, "no_proxy=localhost,127.0.0.1")
 }

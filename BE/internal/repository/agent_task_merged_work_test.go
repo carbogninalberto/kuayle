@@ -132,8 +132,9 @@ func TestMergedWorkRespectsWorkspaceVisibility(t *testing.T) {
 	merged, err = repo.MergedPullRequest(outsider, task.WorkspaceID, task.IssueID)
 	require.NoError(t, err)
 	require.Nil(t, merged, "a non-member")
+	fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`UPDATE teams SET is_private=true WHERE id=$1`, task.TeamID)
-	require.Error(t, err, "a team with GitHub activity or dev machines stays public")
+	require.ErrorContains(t, err, "Remove development machines", "a workspace with dev machines keeps its teams public")
 }
 
 // "Send and start now" on a failed task starts a new iteration, so merged

@@ -179,7 +179,6 @@ func previewFixture() (*domain.DevMachine, []domain.DevMachineService, *domain.D
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", DockerNetworkName: ptr("network"), WorkspaceVolumeName: ptr("workspace"),
 		CPUMillis: 4000, MemoryMB: 8192, PidsLimit: 2048, SudoEnabled: true, Status: domain.DevMachineStatusRunning}
 	services := []domain.DevMachineService{
-		{ServiceType: "ide", ServiceKey: "ide", Status: "running", ImageRef: "developer:fixture", ContainerID: &developer},
 		{ServiceType: "terminal", ServiceKey: "terminal", Status: "running", ImageRef: "developer:fixture", ContainerID: &developer},
 	}
 	return machine, services, &domain.DevMachineCheckout{WorkspacePath: "/workspace/tasks/eng-1"}
@@ -224,10 +223,10 @@ func TestPreviewStartsInItsOwnContainerNotTheDeveloperContainer(t *testing.T) {
 	require.ElementsMatch(t, append(expected, runTmpEnvironment(dir)...), created.Config.Env)
 
 	host := created.HostConfig
-	require.True(t, host.ReadonlyRootfs)
+	require.False(t, host.ReadonlyRootfs, "a preview may install system packages with sudo")
 	require.False(t, host.Privileged)
-	require.Equal(t, []string{"ALL"}, []string(host.CapDrop), "sudo machines relax only the developer container")
-	require.Contains(t, host.SecurityOpt, "no-new-privileges=true")
+	require.Equal(t, []string{"CAP_NET_RAW"}, []string(host.CapDrop), "the agent-class relaxation, never more")
+	require.NotContains(t, host.SecurityOpt, "no-new-privileges=true")
 	require.Empty(t, host.CapAdd)
 	require.Empty(t, host.PortBindings)
 	require.Len(t, host.Mounts, 1, "only the workspace volume: no sign-in, inbox or agent CLI mount")
@@ -338,9 +337,9 @@ func TestMachinePreviewContainersFollowTheMachine(t *testing.T) {
 	agent["com.kuayle.service"] = "agent"
 	agent["com.kuayle.agent-run-id"] = uuid.NewString()
 	docker.add("agent", agent, container.StateRunning)
-	ide := machineLabels(machine)
-	ide["com.kuayle.service"] = "ide"
-	docker.add("developer", ide, container.StateRunning)
+	developer := machineLabels(machine)
+	developer["com.kuayle.service"] = "terminal"
+	docker.add("developer", developer, container.StateRunning)
 	other := *machine
 	other.ID = uuid.New()
 	docker.add("foreign-preview", previewLabels(&other, uuid.New(), 4100), container.StateRunning)
@@ -438,7 +437,7 @@ func TestPreviewOnAMachineWithADockerDaemonGetsOnlyTheDaemonClient(t *testing.T)
 		require.NotContains(t, env, "fixture", "values never enter the container configuration")
 	}
 	require.Equal(t, agentMemoryBytes(machine, true, 1), created.HostConfig.Memory, "the agent share of a machine with a daemon")
-	require.Equal(t, []string{"ALL"}, []string(created.HostConfig.CapDrop))
+	require.Equal(t, []string{"CAP_NET_RAW"}, []string(created.HostConfig.CapDrop))
 	written := []string{}
 	for _, exec := range docker.execs {
 		if exec.Container == "developer" {

@@ -424,11 +424,8 @@ func (g *Gateway) parseHost(host string) (string, string, bool) {
 		return "", "", false
 	}
 	label := strings.TrimSuffix(host, suffix)
-	serviceType := "ide"
-	if strings.HasSuffix(label, "-browser") {
-		serviceType = "browser"
-		label = strings.TrimSuffix(label, "-browser")
-	} else if strings.HasSuffix(label, "-terminal") {
+	var serviceType string
+	if strings.HasSuffix(label, "-terminal") {
 		serviceType = "terminal"
 		label = strings.TrimSuffix(label, "-terminal")
 	} else if index := strings.LastIndexByte(label, '-'); index >= 0 {
@@ -440,6 +437,9 @@ func (g *Gateway) parseHost(host string) (string, string, bool) {
 		}
 		serviceType = domain.AppPortService(port)
 		label = label[:index]
+	} else {
+		// A bare routing key was the retired code-server IDE.
+		return "", "", false
 	}
 	return label, serviceType, routingKeyPattern.MatchString(label)
 }

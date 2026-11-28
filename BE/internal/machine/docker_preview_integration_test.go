@@ -45,7 +45,7 @@ func TestDockerPreviewsRunPerTaskAndPortsAreScanned(t *testing.T) {
 		Config: &container.Config{Image: "alpine:3", Env: []string{"HOME=/home/kuayle"}, Labels: labels, Entrypoint: []string{"sh", "-c",
 			"mkdir -p /workspace/tasks/t /home/kuayle/.kuayle/agent-sign-ins /run/kuayle-secrets && echo fixture > /run/kuayle-secrets/DEV_ONLY_FIXTURE && echo fixture > /home/kuayle/.kuayle/agent-sign-ins/fixture && chown -R 1000:1000 /home/kuayle /workspace && touch /tmp/ready && sleep 300"}},
 		HostConfig:       &container.HostConfig{NetworkMode: container.NetworkMode(networkName), Mounts: []mount.Mount{{Type: mount.TypeVolume, Source: volumeName, Target: "/workspace"}}},
-		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{routingKey + "-ide"}}}},
+		NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: map[string]*network.EndpointSettings{networkName: {Aliases: []string{routingKey + "-terminal"}}}},
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

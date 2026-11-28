@@ -169,7 +169,7 @@ func (r *AgentTaskRepository) DebugTrace(ctx context.Context, ws, id uuid.UUID, 
 		return nil, err
 	}
 	reverseTraceRows(out.RunSteps)
-	if err = tx.SelectContext(ctx, &out.Operations, `SELECT o.id,o.machine_id,o.agent_run_id,o.checkout_id,o.environment_id,o.terminal_session_id,o.agent_task_id,o.workspace_id,o.action,o.status,
+	if err = tx.SelectContext(ctx, &out.Operations, `SELECT o.id,o.machine_id,o.agent_run_id,o.checkout_id,o.terminal_session_id,o.agent_task_id,o.workspace_id,o.action,o.status,
  o.generation,o.idempotency_key,o.requested_by_user_id,o.attempts,o.max_attempts,o.error_code,o.error_message,o.available_at,o.created_at,o.updated_at,o.completed_at
  FROM dev_machine_operations o WHERE o.workspace_id=$2 AND (o.agent_task_id=$1 OR o.agent_run_id IN `+runScope+`) ORDER BY o.created_at DESC,o.id DESC LIMIT $3`, id, ws, limits.Rows+1); err != nil {
 		return nil, err

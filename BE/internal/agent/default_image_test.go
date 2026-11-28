@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A provider built without an image falls back to the image the server's
-// configuration defaults to, not to an upstream image Kuayle never runs.
+// A provider built without an image falls back to the single machine image the
+// server's configuration defaults to, not to an upstream image Kuayle never runs.
 func TestBuiltinProvidersFallBackToTheConfiguredDefaultImages(t *testing.T) {
 	defaults := func(field string) string {
 		t.Helper()
@@ -19,12 +19,12 @@ func TestBuiltinProvidersFallBackToTheConfiguredDefaultImages(t *testing.T) {
 		require.NotEmpty(t, image, field)
 		return image
 	}
-	for field, provider := range map[string]Provider{
-		"ClaudeCodeImage": NewClaudeCodeProvider(""),
-		"OpenCodeImage":   NewOpenCodeProvider(""),
-		"CodexImage":      NewCodexProvider(""),
-		"HeadlessImage":   NewGooseProvider(""),
+	for name, provider := range map[string]Provider{
+		"claude-code": NewClaudeCodeProvider(""),
+		"opencode":    NewOpenCodeProvider(""),
+		"codex":       NewCodexProvider(""),
+		"goose":       NewGooseProvider(""),
 	} {
-		require.Equal(t, defaults(field), provider.Metadata().DefaultImage, field)
+		require.Equal(t, defaults("HeadlessImage"), provider.Metadata().DefaultImage, name)
 	}
 }

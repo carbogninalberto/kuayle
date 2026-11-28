@@ -8,6 +8,17 @@ description: Use when you need to describe your change and attach screenshots fo
 Before finishing an implementation task, run the tests relevant to your change.
 In your final summary, describe what you ran, the results, and what you skipped.
 
+# Install what the project needs
+
+This machine is a regular Ubuntu with Node.js, Go, Python, Git, Playwright
+with Chromium and common tools. Install anything else the project needs
+yourself. Language dependencies (`npm ci`, `pip install` in a virtual
+environment, `go mod download`) live in the workspace and stay for later
+attempts. System packages need root, which you have:
+`sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential`.
+They last only for this attempt's container, so the next attempt installs
+them again; name any you needed in the pull request's notes.
+
 # Describe the pull request
 
 Before you finish an implementation task, write the pull request's description
@@ -36,9 +47,14 @@ mv "$dir/.pull_request.json" "$dir/pull_request.json"
 - `notes`: only what a reviewer must know (at most 1,000 characters); leave it
   out otherwise. Sections you leave empty are dropped.
 - `screenshots`: when you changed something people see, save up to 6 PNG, JPEG
-  or WebP files of at most 2 MB each directly in `.kuayle/screenshots/` (for
-  example with the project's own Playwright setup) and list them by file name
-  with an optional caption. Kuayle checks they are real images and publishes them on a
+  or WebP files of at most 2 MB each directly in `.kuayle/screenshots/` and
+  list them by file name with an optional caption. Start the app bound to
+  `0.0.0.0`, then capture it with
+  `kuayle-screenshot http://127.0.0.1:3000/settings "$dir/screenshots/settings.png"`
+  (`--width`, `--height`, `--full-page`, `--wait-for SELECTOR`, `--dark`; see
+  `kuayle-screenshot --help`). It uses this machine's Playwright, Chromium and
+  fonts with a fixed viewport, locale and time zone, so the picture looks the
+  same on every machine; the project's own Playwright setup works too. Kuayle checks they are real images and publishes them on a
   separate `kuayle/screenshots/<task>` branch of the repository, never on your
   pull request branch; only people who can read the repository can see them.
   Never capture secrets, tokens or personal data.

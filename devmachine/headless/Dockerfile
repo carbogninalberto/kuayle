@@ -27,30 +27,51 @@ ARG TTYD_VERSION=1.7.7
 ARG TTYD_AMD64_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
 ARG TTYD_ARM64_SHA256=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
 ARG NPM_VERSION=12.2.0
+# Playwright and the Chromium build it pins, for agents' browser QA and
+# screenshots (kuayle-screenshot). Keep it at the version WEB/package-lock.json
+# locks, so the image renders like the repository's own browser tests.
+ARG PLAYWRIGHT_VERSION=1.65.0
 
 COPY --from=node-stage /usr/local /usr/local
 COPY --from=crush-build /out/crush /usr/local/bin/crush
 COPY --from=go-stage /usr/local/go /usr/local/go
 COPY --from=docker-plugins /out/docker-compose /out/docker-buildx /usr/local/lib/docker/cli-plugins/
 COPY common/install-agent-clis.sh common/install-docker-cli.sh common/kuayle-ports common/kuayle-service-entrypoint common/kuayle-agent-runner /usr/local/bin/
-COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md common/kuayle-agent-sign-in.sh common/kuayle-claude-config.cjs common/check-agent-cli-flags.sh /usr/local/lib/kuayle/
+COPY common/start-common.sh common/codex-model-catalog.cjs common/patch-npm-security.cjs common/test-http-cache-semantics.cjs common/kuayle-qa.md common/kuayle-agents.md common/kuayle-agent-sign-in.sh common/kuayle-claude-config.cjs common/check-agent-cli-flags.sh common/kuayle-live-inbox-hook.cjs common/claude-managed-settings.json /usr/local/lib/kuayle/
 COPY headless/kuayle-headless-start /usr/local/bin/kuayle-headless-start
-COPY ide/shell.sh /usr/local/bin/kuayle-shell
-COPY ide/terminal-session.sh /usr/local/bin/kuayle-terminal-session
+COPY common/kuayle-shell /usr/local/bin/kuayle-shell
+COPY common/kuayle-terminal-session /usr/local/bin/kuayle-terminal-session
 COPY common/kuayle-task-claude /usr/local/bin/kuayle-task-claude
-COPY ide/command-event.js /usr/local/lib/kuayle-command-event.js
 COPY --chmod=0755 common/kuayle-say.cjs /usr/local/bin/kuayle-say
-COPY ide/tmux.conf /etc/tmux.conf
+COPY --chmod=0755 common/kuayle-screenshot.cjs /usr/local/bin/kuayle-screenshot
+COPY common/tmux.conf /etc/tmux.conf
 
-# Passwordless sudo for the machine user stays inert: containers run with
-# no-new-privileges and without capabilities unless the workspace allows sudo
-# (allow_sudo) or the machine builds an environment. See TECHNICAL.md.
+# A regular (unminimized) Ubuntu, so the machine behaves like a real one:
+# manual pages, common tools, locales and a fixed font set, which makes
+# screenshots render the same on every machine.
+# Passwordless sudo for the machine user takes effect in agent attempts,
+# checks, previews, tools and commands, which run without no-new-privileges
+# so agents can install the system packages a project needs; the developer
+# terminal stays inert unless the workspace allows sudo (allow_sudo). See
+# TECHNICAL.md "Sudo in machines".
 ARG SECURITY_REFRESH=initial
 RUN rm -f /usr/bin/pebble \
     && apt-get update \
     && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends unminimize \
+    && yes | unminimize \
     && apt-get install -y --no-install-recommends \
-         ca-certificates curl git make ncurses-term python3 ripgrep sudo tmux xz-utils \
+         ca-certificates curl dnsutils file git gnupg jq less locales lsb-release \
+         make man-db nano ncurses-term openssh-client pkg-config procps python3 python3-pip \
+         python3-venv ripgrep rsync sudo tmux tzdata unzip wget xz-utils zip \
+         fontconfig fonts-dejavu-core fonts-liberation fonts-noto-cjk fonts-noto-color-emoji \
+         fonts-noto-core fonts-ubuntu \
+         libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 \
+         libdbus-1-3 libdrm2 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libx11-6 \
+         libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 \
+    && sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
+    && locale-gen \
+    && fc-cache -f \
     && case "${TARGETARCH}" in \
          amd64) ttyd_arch=x86_64; ttyd_sha="$TTYD_AMD64_SHA256" ;; \
          arm64) ttyd_arch=aarch64; ttyd_sha="$TTYD_ARM64_SHA256" ;; \
@@ -61,6 +82,10 @@ RUN rm -f /usr/bin/pebble \
     && chmod 0755 /usr/local/bin/ttyd \
     && npm install -g "npm@${NPM_VERSION}" \
     && sh /usr/local/bin/install-agent-clis.sh "$TARGETARCH" \
+    && npm install -g "playwright@${PLAYWRIGHT_VERSION}" \
+    && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright playwright install chromium \
+    && chown -R 1000:1000 /opt/ms-playwright \
+    && install -D -m 0644 /usr/local/lib/kuayle/claude-managed-settings.json /etc/claude-code/managed-settings.json \
     && sh /usr/local/lib/kuayle/check-agent-cli-flags.sh \
     && sh /usr/local/bin/install-docker-cli.sh "$TARGETARCH" \
     && node /usr/local/lib/kuayle/patch-npm-security.cjs \
@@ -91,7 +116,10 @@ RUN rm -f /usr/bin/pebble \
 # Claude Code's install script fetch its native binary, as the image build does.
 USER 1000:1000
 ENV HOME=/home/kuayle \
-    LANG=C.UTF-8 \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    TZ=Etc/UTC \
+    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     SHELL=/usr/local/bin/kuayle-shell \
     COLORTERM=truecolor \
     GOPATH=/home/kuayle/go \

@@ -122,17 +122,10 @@ services:
       DEV_MACHINE_DOMAIN: ${DEV_MACHINE_DOMAIN:-machines.localhost}
       DEV_MACHINE_ALLOW_SAME_SITE: ${DEV_MACHINE_ALLOW_SAME_SITE:-false}
       DEV_MACHINE_ENCRYPTION_KEY: ${DEV_MACHINE_ENCRYPTION_KEY:-}
-      DEV_MACHINE_INGEST_URL: ${DEV_MACHINE_INGEST_URL:-}
       DEV_MACHINE_SESSION_TTL_MINUTES: ${DEV_MACHINE_SESSION_TTL_MINUTES:-480}
       DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS: ${DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS:-60}
-      DEV_MACHINE_IDE_IMAGE: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:0.1.0}
       DEV_MACHINE_HEADLESS_IMAGE: ${DEV_MACHINE_HEADLESS_IMAGE:-kuayle/dev-machine-headless:0.1.0}
-      DEV_MACHINE_BROWSER_IMAGE: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:0.1.0}
-      DEV_MACHINE_COLLECTOR_IMAGE: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:0.1.0}
       DEV_MACHINE_EGRESS_IMAGE: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:0.1.0}
-      DEV_MACHINE_CLAUDE_IMAGE: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:0.1.0}
-      DEV_MACHINE_OPENCODE_IMAGE: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:0.1.0}
-      DEV_MACHINE_CODEX_IMAGE: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:0.1.0}
       DEV_MACHINE_DOCKER_IMAGE: ${DEV_MACHINE_DOCKER_IMAGE:-kuayle/dev-machine-docker:0.1.0}
       # Voice transcription: set VOICE_INTERNAL_TOKEN and start the "voice" profile.
       VOICE_URL: ${VOICE_URL:-http://voice:8000}
@@ -302,7 +295,6 @@ services:
       DEV_MACHINE_DOMAIN: ${DEV_MACHINE_DOMAIN:-machines.localhost}
       DEV_MACHINE_ALLOW_SAME_SITE: ${DEV_MACHINE_ALLOW_SAME_SITE:-false}
       DEV_MACHINE_ENCRYPTION_KEY: ${DEV_MACHINE_ENCRYPTION_KEY:-}
-      DEV_MACHINE_INGEST_URL: ${DEV_MACHINE_INGEST_URL:-}
       DEV_MACHINE_GATEWAY_CONTAINER: ${DEV_MACHINE_GATEWAY_CONTAINER:-kuayle-machine-gateway}
       DEV_MACHINE_PULL_IMAGES: ${DEV_MACHINE_PULL_IMAGES:-false}
       DEV_MACHINE_COMPOSE_IMAGES: ${DEV_MACHINE_COMPOSE_IMAGES:-docker.io/library}
@@ -327,14 +319,8 @@ services:
       DEV_MACHINE_AGENT_CLI_REFRESH_HOURS: ${DEV_MACHINE_AGENT_CLI_REFRESH_HOURS:-6}
       DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS: ${DEV_MACHINE_AGENT_CLI_MIN_AGE_HOURS:-48}
       DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS: ${DEV_MACHINE_SHUTDOWN_DRAIN_SECONDS:-90}
-      DEV_MACHINE_IDE_IMAGE: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:0.1.0}
       DEV_MACHINE_HEADLESS_IMAGE: ${DEV_MACHINE_HEADLESS_IMAGE:-kuayle/dev-machine-headless:0.1.0}
-      DEV_MACHINE_BROWSER_IMAGE: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:0.1.0}
-      DEV_MACHINE_COLLECTOR_IMAGE: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:0.1.0}
       DEV_MACHINE_EGRESS_IMAGE: ${DEV_MACHINE_EGRESS_IMAGE:-kuayle/dev-machine-egress:0.1.0}
-      DEV_MACHINE_CLAUDE_IMAGE: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:0.1.0}
-      DEV_MACHINE_OPENCODE_IMAGE: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:0.1.0}
-      DEV_MACHINE_CODEX_IMAGE: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:0.1.0}
       DEV_MACHINE_DOCKER_IMAGE: ${DEV_MACHINE_DOCKER_IMAGE:-kuayle/dev-machine-docker:0.1.0}
       DEV_MACHINE_DOCKER_RUNTIME: ${DEV_MACHINE_DOCKER_RUNTIME:-}
       DEV_MACHINE_DOCKER_SECCOMP_PROFILE: ${DEV_MACHINE_DOCKER_SECCOMP_PROFILE:-unconfined}
@@ -349,36 +335,12 @@ services:
       retries: 3
       start_period: 20s
 
-  dev-machine-ide:
-    profiles: ["dev-machine-images"]
-    image: ${DEV_MACHINE_IDE_IMAGE:-kuayle/dev-machine-ide:0.1.0}
-    build:
-      context: ../devmachine
-      dockerfile: ide/Dockerfile
-    entrypoint: ["/bin/true"]
-
   dev-machine-headless:
     profiles: ["dev-machine-images"]
     image: ${DEV_MACHINE_HEADLESS_IMAGE:-kuayle/dev-machine-headless:0.1.0}
     build:
       context: ../devmachine
       dockerfile: headless/Dockerfile
-    entrypoint: ["/bin/true"]
-
-  dev-machine-browser:
-    profiles: ["dev-machine-images"]
-    image: ${DEV_MACHINE_BROWSER_IMAGE:-kuayle/dev-machine-browser:0.1.0}
-    build:
-      context: ../devmachine
-      dockerfile: browser/Dockerfile
-    entrypoint: ["/bin/true"]
-
-  dev-machine-collector:
-    profiles: ["dev-machine-images"]
-    image: ${DEV_MACHINE_COLLECTOR_IMAGE:-kuayle/dev-machine-collector:0.1.0}
-    build:
-      context: ../devmachine
-      dockerfile: collector/Dockerfile
     entrypoint: ["/bin/true"]
 
   dev-machine-egress:
@@ -395,36 +357,6 @@ services:
     build:
       context: ../devmachine
       dockerfile: docker/Dockerfile
-    entrypoint: ["/bin/true"]
-
-  dev-machine-agent-claude:
-    profiles: ["dev-machine-images"]
-    image: ${DEV_MACHINE_CLAUDE_IMAGE:-kuayle/dev-machine-agent-claude:0.1.0}
-    build:
-      context: ../devmachine
-      dockerfile: agent/Dockerfile
-      args:
-        PROVIDER: claude-code
-    entrypoint: ["/bin/true"]
-
-  dev-machine-agent-opencode:
-    profiles: ["dev-machine-images"]
-    image: ${DEV_MACHINE_OPENCODE_IMAGE:-kuayle/dev-machine-agent-opencode:0.1.0}
-    build:
-      context: ../devmachine
-      dockerfile: agent/Dockerfile
-      args:
-        PROVIDER: opencode
-    entrypoint: ["/bin/true"]
-
-  dev-machine-agent-codex:
-    profiles: ["dev-machine-images"]
-    image: ${DEV_MACHINE_CODEX_IMAGE:-kuayle/dev-machine-agent-codex:0.1.0}
-    build:
-      context: ../devmachine
-      dockerfile: agent/Dockerfile
-      args:
-        PROVIDER: codex
     entrypoint: ["/bin/true"]
 
   # Speech-to-text for the assistant microphone and Telegram voice notes.

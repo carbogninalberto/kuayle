@@ -106,7 +106,7 @@ pause, stop and teardown like an active run, and blocks the task's retry.
 
 The result is a `manual_check` step on the task's latest attempt (sequence 100
 and up). The operation's idempotency key `task-check:<step id>` names the step. The manager uses a
-credential-free container (developer image, hardened host config, egress proxy,
+credential-free container (machine image, agent-class host config with sudo, egress proxy,
 `CI=true`, the attempt's snapshot used only for redaction), Compose services,
 artifacts and log chunks under `service_id` = step ID, but a container of its own,
 `kuayle-<routing key>-check-<step id>`, removed once the result is recorded so a
@@ -141,8 +141,8 @@ on a task's machine uses its latest attempt's ready checkout as the working
 directory and that attempt's snapshot for redaction only.
 
 The manager runs it in a check container of its own,
-`kuayle-<routing key>-tool-<run id>`: the developer image, the hardened check
-host config (read-only root, all capabilities dropped, only the workspace
+`kuayle-<routing key>-tool-<run id>`: the machine image, the agent-class check
+host config (the [sudo relaxation](../../TECHNICAL.md#sudo-in-machines), only the workspace
 volume, the agent share of resources), the machine network with egress only
 through the proxy, and no credentials. Its command line is fixed: `sh -c
 <bootstrap> kuayle-tool <interpreter>`. The script and the canonical inputs
@@ -495,7 +495,7 @@ anything else runs: no URL rewrite, proxy, credential helper, hook, fsmonitor
 or filter in the cache's configuration applies. A new worktree is added and its
 files written through the same directory, which also borrows the cache's
 worktree records. What Kuayle keeps in the cache's configuration (origin, the
-branch's upstream, the token-less credential helper of people's IDE and
+branch's upstream, the token-less credential helper of people's
 terminals) is written as data. That helper hands `GITHUB_TOKEN` only to
 `https://github.com`, so a person's own `git fetch` in a checkout an agent
 redirected sends it nowhere else. The diff Kuayle records after a run and the
@@ -505,9 +505,10 @@ index the same way. See [security audit KS-39](../../SECURITY_AUDIT.md#ks-39--ch
 ## Agent sandboxing
 
 Autonomous agents cannot answer permission prompts, and their own sandboxes
-conflict with the hardened container. The container is the boundary: all
-capabilities dropped, no-new-privileges, the egress proxy, and only the task's
-checkout and credentials.
+conflict with the container. The container is the boundary: the agent-class
+[sudo relaxation](../../TECHNICAL.md#sudo-in-machines) (root via `sudo`, Docker's
+default capabilities minus `NET_RAW`, never privileged), the egress proxy, and
+only the task's checkout and credentials.
 
 - **Codex** runs with `sandbox_mode="danger-full-access"` and
   `approval_policy="never"`. Its workspace-write sandbox uses bubblewrap, which
@@ -1466,10 +1467,10 @@ invalidate old worker leases while retaining the task's checkout and branch.
 Retried task-owned machines resume through existing lifecycle policy checks and
 task fencing. A task keeps the machine it was given; when it has none,
 reservation uses a running machine of its creator before creating a new task
-machine: same workspace and environment (so the same profile), not an
-Environment Builder or being deleted, still allowed by the enabled policy (sudo
-and Docker machines only while those stay allowed), without the user's own
-agent session or a queued lifecycle, snapshot, check or custom tool operation,
+machine: same workspace, not temporary or being deleted, still allowed by the
+enabled policy (sudo and Docker machines only while those stay allowed),
+without the user's own agent session or a queued lifecycle, check, tool or
+command operation,
 and working on fewer other active tasks than the machine's own `max_tasks`, or
 the policy's `task_machine_max_tasks` when it has none (default 10, from 1 to
 10; the override is migration 156 and can change while the machine runs). An
@@ -1484,7 +1485,7 @@ was created but never started moves to a free slot when one appears, and that
 unstarted machine is deleted. The limit bounds concurrency on a machine, not
 the number of machines, so raising it (up to 10) lets more tasks run there at
 once. A machine excluded from selection (running the user's own agent session,
-or with a pending stop, pause, teardown, snapshot, check or custom tool
+or with a pending stop, pause, teardown, check, tool or command
 operation) counts as no suitable machine, so a task creates a task machine
 while such a machine exists. Paused and stopped machines are not
 chosen, since their user paused or stopped them. The full rule is in
@@ -1509,8 +1510,7 @@ manager retries the queued start without consuming an attempt. The task worker
 then picks the task up in `preparing` and continues the same iteration. Disk
 wait time is excluded from the workflow budget.
 A new task machine is a custom-size machine with the workspace policy's task
-machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB), headless unless an
-environment applies; see [Resource Limits and Quotas](../../TECHNICAL.md#resource-limits-and-quotas)
+machine CPU, memory and disk (default 4 vCPU, 8 GB, 20 GB); see [Resource Limits and Quotas](../../TECHNICAL.md#resource-limits-and-quotas)
 for its limits and how its memory is split between the agent and terminal.
 
 **Merged work asks first (KUA-193).** When the task's issue has a merged pull
@@ -1609,11 +1609,8 @@ configuration, so values such as numeric flags do not corrupt native JSON output
 Legacy snapshots retain their original redaction policy for deterministic replay.
 Recovery injects and redacts against that same snapshot, including if workspace
 credentials have since rotated. The encrypted field is excluded from
-JSON responses. Collector event/log ingestion also redacts current workspace
-model credentials and retained native snapshots, including credentials rotated
-since an attempt started. Unreadable snapshots reject ingestion. Native and
-collector output share escaped/multiline and longest-first secret redaction. An
-active legacy attempt without a usable snapshot is stopped; recovery never guesses
+JSON responses. Native output uses escaped/multiline and longest-first secret
+redaction. An active legacy attempt without a usable snapshot is stopped; recovery never guesses
 which credentials its container received.
 
 Docker logs are followed while the native process runs. Waiting for process exit
@@ -1880,8 +1877,7 @@ without a preview command, or without the task's ready checkout on a running
 machine) or the assistant's `start_preview` tool, which needs their approval.
 Reaching `awaiting_review` queues nothing. The preview command runs files the
 agent just wrote, so it never runs in the developer container, which holds the
-creator's developer-scoped secrets and synced agent sign-ins and may allow
-sudo. It runs in the task's own **preview container**, with the isolation of a
+creator's developer-scoped secrets and synced agent sign-ins. It runs in the task's own **preview container**, with the isolation of a
 check container (below). Starting it still serves agent-written code to the
 creator's browser, so it stays their decision: review the change before
 starting its preview. `DELETE /agent-tasks/:taskId/preview` (202)
@@ -1900,15 +1896,14 @@ queues its stop. Preview operations name the task in
   that task's previous container. A command that exits with an error within a
   second fails the preview with its exit code and last error line.
 
-**Preview container.** It is created like a check container: the developer
-image (or the machine's environment image), the workspace volume, the machine
-network (egress only through the proxy), a read-only root filesystem, no
-capabilities, `no-new-privileges` (also on a machine that allows sudo), the
-confinement profiles of agent containers, an empty in-memory home and
+**Preview container.** It is created like a check container: the machine
+image, the workspace volume, the machine network (egress only through the
+proxy), the agent-class [sudo relaxation](../../TECHNICAL.md#sudo-in-machines)
+and confinement profiles of agent containers, an empty in-memory home and
 `/run/kuayle-secrets`, and bounded Docker logs. Its whole environment is the
 image's plus `HOME`, `PORT`, `HOST=0.0.0.0`, the proxy variables and the run
 directory variables (`/workspace/.kuayle/tmp/preview-{taskId}`, removed with
-the preview). It receives no developer-scoped (`ide`/`terminal`) secret, no
+the preview). It receives no developer-scoped (`terminal`) secret, no
 model server key, no GitHub token, no agent sign-in, no live inbox and no agent
 CLI mount; nothing is executed in the developer container to start it. On a
 machine with its own Docker daemon it additionally gets what an attempt on that
@@ -1947,7 +1942,11 @@ Implementing attempts get one prompt line about manual QA: with a preview
 command, that the reviewer can start it from the task; without one, that the attempt
 runs in a temporary container and should explain how to start and test the
 app, which the reviewer can expose from the machine terminal with the
-`kuayle-qa` skill and `kuayle-ports`.
+`kuayle-qa` skill and `kuayle-ports`. Agents check their own UI work inside
+their attempt container with the machine image's Playwright and
+`kuayle-screenshot` (deterministic viewport, scale, locale, time zone and
+fonts; see [App ports](../../TECHNICAL.md#app-ports)), which is also how they
+produce the pull request screenshots above.
 
 ## Dependencies and collaborating agents
 
@@ -1993,7 +1992,7 @@ task worktree with the developer container, so an agent sends a message by
 writing one JSON file per message to `.kuayle/outbox/<name>.json` at its
 worktree root: `{"to":"ENG-12","channel":"internal"|"comment","body":"..."}`
 (the Kuayle-owned `kuayle-agents` skill, installed for Claude Code, Codex and
-OpenCode in the agent, IDE and headless images, describes it; implementing prompts with
+OpenCode in the machine image, describes it; implementing prompts with
 related work get one line about it). Before each attempt the manager creates
 the outbox and adds `/.kuayle/` to the repository's `info/exclude`, so outbox
 files are never committed or published.
@@ -2124,7 +2123,7 @@ volume `kuayle-<routing-key>-inbox-<run-id>` (labels `com.kuayle.service=agent-i
 and the run ID), mounted read-only with `nocopy` at `/run/kuayle/inbox` in the
 agent container, outside `/workspace`. The manager writes into it through a
 writer container with the volume mounted read-write at `/inbox`, created from
-the agent image and never started (no network, read-only root, all
+the attempt's image and never started (no network, read-only root, all
 capabilities dropped): Docker copies into a stopped container's volumes. The
 agent therefore cannot create, change or remove inbox files. Every 5 seconds
 while the attempt runs, the manager writes the queued messages of the task
@@ -2137,10 +2136,12 @@ the same files next time; readers track sequence numbers. Inbox files never
 contain credentials, task or user identifiers. If the inbox cannot be
 prepared the attempt still runs and messages wait for the next attempt.
 
-**Claude Code.** The Claude agent image installs
+**Claude Code.** The machine image installs
 `/etc/claude-code/managed-settings.json` (from
 `devmachine/common/claude-managed-settings.json`), which the repository's
-`.claude` settings cannot replace and the agent cannot edit. It runs
+`.claude` settings cannot replace. With the agent-class sudo an agent could
+edit it in its own container; that affects only its own run, and the inbox
+volume stays read-only. It runs
 `kuayle-live-inbox-hook.cjs` on `PostToolUse` (every tool) and `Stop`. The
 hook reads inbox files with a sequence above the one recorded in
 `~/.kuayle/live-inbox.json` (the attempt's in-memory home, mode 0600, outside

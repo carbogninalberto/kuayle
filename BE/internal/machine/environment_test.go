@@ -152,7 +152,7 @@ func TestEnvironmentStatusNeverRunsInAStoppedContainer(t *testing.T) {
 		store.services[i].Status = "stopped"
 	}
 	require.NoError(t, manager.syncEnvironmentStatus(context.Background(), store.machine, store.services))
-	store.services[0].Status, store.services[1].Status = "running", "running"
+	store.services[0].Status = "running"
 	store.machine.Status = domain.DevMachineStatusPaused
 	require.NoError(t, manager.syncEnvironmentStatus(context.Background(), store.machine, store.services))
 	require.Zero(t, runtime.environment.probes, "nothing runs while the machine or its developer container is not running")

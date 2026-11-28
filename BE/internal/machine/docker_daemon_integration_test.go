@@ -41,8 +41,9 @@ func TestDockerDaemonRunsComposeProjects(t *testing.T) {
 	routingKey := strings.ReplaceAll(uuid.NewString(), "-", "")[:20]
 	gatewayName := "kuayle-integration-gateway-" + routingKey
 	runtime, err := NewDockerRuntime(DockerConfig{
-		GatewayContainerName: gatewayName, IngestURL: "https://example.invalid/api/dev-machine-ingest",
-		DiskQuotaMode: os.Getenv("KUAYLE_TEST_DISK_QUOTA_MODE"), DockerRuntime: os.Getenv("KUAYLE_TEST_DOCKER_RUNTIME"),
+		GatewayContainerName: gatewayName,
+		DiskQuotaMode:        os.Getenv("KUAYLE_TEST_DISK_QUOTA_MODE"),
+		DockerRuntime:        os.Getenv("KUAYLE_TEST_DOCKER_RUNTIME"),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.client.Close() })
@@ -64,7 +65,6 @@ func TestDockerDaemonRunsComposeProjects(t *testing.T) {
 		Profile: domain.DevMachineProfileHeadless, CPUMillis: 4000, MemoryMB: 4096, DiskGB: 20, PidsLimit: 512,
 	}
 	services := []domain.DevMachineService{
-		integrationService(machine, "collector", "collector", integrationImage("KUAYLE_TEST_COLLECTOR_IMAGE", "kuayle/dev-machine-collector:0.1.0"), 8091),
 		integrationService(machine, "egress", "egress", integrationImage("KUAYLE_TEST_EGRESS_IMAGE", "kuayle/dev-machine-egress:0.1.0"), 3128),
 		integrationService(machine, "docker", "docker", dockerImage, dockerDaemonPort),
 		integrationService(machine, "terminal", "terminal", integrationImage("KUAYLE_TEST_HEADLESS_IMAGE", "kuayle/dev-machine-headless:0.1.0"), 7681),
@@ -72,9 +72,8 @@ func TestDockerDaemonRunsComposeProjects(t *testing.T) {
 	material, err := dockertls.New(routingKey)
 	require.NoError(t, err)
 	secrets := map[string]map[string]string{
-		"collector": {"KUAYLE_MACHINE_TOKEN": "integration-test-token"},
-		"docker":    {"KUAYLE_DOCKER_TLS_CA": material.CA, "KUAYLE_DOCKER_TLS_CERT": material.ServerCert, "KUAYLE_DOCKER_TLS_KEY": material.ServerKey},
-		"terminal":  {"KUAYLE_DOCKER_CA": material.CA, "KUAYLE_DOCKER_CERT": material.ClientCert, "KUAYLE_DOCKER_KEY": material.ClientKey},
+		"docker":   {"KUAYLE_DOCKER_TLS_CA": material.CA, "KUAYLE_DOCKER_TLS_CERT": material.ServerCert, "KUAYLE_DOCKER_TLS_KEY": material.ServerKey},
+		"terminal": {"KUAYLE_DOCKER_CA": material.CA, "KUAYLE_DOCKER_CERT": material.ClientCert, "KUAYLE_DOCKER_KEY": material.ClientKey},
 	}
 	networkName, volumeName, containers, err := runtime.Spawn(ctx, machine, services, secrets)
 	machine.DockerNetworkName, machine.WorkspaceVolumeName = &networkName, &volumeName

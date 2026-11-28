@@ -7,7 +7,6 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import { Switch } from '$lib/components/ui/switch';
 	import MachineResourceSliders from '$lib/features/dev-machines/MachineResourceSliders.svelte';
 	import {
@@ -16,14 +15,12 @@
 		getDevMachinePolicy,
 		getDevMachineRepositoryDefaults,
 		getMachineNameSuggestion,
-		listAgentProviders,
-		listDevMachineEnvironments
+		listAgentProviders
 	} from '$lib/api/dev-machines';
 	import type {
 		AgentProvider,
 		CreateDevMachineInput,
 		DevMachine,
-		DevMachineEnvironment,
 		DevMachinePolicy,
 		DevMachineRepositoryDefaults,
 		DevelopmentRepository
@@ -48,11 +45,9 @@
 	}: { open: boolean; slug: string; issue?: Issue; oncreated?: (machine: DevMachine) => void } = $props();
 
 	let providers = $state<AgentProvider[]>([]);
-	let environments = $state<DevMachineEnvironment[]>([]);
 	let policy = $state<DevMachinePolicy | null>(null);
 	let name = $state('');
 	let nameStatus = $state<'idle' | 'checking' | 'available' | 'unavailable'>('idle');
-	let environmentId = $state('standard');
 	let repositoryDefaults = $state<DevMachineRepositoryDefaults | null>(null);
 	let repositoryChoice = $state(DEFAULT_REPOSITORY_CHOICE);
 	let cpuMillis = $state(DEFAULT_MACHINE_RESOURCES.cpu_millis);
@@ -60,8 +55,6 @@
 	let diskGb = $state(DEFAULT_MACHINE_RESOURCES.disk_gb);
 	let useAgent = $state(true);
 	let provider = $state<AgentProvider['id']>('opencode');
-	let profile = $state<'standard' | 'headless'>('standard');
-	let browser = $state(true);
 	let secretValues = $state<Record<string, string>>({});
 	let extraSecretName = $state('');
 	let extraSecretValue = $state('');
@@ -75,8 +68,6 @@
 	let dialogGeneration = 0;
 
 	const selectedProvider = $derived(providers.find((item) => item.id === provider));
-	const selectedEnvironment = $derived(environments.find((item) => item.id === environmentId));
-	const headless = $derived(profile === 'headless');
 	const defaultRepository = $derived(repositoryDefaults?.repository ?? null);
 	const repositoryBlocked = $derived(repositoryChoiceBlocked(repositoryChoice, repositoryDefaults));
 	const sizeOptions = $derived(
@@ -167,24 +158,20 @@
 	async function resetAndLoad(currentSlug: string, generation: number) {
 		loadingOptions = true;
 		providers = [];
-		environments = [];
 		policy = null;
 		secretValues = {};
 		extraSecretName = '';
 		extraSecretValue = '';
-		profile = 'standard';
-		browser = true;
 		repositoryDefaults = null;
 		repositoryChoice = DEFAULT_REPOSITORY_CHOICE;
 		cpuMillis = DEFAULT_MACHINE_RESOURCES.cpu_millis;
 		memoryMb = DEFAULT_MACHINE_RESOURCES.memory_mb;
 		diskGb = DEFAULT_MACHINE_RESOURCES.disk_gb;
 		try {
-			const [suggestion, availableProviders, machinePolicy, availableEnvironments, defaults] = await Promise.all([
+			const [suggestion, availableProviders, machinePolicy, defaults] = await Promise.all([
 				getMachineNameSuggestion(currentSlug),
 				listAgentProviders(currentSlug),
 				getDevMachinePolicy(currentSlug),
-				listDevMachineEnvironments(currentSlug),
 				// Optional: without it the server still applies the configured repository.
 				getDevMachineRepositoryDefaults(currentSlug, { issueId: issue?.id }).catch(() => null)
 			]);
@@ -198,8 +185,6 @@
 				supported_modes: item.supported_modes ?? []
 			}));
 			policy = machinePolicy;
-			environments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
-			environmentId = 'standard';
 			repositoryDefaults = defaults;
 			if (providers.length > 0 && !providers.some((item) => item.id === provider)) provider = providers[0].id;
 			if (providers.length === 0) useAgent = false;
@@ -261,18 +246,17 @@
 		}
 
 		const envVars: CreateDevMachineInput['env_vars'] = [];
-		const developerSecretTarget = headless ? 'terminal' : 'ide';
 		if (useAgent) {
 			for (const requiredSecret of [...(selectedProvider?.required_secrets ?? []), ...(selectedProvider?.optional_secrets ?? [])]) {
 				const value = secretValues[requiredSecret]?.trim();
 				if (!value) continue;
 				envVars.push({ name: requiredSecret, value, target_service: 'agent', provider, secret: true });
-				envVars.push({ name: requiredSecret, value, target_service: developerSecretTarget, secret: true });
+				envVars.push({ name: requiredSecret, value, target_service: 'terminal', secret: true });
 			}
 		}
 		if (useAgent && extraSecretName.trim() && extraSecretValue) {
 			envVars.push({ name: extraSecretName.trim(), value: extraSecretValue, target_service: 'agent', provider, secret: true });
-			envVars.push({ name: extraSecretName.trim(), value: extraSecretValue, target_service: developerSecretTarget, secret: true });
+			envVars.push({ name: extraSecretName.trim(), value: extraSecretValue, target_service: 'terminal', secret: true });
 		}
 
 		loading = true;
@@ -285,11 +269,8 @@
 				cpu_millis: resources.cpu_millis,
 				memory_mb: resources.memory_mb,
 				disk_gb: resources.disk_gb,
-				profile,
-				services: { ide: !headless, browser: headless ? false : browser },
 				agents: useAgent ? [{ provider, mode: 'autonomous', config: providerConfig }] : [],
 				env_vars: envVars,
-				environment_id: selectedEnvironment?.id,
 				repo: repositoryCreateInput(repositoryChoice, repositoryDefaults)
 			});
 			appToast.success('Dev Machine queued');
@@ -333,37 +314,6 @@
 				</p>
 			</div>
 
-			<div class="space-y-2">
-				<Label>{m['machines.profile']()}</Label>
-				<RadioGroup.Root bind:value={profile} class="grid gap-3 sm:grid-cols-2" aria-label={m['machines.profile']()}>
-					<label class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 {profile === 'standard' ? 'border-[var(--app-accent)]' : 'border-[var(--app-border)]'}">
-						<RadioGroup.Item value="standard" aria-label={m['machines.profile_standard']()} class="mt-0.5" />
-						<span>
-							<span class="block text-sm font-medium">{m['machines.profile_standard']()}</span>
-							<span class="mt-1 block text-xs text-muted-foreground">{m['machines.profile_standard_desc']()}</span>
-						</span>
-					</label>
-					<label class="flex cursor-pointer items-start gap-3 rounded-lg border p-3 {profile === 'headless' ? 'border-[var(--app-accent)]' : 'border-[var(--app-border)]'}">
-						<RadioGroup.Item value="headless" aria-label={m['machines.profile_headless']()} class="mt-0.5" />
-						<span>
-							<span class="block text-sm font-medium">{m['machines.profile_headless']()}</span>
-							<span class="mt-1 block text-xs text-muted-foreground">{m['machines.profile_headless_desc']()}</span>
-						</span>
-					</label>
-				</RadioGroup.Root>
-			</div>
-
-			<div class="space-y-1.5">
-				<Label>{m['machines.development_environment']()}</Label>
-				<Select.Root type="single" value={environmentId} onValueChange={(value) => value && (environmentId = value)}>
-					<Select.Trigger class="w-full">{selectedEnvironment?.name ?? m['machines.use_default_environment']()}</Select.Trigger>
-					<Select.Content>
-						<Select.Item value="standard" label={m['machines.use_default_environment']()}>{m['machines.use_default_environment']()}</Select.Item>
-						{#each environments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}
-					</Select.Content>
-				</Select.Root>
-			</div>
-
 			<div class="space-y-1.5">
 				<Label>{m['machines.repository']()}</Label>
 				<Select.Root type="single" value={repositoryChoice} disabled={loadingOptions} onValueChange={(value) => value && (repositoryChoice = value)}>
@@ -383,12 +333,6 @@
 			</div>
 
 			<MachineResourceSliders bind:cpu_millis={cpuMillis} bind:memory_mb={memoryMb} bind:disk_gb={diskGb} {sizeOptions} />
-
-			{#if !headless}
-				<div class="space-y-3 rounded-lg border border-border p-4">
-					<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.browser']()}</Label><p class="text-xs text-muted-foreground">{m['machines.browser_desc']()}</p></div><Switch aria-label={m['machines.browser']()} bind:checked={browser} /></div>
-				</div>
-			{/if}
 
 			<div class="space-y-3 rounded-lg border border-border p-4">
 				<div class="flex items-center justify-between gap-4"><div><Label>{m['machines.agent_runtime']()}</Label><p class="text-xs text-muted-foreground">{m['machines.agent_runtime_desc']()}</p></div><Switch aria-label={m['machines.agent_runtime']()} bind:checked={useAgent} /></div>

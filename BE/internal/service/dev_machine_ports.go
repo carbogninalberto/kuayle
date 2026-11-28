@@ -95,7 +95,7 @@ func normalizePortLabel(label *string) (*string, error) {
 
 // CreatePort exposes one port of the developer container. Ports of the
 // machine's own services are refused, so an app port host can never reach
-// code-server or the terminal without their dedicated protections.
+// the terminal or the Docker daemon without their dedicated protections.
 func (s *DevMachineService) CreatePort(ctx context.Context, workspaceID, machineID, userID uuid.UUID, number int, label *string) (*dto.AppPort, error) {
 	machine, err := s.portOwner(ctx, workspaceID, machineID, userID)
 	if err != nil {
@@ -208,10 +208,8 @@ func (s *DevMachineService) LaunchPort(ctx context.Context, workspaceID, machine
 		if service.InternalPort == port.Port {
 			return nil, ErrPortReserved
 		}
-		if (service.ServiceType == "ide" || service.ServiceType == "terminal") && service.AgentRunID == nil && service.Status == "running" && service.ContainerID != nil {
-			if developer == nil || service.ServiceType == "ide" {
-				developer = service
-			}
+		if service.ServiceType == "terminal" && service.AgentRunID == nil && service.Status == "running" && service.ContainerID != nil {
+			developer = service
 		}
 	}
 	if developer == nil {
@@ -219,5 +217,5 @@ func (s *DevMachineService) LaunchPort(ctx context.Context, workspaceID, machine
 	}
 	launch := *developer
 	launch.ServiceType = domain.AppPortService(port.Port)
-	return s.issueLaunch(ctx, workspaceID, machine, &launch, userID, nil, "-"+strconv.Itoa(port.Port))
+	return s.issueLaunch(ctx, workspaceID, machine, &launch, userID, "-"+strconv.Itoa(port.Port))
 }

@@ -59,9 +59,6 @@ type managerStoreFake struct {
 	terminalSession           *domain.DevMachineTerminalSession
 	completedTerminalIDs      []uuid.UUID
 	failedTerminalIDs         []uuid.UUID
-	environment               *domain.DevMachineEnvironment
-	deleteRequestedEnvs       []domain.DevMachineEnvironment
-	deletedEnvironmentIDs     []uuid.UUID
 	installationFullNameCalls []string
 	githubInstallationID      int64
 	agentRun                  *domain.DevMachineAgentRun
@@ -78,8 +75,6 @@ type managerStoreFake struct {
 	failedOperationRetryable  *bool
 	failOperationWillRetry    *bool
 	completedOperations       int
-	orphanedEnvironmentCount  int
-	orphanReconcileCalls      int
 	orphanedCheckoutCount     int
 	checkoutReconcileCalls    int
 	markAgentRunStarting      func() error
@@ -523,33 +518,9 @@ func (f *managerStoreFake) FailTerminalSessionClose(_ context.Context, sessionID
 	}
 	return nil
 }
-func (f *managerStoreFake) GetEnvironment(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineEnvironment, error) {
-	return f.environment, nil
-}
-func (f *managerStoreFake) UpdateEnvironmentState(_ context.Context, _ uuid.UUID, status, imageRef string, digest *string) error {
-	if f.environment != nil {
-		f.environment.Status = status
-		if imageRef != "" {
-			f.environment.ImageRef = imageRef
-		}
-		f.environment.ImageDigest = digest
-	}
-	return nil
-}
-func (f *managerStoreFake) ReconcileOrphanedEnvironments(context.Context, int) (int, error) {
-	f.orphanReconcileCalls++
-	return f.orphanedEnvironmentCount, nil
-}
 func (f *managerStoreFake) ReconcileOrphanedCheckouts(context.Context, int) (int, error) {
 	f.checkoutReconcileCalls++
 	return f.orphanedCheckoutCount, nil
-}
-func (f *managerStoreFake) ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error) {
-	return f.deleteRequestedEnvs, nil
-}
-func (f *managerStoreFake) DeleteEnvironment(_ context.Context, _ uuid.UUID, environmentID uuid.UUID) error {
-	f.deletedEnvironmentIDs = append(f.deletedEnvironmentIDs, environmentID)
-	return nil
 }
 func (f *managerStoreFake) UpsertRuntimeCredential(_ context.Context, credential *domain.DevMachineRuntimeCredential) error {
 	f.runtimeCredentials = append(f.runtimeCredentials, *credential)
@@ -639,14 +610,10 @@ type runtimeFake struct {
 	onRunAgent                                  func(ctx context.Context, observer *AgentObserver) (*AgentExecution, error)
 	spawned, started, paused, stopped, tornDown int
 	teardownErr                                 error
-	snapshots                                   int
 	agentRuns                                   int
 	terminatedTerminals                         int
 	terminatedSession                           *domain.DevMachineTerminalSession
 	terminateTerminalErr                        error
-	deletedEnvironmentIDs                       []uuid.UUID
-	deleteEnvironmentImageErr                   error
-	environmentDeleteAttempts                   int
 	onSpawn                                     func()
 	agentExecution                              *AgentExecution
 	stats                                       map[uuid.UUID]ResourceUsage
@@ -831,18 +798,6 @@ func (f *runtimeFake) GitState(context.Context, *domain.DevMachine, []domain.Dev
 	return GitState{}, nil
 }
 func (f *runtimeFake) PrepareCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, string) error {
-	return nil
-}
-func (f *runtimeFake) SnapshotEnvironment(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineEnvironment) (string, error) {
-	f.snapshots++
-	return "sha256:test", nil
-}
-func (f *runtimeFake) DeleteEnvironmentImage(_ context.Context, environment *domain.DevMachineEnvironment) error {
-	f.environmentDeleteAttempts++
-	if f.deleteEnvironmentImageErr != nil {
-		return f.deleteEnvironmentImageErr
-	}
-	f.deletedEnvironmentIDs = append(f.deletedEnvironmentIDs, environment.ID)
 	return nil
 }
 func (f *runtimeFake) Ping(context.Context) error { return nil }
@@ -1351,7 +1306,7 @@ func TestManagerLifecycleSpawnPauseAndTeardown(t *testing.T) {
 	machineID, workspaceID := uuid.New(), uuid.New()
 	store := &managerStoreFake{
 		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusQueued},
-		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal"}},
 	}
 	runtime := &runtimeFake{}
 	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), make([]byte, 32), "test")
@@ -1370,14 +1325,14 @@ func TestManagerLifecycleSpawnPauseAndTeardown(t *testing.T) {
 
 func TestManagerPauseRevokesMachineAccess(t *testing.T) {
 	machineID, workspaceID := uuid.New(), uuid.New()
-	containerID := "container-ide"
+	containerID := "container-developer"
 	store := &managerStoreFake{
 		machine: &domain.DevMachine{
 			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
 			Status: domain.DevMachineStatusRunning, DesiredStatus: domain.DevMachineStatusPaused, Generation: 3,
 		},
 		services: []domain.DevMachineService{{
-			ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide",
+			ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal",
 			ContainerID: &containerID, Status: "running",
 		}},
 	}
@@ -1398,7 +1353,7 @@ func TestManagerSkipsStaleOperationGeneration(t *testing.T) {
 	machineID, workspaceID := uuid.New(), uuid.New()
 	store := &managerStoreFake{
 		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusQueued, Generation: 2},
-		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal"}},
 	}
 	runtime := &runtimeFake{}
 	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), make([]byte, 32), "test")
@@ -1413,7 +1368,7 @@ func TestManagerStartResumesSpawnAfterRetryableFailure(t *testing.T) {
 	machineID, workspaceID := uuid.New(), uuid.New()
 	store := &managerStoreFake{
 		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusSpawning},
-		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal"}},
 	}
 	runtime := &runtimeFake{}
 	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), make([]byte, 32), "test")
@@ -1431,7 +1386,7 @@ func TestManagerCheckoutTokenUsesCheckoutRepository(t *testing.T) {
 	machineID, workspaceID, checkoutID := uuid.New(), uuid.New(), uuid.New()
 	store := &managerStoreFake{
 		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning, Generation: 2, RepoOwner: "legacy", RepoName: "old"},
-		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal"}},
 		checkout: &domain.DevMachineCheckout{ID: checkoutID, WorkspaceID: workspaceID, MachineID: machineID, RepositoryFullName: "selected/repo", BaseBranch: "main", WorkingBranch: "kuayle/test", WorkspacePath: "/workspace/tasks/eng-1", Status: "queued"},
 	}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
@@ -1559,7 +1514,7 @@ func TestRepositoryTokenRegistersRuntimeCredentialBeforeReturning(t *testing.T) 
 }
 
 func TestReconcilePurgesExpiredRuntimeCredentials(t *testing.T) {
-	store := &managerStoreFake{orphanedEnvironmentCount: 2, orphanedCheckoutCount: 3}
+	store := &managerStoreFake{orphanedCheckoutCount: 3}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, nil, nil, "test")
 
 	require.NoError(t, manager.reconcile(context.Background()))
@@ -1567,26 +1522,7 @@ func TestReconcilePurgesExpiredRuntimeCredentials(t *testing.T) {
 	require.NotNil(t, store.purgedAccessLogBefore)
 	require.WithinDuration(t, store.purgedCredentialNow.Add(-gatewayAccessLogRetention), *store.purgedAccessLogBefore, time.Second)
 	require.Equal(t, gatewayAccessLogPurgeBatch, store.purgedAccessLogLimit)
-	require.Equal(t, 1, store.orphanReconcileCalls)
 	require.Equal(t, 1, store.checkoutReconcileCalls)
-}
-
-func TestReconcileRetriesEnvironmentImageCleanupFailure(t *testing.T) {
-	environmentID, workspaceID := uuid.New(), uuid.New()
-	store := &managerStoreFake{deleteRequestedEnvs: []domain.DevMachineEnvironment{{
-		ID: environmentID, WorkspaceID: workspaceID, Status: "delete_requested", ImageRef: "kuayle/environment:test",
-	}}}
-	runtime := &runtimeFake{deleteEnvironmentImageErr: errors.New("image is busy")}
-	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
-
-	require.NoError(t, manager.reconcile(context.Background()))
-	require.Equal(t, 1, runtime.environmentDeleteAttempts)
-	require.Empty(t, store.deletedEnvironmentIDs)
-
-	runtime.deleteEnvironmentImageErr = nil
-	require.NoError(t, manager.reconcile(context.Background()))
-	require.Equal(t, 2, runtime.environmentDeleteAttempts)
-	require.Equal(t, []uuid.UUID{environmentID}, store.deletedEnvironmentIDs)
 }
 
 func TestManagerInjectsTheDefaultModelServerOnlyIntoDeveloperServices(t *testing.T) {
@@ -1599,11 +1535,9 @@ func TestManagerInjectsTheDefaultModelServerOnlyIntoDeveloperServices(t *testing
 		modelServer: deepSeekServer(workspaceID, encrypted, "deepseek-v4-pro", "high"),
 	}
 	services := []domain.DevMachineService{
-		{ServiceKey: "ide", ServiceType: "ide"},
 		{ServiceKey: "terminal", ServiceType: "terminal"},
-		{ServiceKey: "collector", ServiceType: "collector"},
-		{ServiceKey: "browser", ServiceType: "browser"},
 		{ServiceKey: "egress", ServiceType: "egress"},
+		{ServiceKey: "docker", ServiceType: "docker"},
 	}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, key, nil, "test")
 
@@ -1626,9 +1560,8 @@ func TestManagerInjectsTheDefaultModelServerOnlyIntoDeveloperServices(t *testing
 		"CLAUDE_CODE_EFFORT_LEVEL":                 "high",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 	}
-	require.Equal(t, expected, secrets["ide"])
 	require.Equal(t, expected, secrets["terminal"])
-	for _, service := range []string{"collector", "browser", "egress"} {
+	for _, service := range []string{"egress", "docker"} {
 		for name := range expected {
 			require.NotContains(t, secrets[service], name, service)
 		}
@@ -1646,10 +1579,10 @@ func TestManagerOmitsClaudeEffortWhenThinkingIsOff(t *testing.T) {
 	}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, key, nil, "test")
 
-	secrets, err := manager.serviceSecrets(context.Background(), store.machine, []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide"}})
+	secrets, err := manager.serviceSecrets(context.Background(), store.machine, []domain.DevMachineService{{ServiceKey: "terminal", ServiceType: "terminal"}})
 	require.NoError(t, err)
-	require.NotContains(t, secrets["ide"], "CLAUDE_CODE_EFFORT_LEVEL")
-	require.Equal(t, "off", secrets["ide"]["KUAYLE_MODEL_THINKING"])
+	require.NotContains(t, secrets["terminal"], "CLAUDE_CODE_EFFORT_LEVEL")
+	require.Equal(t, "off", secrets["terminal"]["KUAYLE_MODEL_THINKING"])
 }
 
 func TestManagerAddsNoModelSecretsWithoutAModelServer(t *testing.T) {
@@ -1657,10 +1590,10 @@ func TestManagerAddsNoModelSecretsWithoutAModelServer(t *testing.T) {
 	store := &managerStoreFake{machine: &domain.DevMachine{ID: uuid.New(), WorkspaceID: workspaceID}}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, cryptoutil.DeriveKey("deepseek-manager-empty-test"), nil, "test")
 
-	secrets, err := manager.serviceSecrets(context.Background(), store.machine, []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide"}})
+	secrets, err := manager.serviceSecrets(context.Background(), store.machine, []domain.DevMachineService{{ServiceKey: "terminal", ServiceType: "terminal"}})
 	require.NoError(t, err)
 	for _, name := range []string{"KUAYLE_MODEL_API_KEY", "KUAYLE_MODEL", "KUAYLE_MODEL_THINKING", "ANTHROPIC_AUTH_TOKEN"} {
-		require.NotContains(t, secrets["ide"], name)
+		require.NotContains(t, secrets["terminal"], name)
 	}
 }
 
@@ -1893,134 +1826,6 @@ func TestManagerRejectsRepositoryAgentRunWithoutCheckout(t *testing.T) {
 	require.Zero(t, store.envVarListCalls)
 }
 
-func TestManagerSnapshotEnvironmentTransitionsThroughBuilding(t *testing.T) {
-	machineID, workspaceID, environmentID := uuid.New(), uuid.New(), uuid.New()
-	environment := &domain.DevMachineEnvironment{ID: environmentID, WorkspaceID: workspaceID, Name: "base", ImageRef: "kuayle/dev-environment-test:snapshot", Status: "pending"}
-	store := &managerStoreFake{
-		machine: &domain.DevMachine{
-			ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123",
-			Status: domain.DevMachineStatusPaused, DesiredStatus: domain.DevMachineStatusPaused, Generation: 3,
-		},
-		services:    []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
-		environment: environment,
-	}
-	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
-
-	err := manager.processOperation(context.Background(), &domain.DevMachineOperation{MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpSnapshotEnvironment, EnvironmentID: &environmentID, Generation: 3})
-
-	require.NoError(t, err)
-	require.Equal(t, "ready", environment.Status)
-	require.NotNil(t, environment.ImageDigest)
-	require.Equal(t, "sha256:test", *environment.ImageDigest)
-	require.Equal(t, "sha256:test", environment.ImageRef)
-}
-
-func TestManagerFailsGenerationMismatchedSnapshotsWithoutRetry(t *testing.T) {
-	for _, generation := range []int64{2, 4} {
-		t.Run(fmt.Sprintf("operation generation %d", generation), func(t *testing.T) {
-			machineID, workspaceID, environmentID := uuid.New(), uuid.New(), uuid.New()
-			environment := &domain.DevMachineEnvironment{
-				ID: environmentID, WorkspaceID: workspaceID, Name: "base",
-				ImageRef: "kuayle/dev-environment-test:snapshot", Status: "pending",
-			}
-			store := &managerStoreFake{
-				machine: &domain.DevMachine{
-					ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusPaused,
-					DesiredStatus: domain.DevMachineStatusPaused, Generation: 3,
-				},
-				environment: environment,
-			}
-			runtime := &runtimeFake{}
-			manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
-			operation := domain.DevMachineOperation{
-				ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID,
-				Action: domain.DevMachineOpSnapshotEnvironment, EnvironmentID: &environmentID,
-				Status: domain.DevMachineOpStatusLeased, Generation: generation, MaxAttempts: 2,
-			}
-			manager.operationSlots <- struct{}{}
-			manager.operations.Add(1)
-
-			manager.processLeasedOperation(context.Background(), operation)
-
-			require.Equal(t, "failed", environment.Status)
-			require.Zero(t, runtime.snapshots)
-			require.NotNil(t, store.failedOperationRetryable)
-			require.False(t, *store.failedOperationRetryable)
-			require.Equal(t, "environment_snapshot_stale", store.failedOperationCode)
-			require.Contains(t, store.failedOperationMessage, "machine generation changed")
-			require.Zero(t, store.completedOperations)
-		})
-	}
-}
-
-func TestManagerFailsSnapshotWhenMachineStateChanged(t *testing.T) {
-	machineID, workspaceID, environmentID := uuid.New(), uuid.New(), uuid.New()
-	environment := &domain.DevMachineEnvironment{
-		ID: environmentID, WorkspaceID: workspaceID, Name: "base",
-		ImageRef: "kuayle/dev-environment-test:snapshot", Status: "building",
-	}
-	store := &managerStoreFake{
-		machine: &domain.DevMachine{
-			ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusPaused,
-			DesiredStatus: domain.DevMachineStatusRunning, Generation: 3,
-		},
-		environment: environment,
-	}
-	runtime := &runtimeFake{}
-	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
-	operation := domain.DevMachineOperation{
-		ID: uuid.New(), MachineID: machineID, WorkspaceID: workspaceID,
-		Action: domain.DevMachineOpSnapshotEnvironment, EnvironmentID: &environmentID,
-		Status: domain.DevMachineOpStatusLeased, Generation: 3, MaxAttempts: 2,
-	}
-	manager.operationSlots <- struct{}{}
-	manager.operations.Add(1)
-
-	manager.processLeasedOperation(context.Background(), operation)
-
-	require.Equal(t, "failed", environment.Status)
-	require.Zero(t, runtime.snapshots)
-	require.NotNil(t, store.failedOperationRetryable)
-	require.False(t, *store.failedOperationRetryable)
-	require.Equal(t, "environment_snapshot_state_changed", store.failedOperationCode)
-	require.Contains(t, store.failedOperationMessage, "desired state running")
-	require.Zero(t, store.completedOperations)
-}
-
-func TestManagerSnapshotRetryDoesNotUndoEnvironmentDeletion(t *testing.T) {
-	machineID, workspaceID, environmentID := uuid.New(), uuid.New(), uuid.New()
-	environment := &domain.DevMachineEnvironment{
-		ID: environmentID, WorkspaceID: workspaceID, Name: "base",
-		ImageRef: "kuayle/dev-environment-test:snapshot", Status: "delete_requested",
-	}
-	store := &managerStoreFake{
-		machine:     &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, Status: domain.DevMachineStatusPaused, Generation: 3},
-		services:    []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
-		environment: environment,
-	}
-	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, make([]byte, 32), nil, "test")
-
-	err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
-		MachineID: machineID, WorkspaceID: workspaceID, Action: domain.DevMachineOpSnapshotEnvironment,
-		EnvironmentID: &environmentID, Generation: 3,
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, "delete_requested", environment.Status)
-	require.Nil(t, environment.ImageDigest)
-}
-
-func TestReconcileDeletesRequestedEnvironmentImagesBeforeRecords(t *testing.T) {
-	environment := domain.DevMachineEnvironment{ID: uuid.New(), WorkspaceID: uuid.New(), ImageRef: "kuayle/dev-environment-test:snapshot", Status: "delete_requested"}
-	store := &managerStoreFake{deleteRequestedEnvs: []domain.DevMachineEnvironment{environment}}
-	runtime := &runtimeFake{}
-	manager := NewManager(store, runtime, agent.NewRegistry(), nil, nil, nil, "test")
-
-	require.NoError(t, manager.reconcile(context.Background()))
-	require.Equal(t, []uuid.UUID{environment.ID}, runtime.deletedEnvironmentIDs)
-	require.Equal(t, []uuid.UUID{environment.ID}, store.deletedEnvironmentIDs)
-}
-
 func TestReconcilePermanentDeletePurgesOnlySafeRowsAndQueuesUnsafeRows(t *testing.T) {
 	now := time.Now().UTC()
 	networkName := "machine-network"
@@ -2053,7 +1858,7 @@ func TestManagerDoesNotPublishRunningAfterGenerationChanges(t *testing.T) {
 	machineID, workspaceID := uuid.New(), uuid.New()
 	store := &managerStoreFake{
 		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusQueued, Generation: 1},
-		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal"}},
 	}
 	runtime := &runtimeFake{onSpawn: func() {
 		store.machine.Generation = 2
@@ -2074,7 +1879,7 @@ func TestWorkspaceMountDisablesImageCopyUp(t *testing.T) {
 	runtime := &DockerRuntime{}
 	machine := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512}
 
-	hostConfig := runtime.secureHostConfig(machine, "ide", "machine-network", "workspace-volume", false)
+	hostConfig := runtime.secureHostConfig(machine, "terminal", "machine-network", "workspace-volume", false)
 
 	require.Len(t, hostConfig.Mounts, 1)
 	require.NotNil(t, hostConfig.Mounts[0].VolumeOptions)
@@ -2088,15 +1893,6 @@ func TestOwnedByMachineRequiresManagedLabel(t *testing.T) {
 	require.True(t, ownedByMachine(map[string]string{"com.kuayle.managed": "true", "com.kuayle.machine-id": machineID.String()}, machineID))
 	require.False(t, ownedByMachine(map[string]string{"com.kuayle.machine-id": machineID.String()}, machineID))
 	require.False(t, ownedByMachine(map[string]string{"com.kuayle.managed": "true", "com.kuayle.machine-id": uuid.NewString()}, machineID))
-}
-
-func TestUniqueContainerIDsDeduplicatesSharedDeveloperServices(t *testing.T) {
-	containerID := "developer-container"
-	ids := uniqueContainerIDs([]domain.DevMachineService{
-		{ServiceType: "ide", ServiceKey: "ide", ContainerID: &containerID},
-		{ServiceType: "terminal", ServiceKey: "terminal", ContainerID: &containerID},
-	})
-	require.Equal(t, []string{containerID}, ids)
 }
 
 func TestRepositoryTokenWithUnsetGlobalClientUsesWorkspaceConfig(t *testing.T) {

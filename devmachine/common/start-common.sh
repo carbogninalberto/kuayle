@@ -15,7 +15,7 @@ seed_home_template() {
 
 # Points an interactive Codex at the workspace's default model server. Agent
 # runs pass the server explicitly as -c overrides, so this file only serves
-# terminals and the IDE, and an existing user-managed config is left unchanged.
+# terminals, and an existing user-managed config is left unchanged.
 configure_codex_model() {
   if [ -z "${KUAYLE_MODEL_API_KEY:-}" ] || [ -z "${KUAYLE_MODEL_OPENAI_BASE_URL:-}" ] || [ -z "${KUAYLE_MODEL:-}" ]; then
     return 0
@@ -360,23 +360,15 @@ prepare_developer_workspace() {
       git -C "$workspace_root" checkout "$KUAYLE_WORKING_BRANCH" 2>/dev/null || git -C "$workspace_root" checkout -b "$KUAYLE_WORKING_BRANCH"
     fi
   fi
-  if [ -d "$workspace_root/.git" ] && [ -n "${KUAYLE_WORKING_BRANCH:-}" ]; then
-    hooks="$workspace_root/.git/hooks"
-    cat > "$hooks/post-commit" <<'SCRIPT'
-#!/bin/sh
-commit=$(git rev-parse HEAD)
-curl -fsS -X POST -H 'Content-Type: application/json' --data "{\"source\":\"git\",\"event_type\":\"git.commit_created\",\"payload\":{\"commit\":\"$commit\"}}" "$KUAYLE_COLLECTOR_URL/event" >/dev/null 2>&1 || true
-SCRIPT
-    cat > "$hooks/post-checkout" <<'SCRIPT'
-#!/bin/sh
-branch=$(git branch --show-current)
-curl -fsS -X POST -H 'Content-Type: application/json' --data "{\"source\":\"git\",\"event_type\":\"git.branch_changed\",\"payload\":{\"branch\":\"$branch\"}}" "$KUAYLE_COLLECTOR_URL/event" >/dev/null 2>&1 || true
-SCRIPT
-    cat > "$hooks/pre-push" <<'SCRIPT'
-#!/bin/sh
-curl -fsS -X POST -H 'Content-Type: application/json' --data '{"source":"git","event_type":"git.push_started","payload":{}}' "$KUAYLE_COLLECTOR_URL/event" >/dev/null 2>&1 || true
-SCRIPT
-    chmod 0755 "$hooks/post-commit" "$hooks/post-checkout" "$hooks/pre-push"
+  # Earlier releases installed root-checkout hooks that reported to the
+  # machine's collector, which no longer exists. Remove only those hooks.
+  if [ -d "$workspace_root/.git/hooks" ]; then
+    for hook in post-commit post-checkout pre-push; do
+      hook_file="$workspace_root/.git/hooks/$hook"
+      if [ -f "$hook_file" ] && grep -q 'KUAYLE_COLLECTOR_URL' "$hook_file"; then
+        rm -f "$hook_file"
+      fi
+    done
   fi
 
   kuayle_default_workspace="$workspace_root/tasks"

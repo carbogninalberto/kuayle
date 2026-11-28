@@ -40,13 +40,13 @@ func TestStartCommonPointsTheDockerCLIAtTheMachineDaemon(t *testing.T) {
 	output, err := runDockerClientSetup(t, home,
 		"KUAYLE_DOCKER_CA=ca-pem", "KUAYLE_DOCKER_CERT=client-cert", "KUAYLE_DOCKER_KEY=client-key-secret",
 		"KUAYLE_DOCKER_HOST=tcp://abc123-docker:2376",
-		"HTTP_PROXY=http://abc123-egress:3128", "HTTPS_PROXY=http://abc123-egress:3128", "NO_PROXY=localhost,abc123-collector")
+		"HTTP_PROXY=http://abc123-egress:3128", "HTTPS_PROXY=http://abc123-egress:3128", "NO_PROXY=localhost,abc123-terminal")
 	require.NoError(t, err, output)
 	require.Contains(t, output, "DOCKER_HOST=tcp://abc123-docker:2376\n")
 	require.Contains(t, output, "DOCKER_TLS_VERIFY=1\n")
 	require.Contains(t, output, "DOCKER_CERT_PATH="+filepath.Join(home, ".docker")+"\n")
-	require.Contains(t, output, "NO_PROXY=localhost,abc123-collector,docker,abc123-docker\n")
-	require.Contains(t, output, "no_proxy=localhost,abc123-collector,docker,abc123-docker\n")
+	require.Contains(t, output, "NO_PROXY=localhost,abc123-terminal,docker,abc123-docker\n")
+	require.Contains(t, output, "no_proxy=localhost,abc123-terminal,docker,abc123-docker\n")
 	require.Contains(t, output, "LEFT=\n", "the material is removed from the environment")
 	require.NotContains(t, output, "client-key-secret")
 	for file, content := range map[string]string{"ca.pem": "ca-pem", "cert.pem": "client-cert", "key.pem": "client-key-secret"} {
@@ -199,7 +199,7 @@ func TestDockerImagesArePinned(t *testing.T) {
 	require.Regexp(t, `(?m)^COMPOSE_COMMIT=[0-9a-f]{40}$`, string(plugins))
 	require.Regexp(t, `(?m)^BUILDX_COMMIT=[0-9a-f]{40}$`, string(plugins))
 	require.Contains(t, string(plugins), "golang.org/x/net=golang.org/x/net@v0.62.0")
-	for _, image := range []string{"ide", "headless", "agent"} {
+	for _, image := range []string{"headless"} {
 		content, err := os.ReadFile(filepath.Join(root, "devmachine", image, "Dockerfile"))
 		require.NoError(t, err)
 		require.Regexp(t, `install-docker-cli\.sh "\$TARGETARCH"`, string(content), image)

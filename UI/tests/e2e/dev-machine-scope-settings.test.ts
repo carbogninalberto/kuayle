@@ -18,8 +18,6 @@ test('keeps project and team development settings scoped during rapid navigation
 	const projectBId = '00000000-0000-0000-0000-000000000021';
 	const repoAId = '00000000-0000-0000-0000-000000000030';
 	const repoBId = '00000000-0000-0000-0000-000000000031';
-	const environmentAId = '00000000-0000-0000-0000-000000000040';
-	const environmentBId = '00000000-0000-0000-0000-000000000041';
 	const now = '2026-07-23T00:00:00Z';
 	const teams = [
 		{ id: teamAId, name: 'Team Alpha', key: 'ALPHA', description: null, color: '#3b82f6', icon: 'SquareUser', triage_enabled: false, parent_auto_close_enabled: false, sub_issue_auto_close_enabled: false, issue_copy_prompt: null, created_at: now, updated_at: now },
@@ -32,10 +30,6 @@ test('keeps project and team development settings scoped during rapid navigation
 	const repositories = [
 		{ id: repoAId, github_repo_id: 1001, full_name: 'kuayle/repo-alpha', default_branch: 'main', is_active: true },
 		{ id: repoBId, github_repo_id: 1002, full_name: 'kuayle/repo-beta', default_branch: 'develop', is_active: true }
-	];
-	const environments = [
-		{ id: environmentAId, workspace_id: workspaceId, name: 'Alpha environment', status: 'ready', image_ref: 'alpha:latest', created_at: now, updated_at: now },
-		{ id: environmentBId, workspace_id: workspaceId, name: 'Beta environment', status: 'ready', image_ref: 'beta:latest', created_at: now, updated_at: now }
 	];
 	const scopeDelays = new Map<string, ReturnType<typeof createRequestDelay>>();
 	const savedSettings: Record<string, unknown>[] = [];
@@ -59,7 +53,6 @@ test('keeps project and team development settings scoped during rapid navigation
 		if (path === '/api/workspaces/test/issues') return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path === `/api/workspaces/test/teams/${teamAId}/cycles` || path === `/api/workspaces/test/teams/${teamBId}/cycles`) return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/github/status') return route.fulfill({ json: { configured: true, installed: true, global_app: false, repos: repositories } });
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: environments });
 		if (path === '/api/workspaces/test/dev-machine-scope-setting' && request.method() === 'GET') {
 			const scopeType = url.searchParams.get('scope_type');
 			const scopeId = url.searchParams.get('scope_id') ?? '';
@@ -75,7 +68,6 @@ test('keeps project and team development settings scoped during rapid navigation
 				team_id: scopeType === 'team' ? scopeId : undefined,
 				project_id: scopeType === 'project' ? scopeId : undefined,
 				github_repo_id: useBeta ? repoBId : repoAId,
-				environment_id: useBeta ? environmentBId : environmentAId,
 				test_command: useBeta ? ['npm','test'] : ['go','test','./...'],
 				pull_request_template: useBeta ? '## Beta\n{{description}}' : undefined
 			} });
@@ -114,7 +106,6 @@ test('keeps project and team development settings scoped during rapid navigation
 	teamBDelay.release();
 	await teamBDelay.completed;
 	await expect(page.getByText('kuayle/repo-beta', { exact: true })).toBeVisible();
-	await expect(page.getByText('Beta environment', { exact: true })).toBeVisible();
 	await expect(teamSave).toBeEnabled();
 	teamADelay.release();
 	await teamADelay.completed;
@@ -141,7 +132,8 @@ test('keeps project and team development settings scoped during rapid navigation
 	await expect(page.getByText('Use a relative .yml or .yaml path inside the repository.')).toHaveCount(0);
 	await teamSave.click();
 	await expect.poll(() => savedSettings.length).toBe(1);
-	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, environment_id: environmentBId, agent_provider: 'claude-code', agent_instructions: 'Use pnpm.', compose_file: 'deploy/compose.yaml', preview_command: ['npm', 'run', 'dev'], preview_port: 5173, pull_request_template: '## Beta\n{{description}}' });
+	expect(savedSettings[0]).toMatchObject({ scope_type: 'team', scope_id: teamBId, github_repo_id: repoBId, agent_provider: 'claude-code', agent_instructions: 'Use pnpm.', compose_file: 'deploy/compose.yaml', preview_command: ['npm', 'run', 'dev'], preview_port: 5173, pull_request_template: '## Beta\n{{description}}' });
+	expect(savedSettings[0]).not.toHaveProperty('environment_id');
 
 	const projectADelay = createRequestDelay();
 	const projectBDelay = createRequestDelay();
@@ -165,7 +157,6 @@ test('keeps project and team development settings scoped during rapid navigation
 	await page.getByTitle('Development settings').click();
 	const projectDialog = page.getByRole('dialog');
 	await expect(projectDialog.getByText('kuayle/repo-beta', { exact: true })).toBeVisible();
-	await expect(projectDialog.getByText('Beta environment', { exact: true })).toBeVisible();
 	projectADelay.release();
 	await projectADelay.completed;
 	await page.waitForTimeout(50);
@@ -174,7 +165,8 @@ test('keeps project and team development settings scoped during rapid navigation
 	await expect(projectDialog.getByRole('textbox', { name: 'Test command' })).toHaveCount(0);
 	await projectDialog.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect.poll(() => savedSettings.length).toBe(2);
-	expect(savedSettings[1]).toMatchObject({ scope_type: 'project', scope_id: projectBId, github_repo_id: repoBId, environment_id: environmentBId });
+	expect(savedSettings[1]).toMatchObject({ scope_type: 'project', scope_id: projectBId, github_repo_id: repoBId });
+	expect(savedSettings[1]).not.toHaveProperty('environment_id');
 	expect(deleteRequests).toBe(0);
 
 	workspaceRole = 'member';
@@ -185,7 +177,6 @@ test('keeps project and team development settings scoped during rapid navigation
 	const readOnlyDialog = page.getByRole('dialog');
 	await expect(readOnlyDialog.getByText('Workspace owners and admins manage project development defaults.')).toBeVisible();
 	await expect(readOnlyDialog.getByText('kuayle/repo-alpha', { exact: true })).toBeVisible();
-	await expect(readOnlyDialog.getByText('Alpha environment', { exact: true })).toBeVisible();
 	await expect(readOnlyDialog.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
 	await expect(readOnlyDialog.getByRole('textbox', { name: 'Test command' })).toHaveCount(0);
 	expect(savedSettings).toHaveLength(2);
