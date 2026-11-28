@@ -30,6 +30,8 @@ func automationError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusBadRequest, "INVALID_AUTOMATION", "Invalid automation")
 	case errors.Is(err, service.ErrPipelinesDisabled):
 		return response.Error(c, http.StatusForbidden, "PIPELINES_DISABLED", "Pipeline workflows are turned off on this server")
+	case errors.Is(err, service.ErrGraphWorkflowsRemoved):
+		return response.Error(c, http.StatusBadRequest, "GRAPH_WORKFLOWS_REMOVED", "Graph workflows were removed; create a pipeline instead")
 	default:
 		return machineError(c, err)
 	}

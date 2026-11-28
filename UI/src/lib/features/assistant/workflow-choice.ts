@@ -2,8 +2,8 @@ import type { WorkflowList, WorkflowSummary } from '$lib/api/workflows';
 
 // The workflow a task follows is chosen where it starts: in the task composer
 // and on an assistant delegation's approval card. Both offer the issue's
-// default, Standard and the workspace's custom workflows. The scopes'
-// defaults and the automations choose among the same workflows (startable).
+// default, Standard and the workspace's pipelines. The scopes' defaults and
+// the automations choose among the same workflows (startable).
 
 /** The choice that leaves the workflow to the issue's default. */
 export const DEFAULT_WORKFLOW = 'default';
@@ -14,32 +14,25 @@ export interface WorkflowOption {
 }
 
 /**
- * Whether tasks can be started on a workflow: not archived, and a pipeline
- * only while the server's switch is on (the server refuses one otherwise).
+ * Whether tasks can be started on a workflow besides Standard: a pipeline
+ * that is not archived, only while the server's switch is on (the server
+ * refuses one otherwise, and refuses a graph: graph workflows were removed).
  */
 export function startable(list: WorkflowList | null | undefined, w: WorkflowSummary): boolean {
-	return !w.archived && (w.graph?.kind !== 'pipeline' || !!list?.pipelines_enabled);
+	return !w.archived && w.graph?.kind === 'pipeline' && !!list?.pipelines_enabled;
 }
 
-/** The workflows a task can be started on besides Standard. */
+/** The pipelines a task can be started on besides Standard. */
 export function customWorkflows(list: WorkflowList | null | undefined): WorkflowSummary[] {
 	return (list?.workflows ?? []).filter((w) => !w.builtin && startable(list, w));
 }
 
-/**
- * A custom workflow's first agent step decides the harness and model; a
- * pipeline's writer role does.
- */
+/** A pipeline's writer role decides the harness and model. */
 export function isCustomChoice(choice: string): boolean {
 	return choice !== DEFAULT_WORKFLOW && choice !== 'standard';
 }
 
-/** Whether the choice is a pipeline of the list. */
-export function isPipelineChoice(list: WorkflowList | null | undefined, choice: string): boolean {
-	return !!list?.workflows.some((w) => w.id === choice && w.graph?.kind === 'pipeline');
-}
-
-/** A default of the workspace, a team or a project may itself be a custom workflow. */
+/** A default of the workspace, a team or a project may itself be a pipeline. */
 export function defaultMayBeCustom(list: WorkflowList | null | undefined): boolean {
 	return (list?.defaults ?? []).some((d) => d.workflow_id);
 }

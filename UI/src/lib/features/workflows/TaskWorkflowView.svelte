@@ -20,8 +20,9 @@
 	import { decisionAnchor, roomBlocker, openRoomBlocker } from '../assistant/task-room';
 	import { pendingDecision } from './workflow-graph';
 
-	// A task's workflow run: the graph with the current step highlighted and
-	// the decisions a person can make (an approval, or a reached limit). The
+	// A task's workflow run: its chart (a pipeline's phases, or the built-in
+	// Standard flow) with the current step highlighted, and the decisions a
+	// person can make on a pipeline (an approval, or a reached limit). The
 	// server decides who may decide; the view only offers what it allows. The
 	// path the task took is the task's own (TaskPath). The run is the task's
 	// shared one (useTaskRun): it follows the task's events and is polled
@@ -92,18 +93,9 @@
 					? m['workflows.task.waiting_approval']({ question: decision.question || nodeLabel(run.node) })
 					: m['workflows.task.paused_note']()}
 			</p>{/if}
-			{#if decision.kind === 'approval' && run.ship_merge}
-				<!-- The ship approval: approving merges (KUA-209, KUA-216). -->
-				<p class="text-xs text-muted-foreground" data-testid="task-workflow-ship-merge">
-					{m['workflows.task.ship_merge_note']()}
-				</p>
-			{/if}
 			<div class="mobile-touch-targets flex flex-wrap gap-2">
 				{#if decision.kind === 'approval'}
 					<Button size="sm" disabled={deciding} onclick={() => decide('approve')}>{m['workflows.task.approve']()}</Button>
-					{#if !shared.pipeline}<Button size="sm" variant="outline" disabled={deciding} onclick={() => decide('deny')}
-							>{m['workflows.task.deny']()}</Button
-						>{/if}
 				{:else}
 					<Button size="sm" variant={blocker ? 'outline' : 'default'} disabled={deciding} onclick={() => decide('continue')}
 						>{m['workflows.task.continue']()}</Button

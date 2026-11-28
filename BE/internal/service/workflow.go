@@ -274,33 +274,11 @@ func summaryOf(w repository.WorkflowDetail) WorkflowSummary {
 	return out
 }
 
-// standardView is the Standard workflow as the workspace runs it: its edited
-// copy, else the built-in flow. For the editor, the built-in graph is the
-// editable copy (the workspace's implementer on the implement step), so a
-// first save is valid as it is.
-func (s *WorkflowService) standardView(ctx context.Context, ws uuid.UUID, editable bool) (*WorkflowView, error) {
-	override, err := s.repo.StandardOverride(ctx, ws)
-	if err != nil {
-		return nil, err
-	}
-	if override != nil {
-		versions, err := s.repo.Versions(ctx, ws, override.ID)
-		if err != nil {
-			return nil, err
-		}
-		return &WorkflowView{WorkflowSummary: summaryOf(*override), Versions: versions}, nil
-	}
-	view := &WorkflowView{WorkflowSummary: standardSummary(), Versions: []domain.WorkflowVersion{}}
-	if editable {
-		implementer, _, err := s.builtinProfileIDs(ctx, ws)
-		if err != nil {
-			return nil, err
-		}
-		if view.Graph, err = json.Marshal(standardCopy(implementer)); err != nil {
-			return nil, err
-		}
-	}
-	return view, nil
+// standardView is the built-in Standard flow, read-only: every task without
+// a workflow runs it. Workflows are pipelines; the flow itself is no longer
+// an editable graph.
+func (s *WorkflowService) standardView(context.Context, uuid.UUID, bool) (*WorkflowView, error) {
+	return &WorkflowView{WorkflowSummary: standardSummary(), Versions: []domain.WorkflowVersion{}}, nil
 }
 
 func (s *WorkflowService) List(ctx context.Context, ws uuid.UUID) (*WorkflowList, error) {
@@ -535,7 +513,9 @@ func (s *WorkflowService) Save(ctx context.Context, ws uuid.UUID, id string, in 
 		return nil, repository.ErrWorkflowDenied
 	}
 	if id == domain.StandardWorkflowID {
-		return s.saveStandard(ctx, ws, actor, in)
+		// The built-in flow runs every task without a workflow; it is not
+		// an editable graph.
+		return nil, ErrGraphWorkflowsRemoved
 	}
 	workflowID, err := uuid.Parse(id)
 	if err != nil {
@@ -556,41 +536,6 @@ func (s *WorkflowService) Save(ctx context.Context, ws uuid.UUID, id string, in 
 	return &summary, nil
 }
 
-// saveStandard stores an edit of the Standard workflow: the first edit
-// creates the workspace's copy (expected version 0), later ones add versions.
-// Its name stays "Standard".
-func (s *WorkflowService) saveStandard(ctx context.Context, ws, actor uuid.UUID, in WorkflowRequest) (*WorkflowSummary, error) {
-	_, description, err := validateWorkflowMeta("Standard", in.Description)
-	if err != nil {
-		return nil, err
-	}
-	// Every task without another workflow runs Standard.
-	if domain.WorkflowKind(in.Graph) != domain.WorkflowKindGraph {
-		return nil, &ErrInvalidWorkflowInput{"the Standard workflow stays a graph"}
-	}
-	if err = s.requireStartable(ctx, ws, in.Graph); err != nil {
-		return nil, err
-	}
-	override, err := s.repo.StandardOverride(ctx, ws)
-	if err != nil {
-		return nil, err
-	}
-	var saved *repository.WorkflowDetail
-	switch {
-	case override == nil && in.ExpectedVersion != 0, override != nil && in.ExpectedVersion == 0:
-		return nil, repository.ErrWorkflowStale
-	case override == nil:
-		saved, err = s.repo.CreateStandardOverride(ctx, ws, actor, description, in.Graph)
-	default:
-		saved, err = s.repo.SaveVersion(ctx, ws, override.ID, actor, in.ExpectedVersion, override.Name, description, in.Graph)
-	}
-	if err != nil {
-		return nil, err
-	}
-	summary := summaryOf(*saved)
-	return &summary, nil
-}
-
 // Duplicate copies a workflow's latest version (or the Standard flow) into
 // a new workflow.
 func (s *WorkflowService) Duplicate(ctx context.Context, ws uuid.UUID, id, name string) (*WorkflowSummary, error) {
@@ -604,11 +549,7 @@ func (s *WorkflowService) Duplicate(ctx context.Context, ws uuid.UUID, id, name 
 	var graph json.RawMessage
 	var description, source string
 	if id == domain.StandardWorkflowID {
-		standard, err := s.standardView(ctx, ws, true)
-		if err != nil {
-			return nil, err
-		}
-		graph, source, description = standard.Graph, "Standard", standard.Description
+		return nil, ErrGraphWorkflowsRemoved
 	} else {
 		workflowID, err := uuid.Parse(id)
 		if err != nil {
@@ -659,16 +600,6 @@ func (s *WorkflowService) Delete(ctx context.Context, ws uuid.UUID, id string) e
 	actor, _, err := s.access(ctx, ws)
 	if err != nil {
 		return err
-	}
-	if id == domain.StandardWorkflowID {
-		override, err := s.repo.StandardOverride(ctx, ws)
-		if err != nil {
-			return err
-		}
-		if override == nil {
-			return repository.ErrWorkflowNotFound
-		}
-		return s.repo.DeleteWorkflow(ctx, ws, override.ID, actor)
 	}
 	workflowID, err := uuid.Parse(id)
 	if err != nil {

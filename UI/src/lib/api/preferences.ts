@@ -16,8 +16,6 @@ export interface PreferencesData {
 	issues_group_by: IssuesGroupByPreference;
 	browser_notifications: boolean;
 	push_notifications: boolean;
-	/** Absent on older servers: the workflow editor panel defaults to open. */
-	workflow_editor_panel_open?: boolean;
 	notification_sound: NotificationSound;
 	/** Responses carry every event key; a PATCH may send a partial map, which the server merges. */
 	notification_events: Partial<NotificationEvents>;

@@ -170,20 +170,15 @@ export interface WorkflowIssue {
 	edge_id?: string;
 }
 
-/** A pipeline drafted from a graph workflow, or null and the reasons it has none. */
-export interface PipelineDraft {
-	pipeline: PipelineDefinition | null;
-	reasons: WorkflowIssue[];
-}
-
 export interface WorkflowSummary {
-	/** "standard" for the Standard workflow, built-in or as the workspace edited it. */
+	/**
+	 * "standard" for the built-in Standard flow every task without a workflow
+	 * runs: read only, never edited or duplicated. Every other workflow is a pipeline.
+	 */
 	id: string;
 	name: string;
 	description: string;
 	builtin: boolean;
-	/** The workspace edited Standard; deleting it restores the built-in flow. */
-	customized: boolean;
 	latest_version: number;
 	version_id?: string | null;
 	archived: boolean;
@@ -365,26 +360,20 @@ export interface TaskWorkflow {
 	pauses?: WorkflowPauseEvent[];
 }
 
-export type WorkflowDecision = 'approve' | 'deny' | 'continue' | 'stop';
+export type WorkflowDecision = 'approve' | 'continue' | 'stop';
 
 /**
- * The server's built-in templates. A "_pipeline" one is the pipeline version
- * of the graph template it names, drafted from it, and is offered only while
- * the server has pipelines on (KUA-290).
+ * The server's built-in pipeline templates, offered only while the server
+ * has pipelines on (KUA-290). Graph workflows were removed: the server
+ * refuses a graph, and the graph templates, with GRAPH_WORKFLOWS_REMOVED.
  */
-export type WorkflowTemplate =
-	| 'review_loop'
-	| 'full_cycle'
-	| 'standard'
-	| 'review_loop_pipeline'
-	| 'full_cycle_pipeline'
-	| 'standard_pipeline';
+export type WorkflowTemplate = 'review_loop_pipeline' | 'full_cycle_pipeline' | 'standard_pipeline';
 
 export interface WorkflowSaveInput {
 	name: string;
 	description: string;
-	graph?: WorkflowGraph | PipelineDefinition;
-	/** A built-in starting point instead of a graph. */
+	graph?: PipelineDefinition;
+	/** A built-in starting point instead of a pipeline. */
 	template?: WorkflowTemplate;
 	expected_version?: number;
 }
@@ -405,20 +394,15 @@ export const workflows = {
 	list: (slug: string) => api.get<WorkflowList>(`${base(slug)}/workflows`),
 	get: (slug: string, id: string) => api.get<WorkflowDetail>(one(slug, id)),
 	create: (slug: string, input: WorkflowSaveInput) => api.post<WorkflowSummary>(`${base(slug)}/workflows`, input),
-	/** Saves the graph as the next version; expected_version guards concurrent edits. */
+	/** Saves the pipeline as the next version; expected_version guards concurrent edits. */
 	save: (slug: string, id: string, input: WorkflowSaveInput) => api.put<WorkflowSummary>(one(slug, id), input),
 	duplicate: (slug: string, id: string, name?: string) =>
 		api.post<WorkflowSummary>(`${one(slug, id)}/duplicate`, name ? { name } : {}),
-	/** Deletes a workflow; for "standard", discards the workspace's edits. */
+	/** Deletes a workflow for good; Standard cannot be deleted. */
 	remove: (slug: string, id: string) => api.delete<void>(one(slug, id)),
 	/** Issues refuse a save; warnings (absent on older servers) never do. */
 	validate: (slug: string, graph: WorkflowGraph | PipelineDefinition) =>
 		api.post<{ issues: WorkflowIssue[]; warnings?: WorkflowIssue[] }>(`${base(slug)}/workflows/validate`, { graph }),
-	/**
-	 * Drafts a pipeline from a graph workflow, or says why it cannot (KUA-283).
-	 * Nothing is saved: the person saves the draft as a new workflow.
-	 */
-	draftPipeline: (slug: string, id: string) => api.post<PipelineDraft>(`${one(slug, id)}/draft-pipeline`, {}),
 	/** workflow_id "standard" chooses Standard; null makes a team or project inherit. */
 	setDefault: (slug: string, scope: WorkflowScope, scopeId: string, workflowId: string | null) =>
 		api.put<WorkflowList>(`${base(slug)}/workflow-defaults`, { scope, scope_id: scopeId, workflow_id: workflowId }),

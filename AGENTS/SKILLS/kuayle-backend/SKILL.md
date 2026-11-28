@@ -87,7 +87,8 @@ ownership, pre-dispatch encrypted credential snapshots, atomic log/activity
 persistence and physical cancellation checks.
 
 For periodic delegation, follow the [automation worker and replay contract](../../../BE/docs/agent-tasks.md#automations).
-Graph workflows use [stage assistant routing](../../../BE/docs/agent-tasks.md#configurable-workflows).
+Workflows are pipelines only: graph workflows were removed ([configurable workflows](../../../BE/docs/agent-tasks.md#configurable-workflows)),
+so new workflow behaviour belongs to pipelines, never to the remaining graph runner.
 For pipelines, the [team workflow contract](../../../BE/docs/agent-tasks.md#team-workflows)
 covers room permissions, verdicts, grants (a split grant too), waivers, splits and board visibility.
 Keep role permissions in [TaskRoomRefusal](../../../BE/internal/domain/task_room.go)

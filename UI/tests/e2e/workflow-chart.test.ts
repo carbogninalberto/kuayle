@@ -1,11 +1,12 @@
 import { expect, test, type Locator, type Page, type WebSocketRoute } from '@playwright/test';
 import { openPanel } from './side-panel';
 
-// The workflow chart runs left to right: in Settings → Workflows (a new
-// workflow from each template, one saved top to bottom, and "Tidy up" after
-// moving steps) and on a task, where it pans, zooms, fits, centres the step
-// the run is at and expands full-screen. Both show a minimap where there is
-// room for one.
+// A task's run chart runs left to right, pans, zooms, fits, centres the step
+// the run is at and expands full-screen, with a minimap where there is room
+// for one. Graph workflows were removed, and the graph editor with them; the
+// chart is the one pipelines and the built-in Standard flow are drawn on.
+// These runs are drawn from a graph of steps (as the Standard flow is), which
+// exercises the routed transitions a pipeline's chart never has.
 
 const time = '2026-11-01T00:00:00Z';
 const sizes = [
@@ -27,28 +28,6 @@ const edges = (list: string[][]): Edge[] =>
 	list.map(([source, target, condition]) => ({ id: `${source}-${target}-${condition}`, source, target, condition }));
 
 const templates: Record<string, Graph> = {
-	// "Copy of Standard" (standardCopy in BE/internal/service/workflow.go): the
-	// built-in graph plus Publish → Failed, which moves Failed under the review.
-	standard: {
-		nodes: [
-			{ id: 'start', type: 'start', label: 'Start', position: at(0) },
-			{ id: 'implement', type: 'agent', label: 'Implement', position: at(1) },
-			{ id: 'publish', type: 'publish', label: 'Publish pull request', position: at(2) },
-			{ id: 'review', type: 'approval', label: 'Human review', prompt: 'Review the pull request', position: at(3) },
-			{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: at(4) },
-			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: at(3, 1, true) }
-		],
-		edges: edges([
-			['start', 'implement', 'else'],
-			['implement', 'publish', 'agent_finished'],
-			['implement', 'failed', 'agent_failed'],
-			['publish', 'review', 'published'],
-			['publish', 'failed', 'publish_failed'],
-			['review', 'done', 'approval_approved'],
-			['review', 'implement', 'approval_denied']
-		]),
-		budget: {}
-	},
 	review_loop: {
 		nodes: [
 			{ id: 'start', type: 'start', label: 'Start', position: at(0) },
@@ -118,13 +97,6 @@ const vertical = (graph: Graph): Graph => ({
 		position: node.outcome === 'failed' ? { x: 320, y: 420 } : { x: 0, y: row * 120 }
 	}))
 });
-// The full cycle (its implementer and reviewer retry themselves) with a
-// transition from implementation straight to the go-ahead, past three steps.
-const withSkip = (): Graph => ({
-	...templates.full_cycle,
-	edges: [...templates.full_cycle.edges, ...edges([['implement', 'ship', 'else']])]
-});
-
 const profile = (id: string, name: string, behaviour: string, builtin: string) => ({
 	id,
 	workspace_id: 'workspace-1',
@@ -144,70 +116,6 @@ const profiles = [
 	profile('p-impl', 'Implementer', 'changes_code', 'implementer'),
 	profile('p-rev', 'Reviewer', 'reviews', 'reviewer')
 ];
-
-const summary = (id: string, name: string, graph: Graph) => ({
-	id,
-	name,
-	description: '',
-	builtin: false,
-	customized: false,
-	latest_version: 1,
-	version_id: `${id}-v1`,
-	archived: false,
-	graph,
-	updated_at: time
-});
-
-// Settings → Workflows. Creating from a template answers with the server's
-// graph for it; a blank workflow keeps the graph the page sent.
-async function mockSettings(page: Page, stored: Record<string, Graph> = {}) {
-	const saved = new Map(Object.entries(stored).map(([id, graph]) => [id, summary(id, id, graph)]));
-	const saves: Array<{ name: string; graph: Graph }> = [];
-	await page.route('https://raw.githubusercontent.com/**', (route) => route.fulfill({ json: [] }));
-	await page.routeWebSocket('**/api/workspaces/test/ws', () => {});
-	await page.route('**/api/**', async (route) => {
-		const request = route.request();
-		const path = new URL(request.url()).pathname;
-		const workspace = { id: 'workspace-1', slug: 'test', name: 'Test Workspace', current_user_role: 'owner' };
-		if (path === '/api/auth/me')
-			return route.fulfill({ json: { id: 'user-1', name: 'Owner', email: 'owner@example.test' } });
-		if (path === '/api/workspaces') return route.fulfill({ json: [workspace] });
-		if (path === '/api/workspaces/test') return route.fulfill({ json: workspace });
-		if (path === '/api/notifications') return route.fulfill({ json: { notifications: [], unread_count: 0 } });
-		if (path === '/api/workspaces/test/agent-profiles')
-			return route.fulfill({
-				json: {
-					profiles,
-					can_manage: true,
-					harnesses: ['codex'],
-					model_harnesses: ['codex'],
-					model_formats: {},
-					behaviours: ['plans', 'changes_code', 'reviews']
-				}
-			});
-		if (path === '/api/workspaces/test/workflows/validate') return route.fulfill({ json: { issues: [] } });
-		if (path === '/api/workspaces/test/workflows' && request.method() === 'POST') {
-			const input = request.postDataJSON();
-			const id = `wf-${saved.size + 1}`;
-			const created = summary(id, input.name, input.template ? templates[input.template] : input.graph);
-			saved.set(id, created);
-			return route.fulfill({ status: 201, json: created });
-		}
-		if (path === '/api/workspaces/test/workflows')
-			return route.fulfill({ json: { workflows: [...saved.values()], defaults: [], can_manage: true } });
-		const one = path.match(/^\/api\/workspaces\/test\/workflows\/([^/]+)$/);
-		if (one && request.method() === 'PUT') {
-			const input = request.postDataJSON();
-			saves.push(input);
-			const next = { ...saved.get(one[1])!, graph: input.graph, latest_version: 2 };
-			saved.set(one[1], next);
-			return route.fulfill({ json: next });
-		}
-		if (one && saved.has(one[1])) return route.fulfill({ json: { ...saved.get(one[1]), versions: [] } });
-		return route.fulfill({ json: [] });
-	});
-	return { saves };
-}
 
 type Box = { x: number; y: number; width: number; height: number };
 const touching = (a: Box, b: Box) =>
@@ -285,21 +193,7 @@ async function expectLeftToRight(scope: Locator, graph: Graph, loops: string[][]
 	}).toPass({ timeout: 10_000 });
 }
 
-// Transitions leave a step on its right and enter the next on its left.
-async function expectSideHandles(scope: Locator, from: string, to: string) {
-	const handle = (id: string, kind: string) =>
-		scope.locator(`.svelte-flow__node[data-id="${id}"] .svelte-flow__handle.${kind}:not(.workflow-loop-handle)`);
-	const source = (await handle(from, 'source').boundingBox())!;
-	const target = (await handle(to, 'target').boundingBox())!;
-	const fromCard = (await scope.getByTestId(`workflow-node-${from}`).boundingBox())!;
-	const toCard = (await scope.getByTestId(`workflow-node-${to}`).boundingBox())!;
-	expect(Math.abs(source.x + source.width / 2 - (fromCard.x + fromCard.width))).toBeLessThan(6);
-	expect(Math.abs(target.x + target.width / 2 - toCard.x)).toBeLessThan(6);
-	expect(Math.abs(source.y + source.height / 2 - (fromCard.y + fromCard.height / 2))).toBeLessThan(6);
-}
-
 const loopsOf: Record<string, string[][]> = {
-	standard: [['review', 'implement']],
 	review_loop: [
 		['review', 'implement'],
 		['ci', 'implement']
@@ -311,275 +205,9 @@ const loopsOf: Record<string, string[][]> = {
 		['ship', 'implement']
 	]
 };
-const options: Record<string, string> = {
-	standard: 'Copy of Standard',
-	review_loop: 'Review loop',
-	full_cycle: 'Full cycle',
-	blank: 'Blank'
-};
-
-test.describe('touch workflow editor', () => {
-	test.use({ hasTouch: true, viewport: { width: 360, height: 800 }, contextOptions: { reducedMotion: 'reduce' } });
-
-	test('toolbar leaves graph gestures and nearby port and edge taps independent', async ({ page }, testInfo) => {
-		const graph = { nodes: templates.standard.nodes.slice(0, 2), edges: [], budget: {} };
-		await mockSettings(page, { legacy: graph });
-		await page.goto('/test/settings/workflows/legacy');
-		const canvas = page.getByRole('region', { name: 'Workflow canvas' });
-		const toolbar = page.getByTestId('workflow-toolbar');
-		const start = canvas.getByTestId('workflow-node-start');
-		await expect(start).toBeVisible();
-		const frame = (await canvas.boundingBox())!;
-		const tools = (await toolbar.boundingBox())!;
-		expect(tools.y).toBeGreaterThanOrEqual(frame.y + frame.height - 1);
-		const buttons = await toolbar.getByRole('button').all();
-		const boxes = await Promise.all(buttons.map(async b => (await b.boundingBox())!));
-		for (const [index, box] of boxes.entries()) {
-			expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
-			expect(box.x).toBeGreaterThanOrEqual(0);
-			expect(box.x + box.width).toBeLessThanOrEqual(360);
-			expect(boxes.slice(index + 1).some(other => touching(box, other))).toBe(false);
-		}
-		const before = await start.boundingBox();
-		await toolbar.getByTestId('workflow-add-step').tap();
-		const menu = page.getByRole('menu');
-		await expect(menu).toHaveCSS('animation-name', 'none');
-		await page.keyboard.press('Escape');
-		await expect(menu).toBeHidden();
-		expect(await start.boundingBox()).toEqual(before);
-		const port = canvas.locator('.svelte-flow__handle-right[data-nodeid="start"]');
-		const dot = (await port.boundingBox())!;
-		await page.touchscreen.tap(dot.x + dot.width / 2, dot.y + dot.height / 2 + 9);
-		const target = (await canvas.locator('.svelte-flow__handle-left[data-nodeid="implement"]').boundingBox())!;
-		await page.touchscreen.tap(target.x + target.width / 2, target.y + target.height / 2 + 9);
-		const connected = canvas.locator('.svelte-flow__edge');
-		await expect(connected).toHaveCount(1);
-		await canvas.tap({ position: { x: 12, y: 12 } });
-		await expect(connected).not.toHaveClass(/selected/);
-		const hit = await connected.locator('.svelte-flow__edge-path').evaluate((el: SVGPathElement) => {
-			const point = el.getPointAtLength(el.getTotalLength() * 0.6).matrixTransform(el.getScreenCTM()!);
-			return { x: point.x, y: point.y + 9 };
-		});
-		await page.touchscreen.tap(hit.x, hit.y);
-		await expect(connected).toHaveClass(/selected/);
-		await page.screenshot({ path: testInfo.outputPath('mobile-workflow.png'), animations: 'disabled' });
-
-		// With reduced motion the zoom is complete by the next painted frame.
-		const ratio = await toolbar.getByRole('button', { name: 'Zoom in', exact: true }).evaluate(async button => {
-			const node = document.querySelector('[data-testid="workflow-node-start"]')!;
-			const before = node.getBoundingClientRect().width;
-			(button as HTMLButtonElement).click();
-			await new Promise(requestAnimationFrame);
-			return node.getBoundingClientRect().width / before;
-		});
-		expect(ratio).toBeCloseTo(1.2, 2);
-	});
-});
-
 for (const size of sizes) {
 	test.describe(`${size.name} width`, () => {
 		test.use({ viewport: { width: size.width, height: size.height } });
-
-		for (const template of ['standard', 'review_loop', 'full_cycle', 'blank']) {
-			test(`a new workflow from the ${template} template opens left to right`, async ({ page }) => {
-				await mockSettings(page);
-				await page.goto('/test/settings/workflows');
-				await page.getByTestId('workflow-new').click();
-				const form = page.getByTestId('new-workflow-form');
-				await form.getByLabel('Name').fill('Shipping');
-				await form.locator('#new-workflow-template').click();
-				await page.getByRole('option', { name: options[template], exact: true }).click();
-				await form.getByRole('button', { name: 'Create', exact: true }).click();
-
-				const editor = page.getByTestId('workflow-editor');
-				await expect(editor).toBeVisible();
-				const graph: Graph =
-					template === 'blank'
-						? {
-								nodes: [
-									{ id: 'start', type: 'start', position: at(0) },
-									{ id: 'agent-1', type: 'agent', position: at(1) },
-									{ id: 'end-1', type: 'end', position: at(2) }
-								],
-								// The IDs the page gives a blank workflow's transitions.
-								edges: [
-									{ id: 'start-agent-1', source: 'start', target: 'agent-1', condition: 'else' },
-									{ id: 'agent-1-end-1', source: 'agent-1', target: 'end-1', condition: 'agent_finished' }
-								],
-								budget: {}
-							}
-						: templates[template];
-				await expectLeftToRight(editor, graph, loopsOf[template] ?? []);
-				await expectSideHandles(editor, graph.nodes[0].id, graph.nodes[1].id);
-				// It opens at a readable size with the start in view, whatever its length.
-				const canvas = (await editor.getByRole('region', { name: 'Workflow canvas' }).boundingBox())!;
-				const start = (await editor.getByTestId('workflow-node-start').boundingBox())!;
-				expect(start.x).toBeGreaterThanOrEqual(canvas.x);
-				expect(start.x + start.width).toBeLessThanOrEqual(canvas.x + canvas.width);
-				expect(start.width).toBeGreaterThanOrEqual(176 * 0.7 - 1);
-				await expect(editor.getByTestId('workflow-save')).toBeDisabled();
-				// It is already arranged: tidying up changes nothing.
-				await editor.getByRole('toolbar').getByRole('button', { name: 'Tidy up', exact: true }).click();
-				await expectLeftToRight(editor, graph, loopsOf[template] ?? []);
-				await expect(editor.getByTestId('workflow-save')).toBeDisabled();
-				await expect(editor.getByRole('button', { name: 'v1 · saved' })).toBeVisible();
-			});
-		}
-
-		test('a workflow saved top to bottom opens arranged, and is saved that way with the next edit', async ({
-			page
-		}) => {
-			const stored = vertical(withSkip());
-			const { saves } = await mockSettings(page, { legacy: stored });
-			await page.goto('/test/settings/workflows/legacy');
-			const editor = page.getByTestId('workflow-editor');
-			await expect(editor).toBeVisible();
-			// Loops go over the top and the skipping transition under the steps it passes.
-			await expectLeftToRight(editor, stored, loopsOf.full_cycle);
-			await expectSideHandles(editor, 'start', 'implement');
-			// Arranging it for display is not a change.
-			await expect(editor.getByTestId('workflow-save')).toBeDisabled();
-			await expect(editor.getByRole('button', { name: 'v1 · saved' })).toBeVisible();
-			expect(saves).toEqual([]);
-
-			const breadcrumb = editor.getByRole('navigation', { name: 'breadcrumb' });
-			await breadcrumb.getByRole('button', { name: 'Rename workflow: legacy' }).click();
-			const title = breadcrumb.getByRole('textbox', { name: 'Name' });
-			await title.fill('Legacy, renamed');
-			await title.press('Enter');
-			await editor.getByTestId('workflow-save').click();
-			await expect.poll(() => saves.length).toBe(1);
-			expect(saves[0].name).toBe('Legacy, renamed');
-			const sent = saves[0].graph;
-			expect(sent.edges).toEqual(stored.edges);
-			expect(sent.nodes.map(({ position: _, ...rest }) => rest)).toEqual(
-				stored.nodes.map(({ position: _, ...rest }) => rest)
-			);
-			expect(sent.nodes.map((n) => n.position)).toEqual(templates.full_cycle.nodes.map((n) => n.position));
-		});
-
-		test('the editor shows a minimap of the whole workflow where there is room, outside the tab order', async ({
-			page
-		}) => {
-			const stored = withSkip();
-			await mockSettings(page, { legacy: stored });
-			await page.goto('/test/settings/workflows/legacy');
-			const editor = page.getByTestId('workflow-editor');
-			await expect(editor.getByTestId('workflow-node-start')).toBeVisible();
-			const minimap = editor.getByTestId('svelte-flow__minimap');
-			if (size.name === 'phone') {
-				// A narrow canvas has no room for it.
-				await expect(minimap).toBeHidden();
-				return;
-			}
-			await expect(minimap).toBeVisible();
-			await expect(minimap.getByRole('img', { name: 'Workflow minimap' })).toBeVisible();
-			// Every step, in its type's accent.
-			await expect(minimap.locator('.svelte-flow__minimap-node')).toHaveCount(stored.nodes.length);
-			const fills = await minimap
-				.locator('.svelte-flow__minimap-node')
-				.evaluateAll((rects) => new Set(rects.map((r) => getComputedStyle(r).fill)).size);
-			expect(fills).toBeGreaterThan(2);
-			// It sits inside the canvas and takes no focus.
-			const canvas = (await editor.getByRole('region', { name: 'Workflow canvas' }).boundingBox())!;
-			const box = (await minimap.boundingBox())!;
-			expect(box.x + box.width).toBeLessThanOrEqual(canvas.x + canvas.width);
-			expect(box.y + box.height).toBeLessThanOrEqual(canvas.y + canvas.height);
-			await expect(minimap.locator('[tabindex], a, button, input')).toHaveCount(0);
-
-			// Dragging it pans the canvas.
-			const start = (await editor.getByTestId('workflow-node-start').boundingBox())!;
-			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-			await page.mouse.down();
-			await page.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2, { steps: 5 });
-			await page.mouse.up();
-			await expect
-				.poll(async () => (await editor.getByTestId('workflow-node-start').boundingBox())!.x)
-				.toBeLessThan(start.x - 10);
-		});
-
-		test('the chart stays drawn while the editor checks the workflow and as steps are selected', async ({
-			page
-		}) => {
-			// Counts the times a step already on screen is hidden again (with it go
-			// its transitions and its minimap entry).
-			await page.addInitScript(() => {
-				const seen = window as unknown as { stepsHidden: number };
-				seen.stepsHidden = 0;
-				new MutationObserver((records) => {
-					for (const { target, oldValue } of records)
-						if (
-							target instanceof HTMLElement &&
-							target.classList.contains('svelte-flow__node') &&
-							/visibility:\s*visible/.test(oldValue ?? '') &&
-							target.style.visibility === 'hidden'
-						)
-							seen.stepsHidden++;
-				}).observe(document, { subtree: true, attributes: true, attributeFilter: ['style'], attributeOldValue: true });
-			});
-			await mockSettings(page, { legacy: withSkip() });
-			const checked = page.waitForResponse('**/api/workspaces/test/workflows/validate');
-			await page.goto('/test/settings/workflows/legacy');
-			const editor = page.getByTestId('workflow-editor');
-			await expect(editor.getByTestId('workflow-node-start')).toBeVisible();
-			// The editor checks the workflow once it opens...
-			await checked;
-			await expect(editor.getByText('Checking…')).toHaveCount(0);
-			// ...and a click selects a step.
-			await editor.getByTestId('workflow-node-implement').click();
-			await expect(editor.getByTestId('workflow-node-inspector')).toBeVisible();
-			expect(await page.evaluate(() => (window as unknown as { stepsHidden: number }).stepsHidden)).toBe(0);
-		});
-
-		test('tidying up puts moved steps back in line, and the arrangement is saved', async ({ page }) => {
-			const moved: Record<string, { x: number; y: number }> = {
-				publish: { x: 700, y: 260 },
-				ci: { x: 1500, y: -220 }
-			};
-			const stored: Graph = {
-				...templates.review_loop,
-				nodes: templates.review_loop.nodes.map((n) => ({ ...n, position: moved[n.id] ?? n.position }))
-			};
-			const { saves } = await mockSettings(page, { moved: stored });
-			await page.goto('/test/settings/workflows/moved');
-			const editor = page.getByTestId('workflow-editor');
-			// Steps already running left to right stay where the person put them.
-			const before = await boxes(editor, stored);
-			expect(before.get('publish')!.y).toBeGreaterThan(before.get('implement')!.y + before.get('implement')!.height);
-			expect(before.get('ci')!.y).toBeLessThan(before.get('implement')!.y);
-
-			const arrange = editor.getByRole('toolbar').getByRole('button', { name: 'Tidy up', exact: true });
-			await arrange.focus();
-			await page.keyboard.press('Enter');
-			await expectLeftToRight(editor, stored, loopsOf.review_loop);
-			// The whole chart is brought into view.
-			const canvas = (await editor.getByRole('region', { name: 'Workflow canvas' }).boundingBox())!;
-			await expect(async () => {
-				for (const id of ['start', 'done', 'failed']) {
-					const box = (await editor.getByTestId(`workflow-node-${id}`).boundingBox())!;
-					expect(box.x).toBeGreaterThanOrEqual(canvas.x);
-					expect(box.x + box.width).toBeLessThanOrEqual(canvas.x + canvas.width + 1);
-				}
-			}).toPass();
-
-			await editor.getByTestId('workflow-save').click();
-			await expect.poll(() => saves.length).toBe(1);
-			const sent = saves[0].graph;
-			// Only positions changed.
-			expect(sent.edges).toEqual(stored.edges);
-			expect(sent.nodes.map(({ position: _, ...rest }) => rest)).toEqual(
-				stored.nodes.map(({ position: _, ...rest }) => rest)
-			);
-			expect(sent.nodes.map((n) => n.position)).toEqual(templates.review_loop.nodes.map((n) => n.position));
-
-			// Undo brings the earlier arrangement back.
-			await editor.getByRole('toolbar').getByRole('button', { name: 'Undo', exact: true }).click();
-			await expect(async () => {
-				const undone = await boxes(editor, stored);
-				expect(undone.get('publish')!.y).toBeGreaterThan(undone.get('implement')!.y + undone.get('implement')!.height);
-			}).toPass();
-		});
-
 		test("a task's workflow runs left to right and pans when it does not fit", async ({ page }) => {
 			const { chart } = await openTaskChart(page);
 
@@ -797,7 +425,7 @@ async function drag(page: Page, chart: Locator, direction: 1 | -1) {
 
 // An issue conversation whose coding task follows a workflow. advance()
 // updates the run as the server would announce it.
-async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = false, fullCycle = false } = {}) {
+async function mockTask(page: Page, { at = 'ci', fullCycle = false } = {}) {
 	const graph = vertical(fullCycle ? templates.full_cycle : templates.review_loop);
 	const sockets: WebSocketRoute[] = [];
 	const conversation = {
@@ -916,11 +544,10 @@ async function mockTask(page: Page, { at = 'ci', decide = false, shipMerge = fal
 							: step
 					),
 					profiles,
-					can_decide: decide,
+					can_decide: false,
 					task_state: task.state,
 					task_reason: task.reason,
-					task_generation: 1,
-					ship_merge: shipMerge
+					task_generation: 1
 				}
 			});
 		if (path.includes('/agent-tasks/task-1')) {
@@ -985,29 +612,3 @@ test('a task finished by merging shows its completed workflow path', async ({ pa
 	await expect.poll(() => offCentre(expanded, 'done')).toBeLessThanOrEqual(8);
 	await page.screenshot({ path: testInfo.outputPath('completed-workflow.png'), animations: 'disabled' });
 });
-
-// KUA-216: the ship approval says that approving merges the pull request;
-// another approval does not.
-for (const shipMerge of [true, false]) {
-	test(`an approval ${shipMerge ? 'that ships says it merges' : 'that does not ship says nothing of a merge'}`, async ({ page }) => {
-		await page.setViewportSize({ width: 390, height: 844 });
-		await mockTask(page, { at: 'ship', decide: true, shipMerge });
-		await page.goto('/test/assistant?conversation=chat-1');
-		await expect(page.getByTestId('panel-toggle')).toBeVisible();
-		const view = page.getByTestId('task-workflow');
-		if (!(await view.isVisible())) await openPanel(page, 'Agents');
-		await expect(view).toBeVisible();
-		const decision = view.getByTestId('task-workflow-decision');
-		await expect(decision).toContainText('Waiting for an approval: Ready to ship');
-		const approve = decision.getByRole('button', { name: 'Approve', exact: true });
-		await expect(approve).toBeVisible();
-		const box = (await approve.boundingBox())!;
-		expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
-		const note = decision.getByTestId('task-workflow-ship-merge');
-		if (shipMerge)
-			await expect(note).toHaveText(
-				'Approving merges the pull request: Kuayle merges it once every check passes, after any steps that follow, and the task is done only after the merge.'
-			);
-		else await expect(note).toHaveCount(0);
-	});
-}

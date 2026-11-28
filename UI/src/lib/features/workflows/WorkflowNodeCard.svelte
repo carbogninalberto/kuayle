@@ -16,26 +16,21 @@
 		visits?: number;
 		/** Conditions on which the step runs again (transitions back to itself). */
 		retries?: string[];
-		/** In the editor: adds a step of this type after this one. */
-		onaddnext?: (type: Block) => void;
 	}
 	export type WorkflowFlowNode = Node<WorkflowNodeData, 'workflow'>;
 </script>
 
 <script lang="ts">
 	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-	import { CircleAlert, Plus, RotateCcw, TriangleAlert } from '@lucide/svelte';
-	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
-	import { BLOCKS, type Block } from './workflow-graph';
+	import { CircleAlert, RotateCcw, TriangleAlert } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge/index.js';
 	import { cn } from '$lib/utils.js';
 	import { m } from '$lib/features/i18n/messages';
 	import { nodeTypeLabel } from './labels';
-	import { blockHint, blockIcon, blockLabel, blockTone, nodeIcon, nodeTone } from './node-style';
+	import { nodeIcon, nodeTone } from './node-style';
 
 	// One step on the workflow canvas: a typed icon, its name and what it
-	// uses. Svelte Flow makes it focusable and selectable from the keyboard;
-	// the editor's outline offers the same actions.
+	// uses. Svelte Flow makes it focusable and selectable from the keyboard.
 	let { data, selected }: NodeProps<WorkflowFlowNode> = $props();
 	const node = $derived(data.node);
 	const limit = $derived(node.max_visits ?? 0);
@@ -111,40 +106,6 @@
 			aria-label={data.problems.join('. ')}
 		/>{/if}
 </div>
-{#if data.onaddnext}
-	{@const add = data.onaddnext}
-	<!-- Adds the next step, connected; shown on hover and when selected. -->
-	<div
-		class={cn(
-			'workflow-add-next nodrag nopan absolute -right-7 -bottom-7 pointer-coarse:-bottom-12 pointer-coarse:right-0 pointer-coarse:pointer-events-none pointer-coarse:focus-within:pointer-events-auto z-10 opacity-0 transition-opacity focus-within:opacity-100',
-			selected && 'opacity-100 pointer-coarse:pointer-events-auto'
-		)}
-	>
-		<DropdownMenu.Root>
-			<DropdownMenu.Trigger
-				class="flex size-6 pointer-coarse:size-11 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm hover:text-foreground"
-				aria-label={m['workflows.editor.add_next']()}
-				title={m['workflows.editor.add_next']()}><Plus class="size-3.5" /></DropdownMenu.Trigger
-			>
-			<DropdownMenu.Content align="center" class="w-64">
-				<DropdownMenu.Label class="text-xs text-muted-foreground">{m['workflows.editor.add_next']()}</DropdownMenu.Label
-				>
-				{#each BLOCKS as type (type)}
-					{@const TypeIcon = blockIcon(type)}
-					<DropdownMenu.Item onclick={() => add(type)} class="gap-2.5">
-						<span class={cn('flex size-6 shrink-0 items-center justify-center rounded-md', blockTone(type))}
-							><TypeIcon class="size-3.5" /></span
-						>
-						<span class="min-w-0">
-							<span class="block text-sm">{blockLabel(type)}</span>
-							<span class="block truncate text-xs text-muted-foreground">{blockHint(type)}</span>
-						</span>
-					</DropdownMenu.Item>
-				{/each}
-			</DropdownMenu.Content>
-		</DropdownMenu.Root>
-	</div>
-{/if}
 {#if node.type !== 'end'}<Handle type="source" position={Position.Right} />
 	<Handle
 		id="loop-out"

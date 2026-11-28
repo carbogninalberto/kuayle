@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/kuayle/kuayle-backend/internal/agent"
 	"github.com/kuayle/kuayle-backend/internal/domain"
 	"github.com/kuayle/kuayle-backend/internal/handler"
 	mw "github.com/kuayle/kuayle-backend/internal/middleware"
@@ -48,9 +50,13 @@ func TestCreateFromPipelineTemplateHTTP(t *testing.T) {
 	secret := "pipeline-template-jwt-secret-with-at-least-32-characters"
 	middleware := testMiddleware(mw.Auth(secret, tokens))
 	middleware.workspaceMembership = mw.WorkspaceMembership(repository.NewWorkspaceRepository(db), mw.SSONotEnforced)
-	tasks := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), nil, nil)
+	// A save checks every role's profile can start a task, as main wires it:
+	// the template's built-in profiles run Claude Code.
+	registry := agent.NewRegistry(agent.NewClaudeCodeProvider("test"))
+	machines := service.NewDevMachineService(repository.NewDevMachineRepository(db), registry, true, "", nil, time.Minute, service.DevMachineImages{})
+	tasks := service.NewAgentTaskService(repository.NewAgentTaskRepository(db), machines, nil)
 	e := echo.New()
-	registerRoutes(e, &appHandlers{workflow: handler.NewWorkflowHandler(service.NewWorkflowService(repository.NewWorkflowRepository(db), nil, tasks))}, middleware)
+	registerRoutes(e, &appHandlers{workflow: handler.NewWorkflowHandler(service.NewWorkflowService(repository.NewWorkflowRepository(db), registry, tasks))}, middleware)
 	server := httptest.NewServer(e)
 	defer server.Close()
 	session := func(id uuid.UUID) string {

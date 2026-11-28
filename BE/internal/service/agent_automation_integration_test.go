@@ -98,6 +98,8 @@ func TestApprovingAPendingRunStartsItAsTheApprover(t *testing.T) {
 	require.ErrorIs(t, err, repository.ErrAutomationNotFound)
 }
 
+// An automation pinned to a pipeline version starts that version; one that
+// follows the latest starts the newest. An archived workflow cannot be chosen.
 func TestAutomationDelegatesPinnedOrLatestPublishedVersion(t *testing.T) {
 	for _, policy := range []string{"pin", "latest"} {
 		t.Run(policy, func(t *testing.T) {
@@ -112,23 +114,32 @@ func TestAutomationDelegatesPinnedOrLatestPublishedVersion(t *testing.T) {
 
 			definitions := repository.NewWorkflowRepository(f.db)
 			require.NoError(t, definitions.EnsureBuiltinProfiles(f.ctx, f.ws))
+			var implementer, reviewer uuid.UUID
 			profiles, err := definitions.Profiles(f.ctx, f.ws)
 			require.NoError(t, err)
-			graph, err := json.Marshal(domain.ReviewLoopWorkflowGraph(profiles[0].ID, profiles[1].ID))
+			for _, p := range profiles {
+				if p.Behaviour == domain.AgentBehaviourChangesCode {
+					implementer = p.ID
+				} else if p.Reviews() {
+					reviewer = p.ID
+				}
+			}
+			graph, err := json.Marshal(domain.TeamPipeline(implementer, reviewer))
 			require.NoError(t, err)
-			first, err := definitions.CreateWorkflow(f.ctx, f.ws, f.user, "Review loop", "", graph, "created")
+			first, err := definitions.CreateWorkflow(f.ctx, f.ws, f.user, "Team", "", graph, "created")
 			require.NoError(t, err)
 
 			machines := repository.NewDevMachineRepository(f.db)
 			require.NoError(t, machines.UpsertPolicy(f.ctx, &domain.DevMachineWorkspacePolicy{WorkspaceID: f.ws, Enabled: true, MaxConcurrentMachines: 5, MaxMachinesPerUser: 2, MaxDailyAgentRuns: 25, MaxDiskGB: 100, AllowedProviders: json.RawMessage(`["claude-code"]`), AllowedRepositories: json.RawMessage(`[]`)}))
 			taskSvc := NewAgentTaskService(repository.NewAgentTaskRepository(f.db), NewDevMachineService(machines, agent.NewRegistry(agent.NewClaudeCodeProvider("test")), true, "", nil, time.Minute, DevMachineImages{}), nil)
 			taskSvc.SetWorkflows(definitions)
+			taskSvc.SetPipelines(true)
 			repo := repository.NewAgentAutomationRepository(f.db)
 			svc := NewAgentAutomationService(repo, f.repo, taskSvc)
 			input := AutomationInput{TeamID: team, StatusID: &status, Name: "Triage", Instructions: "Fix the issue", WorkflowID: &first.ID, VersionPolicy: policy}
 			rule, err := svc.Create(f.ctx, f.ws, f.user, input)
 			require.NoError(t, err)
-			second, err := definitions.SaveVersion(f.ctx, f.ws, first.ID, f.user, 1, "Review loop", "Revised", graph)
+			second, err := definitions.SaveVersion(f.ctx, f.ws, first.ID, f.user, 1, "Team", "Revised", graph)
 			require.NoError(t, err)
 			var run uuid.UUID
 			require.NoError(t, f.db.Get(&run, `INSERT INTO agent_automation_runs(automation_id,workspace_id,issue_id,status) VALUES($1,$2,$3,'pending_approval') RETURNING id`, rule.ID, f.ws, issue))
@@ -142,6 +153,7 @@ func TestAutomationDelegatesPinnedOrLatestPublishedVersion(t *testing.T) {
 				want = first.VersionID
 			}
 			require.Equal(t, want, task.WorkflowVersionID)
+			require.True(t, task.Pipeline, "the run's task is on the pipeline version")
 			require.NoError(t, definitions.ArchiveWorkflow(f.ctx, f.ws, first.ID, f.user))
 			_, err = svc.Create(f.ctx, f.ws, f.user, input)
 			require.ErrorIs(t, err, ErrInvalidAutomation)

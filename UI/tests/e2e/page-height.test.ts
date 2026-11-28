@@ -348,35 +348,8 @@ const wikiPage = (number: number) => ({
 });
 const wikiPages = Array.from({ length: 40 }, (_, index) => wikiPage(index));
 
-const workflowGraph = {
-	nodes: [
-		{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
-		...Array.from({ length: 12 }, (_, index) => ({
-			id: `step-${index}`,
-			type: 'agent',
-			label: `Step ${index}`,
-			prompt: 'Do the work.',
-			position: { x: 280 * (index + 1), y: (index % 3) * 160 }
-		})),
-		{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: { x: 280 * 14, y: 0 } }
-	],
-	edges: [],
-	budget: {}
-};
-const workflowSummary = {
-	id: workflowId,
-	name: 'Cheap Workflow',
-	description: '',
-	builtin: false,
-	customized: false,
-	latest_version: 4,
-	version_id: 'cheap-v4',
-	archived: false,
-	graph: workflowGraph,
-	updated_at: createdAt
-};
-// A pipeline drafted from it (KUA-284), long enough to fill the pipeline editor's panel.
-const pipelineDraft = {
+// A pipeline long enough to fill the pipeline editor's panel (KUA-284).
+const workflowPipeline = {
 	kind: 'pipeline',
 	phases: Array.from({ length: 12 }, (_, index) => ({
 		id: `phase-${index}`,
@@ -392,6 +365,28 @@ const pipelineDraft = {
 		{ role: 'implementer', profile_id: 'p-impl', writer: true },
 		{ role: 'reviewer', profile_id: 'p-rev' }
 	]
+};
+const workflowSummary = {
+	id: workflowId,
+	name: 'Cheap Workflow',
+	description: '',
+	builtin: false,
+	customized: false,
+	latest_version: 4,
+	version_id: 'cheap-v4',
+	archived: false,
+	graph: workflowPipeline,
+	updated_at: createdAt
+};
+// The built-in Standard flow, read only.
+const standardSummary = {
+	id: 'standard',
+	name: 'Standard',
+	description: 'Implement, validate, publish a pull request and wait for human review.',
+	builtin: true,
+	latest_version: 0,
+	archived: false,
+	graph: { nodes: [], edges: [], budget: {} }
 };
 
 const webhooks = Array.from({ length: 30 }, (_, index) => ({
@@ -534,7 +529,6 @@ const preferences = (theme: 'light' | 'dark') => ({
 	recent_due_dates: [],
 	issues_group_by: 'status',
 	browser_notifications: true,
-	workflow_editor_panel_open: true,
 	notification_sound: 'chime',
 	notification_events: {}
 });
@@ -632,10 +626,11 @@ async function mockApi(page: Page, theme: 'light' | 'dark') {
 			if (rest === '/sessions') return json({ sessions: [] });
 		}
 		if (path === `${w}/agent-messages`) return json([]);
-		if (path === `${w}/workflows`) return json({ workflows: [workflowSummary], defaults: [], can_manage: true });
+		if (path === `${w}/workflows`)
+			return json({ workflows: [standardSummary, workflowSummary], defaults: [], can_manage: true, pipelines_enabled: true });
 		if (path === `${w}/workflows/validate`) return json({ issues: [], warnings: [] });
 		if (path === `${w}/workflows/${workflowId}`) return json({ ...workflowSummary, versions: [] });
-		if (path === `${w}/workflows/${workflowId}/draft-pipeline`) return json({ pipeline: pipelineDraft, reasons: [] });
+		if (path === `${w}/workflows/standard`) return json({ ...standardSummary, versions: [] });
 		if (path === `${w}/agent-profiles`)
 			return json({
 				profiles: [],
@@ -988,7 +983,7 @@ const routes: Route[] = [
 	{ name: 'settings team', path: `/test/settings/teams/${teamId}` },
 	{ name: 'settings team statuses', path: `/test/settings/teams/${teamId}/statuses` },
 	{ name: 'settings workflow', path: `/test/settings/workflows/${workflowId}` },
-	{ name: 'settings pipeline draft', path: `/test/settings/workflows/${workflowId}/pipeline-draft` }
+	{ name: 'settings standard workflow', path: '/test/settings/workflows/standard' }
 ];
 
 type Viewport = { width: number; height: number };
@@ -1008,14 +1003,14 @@ const phone: Viewport = { width: 390, height: 844 };
 // - the dark theme on a few routes: themes only change colour variables, never layout.
 // Every other settings page is plain content in the settings layout's one region, so a phone
 // or a tall window changes only how much of it fits. The samples cover that region at every
-// size, and the settings pages with a layout of their own (the workflow and pipeline editors,
-// the capped preference lists).
+// size, and the settings pages with a layout of their own (the pipeline editor, the
+// read-only Standard flow, the capped preference lists).
 const settingsSamples = new Set([
 	'settings',
 	'settings members',
 	'settings preferences',
 	'settings workflow',
-	'settings pipeline draft'
+	'settings standard workflow'
 ]);
 const darkSamples = new Set([
 	'team issues',
@@ -1114,32 +1109,32 @@ for (const { route, theme, viewport } of cases) {
 	});
 }
 
-// The workflow editor fills its page instead of keeping a minimum height that outgrows a short
-// window. Side by side the canvas takes the height that is left and the inspector scrolls;
+// The pipeline editor fills its page instead of keeping a minimum height that outgrows a short
+// window. Side by side the canvas takes the height that is left and the panel scrolls;
 // stacked (below 1024px), the canvas keeps 22rem and the editor's body scrolls to the full
-// inspector under a header that stays in view. A selected step fills the inspector, the
-// tallest state of the editor.
+// panel under a header that stays in view. A selected phase fills the panel, the tallest
+// state of the editor.
 for (const viewport of [
 	{ width: 1280, height: 560 },
 	{ width: 900, height: 560 },
 	{ width: 390, height: 560 }
 ]) {
-	test(`the workflow editor fits a short ${viewport.width}x${viewport.height} window`, async ({ page }) => {
+	test(`the pipeline editor fits a short ${viewport.width}x${viewport.height} window`, async ({ page }) => {
 		await page.setViewportSize(viewport);
 		await mockApi(page, 'light');
 		await page.goto(`/test/settings/workflows/${workflowId}`);
-		const editor = page.getByTestId('workflow-editor');
-		const area = editor.getByTestId('workflow-canvas-area');
+		const editor = page.getByTestId('pipeline-editor');
+		const area = editor.getByTestId('pipeline-canvas-area');
 		await expect(area).toBeVisible();
 		await page.waitForLoadState('networkidle');
 		await waitForLayoutToSettle(page);
 
-		// Select a step the canvas shows.
+		// Select a phase the canvas shows.
 		const areaBox = (await area.boundingBox())!;
 		expect(areaBox.height, 'the canvas keeps a usable height').toBeGreaterThanOrEqual(300);
 		let selected = false;
-		for (const node of workflowGraph.nodes.filter((candidate) => candidate.type === 'agent')) {
-			const card = editor.getByTestId(`workflow-node-${node.id}`);
+		for (const phase of workflowPipeline.phases) {
+			const card = editor.getByTestId(`workflow-node-${phase.id}`);
 			const box = await card.boundingBox();
 			if (!box || box.y < areaBox.y || box.y + box.height > areaBox.y + areaBox.height - 80) continue;
 			if (box.x < areaBox.x || box.x + box.width > areaBox.x + areaBox.width) continue;
@@ -1147,8 +1142,9 @@ for (const viewport of [
 			selected = true;
 			break;
 		}
-		expect(selected, 'a step is in view').toBe(true);
-		await expect(editor.getByTestId('workflow-node-inspector')).toBeVisible();
+		expect(selected, 'a phase is in view').toBe(true);
+		const panel = editor.getByTestId('pipeline-panel');
+		await expect(panel).toBeVisible();
 		await waitForLayoutToSettle(page);
 		await expectNoPageScroll(page, { expectOverflow: true });
 
@@ -1156,11 +1152,11 @@ for (const viewport of [
 		expect(box.y + box.height, 'the editor ends at the bottom of the window').toBeLessThanOrEqual(
 			viewport.height + 1
 		);
-		const save = editor.getByTestId('workflow-save');
+		const save = editor.getByTestId('pipeline-save');
 		await expect(save).toBeInViewport();
-		// The end of the inspector is reachable, and the header stays in view.
-		await editor.getByTestId('workflow-node-inspector').getByRole('button').last().scrollIntoViewIfNeeded();
-		await expect(editor.getByTestId('workflow-node-inspector').getByRole('button').last()).toBeInViewport();
+		// The end of the panel is reachable, and the header stays in view.
+		await panel.getByRole('button').last().scrollIntoViewIfNeeded();
+		await expect(panel.getByRole('button').last()).toBeInViewport();
 		await expect(save).toBeInViewport();
 		expect(await page.evaluate(() => window.scrollY)).toBe(0);
 	});

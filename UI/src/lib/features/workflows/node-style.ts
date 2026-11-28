@@ -7,16 +7,12 @@ import {
 	GitPullRequestArrow,
 	ListChecks,
 	Play,
-	ScanSearch,
 	UserCheck
 } from '@lucide/svelte';
 import type { WorkflowNode, WorkflowNodeType } from '$lib/api/workflows';
-import type { Block } from './workflow-graph';
-import { nodeTypeLabel } from './labels';
-import { m } from '$lib/features/i18n/messages';
 
-// How each step type looks on the canvas and in the editor's lists: one icon
-// and one accent per type, so a workflow reads at a glance.
+// How each step type looks on the canvas and in the pipeline editor: one
+// icon and one accent per type, so a workflow reads at a glance.
 
 const icons: Record<WorkflowNodeType, Component> = {
 	start: Play,
@@ -64,23 +60,3 @@ const accents: Record<WorkflowNodeType, string> = {
 export function nodeAccent(node: Pick<WorkflowNode, 'type' | 'outcome'>): string {
 	return node.type === 'end' && node.outcome === 'failed' ? 'var(--destructive)' : accents[node.type];
 }
-
-const hints: Partial<Record<WorkflowNodeType, () => string>> = {
-	agent: m['workflows.editor.hint.agent'],
-	check: m['workflows.editor.hint.check'],
-	approval: m['workflows.editor.hint.approval'],
-	publish: m['workflows.editor.hint.publish'],
-	merge: m['workflows.editor.hint.merge'],
-	end: m['workflows.editor.hint.end']
-};
-
-/** One line on what a step of this type does, for the add-step menu. */
-export const nodeHint = (type: WorkflowNodeType) => hints[type]?.() ?? '';
-
-// The add-step menus' entries: node types, plus the automated review block.
-export const blockIcon = (block: Block): Component => (block === 'review' ? ScanSearch : nodeIcon({ type: block }));
-export const blockTone = (block: Block): string => (block === 'review' ? tones.agent : nodeTone({ type: block }));
-export const blockLabel = (block: Block): string =>
-	block === 'review' ? m['workflows.editor.block_review']() : nodeTypeLabel(block);
-export const blockHint = (block: Block): string =>
-	block === 'review' ? m['workflows.editor.hint.review']() : nodeHint(block);

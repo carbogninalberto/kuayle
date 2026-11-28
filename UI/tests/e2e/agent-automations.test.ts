@@ -85,10 +85,10 @@ async function mockAutomationsApi(page: Page, options: { pipelines?: boolean } =
 			return route.fulfill({
 				json: {
 					workflows: [
-						{ id: workflowId, name: 'Review loop', latest_version: 3 },
+						{ id: workflowId, name: 'Review loop', latest_version: 3, graph: { kind: 'pipeline', phases: [], roster: [] } },
 						{ id: 'pipeline-1', name: 'Team', latest_version: 1, graph: { kind: 'pipeline', phases: [], roster: [] } }
 					],
-					pipelines_enabled: options.pipelines ?? false
+					pipelines_enabled: options.pipelines ?? true
 				}
 			});
 		if (path === '/api/workspaces/test/teams')
@@ -221,7 +221,8 @@ test('admins create, pause and approve agent automations', async ({ page }) => {
 	await expect(pending).toHaveCount(0);
 });
 
-// KUA-291: a rule chooses a pipeline only while the server has pipelines on.
+// KUA-291: a rule chooses a pipeline only while the server has pipelines on;
+// workflows are pipelines, so with them off only the issue default is left.
 for (const pipelines of [false, true])
 	test(`an automation is offered pipelines only while they are on (${pipelines ? 'on' : 'off'})`, async ({ page }) => {
 		await mockAutomationsApi(page, { pipelines });
@@ -229,5 +230,5 @@ for (const pipelines of [false, true])
 		const section = page.getByRole('region', { name: 'Automations' });
 		await section.getByRole('button', { name: 'New automation' }).click();
 		await section.getByRole('combobox', { name: 'Workflow', exact: true }).click();
-		await expect(page.getByRole('option')).toHaveText(['Issue default', 'Review loop', ...(pipelines ? ['Team'] : [])]);
+		await expect(page.getByRole('option')).toHaveText(['Issue default', ...(pipelines ? ['Review loop', 'Team'] : [])]);
 	});
