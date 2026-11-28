@@ -41,7 +41,7 @@ func TestIsSysAdmin(t *testing.T) {
 func TestDevMachineConfigRequiresSeparateRegistrableDomain(t *testing.T) {
 	config := DevMachineConfig{
 		Enabled: true, Domain: "machines.example.com", EncryptionKey: strings.Repeat("x", 32),
-		TicketTTLSeconds: 60, SessionTTLMinutes: 60, IngestURL: "https://app.example.com/api/dev-machine-ingest",
+		TicketTTLSeconds: 60, SessionTTLMinutes: 60,
 	}
 
 	err := config.Validate("https://app.example.com")
@@ -54,7 +54,7 @@ func TestDevMachineConfigRequiresSeparateRegistrableDomain(t *testing.T) {
 func TestDevMachineConfigAllowsLocalhostDevelopment(t *testing.T) {
 	config := DevMachineConfig{
 		Enabled: true, Domain: "machines.localhost", EncryptionKey: strings.Repeat("x", 32),
-		TicketTTLSeconds: 60, SessionTTLMinutes: 60, IngestURL: "https://localhost/api/dev-machine-ingest",
+		TicketTTLSeconds: 60, SessionTTLMinutes: 60,
 	}
 
 	require.NoError(t, config.Validate("https://localhost"))
@@ -230,7 +230,7 @@ func TestLoadMachineGatewayReadsDemoConfig(t *testing.T) {
 func TestDevMachineDiskQuotaModeDefaultsToHardAndValidatesMonitoredFloor(t *testing.T) {
 	config := DevMachineConfig{
 		Enabled: true, Domain: "machines.example.net", EncryptionKey: strings.Repeat("x", 32),
-		TicketTTLSeconds: 60, SessionTTLMinutes: 60, IngestURL: "https://app.example.com/api/dev-machine-ingest",
+		TicketTTLSeconds: 60, SessionTTLMinutes: 60,
 	}
 	require.NoError(t, config.Validate("https://app.example.com"))
 	require.Equal(t, DiskQuotaModeHard, config.EffectiveDiskQuotaMode())
@@ -269,7 +269,7 @@ func TestLoadReadsDiskQuotaModeDefaults(t *testing.T) {
 func TestDevMachineHostDiskPathMustBeAbsoluteInMonitoredMode(t *testing.T) {
 	config := DevMachineConfig{
 		Enabled: true, Domain: "machines.example.net", EncryptionKey: strings.Repeat("x", 32),
-		TicketTTLSeconds: 60, SessionTTLMinutes: 60, IngestURL: "https://app.example.com/api/dev-machine-ingest",
+		TicketTTLSeconds: 60, SessionTTLMinutes: 60,
 		DiskQuotaMode: DiskQuotaModeMonitored, HostDiskMinFreePercent: 15, HostDiskMinFreeGB: 25,
 	}
 	require.NoError(t, config.Validate("https://app.example.com"))
@@ -297,7 +297,7 @@ func TestSameSiteMachinesRequireExplicitHTTPSOptIn(t *testing.T) {
 func TestDevMachineAgentGitIdentityRejectsHeaderInjection(t *testing.T) {
 	config := DevMachineConfig{
 		Enabled: true, Domain: "machines.example.net", EncryptionKey: strings.Repeat("x", 32),
-		TicketTTLSeconds: 60, SessionTTLMinutes: 60, IngestURL: "https://app.example.com/api/dev-machine-ingest",
+		TicketTTLSeconds: 60, SessionTTLMinutes: 60,
 		AgentGitName: "carbninai", AgentGitEmail: "agent@example.invalid",
 	}
 	require.NoError(t, config.Validate("https://app.example.com"))

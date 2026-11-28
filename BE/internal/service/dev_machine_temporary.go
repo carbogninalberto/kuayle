@@ -26,7 +26,7 @@ var ErrTemporaryMachinesOff = errors.New("temporary machines are turned off in t
 func (s *DevMachineService) StartTemporaryMachine(ctx context.Context, workspaceID, userID, conversationID uuid.UUID) (*domain.DevMachine, error) {
 	preset := domain.TemporaryMachineResources
 	req := dto.CreateDevMachineRequest{
-		Name: "tmp-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8], Size: "custom", Profile: domain.DevMachineProfileHeadless,
+		Name: "tmp-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:8], Size: "custom",
 		CPUMillis: preset.CPUMillis, MemoryMB: preset.MemoryMB, DiskGB: preset.DiskGB,
 	}
 	temporary := &temporaryMachine{conversation: conversationID, expiresAt: time.Now().UTC().Add(domain.TemporaryMachineTTL).Truncate(time.Second)}

@@ -15,7 +15,7 @@ import (
 )
 
 type statsDockerClientFake struct {
-	*dockerClientFake
+	*logExecClient
 	memory  map[string]uint64
 	queried []string
 	calls   map[string]uint64
@@ -48,9 +48,9 @@ func TestStatsCountsEveryRunningContainerOfTheMachine(t *testing.T) {
 	foreign := owned("foreign", "agent")
 	foreign.Labels["com.kuayle.machine-id"] = uuid.NewString()
 	ptr := func(value string) *string { return &value }
-	dockerClient := &statsDockerClientFake{dockerClientFake: &dockerClientFake{containers: []container.Summary{
+	dockerClient := &statsDockerClientFake{logExecClient: &logExecClient{dockerClientFake: &dockerClientFake{containers: []container.Summary{
 		owned("terminal", "terminal"), owned("agent-1", "agent"), owned("db", "compose"), foreign,
-	}}, memory: map[string]uint64{"terminal": 1 << 30, "agent-1": 3 << 30, "db": 1 << 29, "foreign": 8 << 30}}
+	}}, stdout: "123456\t/workspace\n"}, memory: map[string]uint64{"terminal": 1 << 30, "agent-1": 3 << 30, "db": 1 << 29, "foreign": 8 << 30}}
 	runtime := &DockerRuntime{client: dockerClient}
 	usage, err := runtime.Stats(context.Background(), machine, []domain.DevMachineService{
 		{ServiceType: "terminal", Status: "running", ContainerID: ptr("terminal")},
@@ -58,6 +58,10 @@ func TestStatsCountsEveryRunningContainerOfTheMachine(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1<<30+3<<30+1<<29), usage.MemoryBytes)
 	require.Zero(t, usage.CPUPercent, "the first sample has nothing to measure against")
+	require.Equal(t, int64(123456), usage.DiskBytes, "the workspace size")
+	require.Equal(t, "terminal", dockerClient.target, "du runs in the developer container, which mounts the workspace")
+	require.Equal(t, []string{"/bin/sh", "-c", "/usr/bin/du -sb /workspace 2>/dev/null; exit 0"}, dockerClient.exec.Cmd,
+		"by absolute path; a directory one user cannot read does not fail the measurement")
 	require.ElementsMatch(t, []string{"terminal", "agent-1", "db"}, dockerClient.queried, "each container once, never another machine's")
 	usage, err = runtime.Stats(context.Background(), machine, []domain.DevMachineService{
 		{ServiceType: "terminal", Status: "running", ContainerID: ptr("terminal")},

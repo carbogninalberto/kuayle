@@ -33,11 +33,9 @@
 	import {
 		deleteDevMachineScopeSetting,
 		getDevMachineScopeSetting,
-		listDevMachineEnvironments,
 		updateDevMachineScopeSetting
 	} from '$lib/api/dev-machines';
 	import type { GitHubRepo } from '$lib/types/github';
-	import type { DevMachineEnvironment } from '$lib/types/dev-machine';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 	import {
@@ -77,9 +75,7 @@
 	let projectRequestVersion = 0;
 	let developmentOpen = $state(false);
 	let developmentRepositories = $state<GitHubRepo[]>([]);
-	let developmentEnvironments = $state<DevMachineEnvironment[]>([]);
 	let developmentRepositoryId = $state('inherit');
-	let developmentEnvironmentId = $state('inherit');
 
 	let developmentAgentProvider = $state('inherit');
 	let developmentAgentInstructions = $state('');
@@ -112,16 +108,13 @@
 			if (!isCurrentDevelopmentScope(s, pid, version)) return;
 			workspaceRole = workspace.current_user_role as Role;
 			canManageDevelopment = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
-			const [github, developmentSetting, availableEnvironments] = await Promise.all([
+			const [github, developmentSetting] = await Promise.all([
 				getGitHubStatus(s),
-				getDevMachineScopeSetting(s, 'project', pid),
-				listDevMachineEnvironments(s)
+				getDevMachineScopeSetting(s, 'project', pid)
 			]);
 			if (!isCurrentDevelopmentScope(s, pid, version)) return;
 			developmentRepositories = github.repos ?? [];
-			developmentEnvironments = (availableEnvironments ?? []).filter((item) => item.status === 'ready');
 			developmentRepositoryId = developmentSetting.github_repo_id ?? 'inherit';
-			developmentEnvironmentId = developmentSetting.environment_id ?? 'inherit';
 			developmentAgentProvider = developmentSetting.agent_provider ?? 'inherit'; developmentAgentInstructions = developmentSetting.agent_instructions ?? ''; developmentPullRequestTemplate = pullRequestTemplateValue(developmentSetting.pull_request_template, true); developmentComposeFile = developmentSetting.compose_file ?? ''; developmentPreviewCommand = developmentSetting.preview_command ? JSON.stringify(developmentSetting.preview_command) : ''; developmentPreviewPort = developmentSetting.preview_port ? String(developmentSetting.preview_port) : '';
 			developmentReady = true;
 		} catch (error) {
@@ -179,9 +172,7 @@
 		developmentSaveVersion++;
 		developmentOpen = false;
 		developmentRepositories = [];
-		developmentEnvironments = [];
 		developmentRepositoryId = 'inherit';
-		developmentEnvironmentId = 'inherit';
 
 		developmentAgentProvider = 'inherit';
 		developmentAgentInstructions = '';
@@ -307,13 +298,12 @@
 		const requestVersion = developmentRequestVersion;
 		const saveVersion = ++developmentSaveVersion;
 		const repositoryId = developmentRepositoryId;
-		const environmentId = developmentEnvironmentId;
 		const repository = developmentRepositories.find((item) => item.id === repositoryId);
 		savingDevelopment = true;
 		try {
 
 			const template = pullRequestTemplatePayload(developmentPullRequestTemplate, true);
-			if (repositoryId === 'inherit' && environmentId === 'inherit' && developmentAgentProvider === 'inherit' && !developmentAgentInstructions.trim() && !template.pull_request_template && !developmentComposeFile.trim() && !developmentPreviewCommand.trim()) {
+			if (repositoryId === 'inherit' && developmentAgentProvider === 'inherit' && !developmentAgentInstructions.trim() && !template.pull_request_template && !developmentComposeFile.trim() && !developmentPreviewCommand.trim()) {
 				await deleteDevMachineScopeSetting(s, 'project', pid);
 			} else {
 				await updateDevMachineScopeSetting(s, {
@@ -321,7 +311,6 @@
 					scope_id: pid,
 					github_repo_id: repository?.id,
 					base_branch: repository?.default_branch,
-					environment_id: environmentId === 'inherit' ? undefined : environmentId,
 					agent_provider: developmentAgentProvider === 'inherit' ? undefined : developmentAgentProvider, agent_instructions: developmentAgentInstructions.trim() || undefined, compose_file: developmentComposeFile.trim() || undefined, ...previewSettingPayload(developmentPreviewCommand, developmentPreviewPort), ...template
 				});
 			}
@@ -553,26 +542,6 @@
 						>{#each developmentRepositories as repository}<Select.Item
 								value={repository.id}
 								label={repository.full_name}>{repository.full_name}</Select.Item
-							>{/each}</Select.Content
-					></Select.Root
-				>
-			</div>
-			<div class="space-y-1">
-				<Label>{m['projects.development.environment']()}</Label><Select.Root
-					type="single"
-					value={developmentEnvironmentId}
-					disabled={developmentLoading || !developmentReady || !canManageDevelopment}
-					onValueChange={(value) => value && (developmentEnvironmentId = value)}
-					><Select.Trigger class="w-full"
-						>{developmentLoading
-							? m['common.loading']()
-							: (developmentEnvironments.find((item) => item.id === developmentEnvironmentId)?.name ??
-								m['projects.development.team_or_workspace_default']())}</Select.Trigger
-					><Select.Content
-						><Select.Item value="inherit" label={m['projects.development.inherited_default']()}
-							>{m['projects.development.inherited_default']()}</Select.Item
-						>{#each developmentEnvironments as environment}<Select.Item value={environment.id} label={environment.name}
-								>{environment.name}</Select.Item
 							>{/each}</Select.Content
 					></Select.Root
 				>

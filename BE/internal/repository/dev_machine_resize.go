@@ -46,7 +46,7 @@ func (r *DevMachineRepository) RequestResizeForUser(ctx context.Context, workspa
 	var busy bool
 	if err := tx.GetContext(ctx, &busy, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations
 		WHERE machine_id=$1 AND status IN ('pending','leased')
-		AND action IN ('spawn','start','stop','pause','teardown','snapshot_environment','resize'))`, machineID); err != nil {
+		AND action IN ('spawn','start','stop','pause','teardown','resize'))`, machineID); err != nil {
 		return nil, err
 	}
 	if busy {

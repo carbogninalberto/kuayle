@@ -307,8 +307,6 @@ func sanitizeExportRow(table string, row dto.WorkspaceTransferRow) {
 		delete(row, "api_key_encrypted")
 	case "dev_machine_workspace_policies":
 		row["enabled"] = false
-	case "dev_machine_scope_settings":
-		row["environment_id"] = nil
 	}
 }
 
@@ -795,7 +793,8 @@ func prepareImportedRow(table string, row dto.WorkspaceTransferRow) {
 			row["max_disk_gb"] = transferInt64(limit) - 1
 		}
 	case "dev_machine_scope_settings":
-		row["environment_id"] = nil
+		// Development Environments were removed; older archives still name one.
+		delete(row, "environment_id")
 	case "teams":
 		// An uploaded icon image is stored per team and is not in the archive.
 		if strings.HasPrefix(transferString(row["icon"]), domain.TeamIconImagePrefix) {

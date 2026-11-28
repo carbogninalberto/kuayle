@@ -125,8 +125,6 @@ authentication.
 | DELETE | `/api/cli-links/:id` | session only | A token cannot mint, inspect or revoke tokens; those actions require the interactive sign-in. |
 | POST | `/api/cli/connect` | public |  |
 | GET | `/api/config` | public |  |
-| POST | `/api/dev-machine-ingest/events` | public |  |
-| POST | `/api/dev-machine-ingest/logs` | public |  |
 | POST | `/api/forges/webhook/:connectionId` | public |  |
 | GET | `/api/github-bot/:workspaceId/avatar/:file` | public |  |
 | POST | `/api/github/webhook` | public |  |
@@ -335,10 +333,6 @@ authentication.
 | GET | `/api/workspaces/:slug/conversations/:conversationId/tasks` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/tasks` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
 | POST | `/api/workspaces/:slug/conversations/:conversationId/transcriptions` | session only | Assistant conversations, skills, tools and research run with the signed-in user's context and secrets. |
-| GET | `/api/workspaces/:slug/dev-machine-environments` | token | dev_machine:read |
-| POST | `/api/workspaces/:slug/dev-machine-environments` | token | dev_machine:admin |
-| DELETE | `/api/workspaces/:slug/dev-machine-environments/:environmentId` | token | dev_machine:admin |
-| GET | `/api/workspaces/:slug/dev-machine-environments/:environmentId` | token | dev_machine:read |
 | GET | `/api/workspaces/:slug/dev-machine-merge-methods` | token | dev_machine:read |
 | PUT | `/api/workspaces/:slug/dev-machine-merge-methods` | token | dev_machine:admin |
 | GET | `/api/workspaces/:slug/dev-machine-names/availability` | token | dev_machine:create |
@@ -377,7 +371,6 @@ authentication.
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/providers` | token | dev_machine:read |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/resource-usage` | token | dev_machine:read |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/services` | token | dev_machine:read |
-| POST | `/api/workspaces/:slug/dev-machines/:machineId/services/:service/launch` | token | dev_machine:read |
 | POST | `/api/workspaces/:slug/dev-machines/:machineId/start` | token | dev_machine:manage |
 | POST | `/api/workspaces/:slug/dev-machines/:machineId/stop` | token | dev_machine:manage |
 | GET | `/api/workspaces/:slug/dev-machines/:machineId/tasks` | session only | Dev-machine ports and task bindings are interactive runtime operations. |

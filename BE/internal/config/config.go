@@ -228,20 +228,13 @@ type DevMachineConfig struct {
 	TicketTTLSeconds     int    `envconfig:"DEV_MACHINE_ACCESS_TICKET_TTL_SECONDS" default:"60"`
 	SessionTTLMinutes    int    `envconfig:"DEV_MACHINE_SESSION_TTL_MINUTES" default:"480"`
 	GatewayContainerName string `envconfig:"DEV_MACHINE_GATEWAY_CONTAINER" default:"kuayle-machine-gateway"`
-	IngestURL            string `envconfig:"DEV_MACHINE_INGEST_URL"`
 	EgressAllowlist      string `envconfig:"DEV_MACHINE_EGRESS_ALLOWLIST"`
 	EgressDenylist       string `envconfig:"DEV_MACHINE_EGRESS_DENYLIST"`
 	DockerHost           string `envconfig:"DEV_MACHINE_DOCKER_HOST" default:"unix:///var/run/docker.sock"`
 	SeccompProfile       string `envconfig:"DEV_MACHINE_SECCOMP_PROFILE" default:"default"`
 	AppArmorProfile      string `envconfig:"DEV_MACHINE_APPARMOR_PROFILE" default:"default"`
-	IDEImage             string `envconfig:"DEV_MACHINE_IDE_IMAGE" default:"ghcr.io/kuayle/dev-machine-ide:0.1.0"`
 	HeadlessImage        string `envconfig:"DEV_MACHINE_HEADLESS_IMAGE" default:"ghcr.io/kuayle/dev-machine-headless:0.1.0"`
-	BrowserImage         string `envconfig:"DEV_MACHINE_BROWSER_IMAGE" default:"ghcr.io/kuayle/dev-machine-browser:0.1.0"`
-	CollectorImage       string `envconfig:"DEV_MACHINE_COLLECTOR_IMAGE" default:"ghcr.io/kuayle/dev-machine-collector:0.1.0"`
 	EgressImage          string `envconfig:"DEV_MACHINE_EGRESS_IMAGE" default:"ghcr.io/kuayle/dev-machine-egress:0.1.0"`
-	ClaudeCodeImage      string `envconfig:"DEV_MACHINE_CLAUDE_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-claude:0.1.0"`
-	OpenCodeImage        string `envconfig:"DEV_MACHINE_OPENCODE_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-opencode:0.1.0"`
-	CodexImage           string `envconfig:"DEV_MACHINE_CODEX_IMAGE" default:"ghcr.io/kuayle/dev-machine-agent-codex:0.1.0"`
 	CustomImage          string `envconfig:"DEV_MACHINE_CUSTOM_IMAGE"`
 	// DockerImage is the per-machine Docker daemon (rootless docker:dind with
 	// Kuayle's start script), used when a workspace policy allows Docker.
@@ -347,10 +340,6 @@ func (c DevMachineConfig) Validate(frontendURL string) error {
 	}
 	if len(c.EncryptionKey) < 32 {
 		return fmt.Errorf("DEV_MACHINE_ENCRYPTION_KEY must be at least 32 characters when dev machines are enabled")
-	}
-	ingestURL, err := url.Parse(c.IngestURL)
-	if err != nil || ingestURL.Scheme != "https" || ingestURL.Hostname() == "" || ingestURL.User != nil {
-		return fmt.Errorf("DEV_MACHINE_INGEST_URL must be an HTTPS URL without embedded credentials")
 	}
 	if c.SeccompProfile != "" && c.SeccompProfile != "default" && c.SeccompProfile != "unconfined" && !json.Valid([]byte(c.SeccompProfile)) {
 		return fmt.Errorf("DEV_MACHINE_SECCOMP_PROFILE must be default, unconfined, or an inline JSON profile")

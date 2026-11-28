@@ -22,7 +22,9 @@ reviewer can try your change in a browser.
    egress proxy, which Docker sets in their environment; a service calling
    another one by name may need `NO_PROXY` set to that name.
 2. Check that it answers: `curl -fsS http://127.0.0.1:3000/ >/dev/null`
-   (`http://docker:3000/` for a published container port).
+   (`http://docker:3000/` for a published container port). To see it
+   yourself, take a screenshot with
+   `kuayle-screenshot http://127.0.0.1:3000/ /tmp/app.png` and read the file.
 3. Expose it with a short label: `kuayle-ports expose 3000 --label web`.
    It prints the port's URL, or why Kuayle refused it.
 4. In your final summary, list each exposed port (label and URL) and what to
@@ -32,8 +34,8 @@ reviewer can try your change in a browser.
 
 Rules:
 
-- Never expose the machine's own services (code-server on 8080, the terminal
-  on 7681, the Docker daemon on 2376); Kuayle refuses them.
+- Never expose the machine's own services (the terminal on 7681, the Docker
+  daemon on 2376); Kuayle refuses them.
 - Expose only what the reviewer needs, and remove ports you no longer use with
   `kuayle-ports unexpose PORT`.
 - Do not put secrets in labels, logs or the summary. The app receives no Kuayle

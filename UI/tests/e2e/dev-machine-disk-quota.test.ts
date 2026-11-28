@@ -37,7 +37,6 @@ async function mockDevMachineApi(page: Page, mode: DiskQuotaMode, usagePercent: 
 		memory_mb: 4096,
 		disk_gb: diskGb,
 		pids_limit: 512,
-		environment_builder: false,
 		created_at: '2026-07-13T00:00:00Z',
 		updated_at: '2026-07-13T00:00:00Z'
 	};
@@ -112,9 +111,6 @@ async function mockDevMachineApi(page: Page, mode: DiskQuotaMode, usagePercent: 
 		}
 		if (path === '/api/workspaces/test/dev-machine-scope-setting') {
 			return route.fulfill({ json: { workspace_id: workspaceId } });
-		}
-		if (path === '/api/workspaces/test/dev-machine-environments') {
-			return route.fulfill({ json: [] });
 		}
 		if (path === `/api/workspaces/test/dev-machines/${machineId}`) {
 			return route.fulfill({ json: machine });

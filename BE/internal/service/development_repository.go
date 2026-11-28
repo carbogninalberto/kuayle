@@ -46,7 +46,7 @@ func resolveDevelopmentScopes(ctx context.Context, store scopeSettingReader, wor
 	resolved := &domain.DevMachineScopeSetting{WorkspaceID: workspaceID}
 	repositorySource := ""
 	for _, scope := range scopes {
-		if resolved.GitHubRepoID != nil && resolved.EnvironmentID != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil && resolved.PreviewCommand != nil {
+		if resolved.GitHubRepoID != nil && resolved.AgentProvider != nil && resolved.AgentInstructions != nil && resolved.ComposeFile != nil && resolved.PreviewCommand != nil {
 			break
 		}
 		setting, err := store.GetScopeSetting(ctx, workspaceID, scope.team, scope.project, scope.issue)
@@ -59,9 +59,6 @@ func resolveDevelopmentScopes(ctx context.Context, store scopeSettingReader, wor
 		if resolved.GitHubRepoID == nil && setting.GitHubRepoID != nil {
 			resolved.GitHubRepoID, resolved.BaseBranch = setting.GitHubRepoID, setting.BaseBranch
 			repositorySource = scope.kind
-		}
-		if resolved.EnvironmentID == nil && setting.EnvironmentID != nil {
-			resolved.EnvironmentID = setting.EnvironmentID
 		}
 		if resolved.AgentProvider == nil && setting.AgentProvider != nil {
 			resolved.AgentProvider = setting.AgentProvider

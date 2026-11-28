@@ -10,17 +10,17 @@ import { planForPaths } from './impact.mjs';
 const workflows = { tests: 'test', security: 'security', build: 'build', readiness: 'release-readiness' };
 const plan = planForPaths(['.github/workflows/ci-impact.yml']);
 
-test('Docker lifecycle builds the six local amd64 images with the native build cache scopes', () => {
+test('Docker lifecycle builds the local amd64 machine images with the native build cache scopes', () => {
   const { target } = JSON.parse(execFileSync('docker', [
     'buildx', 'bake', '-f', 'docker-compose.yml', '-f', 'scripts/ci/runtime-integration.hcl',
     '--set', '*.args.SECURITY_REFRESH=2000-01-01', '--print', 'runtime-integration'
   ], { cwd: new URL('../../', import.meta.url), encoding: 'utf8' }));
-  const images = ['agent-claude', 'browser', 'collector', 'egress', 'headless', 'ide'];
+  const images = ['egress', 'headless'];
   assert.deepEqual(Object.keys(target).sort(), images.map(id => `integration-${id}`));
   for (const id of images) {
     const image = target[`integration-${id}`];
     assert.equal(image.context, 'devmachine');
-    assert.equal(image.dockerfile, (id === 'agent-claude' ? 'agent' : id) + '/Dockerfile');
+    assert.equal(image.dockerfile, id + '/Dockerfile');
     assert.deepEqual(image.tags, [`kuayle/dev-machine-${id}:0.1.0`]);
     assert.deepEqual(image.platforms, ['linux/amd64']);
     assert.equal(image.args.SECURITY_REFRESH, '2000-01-01');
@@ -28,7 +28,6 @@ test('Docker lifecycle builds the six local amd64 images with the native build c
     assert.equal(image['cache-from'][0].type, 'gha');
     assert.equal(image['cache-from'][0].scope, `dev-machine-${id}-amd64`);
   }
-  assert.equal(target['integration-agent-claude'].args.PROVIDER, 'claude-code');
 });
 
 for (const [scope, file] of Object.entries(workflows)) {
@@ -67,7 +66,7 @@ test('release runtime checks consume refreshed source while PR checks survive sk
   // main's ruleset lets only deploy keys push the bump without a pull request.
   assert.match(source, /ssh-key: \$\{\{ secrets\.RELEASE_BUMP_DEPLOY_KEY \}\}/);
   assert.match(source, /source_sha: \$\{\{ steps.source.outputs.sha \}\}/);
-  assert.match(source, /git add devmachine\/common\/install-agent-clis.sh devmachine\/\{agent,ide,headless\}\/Dockerfile/);
+  assert.match(source, /git add devmachine\/common\/install-agent-clis.sh devmachine\/headless\/Dockerfile/);
   // Automatic releases and manual republishes share one validated source/tag context.
   assert.match(context, /ref: \$\{\{ github\.event_name == 'workflow_dispatch' && 'main' \|\| needs\.release-source\.outputs\.source_sha \}\}/);
   assert.match(context, /run: bash scripts\/ci\/release-context\.sh/);
@@ -113,7 +112,7 @@ test('releases publish the scanned runtime images the updater pulls; PR builds n
   assert.match(manifests, /PUBLISH_LATEST/);
   // Updater convention: Compose service NAME is published as kuayle-NAME.
   const services = [...compose.matchAll(/^  ([a-z0-9-]+):\n(?:    .*\n)*?    profiles: \["dev-machine-images"\]/gm)].map((match) => match[1]);
-  assert.equal(services.length, 9);
+  assert.equal(services.length, 3);
   const packages = planForPaths([], 'release').devImages.map((image) => image.package);
   assert.deepEqual(packages.sort(), ['machine-gateway', 'machine-manager', ...services].map((name) => `kuayle-${name}`).sort());
 });

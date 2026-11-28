@@ -129,11 +129,11 @@ func TestKuaylePortsExposeWritesAStrictRequestAndPrintsTheURL(t *testing.T) {
 	require.NoError(t, err, "the manager accepts what the script writes")
 	require.Equal(t, 3000, action.port)
 
-	taken = script.answer("expose-8080.json", `{"ports":[],"listening":[3000],"refused":[{"port":8080,"reason":"port 8080 belongs to the machine's ide service"}],"updated_at":"2026-10-28T10:00:30Z"}`)
+	taken = script.answer("expose-8080.json", `{"ports":[],"listening":[3000],"refused":[{"port":8080,"reason":"port 7681 belongs to the machine's terminal service"}],"updated_at":"2026-10-28T10:00:30Z"}`)
 	_, stderr, code := script.run("expose", "8080")
 	<-taken
 	require.Equal(t, 4, code)
-	require.Contains(t, stderr, "belongs to the machine's ide service")
+	require.Contains(t, stderr, "belongs to the machine's terminal service")
 
 	for _, args := range [][]string{{"expose", "80"}, {"expose", "03000"}, {"expose", "3000", "--label", `a"b`}, {"expose", "3000", "--label", strings.Repeat("a", 41)}, {"unexpose", "x"}, {"bogus"}} {
 		_, _, code = script.run(args...)

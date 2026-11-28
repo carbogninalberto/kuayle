@@ -24,7 +24,6 @@ const mib = int64(1024 * 1024)
 // least agentMinimumMemoryBytes, never more than the undivided share.
 func TestAgentMemoryFollowsTheActiveTasksOnTheMachine(t *testing.T) {
 	headless := &domain.DevMachine{Profile: domain.DevMachineProfileHeadless, MemoryMB: 16384}
-	standard := &domain.DevMachine{Profile: domain.DevMachineProfileStandard, MemoryMB: 16384}
 	small := &domain.DevMachine{Profile: domain.DevMachineProfileHeadless, MemoryMB: 2048}
 	for _, test := range []struct {
 		name     string
@@ -39,7 +38,6 @@ func TestAgentMemoryFollowsTheActiveTasksOnTheMachine(t *testing.T) {
 		{"four tasks get a quarter each", headless, false, 4, 2048 * mib},
 		{"ten tasks keep the minimum", headless, false, 10, agentMinimumMemoryBytes},
 		{"a daemon leaves 35 percent to split", headless, true, 2, 16384 * mib * 35 / 100 / 2},
-		{"a standard machine splits its agent share", standard, false, 3, 16384 * mib * 35 / 100 / 3},
 		{"the minimum never exceeds the undivided share", small, false, 4, 1024 * mib},
 	} {
 		t.Run(test.name, func(t *testing.T) {

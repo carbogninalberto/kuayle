@@ -2,18 +2,17 @@
 	import PageTitle from '$lib/components/shared/PageTitle.svelte';
 	import { page } from '$app/state';
 	import { tick } from 'svelte';
-	import { Activity, AppWindow, ArrowLeft, CalendarPlus, CircleAlert, Clock, Code2, Ellipsis, Cpu, ExternalLink, Gauge, GitBranch, LayoutDashboard, Pause, Play, Save, ScrollText, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
+	import { Activity, AppWindow, ArrowLeft, CalendarPlus, CircleAlert, Clock, Ellipsis, Cpu, Gauge, GitBranch, LayoutDashboard, Pause, Play, ScrollText, Server, ServerOff, Square, SquareTerminal, Trash2, Loader } from '@lucide/svelte';
 	import * as Tabs from '$lib/components/ui/tabs/index.js';
 	import { goto, replaceState } from '$app/navigation';
 	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
-	import * as Dialog from '$lib/components/ui/dialog';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import {
-		getDevMachine, launchMachineServiceWithResume, listMachineServices, listMachineEvents, listMachineLogs,
+		getDevMachine, listMachineServices, listMachineEvents, listMachineLogs,
 		listMachineTasks, listResourceHistory, pauseDevMachine, startDevMachine, stopDevMachine, teardownDevMachine,
-		checkoutIssue, deleteDevMachine, getDevMachinePolicy, listMachineCheckouts, snapshotDevMachineEnvironment
+		checkoutIssue, deleteDevMachine, getDevMachinePolicy, listMachineCheckouts
 	} from '$lib/api/dev-machines';
 	import type { ResourceUsageWindow } from '$lib/api/dev-machines';
 	import { getWorkspace } from '$lib/api/workspaces';
@@ -36,8 +35,6 @@
 	import { useTerminalDock } from '$lib/features/dev-machines/terminal-dock-context.svelte';
 	import { appToast } from '$lib/features/toast/toast';
 	import { Button } from '$lib/components/ui/button';
-	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
 
 	const slug = $derived(page.params.workspaceSlug ?? '');
@@ -69,13 +66,9 @@
 	let actionBusy = $state(false);
 	let teardownConfirm = $state(false);
 	let deleteConfirm = $state(false);
-	let snapshotOpen = $state(false);
 	let resizeOpen = $state(false);
-	let snapshotName = $state('');
-	let snapshotBusy = $state(false);
 	let checkoutAttempted = false;
 	let workspaceRole = $state('');
-	let launchBusy = $state<Record<string, boolean>>({});
 	let terminalQueryConsumed = false;
 	let routeGeneration = 0;
 	let refreshSequence = 0;
@@ -97,7 +90,6 @@
 	// Resizing, like the other machine changes, is for the machine's creator.
 	const canManageMachine = $derived(!!machine && (!machine.created_by_user_id || machine.created_by_user_id === authState.user?.id));
 	const resizable = $derived(!!machine && canResizeMachine(machine));
-	const canSnapshot = $derived(!!machine && machine.environment_builder && (machine.status === 'paused' || machine.status === 'stopped'));
 	const pendingSize = $derived(machine ? pendingResize(machine) : null);
 	const pendingSizeLabel = $derived(
 		pendingSize
@@ -121,7 +113,6 @@
 	const newestEvents = $derived(events.slice().reverse());
 	const dateTime = (value: string) =>
 		new Date(value).toLocaleString(getLocale(), { dateStyle: 'medium', timeStyle: 'short' });
-	const ideService = $derived(services.find((item) => item.service_type === 'ide'));
 	const terminalService = $derived(services.find((item) => item.service_type === 'terminal'));
 
 	$effect(() => {
@@ -200,13 +191,9 @@
 		actionBusy = false;
 		teardownConfirm = false;
 		deleteConfirm = false;
-		snapshotOpen = false;
 		resizeOpen = false;
-		snapshotName = '';
-		snapshotBusy = false;
 		checkoutAttempted = false;
 		workspaceRole = '';
-		launchBusy = {};
 		terminalQueryConsumed = false;
 		refreshSequence++;
 		fragmentScrollVersion++;
@@ -353,70 +340,20 @@
 		}
 	}
 
-	async function launch(service: DevMachineService, checkoutId?: string) {
+	function openTerminal(service: DevMachineService, checkoutId?: string) {
 		if (!machine) return;
-		const targetSlug = slug;
-		const targetMachineId = machineId;
-		const targetMachine = machine;
-		const generation = routeGeneration;
 		if (!serviceActionAvailable(service)) {
 			appToast.warning(machine.status === 'paused' ? 'Resuming is only available for paused machines.' : 'Service is not ready. Wait until it reports healthy.');
 			return;
 		}
-		if (service.service_type === 'terminal') {
-			const checkout = checkoutId ? checkouts.find((c) => c.id === checkoutId) : undefined;
-			dock.open({
-				slug: targetSlug,
-				machineId: targetMachine.id,
-				machineName: targetMachine.name,
-				checkoutId: checkoutId,
-				checkoutLabel: checkout ? `${checkout.repository_full_name} - ${checkout.working_branch}` : undefined
-			});
-			return;
-		}
-		const busyKey = `${service.service_key}:${checkoutId ?? 'root'}`;
-		const resumeToastId = `dev-machine-resume:${targetSlug}:${targetMachineId}:${busyKey}`;
-		let resumeToastVisible = false;
-		launchBusy[busyKey] = true;
-		launchBusy = { ...launchBusy };
-		const popup = window.open('about:blank', '_blank');
-		if (popup) popup.opener = null;
-		try {
-			const result = await launchMachineServiceWithResume(targetSlug, targetMachineId, service.service_key, checkoutId, {
-				onStatus: (status) => {
-					if (isCurrentRoute(targetSlug, targetMachineId, generation)) {
-						resumeToastVisible = true;
-						appToast.info(status === 'resuming' ? 'Resuming paused Dev Machine…' : 'Waiting for Dev Machine…', { id: resumeToastId, duration: Number.POSITIVE_INFINITY });
-					} else if (resumeToastVisible) {
-						appToast.dismiss(resumeToastId);
-					}
-				}
-			});
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) {
-				popup?.close();
-				if (resumeToastVisible) appToast.dismiss(resumeToastId);
-				return;
-			}
-			if (popup && result.launch_url) {
-				popup.location.replace(result.launch_url);
-				if (resumeToastVisible) appToast.success('Dev Machine is ready', { id: resumeToastId });
-			} else {
-				appToast.warning('Pop-up blocked. Please allow pop-ups for this site.', resumeToastVisible ? { id: resumeToastId } : undefined);
-			}
-			await refreshAll(targetSlug, targetMachineId, generation);
-		} catch (error) {
-			popup?.close();
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) {
-				if (resumeToastVisible) appToast.dismiss(resumeToastId);
-				return;
-			}
-			appToast.apiError(error, `Failed to open ${service.service_type}`, { id: resumeToastId });
-		} finally {
-			if (isCurrentRoute(targetSlug, targetMachineId, generation)) {
-				launchBusy[busyKey] = false;
-				launchBusy = { ...launchBusy };
-			}
-		}
+		const checkout = checkoutId ? checkouts.find((c) => c.id === checkoutId) : undefined;
+		dock.open({
+			slug,
+			machineId: machine.id,
+			machineName: machine.name,
+			checkoutId,
+			checkoutLabel: checkout ? `${checkout.repository_full_name} - ${checkout.working_branch}` : undefined
+		});
 	}
 
 	async function teardown() {
@@ -459,31 +396,6 @@
 		}
 	}
 
-	function openSnapshot() {
-		snapshotName = `${machine?.name ?? 'Development'} environment`;
-		snapshotOpen = true;
-	}
-
-	async function saveSnapshot() {
-		if (!snapshotName.trim()) return;
-		const targetSlug = slug;
-		const targetMachineId = machineId;
-		const generation = routeGeneration;
-		const name = snapshotName.trim();
-		snapshotBusy = true;
-		try {
-			await snapshotDevMachineEnvironment(targetSlug, { name, source_machine_id: targetMachineId });
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
-			appToast.success('Development environment snapshot queued');
-			snapshotOpen = false;
-		} catch (error) {
-			if (!isCurrentRoute(targetSlug, targetMachineId, generation)) return;
-			appToast.apiError(error, 'Failed to save development environment');
-		} finally {
-			if (isCurrentRoute(targetSlug, targetMachineId, generation)) snapshotBusy = false;
-		}
-	}
-
 	function serviceHealthy(service: DevMachineService): boolean {
 		return service.status === 'running' && ['healthy', 'running'].includes(service.health_status);
 	}
@@ -493,14 +405,11 @@
 	}
 
 	function serviceActionAvailable(service: DevMachineService): boolean {
-		if (!['ide', 'terminal', 'browser'].includes(service.service_type)) return false;
+		if (service.service_type !== 'terminal') return false;
 		if (!machineCanAutoLaunch() || (isPending && machine?.status !== 'paused')) return false;
 		return machine?.status === 'paused' || serviceHealthy(service);
 	}
 
-	function launchBusyFor(service: DevMachineService, checkoutId?: string) {
-		return !!launchBusy[`${service.service_key}:${checkoutId ?? 'root'}`];
-	}
 </script>
 
 {#if loading}
@@ -515,8 +424,6 @@
 				<Server size={15} class="hidden shrink-0 sm:block" />
 				<span class="min-w-16 truncate text-sm font-medium">{machine.name}</span>
 				<MachineStatusBadge status={machine.status} />
-				{#if machine.profile === 'headless'}<span class="hidden rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-text-tertiary)] sm:inline">{m['machines.profile_headless_short']()}</span>{/if}
-				{#if machine.environment_builder}<span class="text-[10px] font-semibold uppercase text-[var(--app-accent)]">{m['machines.environment_builder']()}</span>{/if}
 				{#if isPending}
 					<span class="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase text-blue-400">
 						<Loader size={10} class="animate-spin" /> {m['machines.transitioning']()}
@@ -538,9 +445,6 @@
 				{/if}
 				<!-- Phones keep lifecycle actions visible and the rest in a menu, so the name stays readable. -->
 				<div class="hidden items-center gap-1 sm:flex">
-					{#if canSnapshot}
-						<Button variant="ghost" size="icon-sm" disabled={actionBusy} onclick={openSnapshot} title={m['machines.save_environment']()}><Save size={15} /></Button>
-					{/if}
 					{#if canManageMachine}
 						<Button variant="ghost" size="icon-sm" disabled={actionBusy || !resizable} onclick={() => (resizeOpen = true)} title={resizable ? m['machines.resize']() : m['machines.resize_unavailable']()} aria-label={m['machines.resize']()}><Gauge size={15} /></Button>
 					{/if}
@@ -556,7 +460,6 @@
 						{/snippet}
 					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="end">
-						{#if canSnapshot}<DropdownMenu.Item onclick={openSnapshot}><Save />{m['machines.save_environment']()}</DropdownMenu.Item>{/if}
 						{#if canManageMachine}<DropdownMenu.Item disabled={!resizable} onclick={() => (resizeOpen = true)}><Gauge />{m['machines.resize']()}</DropdownMenu.Item>{/if}
 						<DropdownMenu.Item disabled={machine.status === 'destroyed'} onclick={() => (teardownConfirm = true)}><ServerOff />{m['machines.teardown_runtime']()}</DropdownMenu.Item>
 						{#if canAdminDevMachines}<DropdownMenu.Item variant="destructive" onclick={() => (deleteConfirm = true)}><Trash2 />{m['machines.delete_permanently']()}</DropdownMenu.Item>{/if}
@@ -635,17 +538,11 @@
 						<Card.Root>
 							<Card.Header>
 								<Card.Title class="flex items-center gap-2 text-sm"><SquareTerminal class="size-4 text-muted-foreground" aria-hidden="true" />{m['machines.developer_environment']()}</Card.Title>
-								<Card.Description>{machine.profile === 'headless' ? m['machines.developer_environment_headless_desc']() : m['machines.developer_environment_desc']()}</Card.Description>
+								<Card.Description>{m['machines.developer_environment_desc']()}</Card.Description>
 							</Card.Header>
 							<Card.Content>
 								<div class="grid gap-3 sm:grid-cols-2">
-									{#if machine.profile !== 'headless'}
-										<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!ideService || !machineCanAutoLaunch() || (!!ideService && launchBusyFor(ideService))} onclick={() => ideService && launch(ideService)}>
-											<Code2 class="size-5" />
-											<span class="text-left"><span class="block text-sm font-medium">{m['machines.code_editor']()}</span><span class="block text-xs text-muted-foreground">{m['machines.code_editor_desc']()}</span></span>
-										</Button>
-									{/if}
-									<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!terminalService || !machineCanAutoLaunch()} onclick={() => terminalService && launch(terminalService)}>
+									<Button variant="outline" class="h-auto justify-start gap-3 p-4" disabled={!terminalService || !machineCanAutoLaunch()} onclick={() => terminalService && openTerminal(terminalService)}>
 										<SquareTerminal class="size-5" />
 										<span class="text-left"><span class="block text-sm font-medium">{m['machines.native_terminal']()}</span><span class="block text-xs text-muted-foreground">{m['machines.native_terminal_desc']()}</span></span>
 									</Button>
@@ -665,7 +562,7 @@
 											<div class="flex flex-col justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3 sm:flex-row sm:items-center">
 												<div class="min-w-0"><p class="truncate text-xs font-medium">{checkout.repository_full_name}</p><p class="mt-1 truncate text-[10px] text-[var(--color-text-tertiary)]">{checkout.working_branch} · {checkout.status}</p>{#if checkout.last_error}<p class="mt-1 text-[10px] text-red-400">{checkout.last_error}</p>{/if}</div>
 												{#if checkout.status === 'ready' && machineCanAutoLaunch()}
-													<div class="flex gap-2">{#if machine?.profile !== 'headless'}<Button size="sm" variant="outline" disabled={!ideService || (!!ideService && launchBusyFor(ideService, checkout.id))} onclick={() => { if (ideService) launch(ideService, checkout.id); }}><Code2 size={13} />{m['machines.code_editor']()}</Button>{/if}<Button size="sm" variant="outline" disabled={!terminalService} onclick={() => { if (terminalService) launch(terminalService, checkout.id); }}><SquareTerminal size={13} />{m['machines.terminal']()}</Button></div>
+													<div class="flex gap-2"><Button size="sm" variant="outline" disabled={!terminalService} onclick={() => { if (terminalService) openTerminal(terminalService, checkout.id); }}><SquareTerminal size={13} />{m['machines.terminal']()}</Button></div>
 												{/if}
 											</div>
 										{/each}
@@ -704,10 +601,8 @@
 													<p class="text-xs font-medium capitalize">{service.service_type.replace('_', ' ')}</p>
 													<p class="mt-1 text-[10px] text-[var(--color-text-tertiary)]">{service.status} · {service.health_status}{#if service.health_message && service.health_status !== 'healthy'} · {service.health_message}{/if}</p>
 												</div>
-												{#if serviceActionAvailable(service) && service.service_type !== 'ide' && service.service_type !== 'terminal'}
-													<Button variant="ghost" size="icon-sm" disabled={launchBusyFor(service)} onclick={() => launch(service)} title={m['machines.open_service']()}><ExternalLink size={14} /></Button>
-												{:else if serviceActionAvailable(service) && (machine?.environment_builder || checkouts.length === 0) && (service.service_type === 'ide' || service.service_type === 'terminal') && !(machine?.profile === 'headless' && service.service_type === 'ide')}
-													<Button variant="ghost" size="icon-sm" disabled={launchBusyFor(service)} onclick={() => launch(service)} title={service.service_type === 'ide' ? m['machines.open_code_editor']() : m['machines.open_terminal']()}>{#if service.service_type === 'ide'}<Code2 size={14} />{:else}<SquareTerminal size={14} />{/if}</Button>
+												{#if serviceActionAvailable(service) && checkouts.length === 0}
+													<Button variant="ghost" size="icon-sm" onclick={() => openTerminal(service)} title={m['machines.open_terminal']()} aria-label={m['machines.open_terminal']()}><SquareTerminal size={14} /></Button>
 												{/if}
 											</div>
 										{/each}
@@ -760,7 +655,6 @@
 	<AlertDialog.Root bind:open={teardownConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.teardown_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.teardown_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action onclick={teardown}>{m['machines.teardown_action']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 	<AlertDialog.Root bind:open={deleteConfirm}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['machines.delete_title']()}</AlertDialog.Title><AlertDialog.Description>{m['machines.delete_desc']()}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={removeMachine} disabled={actionBusy}>{actionBusy ? m['machines.deleting']() : m['machines.delete_action']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
 	<MachineResizeDialog bind:open={resizeOpen} {slug} {machine} {policy} onresized={(updated) => (machine = updated)} />
-	<Dialog.Root bind:open={snapshotOpen}><Dialog.Content class="sm:max-w-md"><Dialog.Header><Dialog.Title>{m['machines.snapshot_title']()}</Dialog.Title><Dialog.Description>{m['machines.snapshot_desc']()}</Dialog.Description></Dialog.Header><label class="space-y-1.5"><Label for="snapshot-name">{m['machines.environment_name']()}</Label><Input id="snapshot-name" bind:value={snapshotName} /></label><Dialog.Footer><Button variant="outline" onclick={() => (snapshotOpen = false)}>{m['common.cancel']()}</Button><Button onclick={saveSnapshot} disabled={snapshotBusy || !snapshotName.trim()}>{snapshotBusy ? m['machines.queuing']() : m['machines.save_snapshot']()}</Button></Dialog.Footer></Dialog.Content></Dialog.Root>
 {/if}
 
 <PageTitle parts={[machine?.name, m['machines.title']()]} />

@@ -81,7 +81,7 @@ func (e *gitScriptEnv) runStart(workspace string, extra ...string) (string, erro
 	e.t.Helper()
 	common := filepath.Join(repoRootFromCaller(e.t), "devmachine", "common", "start-common.sh")
 	cmd := exec.Command("sh", "-eu", "-c", `. "$1"; prepare_developer_workspace; printf '%s\n' "$kuayle_default_workspace"`, "kuayle", common)
-	cmd.Env = append(append([]string{}, e.env...), "KUAYLE_WORKSPACE_ROOT="+workspace, "KUAYLE_COLLECTOR_URL=http://127.0.0.1:9")
+	cmd.Env = append(append([]string{}, e.env...), "KUAYLE_WORKSPACE_ROOT="+workspace)
 	cmd.Env = append(cmd.Env, extra...)
 	output, err := cmd.CombinedOutput()
 	return string(output), err
@@ -235,4 +235,32 @@ func TestCheckoutServesSeveralRepositoriesFromOneWorkspace(t *testing.T) {
 	require.NoError(t, err, output)
 	helper := filepath.Join(e.home, ".kuayle-git-credential")
 	require.Equal(t, helper, e.git("", "--git-dir="+filepath.Join(workspace, "repos", "octo", "api.git"), "config", "credential.helper"))
+}
+
+// Earlier releases installed root-checkout Git hooks that reported to the
+// machine's collector. The collector is gone, so a start removes those hooks
+// and leaves every other hook alone.
+func TestStartCommonRemovesOnlyTheRetiredCollectorGitHooks(t *testing.T) {
+	e := newGitScriptEnv(t)
+	e.remote("octo/app", "README.md")
+	workspace := filepath.Join(e.root, "workspace")
+	repoEnv := []string{"KUAYLE_REPO_URL=https://github.com/octo/app", "KUAYLE_BASE_BRANCH=main", "KUAYLE_WORKING_BRANCH=kuayle/eng-1"}
+	output, err := e.runStart(workspace, repoEnv...)
+	require.NoError(t, err, output)
+
+	hooks := filepath.Join(workspace, ".git", "hooks")
+	collector := "#!/bin/sh\ncurl -fsS -X POST \"$KUAYLE_COLLECTOR_URL/event\" >/dev/null 2>&1 || true\n"
+	own := "#!/bin/sh\necho checked\n"
+	for _, hook := range []string{"post-commit", "post-checkout"} {
+		require.NoError(t, os.WriteFile(filepath.Join(hooks, hook), []byte(collector), 0o755))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(hooks, "pre-push"), []byte(own), 0o755))
+
+	output, err = e.runStart(workspace, repoEnv...)
+	require.NoError(t, err, output)
+	require.NoFileExists(t, filepath.Join(hooks, "post-commit"))
+	require.NoFileExists(t, filepath.Join(hooks, "post-checkout"))
+	content, err := os.ReadFile(filepath.Join(hooks, "pre-push"))
+	require.NoError(t, err)
+	require.Equal(t, own, string(content), "a hook the user wrote is kept")
 }

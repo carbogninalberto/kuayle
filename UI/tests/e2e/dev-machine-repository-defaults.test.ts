@@ -63,7 +63,6 @@ async function mockWorkspace(page: Page, defaults: Defaults) {
 					allow_custom_providers: false
 				}
 			});
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machine-repository-defaults') return route.fulfill({ json: defaults });
 		if (path === '/api/workspaces/test/dev-machines' && request.method() === 'POST') {
 			const payload = request.postDataJSON();

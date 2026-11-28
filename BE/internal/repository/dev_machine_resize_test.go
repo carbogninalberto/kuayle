@@ -33,7 +33,7 @@ func TestRequestResizeQueuesOnSettledCreatorMachineOnly(t *testing.T) {
 	ctx := context.Background()
 	size := domain.DevMachineResize{CPUMillis: 4000, MemoryMB: 16384, DiskGB: 40}
 
-	machineID := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machineID := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	outsider := uuid.New()
 	machine, err := fixture.repository.RequestResizeForUser(ctx, fixture.workspaceID, machineID, outsider, size, resizeOperation(machineID, fixture.workspaceID, outsider))
 	require.NoError(t, err)
@@ -58,11 +58,11 @@ func TestRequestResizeQueuesOnSettledCreatorMachineOnly(t *testing.T) {
 	_, err = fixture.repository.RequestResizeForUser(ctx, fixture.workspaceID, machineID, fixture.userID, size, resizeOperation(machineID, fixture.workspaceID, fixture.userID))
 	require.ErrorIs(t, err, ErrResizePending)
 
-	transitioning := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusStopped, false)
+	transitioning := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusStopped)
 	_, err = fixture.repository.RequestResizeForUser(ctx, fixture.workspaceID, transitioning, fixture.userID, size, resizeOperation(transitioning, fixture.workspaceID, fixture.userID))
 	require.ErrorIs(t, err, ErrMachineStateConflict, "a machine changing state is not resized")
 
-	stopped := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
+	stopped := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped)
 	_, err = db.Exec(`INSERT INTO dev_machine_operations(machine_id,workspace_id,action,status,generation,idempotency_key)
 		VALUES($1,$2,'start','pending',2,'start:2')`, stopped, fixture.workspaceID)
 	require.NoError(t, err)
@@ -102,14 +102,14 @@ func TestResizeLeasesBesideAgentRunButNotBesideLifecycle(t *testing.T) {
 	}
 	size := domain.DevMachineResize{CPUMillis: 2000, MemoryMB: 8192, DiskGB: 20}
 
-	running := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	running := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = fixture.repository.RequestResizeForUser(ctx, fixture.workspaceID, running, fixture.userID, size, resizeOperation(running, fixture.workspaceID, fixture.userID))
 	require.NoError(t, err)
 	insertLeased(running, "run_agent")
 	require.Equal(t, []domain.DevMachineOperationAction{domain.DevMachineOpResize}, leasedFor(running),
 		"a long agent run does not hold back the memory it may need")
 
-	paused := fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused, false)
+	paused := fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused)
 	_, err = fixture.repository.RequestResizeForUser(ctx, fixture.workspaceID, paused, fixture.userID, size, resizeOperation(paused, fixture.workspaceID, fixture.userID))
 	require.NoError(t, err)
 	insertLeased(paused, "start")
@@ -128,7 +128,7 @@ func TestFinishResizeAppliesOrRejectsPendingSize(t *testing.T) {
 	ctx := context.Background()
 	size := domain.DevMachineResize{CPUMillis: 4000, MemoryMB: 16384, DiskGB: 60}
 
-	applied := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	applied := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`INSERT INTO dev_machine_volumes(machine_id,volume_type,runtime_name,mount_path,size_limit_bytes) VALUES($1,'workspace',$2,'/workspace',$3)`,
 		applied, "kuayle-workspace-"+applied.String(), int64(20)<<30)
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestFinishResizeAppliesOrRejectsPendingSize(t *testing.T) {
 	require.NoError(t, db.Get(&limitBytes, `SELECT size_limit_bytes FROM dev_machine_volumes WHERE machine_id=$1`, applied))
 	require.Equal(t, int64(60)<<30, limitBytes, "the monitored disk limit follows the new size")
 
-	rejected := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	rejected := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = fixture.repository.RequestResizeForUser(ctx, fixture.workspaceID, rejected, fixture.userID, size, resizeOperation(rejected, fixture.workspaceID, fixture.userID))
 	require.NoError(t, err)
 	reason := "Not enough host memory"

@@ -102,10 +102,10 @@ func TestAgentTasksDurableTransitionsAndFencing(t *testing.T) {
 	runtimeRepo := NewDevMachineRepository(db)
 	stale := domain.WithTaskExecution(ctx, *attempt)
 	deniedMachine := &domain.DevMachine{ID: attempt.ReservedMachineID, WorkspaceID: ws, IssueID: &issue, CreatedByUserID: &user}
-	require.ErrorIs(t, runtimeRepo.CreateBundle(stale, deniedMachine, nil, nil, nil, nil, nil, &domain.DevMachineOperation{}), ErrAgentTaskConflict)
+	require.ErrorIs(t, runtimeRepo.CreateBundle(stale, deniedMachine, nil, nil, nil, nil, &domain.DevMachineOperation{}), ErrAgentTaskConflict)
 	fenced := domain.WithTaskExecution(ctx, *successor)
 	deniedMachine.ID = uuid.New()
-	require.ErrorIs(t, runtimeRepo.CreateBundle(fenced, deniedMachine, nil, nil, nil, nil, nil, &domain.DevMachineOperation{}), ErrAgentTaskConflict)
+	require.ErrorIs(t, runtimeRepo.CreateBundle(fenced, deniedMachine, nil, nil, nil, nil, &domain.DevMachineOperation{}), ErrAgentTaskConflict)
 	var machines int
 	require.NoError(t, db.Get(&machines, `SELECT count(*) FROM dev_machines WHERE workspace_id=$1`, ws))
 	require.Zero(t, machines)
@@ -186,7 +186,7 @@ func TestAgentTasksReserveMachinesAndFenceActualDispatch(t *testing.T) {
 	ctx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: user})
 	c, err := NewConversationRepository(db).OpenIssue(ctx, ws, issue)
 	require.NoError(t, err)
-	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`INSERT INTO dev_machine_agent_providers(machine_id,provider_id,display_name,image_ref) VALUES($1,'codex','Codex','test.invalid/codex:fixture')`, machine)
 	require.NoError(t, err)
 	repo := NewAgentTaskRepository(db)
@@ -209,7 +209,7 @@ func TestAgentTasksReserveMachinesAndFenceActualDispatch(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, task := range tasks {
 		wg.Go(func() {
-			reservation, e := repo.ReserveMachine(ctx, task, uuid.New(), &fixture.environmentID)
+			reservation, e := repo.ReserveMachine(ctx, task, uuid.New())
 			if errors.Is(e, ErrMachineSlotWait) {
 				waited <- struct{}{}
 				return
@@ -339,7 +339,7 @@ func TestAgentRunSecretSnapshotIsImmutableAndRejectsUnsafeRecovery(t *testing.T)
 	}
 	db := isolatedPrivacyDatabase(t, url)
 	fixture := newEnvironmentRaceFixture(t, db)
-	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	runID := uuid.New()
 	_, err := db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,provider_id,mode,prompt,command_argv,max_runtime_seconds) VALUES($1,$2,$3,'codex','autonomous','Test','["codex"]',60)`, runID, fixture.workspaceID, machine)
 	require.NoError(t, err)
@@ -410,7 +410,7 @@ func TestReservationReusesAnIdleMachineWithADifferentAgent(t *testing.T) {
 	ctx := domain.WithAccess(context.Background(), domain.Access{WorkspaceID: ws, UserID: user})
 	c, err := NewConversationRepository(db).OpenIssue(ctx, ws, issue)
 	require.NoError(t, err)
-	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`INSERT INTO dev_machine_agent_providers(machine_id,provider_id,display_name,image_ref) VALUES($1,'codex','Codex','test.invalid/codex:fixture')`, machine)
 	require.NoError(t, err)
 	repo := NewAgentTaskRepository(db)
@@ -423,13 +423,13 @@ func TestReservationReusesAnIdleMachineWithADifferentAgent(t *testing.T) {
 	// Reserved before the machine became reusable: a placeholder that was never created.
 	_, err = db.Exec(`UPDATE dev_machines SET status='paused' WHERE id=$1`, machine)
 	require.NoError(t, err)
-	placeholder, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
+	placeholder, err := repo.ReserveMachine(ctx, *claimed, uuid.New())
 	require.NoError(t, err)
 	require.Equal(t, claimed.ReservedMachineID, placeholder.MachineID)
 	claimed.MachineID = &placeholder.MachineID
 	_, err = db.Exec(`UPDATE dev_machines SET status='running' WHERE id=$1`, machine)
 	require.NoError(t, err)
-	reservation, err := repo.ReserveMachine(ctx, *claimed, uuid.New(), &fixture.environmentID)
+	reservation, err := repo.ReserveMachine(ctx, *claimed, uuid.New())
 	require.NoError(t, err)
 	require.Equal(t, machine, reservation.MachineID, "an idle machine is reused even when it lacks this task's agent")
 
@@ -440,8 +440,8 @@ func TestReservationReusesAnIdleMachineWithADifferentAgent(t *testing.T) {
 }
 
 // Tasks reuse a running, idle machine of their creator before creating a new
-// one, whatever repository it served before. Other users' machines, another
-// environment's, paused or stopped ones (their user chose that), busy ones and
+// one, whatever repository it served before. Other users' machines,
+// paused or stopped ones (their user chose that), busy ones and
 // ones the workspace policy no longer allows are never chosen. A machine
 // already used for the same issue comes first, then the most recently active.
 func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
@@ -485,13 +485,13 @@ func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
 		_, err := db.Exec(`UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
 		require.NoError(t, err)
 		claimed.MachineID = nil
-		reservation, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
+		reservation, err := repo.ReserveMachine(ctx, *claimed, repository)
 		require.NoError(t, err)
 		return reservation.MachineID
 	}
 	running := func(activity string) uuid.UUID {
 		t.Helper()
-		id := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+		id := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 		_, err := db.Exec(`UPDATE dev_machines SET last_activity_at=now()-$2::interval WHERE id=$1`, id, activity)
 		require.NoError(t, err)
 		return id
@@ -504,18 +504,13 @@ func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
 
 	othersRunning := running("1 minute")
 	exec(`UPDATE dev_machines SET created_by_user_id=$2 WHERE id=$1`, othersRunning, other)
-	otherEnvironment := running("1 minute")
-	exec(`UPDATE dev_machines SET environment_id=NULL WHERE id=$1`, otherEnvironment)
 	deleting := running("1 minute")
 	exec(`UPDATE dev_machines SET delete_requested_at=now() WHERE id=$1`, deleting)
-	builder := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, true)
-	fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
-	fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused, false)
-	starting := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusRunning, false)
+	fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped)
+	fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused)
+	starting := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusRunning)
 	require.Equal(t, claimed.ReservedMachineID, reserve(), "no running machine of the creator fits, so a new one is created")
-	for _, id := range []uuid.UUID{builder, starting} {
-		exec(`UPDATE dev_machines SET status='destroyed',desired_status='destroyed' WHERE id=$1`, id)
-	}
+	exec(`UPDATE dev_machines SET status='destroyed',desired_status='destroyed' WHERE id=$1`, starting)
 
 	// The machine served another repository before: one machine serves several.
 	older := running("3 hours")
@@ -569,18 +564,18 @@ func TestReservationReusesTheCreatorsRunningIdleMachine(t *testing.T) {
 	exec(`UPDATE dev_machine_workspace_policies SET enabled=false WHERE workspace_id=$1`, ws)
 	require.Equal(t, claimed.ReservedMachineID, reserve(), "nothing is reused while Dev Machines are disabled")
 	exec(`UPDATE dev_machine_workspace_policies SET enabled=true WHERE workspace_id=$1`, ws)
-	paused := fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused, false)
+	paused := fixture.insertMachine(t, domain.DevMachineStatusPaused, domain.DevMachineStatusPaused)
 	stopped := older
 	exec(`UPDATE dev_machines SET status='stopped',desired_status='stopped' WHERE id=$1`, stopped)
 
 	// A task whose machine was destroyed (records are kept as history) gets a
 	// fresh reservation instead of waiting on the destroyed machine forever.
-	_, err = db.Exec(`UPDATE dev_machines SET status='destroyed',desired_status='destroyed' WHERE id IN ($1,$2,$3,$4)`, paused, stopped, recent, otherEnvironment)
+	_, err = db.Exec(`UPDATE dev_machines SET status='destroyed',desired_status='destroyed' WHERE id IN ($1,$2,$3)`, paused, stopped, recent)
 	require.NoError(t, err)
 	_, err = db.Exec(`UPDATE agent_tasks SET machine_id=$2,reserved_machine_id=$2 WHERE id=$1`, claimed.ID, paused)
 	require.NoError(t, err)
 	claimed.MachineID, claimed.ReservedMachineID = &paused, paused
-	fresh, err := repo.ReserveMachine(ctx, *claimed, repository, &fixture.environmentID)
+	fresh, err := repo.ReserveMachine(ctx, *claimed, repository)
 	require.NoError(t, err)
 	require.NotEqual(t, paused, fresh.MachineID)
 	var reserved uuid.UUID

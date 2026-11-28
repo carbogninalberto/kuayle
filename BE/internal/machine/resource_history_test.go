@@ -195,7 +195,7 @@ func TestTeardownWipesTheUsageHistory(t *testing.T) {
 	machineID, workspaceID := uuid.New(), uuid.New()
 	store := &managerStoreFake{
 		machine:  &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusRunning},
-		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "ide", ServiceType: "ide"}},
+		services: []domain.DevMachineService{{ID: uuid.New(), MachineID: machineID, ServiceKey: "terminal", ServiceType: "terminal"}},
 	}
 	runtime := &runtimeFake{}
 	manager := NewManager(store, runtime, agent.NewRegistry(), nil, make([]byte, 32), make([]byte, 32), "test")

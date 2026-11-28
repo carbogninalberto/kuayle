@@ -115,10 +115,6 @@ func TestDemoModeRefusesMachineUseForNonSysadmins(t *testing.T) {
 			_, err := machines.createAgentRun(ctx, ws, id, member, dto.CreateAgentRunRequest{Provider: "codex", Mode: "autonomous", Prompt: "Implement"}, uuid.New())
 			return err
 		},
-		"launch service": func() error {
-			_, err := machines.LaunchService(ctx, ws, id, member, "terminal", nil)
-			return err
-		},
 		"terminal session": func() error {
 			_, err := machines.CreateTerminalSession(ctx, ws, id, member, dto.CreateTerminalSessionRequest{})
 			return err
@@ -129,10 +125,6 @@ func TestDemoModeRefusesMachineUseForNonSysadmins(t *testing.T) {
 		},
 		"expose port": func() error { _, err := machines.CreatePort(ctx, ws, id, member, 3000, nil); return err },
 		"open port":   func() error { _, err := machines.LaunchPort(ctx, ws, id, id, member); return err },
-		"snapshot environment": func() error {
-			_, err := machines.SnapshotEnvironment(ctx, ws, member, dto.CreateDevMachineEnvironmentRequest{})
-			return err
-		},
 	} {
 		refusedBeforeStorage(t, name, call)
 	}

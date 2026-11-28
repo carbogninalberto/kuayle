@@ -33,7 +33,7 @@ func TestExecOutputStopsWhenItsContextEnds(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := runtime.execOutput(ctx, "collector", []string{"du", "-sb", "/workspace"})
+		_, err := runtime.execOutput(ctx, "terminal", []string{"du", "-sb", "/workspace"})
 		done <- err
 	}()
 	select {

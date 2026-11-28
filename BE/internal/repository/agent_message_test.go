@@ -35,8 +35,6 @@ func newMessageFixture(t *testing.T) messageFixture {
 	exec(`UPDATE issues SET identifier_text='AUT-3' WHERE id=$1`, f.finished)
 	exec(`UPDATE issues SET parent_id=$1 WHERE id=$2`, f.parent, f.other)
 	exec(`INSERT INTO issues(id,workspace_id,team_id,number,identifier_text,title,creator_id,status_id,parent_id) VALUES($1,$2,$3,4,'AUT-4','Sibling',$4,$5,$6)`, f.sibling, f.workspace, f.team, f.user, f.todo, f.parent)
-	// Private teams require a workspace without dev machine environments.
-	exec(`DELETE FROM dev_machine_environments WHERE workspace_id=$1`, f.workspace)
 	privateTeam := uuid.New()
 	exec(`INSERT INTO teams(id,workspace_id,name,key,is_private) VALUES($1,$2,'Private','PRV',TRUE)`, privateTeam, f.workspace)
 	exec(`INSERT INTO team_members(team_id,user_id) VALUES($1,$2)`, privateTeam, f.user)

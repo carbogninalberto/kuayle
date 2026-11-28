@@ -17,12 +17,11 @@ function machine(id: string, name: string, status: string, extra: Record<string,
 		base_branch: 'main',
 		working_branch: `kuayle/${name}-with-a-long-working-branch-name`,
 		machine_size: 'medium',
-		profile: 'developer',
+		profile: 'headless',
 		cpu_millis: 4000,
 		memory_mb: 8192,
 		disk_gb: 40,
 		pids_limit: 1024,
-		environment_builder: false,
 		created_at: '2026-10-30T10:00:00Z',
 		updated_at: '2026-10-30T10:00:00Z',
 		...extra
@@ -109,7 +108,6 @@ async function mockApi(page: Page, options: { role?: string; paged?: boolean } =
 			});
 		if (path === '/api/workspaces/test/github/status') return route.fulfill({ json: { installed: false, repos: [] } });
 		if (path === '/api/workspaces/test/dev-machine-scope-setting') return route.fulfill({ json: { workspace_id: workspaceId } });
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
 	});
 	return state;

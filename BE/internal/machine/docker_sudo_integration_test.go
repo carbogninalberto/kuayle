@@ -27,9 +27,9 @@ const (
 // and install into the root filesystem, but root has neither NET_ADMIN,
 // SYS_ADMIN nor raw sockets, and has no route around the egress proxy. Global
 // npm installs work without sudo and land on the workspace volume. Sudo keeps
-// working after a stop/start, while an agent attempt on the same machine and
-// the terminal of a machine without sudo cannot use it. Needs the headless,
-// collector and egress images and network access for an npm download.
+// working after a stop/start. An agent attempt on the same machine gets the
+// same relaxation, while the terminal of a machine without sudo cannot use it.
+// Needs the headless and egress images and network access for an npm download.
 func TestSudoMachinesGetRootWithoutLeavingTheSandbox(t *testing.T) {
 	if os.Getenv("KUAYLE_SUDO_INTEGRATION") != "1" {
 		t.Skip("set KUAYLE_SUDO_INTEGRATION=1 to run the machine sudo test")
@@ -41,8 +41,8 @@ func TestSudoMachinesGetRootWithoutLeavingTheSandbox(t *testing.T) {
 	routingKey := strings.ReplaceAll(uuid.NewString(), "-", "")[:20]
 	gatewayName := "kuayle-integration-gateway-" + routingKey
 	runtime, err := NewDockerRuntime(DockerConfig{
-		GatewayContainerName: gatewayName, IngestURL: "https://example.invalid/api/dev-machine-ingest",
-		DiskQuotaMode: os.Getenv("KUAYLE_TEST_DISK_QUOTA_MODE"),
+		GatewayContainerName: gatewayName,
+		DiskQuotaMode:        os.Getenv("KUAYLE_TEST_DISK_QUOTA_MODE"),
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = runtime.client.Close() })
@@ -65,11 +65,10 @@ func TestSudoMachinesGetRootWithoutLeavingTheSandbox(t *testing.T) {
 		SudoEnabled: true,
 	}
 	services := []domain.DevMachineService{
-		integrationService(machine, "collector", "collector", integrationImage("KUAYLE_TEST_COLLECTOR_IMAGE", "kuayle/dev-machine-collector:0.1.0"), 8091),
 		integrationService(machine, "egress", "egress", integrationImage("KUAYLE_TEST_EGRESS_IMAGE", "kuayle/dev-machine-egress:0.1.0"), 3128),
 		integrationService(machine, "terminal", "terminal", headlessImage, 7681),
 	}
-	secrets := map[string]map[string]string{"collector": {"KUAYLE_MACHINE_TOKEN": "integration-test-token"}}
+	secrets := map[string]map[string]string{}
 	networkName, volumeName, containers, err := runtime.Spawn(ctx, machine, services, secrets)
 	machine.DockerNetworkName, machine.WorkspaceVolumeName = &networkName, &volumeName
 	t.Cleanup(func() { _ = runtime.Teardown(context.Background(), machine, services) })
@@ -125,14 +124,19 @@ func TestSudoMachinesGetRootWithoutLeavingTheSandbox(t *testing.T) {
 	require.NoError(t, err, output)
 	require.Equal(t, "0\n2.0.0\n", output, "sudo and npm installs survive a restart")
 
-	// An agent attempt on the same machine, and a developer container of a
-	// machine without sudo, keep no-new-privileges and no capabilities.
+	// An agent attempt always gets the sudo relaxation; the developer
+	// container of a machine without sudo keeps no-new-privileges and no
+	// capabilities.
 	locked := *machine
 	locked.SudoEnabled = false
-	for name, config := range map[string]*container.HostConfig{
-		"agent":    runtime.secureHostConfig(machine, "agent", networkName, volumeName, false),
-		"terminal": runtime.secureHostConfig(&locked, "terminal", networkName, volumeName, false),
+	for name, probe := range map[string]struct {
+		config *container.HostConfig
+		sudo   bool
+	}{
+		"agent":    {runtime.secureHostConfig(&locked, "agent", networkName, volumeName, false), true},
+		"terminal": {runtime.secureHostConfig(&locked, "terminal", networkName, volumeName, false), false},
 	} {
+		config := probe.config
 		created, err := runtime.client.ContainerCreate(ctx, client.ContainerCreateOptions{
 			Config:           &container.Config{Image: headlessImage, User: "1000:1000", WorkingDir: "/workspace", Entrypoint: []string{"/bin/sleep"}, Cmd: []string{"300"}, Labels: machineLabels(machine)},
 			HostConfig:       config,
@@ -147,11 +151,16 @@ func TestSudoMachinesGetRootWithoutLeavingTheSandbox(t *testing.T) {
 		require.NoError(t, err, name)
 		output, err = run(created.ID, "sudo -n true 2>&1 && echo ROOT || echo denied")
 		require.NoError(t, err, name)
-		require.Contains(t, output, "denied", name)
-		require.NotContains(t, output, "ROOT", name)
-		output, err = run(created.ID, "touch /usr/local/bin/probe 2>/dev/null && echo WRITABLE || echo read-only")
+		written, err := run(created.ID, "sudo -n touch /usr/local/bin/probe 2>/dev/null && echo WRITABLE || echo read-only")
 		require.NoError(t, err, name)
-		require.Contains(t, output, "read-only", name)
+		if probe.sudo {
+			require.Contains(t, output, "ROOT", name)
+			require.Contains(t, written, "WRITABLE", name)
+		} else {
+			require.Contains(t, output, "denied", name)
+			require.NotContains(t, output, "ROOT", name)
+			require.Contains(t, written, "read-only", name)
+		}
 		_, err = runtime.client.ContainerRemove(ctx, created.ID, client.ContainerRemoveOptions{Force: true})
 		require.NoError(t, err, name)
 	}

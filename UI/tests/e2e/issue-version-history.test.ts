@@ -230,7 +230,6 @@ test('reviews history for an issue opened from a project', async ({ page }) => {
  await page.route('**/api/workspaces/test/projects', route => route.fulfill({ json: [project] }));
  await page.route('**/api/workspaces/test/github/status', route => route.fulfill({ json: { repos: [] } }));
  await page.route('**/api/workspaces/test/dev-machine-scope-setting?*', route => route.fulfill({ json: {} }));
- await page.route('**/api/workspaces/test/dev-machine-environments', route => route.fulfill({ json: [] }));
  await page.goto(`/test/projects/${projectId}`);
  // Project issues open on the full issue page, like the team issue list.
  await page.getByText('Navigation issue 1', { exact: true }).click();

@@ -21,7 +21,7 @@ func TestCreateRecordsSudoOnlyWhenTheWorkspaceAllowsIt(t *testing.T) {
 		policy.AllowSudo = allowed
 		store := &devMachineStoreFake{policy: policy}
 		svc := NewDevMachineService(store, agent.NewRegistry(), true, "machines.example.test", cryptoutil.DeriveKey("test"), time.Minute, DevMachineImages{})
-		machine, _, err := svc.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{Name: "sudo-machine", Size: "small", Services: dto.DevMachineServicesInput{IDE: true}})
+		machine, _, err := svc.Create(context.Background(), workspaceID, userID, dto.CreateDevMachineRequest{Name: "sudo-machine", Size: "small"})
 		require.NoError(t, err)
 		require.Equal(t, allowed, machine.SudoEnabled)
 		require.Equal(t, allowed, store.createdMachine.SudoEnabled)

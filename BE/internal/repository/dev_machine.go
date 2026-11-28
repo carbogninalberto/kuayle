@@ -26,7 +26,7 @@ type DevMachineStore interface {
 	// cached environment check of a machine's developer container.
 	GetEnvironmentCheck(context.Context, uuid.UUID) (*domain.DevMachineEnvironmentCheck, error)
 	RequestPackageIndexRefresh(context.Context, uuid.UUID, uuid.UUID, string, uuid.UUID) (bool, error)
-	CreateBundle(context.Context, *domain.DevMachine, []domain.DevMachineAgentProvider, []domain.DevMachineService, []domain.DevMachineVolume, []domain.DevMachineEnvVar, []domain.DevMachineToken, *domain.DevMachineOperation) error
+	CreateBundle(context.Context, *domain.DevMachine, []domain.DevMachineAgentProvider, []domain.DevMachineService, []domain.DevMachineVolume, []domain.DevMachineEnvVar, *domain.DevMachineOperation) error
 	GetMachine(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineForUser(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachine, error)
 	GetMachineInternal(context.Context, uuid.UUID) (*domain.DevMachine, error)
@@ -63,7 +63,6 @@ type DevMachineStore interface {
 	CountAgentRunsSince(context.Context, uuid.UUID, time.Time) (int, error)
 	HasActiveAgentRun(context.Context, uuid.UUID) (bool, error)
 	CreateEvent(context.Context, *domain.DevMachineEvent) error
-	AuthenticateMachineToken(context.Context, string, string) (*domain.DevMachineToken, *domain.DevMachine, error)
 	CreateLogChunk(context.Context, *domain.DevMachineLogChunk) error
 	ListEvents(context.Context, uuid.UUID, uuid.UUID, int64, int) ([]domain.DevMachineEvent, error)
 	ListLogs(context.Context, uuid.UUID, uuid.UUID, *uuid.UUID, int64, int) ([]domain.DevMachineLogChunk, error)
@@ -89,12 +88,6 @@ type DevMachineStore interface {
 	ListLinkedRepositories(context.Context, uuid.UUID) ([]domain.GitHubRepoModel, error)
 	GetIssueDevelopmentContext(context.Context, uuid.UUID, uuid.UUID) (*domain.Issue, error)
 	GetProjectDevelopmentContext(context.Context, uuid.UUID, uuid.UUID) (*domain.Project, error)
-	ListEnvironments(context.Context, uuid.UUID) ([]domain.DevMachineEnvironment, error)
-	GetEnvironment(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineEnvironment, error)
-	CreateEnvironment(context.Context, *domain.DevMachineEnvironment, *domain.DevMachineOperation) error
-	RequestEnvironmentDeletion(context.Context, uuid.UUID, uuid.UUID) error
-	ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error)
-	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
 	ListPermanentDeleteRequests(context.Context, int) ([]domain.DevMachine, error)
 	GetCheckout(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineCheckout, error)
 	GetTerminalCheckout(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*domain.DevMachineCheckout, error)
@@ -113,10 +106,6 @@ var ErrActiveAgentRun = errors.New("machine has an active agent run")
 var ErrMachineStateConflict = errors.New("machine state changed while queuing operation")
 var ErrMachineQuota = errors.New("dev machine quota exceeded")
 var ErrMachineNameConflict = errors.New("dev machine name already exists")
-var ErrEnvironmentInUse = errors.New("development environment is in use")
-var ErrEnvironmentUnavailable = errors.New("development environment is not available")
-var ErrEnvironmentInvalidState = errors.New("development environment cannot be deleted in its current state")
-var ErrEnvironmentDeletionConflict = errors.New("development environment build is still active")
 
 type machineQuotaError struct {
 	message string
@@ -167,7 +156,6 @@ func (r *DevMachineRepository) CreateBundle(
 	services []domain.DevMachineService,
 	volumes []domain.DevMachineVolume,
 	envVars []domain.DevMachineEnvVar,
-	tokens []domain.DevMachineToken,
 	operation *domain.DevMachineOperation,
 ) error {
 	tx, err := beginTaskRuntimeTransaction(ctx, r.db, "machine", machine.WorkspaceID, machine.ID, machine.ID)
@@ -177,16 +165,6 @@ func (r *DevMachineRepository) CreateBundle(
 	defer tx.Rollback()
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, machine.WorkspaceID); err != nil {
 		return err
-	}
-	if machine.EnvironmentID != nil {
-		var ready bool
-		if err := tx.GetContext(ctx, &ready, `SELECT EXISTS(SELECT 1 FROM dev_machine_environments
-			WHERE workspace_id=$1 AND id=$2 AND status='ready')`, machine.WorkspaceID, machine.EnvironmentID); err != nil {
-			return err
-		}
-		if !ready {
-			return ErrEnvironmentUnavailable
-		}
 	}
 	var maxWorkspace, maxUser, workspaceCount, userCount int
 	if err := tx.QueryRowContext(ctx, `SELECT max_concurrent_machines, max_machines_per_user
@@ -229,25 +207,21 @@ func (r *DevMachineRepository) CreateBundle(
 		}
 	}
 
-	if machine.Profile == "" {
-		machine.Profile = domain.DevMachineProfileStandard
-	}
+	machine.Profile = domain.DevMachineProfileHeadless
 	const machineQuery = `INSERT INTO dev_machines (
 		id, workspace_id, project_id, issue_id, created_by_user_id, routing_key, name,
 		status, desired_status, generation, repo_url, repo_provider, repo_owner, repo_name,
 		base_branch, working_branch, machine_size, profile, cpu_millis, memory_mb, disk_gb, pids_limit,
-		services_config, labels, environment_id,
-		repository_affinity_id, environment_builder, last_activity_at, sudo_enabled,
+		labels, repository_affinity_id, last_activity_at, sudo_enabled,
 		temporary_conversation_id, temporary_expires_at
-	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
 	RETURNING created_at, updated_at`
 	if err := tx.QueryRowContext(ctx, machineQuery,
 		machine.ID, machine.WorkspaceID, machine.ProjectID, machine.IssueID, machine.CreatedByUserID,
 		machine.RoutingKey, machine.Name, machine.Status, machine.DesiredStatus, machine.Generation,
 		machine.RepoURL, machine.RepoProvider, machine.RepoOwner, machine.RepoName, machine.BaseBranch,
 		machine.WorkingBranch, machine.MachineSize, machine.Profile, machine.CPUMillis, machine.MemoryMB, machine.DiskGB,
-		machine.PidsLimit, machine.ServicesConfig, machine.Labels,
-		machine.EnvironmentID, machine.RepositoryAffinityID, machine.EnvironmentBuilder, machine.LastActivityAt,
+		machine.PidsLimit, machine.Labels, machine.RepositoryAffinityID, machine.LastActivityAt,
 		machine.SudoEnabled, machine.TemporaryConversationID, machine.TemporaryExpiresAt,
 	).Scan(&machine.CreatedAt, &machine.UpdatedAt); err != nil {
 		var postgresError *pgconn.PgError
@@ -301,17 +275,6 @@ func (r *DevMachineRepository) CreateBundle(
 			envVar.ID, envVar.MachineID, envVar.ProviderID, envVar.TargetService, envVar.Name,
 			envVar.EncryptedValue, envVar.EncryptionKeyVersion, envVar.IsSecret, envVar.ExpiresAt,
 		).Scan(&envVar.CreatedAt); err != nil {
-			return err
-		}
-	}
-
-	for i := range tokens {
-		token := &tokens[i]
-		if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_tokens
-			(id, machine_id, agent_run_id, token_hash, scopes, expires_at)
-			VALUES ($1,$2,$3,$4,$5,$6) RETURNING created_at`, token.ID, token.MachineID,
-			token.AgentRunID, token.TokenHash, token.Scopes, token.ExpiresAt,
-		).Scan(&token.CreatedAt); err != nil {
 			return err
 		}
 	}
@@ -445,22 +408,13 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 	}
 	var status domain.DevMachineStatus
 	var creatorID *uuid.UUID
-	var environmentID *uuid.UUID
 	var generation int64
-	if err := tx.QueryRowContext(ctx, `SELECT status, generation, created_by_user_id, environment_id
+	if err := tx.QueryRowContext(ctx, `SELECT status, generation, created_by_user_id
 		FROM dev_machines WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspaceID, machineID).
-		Scan(&status, &generation, &creatorID, &environmentID); err != nil {
+		Scan(&status, &generation, &creatorID); err != nil {
 		return err
 	}
 	if generation >= operation.Generation {
-		return ErrMachineStateConflict
-	}
-	var snapshotActive bool
-	if err := tx.GetContext(ctx, &snapshotActive, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations
-		WHERE machine_id=$1 AND action='snapshot_environment' AND status IN ('pending','leased'))`, machineID); err != nil {
-		return err
-	}
-	if snapshotActive {
 		return ErrMachineStateConflict
 	}
 	if operation.Action == domain.DevMachineOpPause || operation.Action == domain.DevMachineOpStop || operation.Action == domain.DevMachineOpTeardown {
@@ -479,16 +433,6 @@ func (r *DevMachineRepository) SetDesiredAndEnqueue(ctx context.Context, workspa
 		}
 	}
 	if desired == domain.DevMachineStatusRunning {
-		if environmentID != nil {
-			var ready bool
-			if err := tx.GetContext(ctx, &ready, `SELECT EXISTS(SELECT 1 FROM dev_machine_environments
-				WHERE workspace_id=$1 AND id=$2 AND status='ready')`, workspaceID, environmentID); err != nil {
-				return err
-			}
-			if !ready {
-				return ErrEnvironmentUnavailable
-			}
-		}
 		if status == domain.DevMachineStatusStopped || status == domain.DevMachineStatusFailed {
 			var maxWorkspace, maxUser, workspaceCount, userCount int
 			if err := tx.QueryRowContext(ctx, `SELECT max_concurrent_machines, max_machines_per_user
@@ -537,12 +481,12 @@ func enqueueOperation(ctx context.Context, tx *sqlx.Tx, operation *domain.DevMac
 		operation.MaxAttempts = 5
 	}
 	return tx.QueryRowContext(ctx, `INSERT INTO dev_machine_operations
-		(id, machine_id, agent_run_id, checkout_id, environment_id, workspace_id, action, status, generation, idempotency_key,
+		(id, machine_id, agent_run_id, checkout_id, workspace_id, action, status, generation, idempotency_key,
 		 requested_by_user_id, max_attempts, agent_task_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (machine_id, idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
 		RETURNING id, status, attempts, available_at, created_at, updated_at`,
-		operation.ID, operation.MachineID, operation.AgentRunID, operation.CheckoutID, operation.EnvironmentID, operation.WorkspaceID, operation.Action,
+		operation.ID, operation.MachineID, operation.AgentRunID, operation.CheckoutID, operation.WorkspaceID, operation.Action,
 		operation.Status, operation.Generation, operation.IdempotencyKey, operation.RequestedByUserID, operation.MaxAttempts, operation.AgentTaskID,
 	).Scan(&operation.ID, &operation.Status, &operation.Attempts, &operation.AvailableAt, &operation.CreatedAt, &operation.UpdatedAt)
 }
@@ -575,7 +519,7 @@ func (r *DevMachineRepository) LeaseOperations(ctx context.Context, owner string
 			AND leased.action<>'scan_worktree'
 			-- A resize applies beside a long agent run or check, which can
 			-- need the memory, but never beside lifecycle work.
-			AND (o.action<>'resize' OR leased.action IN ('spawn','start','stop','pause','teardown','snapshot_environment','resize'))
+			AND (o.action<>'resize' OR leased.action IN ('spawn','start','stop','pause','teardown','resize'))
 			-- Tasks sharing a machine work at the same time, each in its own
 			-- worktree: their attempts, checkouts, validations and
 			-- publications run beside one another. The user's own agent runs
@@ -779,9 +723,7 @@ func (r *DevMachineRepository) UpsertPolicy(ctx context.Context, policy *domain.
 func (r *DevMachineRepository) ListServices(ctx context.Context, workspaceID, machineID uuid.UUID) ([]domain.DevMachineService, error) {
 	var services []domain.DevMachineService
 	err := r.db.SelectContext(ctx, &services, `SELECT s.* FROM dev_machine_services s JOIN dev_machines m ON m.id=s.machine_id
-		WHERE m.workspace_id=$1 AND m.id=$2 ORDER BY CASE s.service_type
-			WHEN 'egress' THEN 0 WHEN 'collector' THEN 1 WHEN 'ide' THEN 2
-			WHEN 'browser' THEN 3 ELSE 4 END, s.service_key`, workspaceID, machineID)
+		WHERE m.workspace_id=$1 AND m.id=$2 ORDER BY s.service_type<>'egress', s.service_key`, workspaceID, machineID)
 	return services, err
 }
 
@@ -837,9 +779,9 @@ func (r *DevMachineRepository) GetRoute(ctx context.Context, routingKey, service
 				return nil, nil, err
 			}
 		}
-		err = r.db.GetContext(ctx, &service, `SELECT * FROM dev_machine_services WHERE machine_id=$1 AND service_type IN ('ide','terminal')
+		err = r.db.GetContext(ctx, &service, `SELECT * FROM dev_machine_services WHERE machine_id=$1 AND service_type='terminal'
 		AND agent_run_id IS NULL AND status='running' AND container_id IS NOT NULL AND $2::dev_machine_status='running'
-		ORDER BY service_type='ide' DESC,created_at LIMIT 1`, machine.ID, machine.DesiredStatus)
+		ORDER BY created_at LIMIT 1`, machine.ID, machine.DesiredStatus)
 		if errors.Is(err, sql.ErrNoRows) {
 			return &machine, nil, nil
 		}
@@ -1498,34 +1440,6 @@ func (r *DevMachineRepository) CreateEvent(ctx context.Context, event *domain.De
 	).Scan(&event.ID, &event.CreatedAt)
 }
 
-func (r *DevMachineRepository) AuthenticateMachineToken(ctx context.Context, tokenHash, scope string) (*domain.DevMachineToken, *domain.DevMachine, error) {
-	tx, err := r.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer tx.Rollback()
-	var token domain.DevMachineToken
-	err = tx.GetContext(ctx, &token, `UPDATE dev_machine_tokens SET last_used_at=NOW()
-		WHERE token_hash=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>NOW()) AND scopes ? $2 RETURNING *`, tokenHash, scope)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	var machine domain.DevMachine
-	if err := tx.GetContext(ctx, &machine, `SELECT * FROM dev_machines WHERE id=$1 AND status='running'`, token.MachineID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil, nil
-		}
-		return nil, nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, nil, err
-	}
-	return &token, &machine, nil
-}
-
 func (r *DevMachineRepository) ListEvents(ctx context.Context, workspaceID, machineID uuid.UUID, afterID int64, limit int) ([]domain.DevMachineEvent, error) {
 	var events []domain.DevMachineEvent
 	err := r.db.SelectContext(ctx, &events, `SELECT e.* FROM dev_machine_events e JOIN dev_machines m ON m.id=e.machine_id
@@ -2149,16 +2063,6 @@ func (r *DevMachineRepository) UpsertScopeSetting(ctx context.Context, setting *
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, setting.WorkspaceID); err != nil {
 		return err
 	}
-	if setting.EnvironmentID != nil {
-		var ready bool
-		if err := tx.GetContext(ctx, &ready, `SELECT EXISTS(SELECT 1 FROM dev_machine_environments
-			WHERE workspace_id=$1 AND id=$2 AND status='ready')`, setting.WorkspaceID, setting.EnvironmentID); err != nil {
-			return err
-		}
-		if !ready {
-			return ErrEnvironmentUnavailable
-		}
-	}
 	if setting.ID == uuid.Nil {
 		setting.ID = uuid.New()
 	}
@@ -2176,17 +2080,16 @@ func (r *DevMachineRepository) UpsertScopeSetting(ctx context.Context, setting *
 		return errors.New("invalid development setting scope")
 	}
 	query := `INSERT INTO dev_machine_scope_settings
-		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,environment_id,agent_provider,agent_instructions,compose_file,preview_command,preview_port,pull_request_template)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		(id,workspace_id,team_id,project_id,issue_id,github_repo_id,base_branch,agent_provider,agent_instructions,compose_file,preview_command,preview_port,pull_request_template)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT ` + conflictTarget + ` DO UPDATE SET
 			github_repo_id=EXCLUDED.github_repo_id,base_branch=EXCLUDED.base_branch,
-			environment_id=EXCLUDED.environment_id,
 			agent_provider=EXCLUDED.agent_provider,agent_instructions=EXCLUDED.agent_instructions,compose_file=EXCLUDED.compose_file,
 			preview_command=EXCLUDED.preview_command,preview_port=EXCLUDED.preview_port,pull_request_template=EXCLUDED.pull_request_template,updated_at=NOW()
 		WHERE dev_machine_scope_settings.workspace_id=EXCLUDED.workspace_id
 		RETURNING id,created_at,updated_at`
 	if err := tx.QueryRowContext(ctx, query, setting.ID, setting.WorkspaceID,
-		setting.TeamID, setting.ProjectID, setting.IssueID, setting.GitHubRepoID, setting.BaseBranch, setting.EnvironmentID,
+		setting.TeamID, setting.ProjectID, setting.IssueID, setting.GitHubRepoID, setting.BaseBranch,
 		setting.AgentProvider, setting.AgentInstructions, setting.ComposeFile, setting.PreviewCommand, setting.PreviewPort, setting.PullRequestTemplate,
 	).Scan(&setting.ID, &setting.CreatedAt, &setting.UpdatedAt); err != nil {
 		return err
@@ -2268,237 +2171,6 @@ func (r *DevMachineRepository) GetProjectDevelopmentContext(ctx context.Context,
 		return nil, nil
 	}
 	return &project, err
-}
-
-func (r *DevMachineRepository) ListEnvironments(ctx context.Context, workspaceID uuid.UUID) ([]domain.DevMachineEnvironment, error) {
-	var environments []domain.DevMachineEnvironment
-	err := r.db.SelectContext(ctx, &environments, `SELECT * FROM dev_machine_environments WHERE workspace_id=$1 AND status <> 'delete_requested' ORDER BY created_at DESC`, workspaceID)
-	if environments == nil {
-		environments = []domain.DevMachineEnvironment{}
-	}
-	return environments, err
-}
-
-func (r *DevMachineRepository) GetEnvironment(ctx context.Context, workspaceID, environmentID uuid.UUID) (*domain.DevMachineEnvironment, error) {
-	var environment domain.DevMachineEnvironment
-	err := r.db.GetContext(ctx, &environment, `SELECT * FROM dev_machine_environments WHERE workspace_id=$1 AND id=$2`, workspaceID, environmentID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	return &environment, err
-}
-
-func (r *DevMachineRepository) CreateEnvironment(ctx context.Context, environment *domain.DevMachineEnvironment, operation *domain.DevMachineOperation) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, environment.WorkspaceID); err != nil {
-		return err
-	}
-	if environment.SourceMachineID == nil || operation.MachineID != *environment.SourceMachineID || operation.WorkspaceID != environment.WorkspaceID ||
-		operation.Action != domain.DevMachineOpSnapshotEnvironment || operation.EnvironmentID == nil || *operation.EnvironmentID != environment.ID {
-		return ErrMachineStateConflict
-	}
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, environment.SourceMachineID); err != nil {
-		return err
-	}
-	var status, desiredStatus domain.DevMachineStatus
-	var generation int64
-	var environmentBuilder, lifecycleActive bool
-	if err := tx.QueryRowContext(ctx, `SELECT status,desired_status,generation,environment_builder FROM dev_machines
-		WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, environment.WorkspaceID, environment.SourceMachineID).
-		Scan(&status, &desiredStatus, &generation, &environmentBuilder); errors.Is(err, sql.ErrNoRows) {
-		return ErrMachineStateConflict
-	} else if err != nil {
-		return err
-	}
-	stable := status == desiredStatus && (status == domain.DevMachineStatusPaused || status == domain.DevMachineStatusStopped)
-	if !environmentBuilder || !stable || generation != operation.Generation {
-		return ErrMachineStateConflict
-	}
-	if err := tx.GetContext(ctx, &lifecycleActive, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations
-		WHERE machine_id=$1 AND status IN ('pending','leased')
-		AND action IN ('spawn','start','stop','pause','teardown','reconcile'))`, environment.SourceMachineID); err != nil {
-		return err
-	}
-	if lifecycleActive {
-		return ErrMachineStateConflict
-	}
-	if err := tx.QueryRowContext(ctx, `INSERT INTO dev_machine_environments
-		(id,workspace_id,name,image_ref,status,source_machine_id,created_by_user_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING created_at,updated_at`, environment.ID, environment.WorkspaceID,
-		environment.Name, environment.ImageRef, environment.Status, environment.SourceMachineID, environment.CreatedByUserID,
-	).Scan(&environment.CreatedAt, &environment.UpdatedAt); err != nil {
-		return err
-	}
-	if err := enqueueOperation(ctx, tx, operation); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (r *DevMachineRepository) RequestEnvironmentDeletion(ctx context.Context, workspaceID, environmentID uuid.UUID) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, workspaceID); err != nil {
-		return err
-	}
-	var status string
-	if err := tx.GetContext(ctx, &status, `SELECT status FROM dev_machine_environments
-		WHERE workspace_id=$1 AND id=$2 FOR UPDATE`, workspaceID, environmentID); err != nil {
-		return err
-	}
-	if status == "delete_requested" {
-		return tx.Commit()
-	}
-	if status != "pending" && status != "building" && status != "ready" && status != "failed" {
-		return ErrEnvironmentInvalidState
-	}
-	var inUse bool
-	if err := tx.GetContext(ctx, &inUse, `SELECT
-		EXISTS(SELECT 1 FROM dev_machine_scope_settings WHERE environment_id=$1)
-		OR EXISTS(SELECT 1 FROM dev_machines m WHERE m.environment_id=$1 AND (
-			m.status<>'destroyed' OR m.desired_status='running' OR EXISTS(
-				SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id
-				AND o.status IN ('pending','leased') AND o.action IN ('spawn','start','reconcile','snapshot_environment')
-			)
-		))`, environmentID); err != nil {
-		return err
-	}
-	if inUse {
-		return ErrEnvironmentInUse
-	}
-	var activeBuild bool
-	if err := tx.GetContext(ctx, &activeBuild, `SELECT EXISTS(SELECT 1 FROM dev_machine_operations
-		WHERE environment_id=$1 AND action='snapshot_environment' AND status='leased'
-		AND (lease_expires_at IS NULL OR lease_expires_at>=NOW()))`, environmentID); err != nil {
-		return err
-	}
-	if activeBuild {
-		return ErrEnvironmentDeletionConflict
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',
-		error_code='environment_deletion_requested',error_message='snapshot cancelled because environment deletion was requested',
-		lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW()
-		WHERE environment_id=$1 AND action='snapshot_environment'
-		AND (status='pending' OR (status='leased' AND lease_expires_at<NOW()))`, environmentID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_environments
-		SET status='delete_requested',delete_requested_at=COALESCE(delete_requested_at,NOW())
-		WHERE workspace_id=$1 AND id=$2`, workspaceID, environmentID); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (r *DevMachineRepository) ListDeleteRequestedEnvironments(ctx context.Context, limit int) ([]domain.DevMachineEnvironment, error) {
-	var environments []domain.DevMachineEnvironment
-	err := r.db.SelectContext(ctx, &environments, `SELECT * FROM dev_machine_environments
-		WHERE status='delete_requested' ORDER BY delete_requested_at NULLS LAST, updated_at LIMIT $1`, limit)
-	if environments == nil {
-		environments = []domain.DevMachineEnvironment{}
-	}
-	return environments, err
-}
-
-func (r *DevMachineRepository) DeleteEnvironment(ctx context.Context, workspaceID, environmentID uuid.UUID) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM dev_machine_environments
-		WHERE workspace_id=$1 AND id=$2 AND status='delete_requested'`, workspaceID, environmentID)
-	if err != nil {
-		return err
-	}
-	if rows, _ := result.RowsAffected(); rows != 1 {
-		return sql.ErrNoRows
-	}
-	return nil
-}
-
-func (r *DevMachineRepository) UpdateEnvironmentState(ctx context.Context, environmentID uuid.UUID, status, imageRef string, digest *string) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE dev_machine_environments SET status=$2,
-		image_ref=CASE WHEN $3='' THEN image_ref ELSE $3 END, image_digest=COALESCE($4,image_digest)
-		WHERE id=$1 AND status<>'delete_requested'`, environmentID, status, imageRef, digest)
-	if err != nil {
-		return err
-	}
-	if rows, _ := result.RowsAffected(); rows != 1 {
-		return ErrEnvironmentDeletionConflict
-	}
-	return nil
-}
-
-func (r *DevMachineRepository) ReconcileOrphanedEnvironments(ctx context.Context, limit int) (int, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-	tx, err := r.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-	var environmentIDs []uuid.UUID
-	if err := tx.SelectContext(ctx, &environmentIDs, `SELECT id FROM dev_machine_environments
-		WHERE status IN ('pending','building') ORDER BY updated_at,id LIMIT $1 FOR UPDATE SKIP LOCKED`, limit); err != nil {
-		return 0, err
-	}
-	reconciled := 0
-	for _, environmentID := range environmentIDs {
-		var operations []struct {
-			Status            domain.DevMachineOperationStatus `db:"status"`
-			Generation        int64                            `db:"generation"`
-			MachineGeneration int64                            `db:"machine_generation"`
-			MachineStatus     domain.DevMachineStatus          `db:"machine_status"`
-			DesiredStatus     domain.DevMachineStatus          `db:"desired_status"`
-			LeaseActive       bool                             `db:"lease_active"`
-		}
-		if err := tx.SelectContext(ctx, &operations, `SELECT o.status,o.generation,
-			m.generation AS machine_generation,m.status AS machine_status,m.desired_status,
-			COALESCE(o.status='leased' AND o.lease_expires_at>=NOW(),FALSE) AS lease_active
-			FROM dev_machine_operations o JOIN dev_machines m ON m.id=o.machine_id
-			WHERE o.environment_id=$1 AND o.action='snapshot_environment' FOR UPDATE OF o`, environmentID); err != nil {
-			return 0, err
-		}
-		viable := false
-		for _, operation := range operations {
-			if operation.LeaseActive {
-				viable = true
-				break
-			}
-			stable := operation.MachineStatus == operation.DesiredStatus &&
-				(operation.MachineStatus == domain.DevMachineStatusPaused || operation.MachineStatus == domain.DevMachineStatusStopped)
-			if operation.Status == domain.DevMachineOpStatusPending && operation.Generation == operation.MachineGeneration && stable {
-				viable = true
-				break
-			}
-		}
-		if viable {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',
-			error_code='environment_snapshot_orphaned',error_message='snapshot operation is no longer runnable',
-			lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW()
-			WHERE environment_id=$1 AND action='snapshot_environment'
-			AND (status='pending' OR (status='leased' AND (lease_expires_at IS NULL OR lease_expires_at<NOW())))`, environmentID); err != nil {
-			return 0, err
-		}
-		result, err := tx.ExecContext(ctx, `UPDATE dev_machine_environments SET status='failed'
-			WHERE id=$1 AND status IN ('pending','building')`, environmentID)
-		if err != nil {
-			return 0, err
-		}
-		if rows, _ := result.RowsAffected(); rows == 1 {
-			reconciled++
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return reconciled, nil
 }
 
 func (r *DevMachineRepository) ReconcileOrphanedCheckouts(ctx context.Context, limit int) (int, error) {

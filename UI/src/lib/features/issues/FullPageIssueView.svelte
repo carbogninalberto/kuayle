@@ -78,7 +78,7 @@
 	import { historyActor } from './history-agent';
 	import IssueVersionHistory from './IssueVersionHistory.svelte';
 	import IssueMachineActions from '$lib/features/dev-machines/IssueMachineActions.svelte';
-	import IssueMachinePickerDialog, { type IssueMachineIntent } from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
+	import IssueMachinePickerDialog from '$lib/features/dev-machines/IssueMachinePickerDialog.svelte';
 	import CreateMachineDialog from '$lib/features/dev-machines/CreateMachineDialog.svelte';
 	import IssueRepositoryDialog from '$lib/features/dev-machines/IssueRepositoryDialog.svelte';
 
@@ -178,7 +178,6 @@
 	let issueActionsCreateOpen = $state(false);
 	let issueActionsRepositoryOpen = $state(false);
 	let issueActionsMachinePickerOpen = $state(false);
-	let issueActionsMachineIntent = $state<IssueMachineIntent>('ide');
 	let isSubscribed = $state(false);
 	let subscriptionBusy = $state(false);
 
@@ -988,7 +987,7 @@
 							</Button>
 						{/each}
 					</div>
-					<IssueMachineActions {slug} {issue} bind:repositoryOpen={issueActionsRepositoryOpen} bind:pickerOpen={issueActionsMachinePickerOpen} bind:pickerIntent={issueActionsMachineIntent} onaction={() => (issueActionsOpen = false)} />
+					<IssueMachineActions {slug} {issue} bind:repositoryOpen={issueActionsRepositoryOpen} bind:pickerOpen={issueActionsMachinePickerOpen} onaction={() => (issueActionsOpen = false)} />
 					<div class="my-1 h-px bg-[var(--app-border)]"></div>
 					<Button variant="plain" type="button"
 						onclick={() => { issueActionsOpen = false; parentPickerOpen = true; }}
@@ -1875,7 +1874,6 @@
 	bind:open={issueActionsMachinePickerOpen}
 	{slug}
 	{issue}
-	intent={issueActionsMachineIntent}
 	oncreate={() => (issueActionsCreateOpen = true)}
 	onrepository={() => (issueActionsRepositoryOpen = true)}
 />

@@ -617,7 +617,7 @@ func TestAPausedTaskIsNotMachineLoad(t *testing.T) {
 		t.Helper()
 		f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
 		claimed.MachineID = nil
-		reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+		reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New())
 		return reservation.MachineID, err
 	}
 	start := func() error {

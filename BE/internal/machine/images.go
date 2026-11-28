@@ -16,12 +16,9 @@ import (
 // MachineImages are the installed release's images for a machine's own
 // containers. An empty image leaves those containers on the image they have.
 type MachineImages struct {
-	IDE       string
-	Headless  string
-	Browser   string
-	Collector string
-	Egress    string
-	Docker    string
+	Headless string
+	Egress   string
+	Docker   string
 }
 
 // imageUpdateRetry is how long an update that found the machine busy, or
@@ -41,30 +38,18 @@ type serviceImageChange struct {
 }
 
 // releaseServiceImage is the installed release's image for one of a machine's
-// own containers, or "" when the service keeps its image: an agent run's
-// container, and the developer container of a machine built from a
-// development environment, which is that environment's snapshot.
-func (m *Manager) releaseServiceImage(machine *domain.DevMachine, service domain.DevMachineService) string {
-	if isDeveloperService(service.ServiceType) && machine.EnvironmentID != nil {
-		return ""
-	}
+// own containers, or "" when the service keeps its image (an agent run's
+// container). The developer container (terminal) runs the single machine
+// image; a terminal an upgrade moved off a retired IDE container has no
+// image yet and gets this one.
+func (m *Manager) releaseServiceImage(_ *domain.DevMachine, service domain.DevMachineService) string {
 	switch service.ServiceType {
-	case "collector":
-		return m.images.Collector
 	case "egress":
 		return m.images.Egress
 	case "docker":
 		return m.images.Docker
-	case "browser":
-		return m.images.Browser
-	case "ide":
-		return m.images.IDE
 	case "terminal":
-		// The IDE profile's terminal shares the IDE container.
-		if machine.Profile == domain.DevMachineProfileHeadless {
-			return m.images.Headless
-		}
-		return m.images.IDE
+		return m.images.Headless
 	}
 	return ""
 }

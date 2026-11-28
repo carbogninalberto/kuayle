@@ -56,7 +56,7 @@ func TestSudoSwitchAndMachineRecordPersist(t *testing.T) {
 		RoutingKey: routingKey, Name: "sudo-" + routingKey, Status: domain.DevMachineStatusQueued,
 		DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
 		MachineSize: "small", CPUMillis: 2000, MemoryMB: 4096, DiskGB: 20, PidsLimit: 512,
-		ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
+		Labels:      []byte(`{}`),
 		SudoEnabled: true,
 	}
 	operation := &domain.DevMachineOperation{
@@ -64,7 +64,7 @@ func TestSudoSwitchAndMachineRecordPersist(t *testing.T) {
 		Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1",
 		RequestedByUserID: &fixture.userID, MaxAttempts: 5,
 	}
-	require.NoError(t, store.CreateBundle(ctx, machine, nil, nil, nil, nil, nil, operation))
+	require.NoError(t, store.CreateBundle(ctx, machine, nil, nil, nil, nil, operation))
 
 	policy.AllowSudo = false
 	require.NoError(t, store.UpsertPolicy(ctx, policy))
@@ -74,7 +74,7 @@ func TestSudoSwitchAndMachineRecordPersist(t *testing.T) {
 	loaded, err := store.GetMachineInternal(ctx, machineID)
 	require.NoError(t, err)
 	require.True(t, loaded.SudoEnabled, "the machine keeps the choice it was created with")
-	unprivileged := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped, false)
+	unprivileged := fixture.insertMachine(t, domain.DevMachineStatusStopped, domain.DevMachineStatusStopped)
 	loaded, err = store.GetMachineInternal(ctx, unprivileged)
 	require.NoError(t, err)
 	require.False(t, loaded.SudoEnabled, "machines default to no sudo")

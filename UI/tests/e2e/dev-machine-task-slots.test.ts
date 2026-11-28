@@ -23,7 +23,6 @@ function baseMachine(overrides: Machine = {}): Machine {
 		memory_mb: 4096,
 		disk_gb: 20,
 		pids_limit: 512,
-		environment_builder: false,
 		max_tasks: null,
 		created_at: '2026-10-29T00:00:00Z',
 		updated_at: '2026-10-29T00:00:00Z',

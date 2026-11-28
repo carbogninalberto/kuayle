@@ -58,7 +58,7 @@ func imageRemovalFixture() (*domain.DevMachine, *removeDockerClientFake, *Docker
 	otherWorkspace := owned("other-workspace", "terminal", container.StateRunning)
 	otherWorkspace.Labels["com.kuayle.workspace-id"] = uuid.NewString()
 	dockerClient := &removeDockerClientFake{dockerClientFake: &dockerClientFake{containers: []container.Summary{
-		owned("terminal", "terminal", container.StateRunning), owned("collector", "collector", container.StateRunning),
+		owned("terminal", "terminal", container.StateRunning), owned("egress", "egress", container.StateRunning),
 		owned("finished-agent", "agent", container.StateExited, "com.kuayle.agent-run-id", run),
 		owned("finished-check", "agent", container.StateExited, "com.kuayle.agent-run-id", run, "com.kuayle.validation-id", uuid.NewString()),
 		owned("running-agent", "agent", container.StateRunning, "com.kuayle.agent-run-id", uuid.NewString()),
@@ -79,10 +79,10 @@ func imageRemovalFixture() (*domain.DevMachine, *removeDockerClientFake, *Docker
 func TestRemoveContainersRemovesOnlyTheMachinesListedContainers(t *testing.T) {
 	machine, dockerClient, runtime := imageRemovalFixture()
 
-	require.NoError(t, runtime.RemoveContainers(context.Background(), machine, []string{"terminal", "collector", "foreign", "other-workspace", "gone"}))
+	require.NoError(t, runtime.RemoveContainers(context.Background(), machine, []string{"terminal", "egress", "foreign", "other-workspace", "gone"}))
 
 	sort.Strings(dockerClient.removed)
-	require.Equal(t, []string{"collector", "terminal"}, dockerClient.removed, "other machines' and workspaces' containers are never removed")
+	require.Equal(t, []string{"egress", "terminal"}, dockerClient.removed, "other machines' and workspaces' containers are never removed")
 	require.Contains(t, dockerClient.containerListOptions.Filters["label"], "com.kuayle.machine-id="+machine.ID.String())
 	require.True(t, dockerClient.containerListOptions.All)
 }
@@ -99,4 +99,32 @@ func TestRemoveFinishedRunContainersKeepsServicesAndRunningRuns(t *testing.T) {
 	sort.Strings(dockerClient.removed)
 	require.Equal(t, []string{"finished-agent", "finished-check", "inbox-writer"}, dockerClient.removed, "never-started inbox writers pin the agent image too")
 	require.Equal(t, []string{"finished-inbox"}, dockerClient.removedVolumes, "an inbox still in use stays")
+}
+
+// Spawn removes the containers of the retired IDE, browser and collector
+// services an earlier release created for this machine, and nothing else.
+func TestRemoveRetiredServiceContainersRemovesOnlyThisMachinesRetiredServices(t *testing.T) {
+	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "abc"}
+	owned := func(id, service string) container.Summary {
+		labels := machineLabels(machine)
+		labels["com.kuayle.service"] = service
+		return container.Summary{ID: id, Labels: labels, State: container.StateExited}
+	}
+	foreign := owned("foreign-ide", "ide")
+	foreign.Labels["com.kuayle.machine-id"] = uuid.NewString()
+	unmanaged := owned("unmanaged-browser", "browser")
+	unmanaged.Labels["com.kuayle.managed"] = "false"
+	dockerClient := &removeDockerClientFake{dockerClientFake: &dockerClientFake{containers: []container.Summary{
+		owned("ide", "ide"), owned("browser", "browser"), owned("collector", "collector"),
+		owned("terminal", "terminal"), owned("egress", "egress"), owned("agent", "agent"), owned("docker", "docker"),
+		foreign, unmanaged,
+	}}}
+	runtime := &DockerRuntime{client: dockerClient}
+
+	require.NoError(t, runtime.removeRetiredServiceContainers(context.Background(), machine))
+
+	sort.Strings(dockerClient.removed)
+	require.Equal(t, []string{"browser", "collector", "ide"}, dockerClient.removed)
+	require.True(t, dockerClient.containerListOptions.All, "stopped retired containers are removed too")
+	require.Contains(t, dockerClient.containerListOptions.Filters["label"], "com.kuayle.machine-id="+machine.ID.String())
 }

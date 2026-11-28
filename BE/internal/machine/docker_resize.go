@@ -55,7 +55,7 @@ func (r *DockerRuntime) UpdateResources(ctx context.Context, machine *domain.Dev
 		}
 		var resources container.Resources
 		switch service := item.Labels["com.kuayle.service"]; service {
-		case "ide", "terminal", "browser", "collector", "egress":
+		case "terminal", "egress":
 			// Shares follow containerSharePercent.
 			resources = r.secureHostConfig(machine, service, "", "", docker).Resources
 		case "agent":

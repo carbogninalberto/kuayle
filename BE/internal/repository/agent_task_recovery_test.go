@@ -80,7 +80,7 @@ func TestAgentTaskCancellationKeepsTheMachineRunning(t *testing.T) {
 	for _, owned := range []bool{true, false} {
 		t.Run(map[bool]string{true: "allocated", false: "reused"}[owned], func(t *testing.T) {
 			db, repo, ctx, task, fixture := taskRecoveryFixture(t)
-			machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+			machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 			_, err := db.Exec(`UPDATE agent_tasks SET machine_id=$2,reserved_machine_id=CASE WHEN $3 THEN $2 ELSE reserved_machine_id END WHERE id=$1`, task.ID, machine, owned)
 			require.NoError(t, err)
 			require.NoError(t, repo.RequestCancel(ctx, task.WorkspaceID, task.ID))

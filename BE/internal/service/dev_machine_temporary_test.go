@@ -38,13 +38,12 @@ func TestTemporaryMachineIsTheTinyPresetWithoutCredentials(t *testing.T) {
 	require.Equal(t, &conversationID, machine.TemporaryConversationID)
 	require.NotNil(t, machine.TemporaryExpiresAt)
 	require.WithinDuration(t, time.Now().Add(domain.TemporaryMachineTTL), *machine.TemporaryExpiresAt, 5*time.Second)
+	var serviceTypes []string
 	for _, service := range store.createdServices {
-		require.NotEqual(t, dockerServiceType, service.ServiceType, "never a Docker daemon")
+		serviceTypes = append(serviceTypes, service.ServiceType)
 	}
-	for _, envVar := range store.createdEnvVars {
-		require.Equal(t, "KUAYLE_MACHINE_TOKEN", envVar.Name, "only the collector's own token")
-		require.Equal(t, "collector", envVar.TargetService)
-	}
+	require.ElementsMatch(t, []string{"egress", "terminal"}, serviceTypes, "never a Docker daemon")
+	require.Empty(t, store.createdEnvVars, "no machine secrets")
 }
 
 func TestTemporaryMachineQuotaRefusals(t *testing.T) {

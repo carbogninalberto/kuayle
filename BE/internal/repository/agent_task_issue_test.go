@@ -40,7 +40,7 @@ func TestAgentTaskNativeStartMovesUnchangedIssueToConfiguredStartedStatus(t *tes
 
 func prepareTaskStart(t *testing.T, db *sqlx.DB, repo *AgentTaskRepository, ctx context.Context, task domain.AgentTask, fixture environmentRaceFixture) *domain.AgentTask {
 	t.Helper()
-	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	_, err := db.Exec(`UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, task.ID, machine)
 	require.NoError(t, err)
 	_, err = db.Exec(`INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,task_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status,started_at) VALUES($1,$2,$3,$4,$5,'codex','autonomous','Test','["codex"]',60,'running',now())`, task.RunID, task.WorkspaceID, machine, task.ID, task.CreatorID)

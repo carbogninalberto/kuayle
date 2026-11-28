@@ -1,7 +1,7 @@
 // Use the Compose definitions at the checked-out revision, including provider args.
 target "runtime-integration" {
   matrix = {
-    image = ["ide", "headless", "browser", "collector", "egress", "agent-claude"]
+    image = ["headless", "egress"]
   }
   name       = "integration-${image}"
   inherits   = ["dev-machine-${image}"]

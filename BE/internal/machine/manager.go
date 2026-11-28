@@ -144,12 +144,7 @@ type ManagerStore interface {
 	GetTerminalSessionInternal(context.Context, uuid.UUID) (*domain.DevMachineTerminalSession, error)
 	CompleteTerminalSessionClose(context.Context, uuid.UUID) error
 	FailTerminalSessionClose(context.Context, uuid.UUID) error
-	GetEnvironment(context.Context, uuid.UUID, uuid.UUID) (*domain.DevMachineEnvironment, error)
-	UpdateEnvironmentState(context.Context, uuid.UUID, string, string, *string) error
-	ReconcileOrphanedEnvironments(context.Context, int) (int, error)
 	ReconcileOrphanedCheckouts(context.Context, int) (int, error)
-	ListDeleteRequestedEnvironments(context.Context, int) ([]domain.DevMachineEnvironment, error)
-	DeleteEnvironment(context.Context, uuid.UUID, uuid.UUID) error
 	UpsertRuntimeCredential(context.Context, *domain.DevMachineRuntimeCredential) error
 	PurgeExpiredRuntimeCredentials(context.Context, time.Time) (int, error)
 	PurgeAccessLogs(context.Context, time.Time, int) (int, error)
@@ -390,6 +385,15 @@ func (m *Manager) Run(ctx context.Context) error {
 	// Sample and prune once at start, so a restart does not leave a gap.
 	m.scheduleResourceSampling(ctx)
 	m.scheduleResourcePrune(ctx)
+	if cleaner, ok := m.runtime.(environmentImageCleaner); ok {
+		// Development Environments were removed: their snapshots only take
+		// disk space on the host now.
+		if removed, err := cleaner.RemoveEnvironmentImages(ctx); err != nil {
+			log.WithError(err).Warn("development environment image cleanup failed")
+		} else if removed > 0 {
+			log.WithField("images", removed).Info("removed development environment images")
+		}
+	}
 	if watcher, ok := m.runtime.(resourceLimitWatcher); ok {
 		m.operations.Add(1)
 		go func() {
@@ -443,6 +447,12 @@ func (m *Manager) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// environmentImageCleaner is implemented by runtimes that can remove the
+// Development Environment snapshots of earlier releases.
+type environmentImageCleaner interface {
+	RemoveEnvironmentImages(context.Context) (int, error)
 }
 
 func (m *Manager) Ready(ctx context.Context) error {
@@ -651,10 +661,6 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 	}
 	if machine == nil {
 		return fmt.Errorf("machine_not_found: machine does not exist")
-	}
-	if operation.Action == domain.DevMachineOpSnapshotEnvironment && operation.Generation != machine.Generation {
-		return m.failSnapshotOperation(ctx, operation, "environment_snapshot_stale",
-			fmt.Sprintf("machine generation changed from %d to %d before the snapshot completed", operation.Generation, machine.Generation))
 	}
 	if operation.Action == domain.DevMachineOpResize {
 		return m.resize(ctx, machine)
@@ -990,74 +996,11 @@ func (m *Manager) processOperation(ctx context.Context, operation *domain.DevMac
 			return fmt.Errorf("terminal_termination_failed: %w", err)
 		}
 		return m.store.CompleteTerminalSessionClose(ctx, session.ID)
-	case domain.DevMachineOpSnapshotEnvironment:
-		if operation.EnvironmentID == nil {
-			return fmt.Errorf("invalid_operation: snapshot operation has no environment")
-		}
-		environment, err := m.store.GetEnvironment(ctx, machine.WorkspaceID, *operation.EnvironmentID)
-		if err != nil || environment == nil {
-			return err
-		}
-		if environment.Status == "delete_requested" {
-			return nil
-		}
-		if environment.Status == "ready" {
-			return nil
-		}
-		stable := machine.Status == machine.DesiredStatus && (machine.Status == domain.DevMachineStatusPaused || machine.Status == domain.DevMachineStatusStopped)
-		if !stable {
-			return m.failSnapshotOperation(ctx, operation, "environment_snapshot_state_changed",
-				fmt.Sprintf("machine is %s with desired state %s", machine.Status, machine.DesiredStatus))
-		}
-		if err := m.store.UpdateEnvironmentState(ctx, environment.ID, "building", environment.ImageRef, nil); err != nil {
-			return err
-		}
-		environment.Status = "building"
-		digest, err := m.runtime.SnapshotEnvironment(ctx, machine, services, environment)
-		if err != nil {
-			_ = m.store.UpdateEnvironmentState(ctx, environment.ID, "failed", "", nil)
-			return err
-		}
-		immutableImageID := normalizeImmutableImageID(digest)
-		if !isImmutableLocalImageID(immutableImageID) {
-			_ = m.store.UpdateEnvironmentState(ctx, environment.ID, "failed", "", nil)
-			return fmt.Errorf("environment_snapshot_invalid_image_id: snapshot did not return an immutable local image ID")
-		}
-		if err := m.store.UpdateEnvironmentState(ctx, environment.ID, "ready", immutableImageID, &immutableImageID); err != nil {
-			return err
-		}
-		environment.ImageRef = immutableImageID
-		environment.ImageDigest = &immutableImageID
-		return m.createEvent(ctx, machine, nil, "lifecycle", "environment.snapshot_ready", map[string]any{
-			"environment_id": environment.ID, "image_ref": immutableImageID, "image_digest": immutableImageID,
-		})
 	case domain.DevMachineOpReconcile:
 		return nil
 	default:
 		return fmt.Errorf("invalid_operation: unsupported action %s", operation.Action)
 	}
-}
-
-func (m *Manager) failSnapshotOperation(ctx context.Context, operation *domain.DevMachineOperation, code, message string) error {
-	if operation.EnvironmentID == nil {
-		return &terminalOperationError{code: code, message: message + "; snapshot environment is missing"}
-	}
-	environment, err := m.store.GetEnvironment(ctx, operation.WorkspaceID, *operation.EnvironmentID)
-	if err != nil {
-		return err
-	}
-	if environment == nil {
-		return &terminalOperationError{code: code, message: message + "; snapshot environment no longer exists"}
-	}
-	if environment.Status == "ready" || environment.Status == "delete_requested" {
-		return nil
-	}
-	if environment.Status != "failed" {
-		if err := m.store.UpdateEnvironmentState(ctx, environment.ID, "failed", "", nil); err != nil {
-			return err
-		}
-	}
-	return &terminalOperationError{code: code, message: message}
 }
 
 func (m *Manager) spawn(ctx context.Context, machine *domain.DevMachine, services []domain.DevMachineService, operation *domain.DevMachineOperation) error {
@@ -1073,6 +1016,16 @@ func (m *Manager) spawn(ctx context.Context, machine *domain.DevMachine, service
 		return err
 	}
 	m.previewsEnded(ctx, machine)
+	// Its containers are created from the installed release's images: an
+	// upgrade can leave a service on a retired image, or on none (a terminal
+	// that ran in the retired IDE container).
+	if changes, err := m.replaceOutdatedServices(ctx, machine, services); err != nil {
+		return err
+	} else if len(changes) > 0 {
+		if services, err = m.store.ListServices(ctx, machine.WorkspaceID, machine.ID); err != nil {
+			return err
+		}
+	}
 	runtimeServices := make([]domain.DevMachineService, 0, len(services))
 	for _, service := range services {
 		if service.ServiceType != "agent" {
@@ -1149,7 +1102,7 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 		if service.ServiceType == "agent" {
 			continue
 		}
-		if service.ServiceType == "ide" || service.ServiceType == "terminal" {
+		if service.ServiceType == "terminal" {
 			includeWorkspaceModel = true
 		}
 		envVars, err := m.store.ListEnvVarsInternal(ctx, machine.ID, nil, service.ServiceType)
@@ -1167,13 +1120,13 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 		serviceSecrets[service.ServiceKey] = values
 	}
 	if includeWorkspaceModel {
-		// Terminals and the IDE get the workspace's default model server.
+		// The developer terminal gets the workspace's default model server.
 		modelSecrets, err := m.modelServerSecrets(ctx, machine.WorkspaceID, nil)
 		if err != nil {
 			return nil, err
 		}
 		for _, service := range services {
-			if service.ServiceType != "ide" && service.ServiceType != "terminal" {
+			if service.ServiceType != "terminal" {
 				continue
 			}
 			for name, value := range modelSecrets {
@@ -1187,7 +1140,7 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 			return nil, err
 		}
 		for _, service := range services {
-			if service.ServiceType != "ide" && service.ServiceType != "terminal" {
+			if service.ServiceType != "terminal" {
 				continue
 			}
 			for name, value := range client {
@@ -1195,16 +1148,10 @@ func (m *Manager) serviceSecrets(ctx context.Context, machine *domain.DevMachine
 			}
 		}
 	}
-	_, hasIDE := serviceSecrets["ide"]
-	_, hasTerminal := serviceSecrets["terminal"]
-	if hasIDE || hasTerminal {
+	if _, hasTerminal := serviceSecrets["terminal"]; hasTerminal {
 		_, githubToken, err := m.repositoryToken(ctx, machine, "")
 		if err == nil && githubToken != "" {
-			if hasIDE {
-				serviceSecrets["ide"]["GITHUB_TOKEN"] = githubToken
-			} else {
-				serviceSecrets["terminal"]["GITHUB_TOKEN"] = githubToken
-			}
+			serviceSecrets["terminal"]["GITHUB_TOKEN"] = githubToken
 		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("github_token_failed: %w", err)
 		}
@@ -1939,25 +1886,8 @@ func (m *Manager) reconcile(ctx context.Context) error {
 		}
 	}
 
-	if _, err := m.store.ReconcileOrphanedEnvironments(ctx, 100); err != nil {
-		return err
-	}
 	if _, err := m.store.ReconcileOrphanedCheckouts(ctx, 100); err != nil {
 		return err
-	}
-	deleteRequestedEnvironments, err := m.store.ListDeleteRequestedEnvironments(ctx, 100)
-	if err != nil {
-		return err
-	}
-	for i := range deleteRequestedEnvironments {
-		environment := &deleteRequestedEnvironments[i]
-		if err := m.runtime.DeleteEnvironmentImage(ctx, environment); err != nil {
-			log.WithField("environment_id", environment.ID).WithError(err).Warn("development environment image cleanup failed")
-			continue
-		}
-		if err := m.store.DeleteEnvironment(ctx, environment.WorkspaceID, environment.ID); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.WithField("environment_id", environment.ID).WithError(err).Warn("development environment record deletion failed")
-		}
 	}
 
 	m.expireTemporaryMachines(ctx, now)
@@ -2036,7 +1966,7 @@ func (m *Manager) reconcileMachine(ctx context.Context, machine *domain.DevMachi
 		if err := m.store.SetDesiredAndEnqueue(ctx, machine.WorkspaceID, machine.ID, domain.DevMachineStatusStopped, operation); err != nil && !errors.Is(err, sql.ErrNoRows) {
 			log.WithFields(log.Fields{"machine_id": machine.ID, "workspace_id": machine.WorkspaceID}).WithError(err).Warn("host disk floor stop queue failed")
 		}
-		_ = m.createEvent(ctx, machine, nil, "collector", "resource.host_disk_floor", map[string]any{
+		_ = m.createEvent(ctx, machine, nil, "lifecycle", "resource.host_disk_floor", map[string]any{
 			"free_bytes": hostDisk.FreeBytes, "total_bytes": hostDisk.TotalBytes,
 			"min_free_bytes": minFreeBytes, "min_free_percent": m.diskQuota.HostMinFreePercent,
 		})
@@ -2532,7 +2462,7 @@ func (m *Manager) purgeTaskSession(ctx context.Context, machine *domain.DevMachi
 	}
 	image := ""
 	for _, service := range services {
-		if service.ServiceType == "ide" || service.ServiceType == "terminal" {
+		if service.ServiceType == "terminal" {
 			image = service.ImageRef
 			break
 		}

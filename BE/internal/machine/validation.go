@@ -44,7 +44,7 @@ func (m *Manager) runManualCheck(ctx context.Context, machine *domain.DevMachine
 	}
 	image := ""
 	for _, service := range services {
-		if service.ServiceType == "ide" || service.ServiceType == "terminal" {
+		if service.ServiceType == "terminal" {
 			image = service.ImageRef
 			break
 		}

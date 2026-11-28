@@ -54,7 +54,7 @@ func main() {
 	runtime, err := machine.NewDockerRuntime(machine.DockerConfig{
 		Host: configValue.DevMachine.DockerHost, GatewayContainerName: configValue.DevMachine.GatewayContainerName,
 		SeccompProfile: configValue.DevMachine.SeccompProfile, AppArmorProfile: configValue.DevMachine.AppArmorProfile,
-		PullImages: strings.EqualFold(os.Getenv("DEV_MACHINE_PULL_IMAGES"), "true"), ComposeImages: composeImages(), IngestURL: configValue.DevMachine.IngestURL,
+		PullImages: strings.EqualFold(os.Getenv("DEV_MACHINE_PULL_IMAGES"), "true"), ComposeImages: composeImages(),
 		EgressAllowlist: configValue.DevMachine.EgressAllowlist, EgressDenylist: configValue.DevMachine.EgressDenylist,
 		DiskQuotaMode:          configValue.DevMachine.EffectiveDiskQuotaMode(),
 		HostDiskMinFreePercent: configValue.DevMachine.HostDiskMinFreePercent,
@@ -90,9 +90,9 @@ func main() {
 		}).Warn("workspace disk limits are monitored, not hard-enforced")
 	}
 	registry := agent.NewRegistry(
-		agent.NewClaudeCodeProvider(configValue.DevMachine.ClaudeCodeImage),
-		agent.NewOpenCodeProvider(configValue.DevMachine.OpenCodeImage),
-		agent.NewCodexProvider(configValue.DevMachine.CodexImage),
+		agent.NewClaudeCodeProvider(configValue.DevMachine.HeadlessImage),
+		agent.NewOpenCodeProvider(configValue.DevMachine.HeadlessImage),
+		agent.NewCodexProvider(configValue.DevMachine.HeadlessImage),
 		agent.NewPiProvider(configValue.DevMachine.HeadlessImage),
 		agent.NewQwenCodeProvider(configValue.DevMachine.HeadlessImage),
 		agent.NewCrushProvider(configValue.DevMachine.HeadlessImage),
@@ -122,8 +122,7 @@ func main() {
 	manager.SetCapacity(machine.CapacityConfig{ReservedCPUMillis: configValue.DevMachine.HostReservedCPUMillis, ReservedMemoryMB: configValue.DevMachine.HostReservedMemoryMB, CPUOvercommit: configValue.DevMachine.CPUOvercommit})
 	manager.SetMachineDomain(configValue.DevMachine.Domain)
 	manager.SetImages(machine.MachineImages{
-		IDE: configValue.DevMachine.IDEImage, Headless: configValue.DevMachine.HeadlessImage, Browser: configValue.DevMachine.BrowserImage,
-		Collector: configValue.DevMachine.CollectorImage, Egress: configValue.DevMachine.EgressImage, Docker: configValue.DevMachine.DockerImage,
+		Headless: configValue.DevMachine.HeadlessImage, Egress: configValue.DevMachine.EgressImage, Docker: configValue.DevMachine.DockerImage,
 	})
 	if hours := configValue.DevMachine.AgentCLIRefreshHours; hours > 0 {
 		runtime.EnableAgentCLIs()

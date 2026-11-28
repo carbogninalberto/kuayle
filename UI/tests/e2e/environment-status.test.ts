@@ -55,7 +55,6 @@ async function fixture(page: Page, index: Partial<PackageIndex> = {}, machineSta
 		memory_mb: 8192,
 		disk_gb: 50,
 		pids_limit: 1024,
-		environment_builder: true,
 		created_by_user_id: userId,
 		created_at: time,
 		updated_at: time

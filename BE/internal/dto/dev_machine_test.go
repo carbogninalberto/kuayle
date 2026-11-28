@@ -43,13 +43,6 @@ func TestDevMachineDTOsAcceptBuiltInProviders(t *testing.T) {
 	}
 }
 
-func TestDevMachineDTOsAcceptProfiles(t *testing.T) {
-	for _, profile := range []string{"", "standard", "headless"} {
-		require.NoError(t, validate.Struct(dto.CreateDevMachineRequest{Size: "small", Profile: profile}))
-	}
-	require.Error(t, validate.Struct(dto.CreateDevMachineRequest{Size: "small", Profile: "desktop"}))
-}
-
 func TestDevMachinePolicyRejectsUnknownProviders(t *testing.T) {
 	builtIns := []string{"claude-code", "opencode", "codex", "pi", "qwen-code", "crush", "kimi", "goose"}
 	for _, provider := range builtIns {

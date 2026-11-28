@@ -25,7 +25,7 @@ type environmentHandlerStoreFake struct {
 
 func (f *environmentHandlerStoreFake) ListServices(context.Context, uuid.UUID, uuid.UUID) ([]domain.DevMachineService, error) {
 	container := "developer"
-	return []domain.DevMachineService{{ID: uuid.New(), ServiceType: "ide", InternalPort: 8080, Status: "running", ContainerID: &container}}, nil
+	return []domain.DevMachineService{{ID: uuid.New(), ServiceType: "terminal", InternalPort: 7681, Status: "running", ContainerID: &container}}, nil
 }
 func (f *environmentHandlerStoreFake) GetEnvironmentCheck(context.Context, uuid.UUID) (*domain.DevMachineEnvironmentCheck, error) {
 	return &domain.DevMachineEnvironmentCheck{ContainerID: "developer", PackageIndexState: domain.PackageIndexAbsent, CheckedAt: time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC), RefreshState: domain.PackageIndexRefreshIdle}, nil

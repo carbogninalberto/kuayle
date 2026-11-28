@@ -159,7 +159,6 @@ func TestSharingPrivacyPostgres(t *testing.T) {
 	// historical prompts/images cannot safely be assigned to a team.
 	for _, artifact := range []struct{ table, insert string }{
 		{"dev_machine_scope_settings", `INSERT INTO dev_machine_scope_settings(workspace_id) VALUES($1)`},
-		{"dev_machine_environments", `INSERT INTO dev_machine_environments(workspace_id,name,image_ref) VALUES($1,'test','test:image')`},
 		{"dev_machines", `INSERT INTO dev_machines(workspace_id,routing_key,name,machine_size,cpu_millis,memory_mb,disk_gb,status) VALUES($1,'` + strings.ReplaceAll(uuid.NewString(), "-", "") + `','test','small',1000,1024,20,'stopped')`},
 	} {
 		_, err = db.Exec(artifact.insert, ws)
@@ -201,8 +200,6 @@ func TestSharingPrivacyPostgres(t *testing.T) {
 	_, err = db.Exec(`UPDATE dev_machine_workspace_policies SET enabled=TRUE WHERE workspace_id=$1`, ws)
 	require.ErrorContains(t, err, "Development machines are unavailable")
 	_, err = db.Exec(`INSERT INTO dev_machine_scope_settings(workspace_id) VALUES($1)`, ws)
-	require.ErrorContains(t, err, "Development machines are unavailable")
-	_, err = db.Exec(`INSERT INTO dev_machine_environments(workspace_id,name,image_ref) VALUES($1,'test','test:image')`, ws)
 	require.ErrorContains(t, err, "Development machines are unavailable")
 	var privateIssue uuid.UUID
 	require.NoError(t, db.Get(&privateIssue, `SELECT id FROM issues WHERE team_id=$1`, team))

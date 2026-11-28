@@ -15,7 +15,7 @@ workspace connection instead of a GitHub App; see
 
 ## Dev Machines Repository Tokens
 
-Dev Machines use GitHub App installation tokens, not personal access tokens. Issue worktrees resolve their linked repository from development defaults in this order: issue, project, team, workspace. One machine has affinity to one linked repository and can hold multiple issue worktrees from that repository; use a separate machine for another repository or development environment.
+Dev Machines use GitHub App installation tokens, not personal access tokens. Issue worktrees resolve their linked repository from development defaults in this order: issue, project, team, workspace. One machine has affinity to one linked repository and can hold multiple issue worktrees from that repository; use a separate machine for another repository (agent task machines cache several repositories, one worktree per task).
 
 For checkout, agent push, and pull request operations, Kuayle mints a short-lived installation token restricted to the selected linked repository and injects it only into the developer or agent container that needs Git.
 

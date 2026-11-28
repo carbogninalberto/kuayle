@@ -148,9 +148,6 @@ async function mockAutomationsApi(page: Page, options: { pipelines?: boolean } =
 		if (path === '/api/workspaces/test/dev-machine-scope-setting') {
 			return route.fulfill({ json: { workspace_id: workspaceId } });
 		}
-		if (path === '/api/workspaces/test/dev-machine-environments') {
-			return route.fulfill({ json: [] });
-		}
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
 	});
 	return state;

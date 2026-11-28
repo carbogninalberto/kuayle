@@ -37,7 +37,7 @@ checks are never a boundary.
   is untrusted: is it fenced and labelled as data, never as instructions? Can it
   request a tool that changes something without the user's approval?
 - **Secrets.** Credentials (sign-ins, model server keys, GitHub tokens, Docker
-  TLS keys, machine tokens) are encrypted at rest, decrypted only where used,
+  TLS keys) are encrypted at rest, decrypted only where used,
   redacted from logs, run output, PR bodies and errors, and never put in argv,
   URLs or query strings. Check the [secrets section](../../../TECHNICAL.md#secrets)
   and that environment injection into containers matches what each service needs

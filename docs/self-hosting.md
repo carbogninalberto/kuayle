@@ -198,10 +198,10 @@ Dev Machines remain disabled in the default five-service deployment. Before enab
 1. Set `DEV_MACHINES_ENABLED=true`, then configure `DEV_MACHINE_DOMAIN` on a separate registrable domain from `DOMAIN` (or explicitly opt into the same-site setup below), with wildcard DNS pointing to the host.
 2. Replace the checked-in local `tls internal` wildcard configuration with either a mounted wildcard certificate or a DNS-01-enabled Caddy build for production. Profile startup rejects public production machine domains while Caddy internal TLS remains active. The wildcard route already proxies machine HTTP and WebSocket upgrades to the gateway.
 3. Keep `FRONTEND_URL` set to the exact public Kuayle origin; the gateway uses it for native terminal WebSocket `Origin` checks.
-4. Set `DEV_MACHINE_ENCRYPTION_KEY` to an independent random value of at least 32 characters and set `DEV_MACHINE_INGEST_URL` to the public HTTPS API URL.
+4. Set `DEV_MACHINE_ENCRYPTION_KEY` to an independent random value of at least 32 characters.
 5. Set an independent `DEV_MACHINE_GATEWAY_DB_PASSWORD`; Compose provisions a restricted `kuayle_gateway` login and the gateway rejects the application database credential in production.
 6. On Linux, set `DEV_MACHINE_DOCKER_GID` to the numeric group owner reported by `stat -c '%g' /var/run/docker.sock`; Docker Desktop commonly uses the default `0`.
-7. Build the runtime images, migrate, provision gateway grants, and start the optional control plane:
+7. Build the runtime images (the single machine image, about 7.5 GB uncompressed, plus the egress proxy and Docker daemon images), migrate, provision gateway grants, and start the optional control plane:
 
 ```sh
 docker compose --profile dev-machine-images build
@@ -210,11 +210,11 @@ docker compose --profile dev-machines run --rm machine-gateway-db-provision
 docker compose --profile dev-machines up -d
 ```
 
-The API rejects a production machine domain that shares the main application's registrable domain. `machines.localhost` is supported only for local development. The gateway rejects parent-domain and reserved session cookies from workloads. Browser-cookie launches for code-server and browser require exact machine origins for mutations and service WebSockets; native terminal WebSockets use a separate one-use ticket bound to exact `FRONTEND_URL`, host, user/service, tmux session, and working directory.
+The API rejects a production machine domain that shares the main application's registrable domain. `machines.localhost` is supported only for local development. The gateway rejects parent-domain and reserved session cookies from workloads. Browser-cookie launches of app ports require exact machine origins for mutations and WebSockets; native terminal WebSockets use a separate one-use ticket bound to exact `FRONTEND_URL`, host, user/service, tmux session, and working directory.
 
 For DNS-01, replace the stock `caddy:2-alpine` image with a trusted custom Caddy build containing your provider module, replace `tls internal` with a `tls` block using that DNS provider, and pass its scoped API credential through a Compose override. For operator certificates, bind-mount a host directory read-only at `/etc/caddy/certs` through a Compose override and use `tls /etc/caddy/certs/machines.pem /etc/caddy/certs/machines.key` in the wildcard block. Keep private keys outside the repository and container image.
 
-Environment snapshot bytes are local OCI images stored in the host Docker image store, while their image references and lifecycle metadata are PostgreSQL rows. Snapshots exclude the repository workspace named volume and tmpfs secret mounts; plan backup, migration, pruning, and host disk monitoring accordingly.
+**Upgrading from earlier releases.** The IDE (code-server), browser, collector and provider-specific agent images are no longer built or used: remove `DEV_MACHINE_IDE_IMAGE`, `DEV_MACHINE_BROWSER_IMAGE`, `DEV_MACHINE_COLLECTOR_IMAGE`, `DEV_MACHINE_CLAUDE_IMAGE`, `DEV_MACHINE_OPENCODE_IMAGE`, `DEV_MACHINE_CODEX_IMAGE` and `DEV_MACHINE_INGEST_URL` from `.env` (they are ignored). Migration 215 turns every machine into a terminal on the single machine image at its next start and keeps its workspace volume; Development Environments are removed and the manager deletes their snapshot images when it starts. See [Machine Topology](../TECHNICAL.md#machine-topology). The old images (`kuayle/dev-machine-{ide,browser,collector,agent-claude,agent-opencode,agent-codex}` or your configured references) can then be removed with `docker image rm`; containers of the removed services are deleted when each machine is next provisioned.
 
 The manager process runs as UID/GID 1000 with only the Docker socket's host group added. Access to that socket remains host-root-equivalent despite the non-root container UID, so never expose it to machine workloads or general application services.
 
@@ -521,7 +521,7 @@ This first version has workspace-wide restrictions after private teams are enabl
 saved views, filtered/view-based public links, workspace export, AI expansion, outgoing
 webhooks, development machines and live presence are disabled. These restrictions
 remain after teams become public or are deleted. Unfiltered shares of public resources
-remain available. Remove existing development machines, environments and development
+remain available. Remove existing development machines and development
 defaults before enabling privacy. GitHub installation-to-workspace mapping is unchanged;
 private issue activity and automation references are removed locally. Already published
 or downloaded copies cannot be recalled.
@@ -580,11 +580,11 @@ The archive contains a logical `manifest.json`, `data.json`, and the workspace's
 
 Team and project wiki pages are not included in the archive yet; copy them separately before migrating.
 
-Workspace transfer deliberately excludes password hashes, refresh tokens, personal preferences, webhook secrets, GitHub App credentials and access tokens, AI API keys, Dev Machine credentials, active machines, Docker volumes/networks, environment images, logs, sessions, and runtime artifacts. Imported webhooks, shared links, GitHub repositories/automation, and Dev Machine policy are disabled or rotated where appropriate; GitHub, AI, webhooks, and Development Environments must be reconfigured on the target instance.
+Workspace transfer deliberately excludes password hashes, refresh tokens, personal preferences, webhook secrets, GitHub App credentials and access tokens, AI API keys, Dev Machine credentials, active machines, Docker volumes/networks, logs, sessions, and runtime artifacts. Imported webhooks, shared links, GitHub repositories/automation, and Dev Machine policy are disabled or rotated where appropriate; GitHub, AI and webhooks must be reconfigured on the target instance.
 
 Users are matched to existing target-instance accounts by normalized email. The importing user becomes the new owner; all other referenced users must register on the target instance before import. The preview reports any missing emails without creating partial data.
 
-This feature transfers one logical workspace. It is not a replacement for an operator backup: disaster recovery and whole-instance migration still require PostgreSQL backups, object-storage backups, deployment configuration/secrets, and any required local Docker volumes or Development Environment OCI images.
+This feature transfers one logical workspace. It is not a replacement for an operator backup: disaster recovery and whole-instance migration still require PostgreSQL backups, object-storage backups, deployment configuration/secrets, and any required local Docker volumes.
 
 ## Issue version history (migration 47)
 

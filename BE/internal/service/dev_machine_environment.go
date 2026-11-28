@@ -20,23 +20,12 @@ var (
 )
 
 // runningDeveloperContainer returns the container of the machine's running
-// developer services (IDE first, then terminal), or "". It matches the
-// container the machine manager probes.
+// developer terminal, or "". It matches the container the machine manager
+// probes.
 func runningDeveloperContainer(services []domain.DevMachineService) string {
-	running := false
 	for _, service := range services {
-		if (service.ServiceType == "ide" || service.ServiceType == "terminal") && service.AgentRunID == nil && service.Status == "running" && service.ContainerID != nil {
-			running = true
-		}
-	}
-	if !running {
-		return ""
-	}
-	for _, kind := range []string{"ide", "terminal"} {
-		for _, service := range services {
-			if service.ServiceType == kind && service.ContainerID != nil {
-				return *service.ContainerID
-			}
+		if service.ServiceType == "terminal" && service.AgentRunID == nil && service.Status == "running" && service.ContainerID != nil {
+			return *service.ContainerID
 		}
 	}
 	return ""

@@ -14,10 +14,10 @@ import (
 
 type DevMachineStatus string
 
-const (
-	DevMachineProfileStandard = "standard"
-	DevMachineProfileHeadless = "headless"
-)
+// DevMachineProfileHeadless is the only machine profile: a terminal on the
+// single machine image. Earlier releases also had "standard" machines with a
+// code-server IDE; an upgrade converted them.
+const DevMachineProfileHeadless = "headless"
 
 const (
 	DevMachineStatusConfiguring DevMachineStatus = "configuring"
@@ -49,16 +49,15 @@ const (
 	DevMachineOpValidateAgent DevMachineOperationAction = "validate_agent"
 	DevMachineOpPublishAgent  DevMachineOperationAction = "publish_agent"
 	// DevMachineOpRunCheck runs a task's check on demand, outside its workflow.
-	DevMachineOpRunCheck            DevMachineOperationAction = "run_check"
-	DevMachineOpPurgeTaskSession    DevMachineOperationAction = "purge_task_session"
-	DevMachineOpCleanupTask         DevMachineOperationAction = "cleanup_task"
-	DevMachineOpStartPreview        DevMachineOperationAction = "start_preview"
-	DevMachineOpStopPreview         DevMachineOperationAction = "stop_preview"
-	DevMachineOpCaptureSignIn       DevMachineOperationAction = "capture_sign_in"
-	DevMachineOpCancelAgent         DevMachineOperationAction = "cancel_agent"
-	DevMachineOpCheckoutIssue       DevMachineOperationAction = "checkout_issue"
-	DevMachineOpSnapshotEnvironment DevMachineOperationAction = "snapshot_environment"
-	DevMachineOpTerminateTerminal   DevMachineOperationAction = "terminate_terminal"
+	DevMachineOpRunCheck          DevMachineOperationAction = "run_check"
+	DevMachineOpPurgeTaskSession  DevMachineOperationAction = "purge_task_session"
+	DevMachineOpCleanupTask       DevMachineOperationAction = "cleanup_task"
+	DevMachineOpStartPreview      DevMachineOperationAction = "start_preview"
+	DevMachineOpStopPreview       DevMachineOperationAction = "stop_preview"
+	DevMachineOpCaptureSignIn     DevMachineOperationAction = "capture_sign_in"
+	DevMachineOpCancelAgent       DevMachineOperationAction = "cancel_agent"
+	DevMachineOpCheckoutIssue     DevMachineOperationAction = "checkout_issue"
+	DevMachineOpTerminateTerminal DevMachineOperationAction = "terminate_terminal"
 	// DevMachineOpResize applies the machine's pending size to its containers.
 	DevMachineOpResize DevMachineOperationAction = "resize"
 	// DevMachineOpRunTool runs a custom assistant tool's script on demand.
@@ -141,14 +140,11 @@ type DevMachine struct {
 	DiskGB               int              `json:"disk_gb" db:"disk_gb"`
 	PidsLimit            int              `json:"pids_limit" db:"pids_limit"`
 	MaxTasks             *int             `json:"max_tasks" db:"max_tasks"` // own agent task limit; nil follows the policy's task_machine_max_tasks
-	EnvironmentID        *uuid.UUID       `json:"environment_id,omitempty" db:"environment_id"`
 	RepositoryAffinityID *uuid.UUID       `json:"repository_affinity_id,omitempty" db:"repository_affinity_id"`
-	EnvironmentBuilder   bool             `json:"environment_builder" db:"environment_builder"`
 	SudoEnabled          bool             `json:"sudo_enabled" db:"sudo_enabled"` // the workspace allowed sudo at creation
 	DeleteRequestedAt    *time.Time       `json:"delete_requested_at,omitempty" db:"delete_requested_at"`
 	DockerNetworkName    *string          `json:"docker_network_name,omitempty" db:"docker_network_name"`
 	WorkspaceVolumeName  *string          `json:"workspace_volume_name,omitempty" db:"workspace_volume_name"`
-	ServicesConfig       json.RawMessage  `json:"services_config" db:"services_config"`
 	Labels               json.RawMessage  `json:"labels" db:"labels"`
 	LastErrorCode        *string          `json:"last_error_code,omitempty" db:"last_error_code"`
 	LastErrorMessage     *string          `json:"last_error_message,omitempty" db:"last_error_message"`
@@ -325,26 +321,11 @@ type DevMachineRuntimeCredential struct {
 	UpdatedAt            time.Time `json:"updated_at" db:"updated_at"`
 }
 
-type DevMachineToken struct {
-	ID         uuid.UUID       `json:"id" db:"id"`
-	MachineID  uuid.UUID       `json:"machine_id" db:"machine_id"`
-	AgentRunID *uuid.UUID      `json:"agent_run_id,omitempty" db:"agent_run_id"`
-	TokenHash  string          `json:"-" db:"token_hash"`
-	Scopes     json.RawMessage `json:"scopes" db:"scopes"`
-	// ExpiresAt is nil for the machine's own collector token, which lasts as
-	// long as the machine.
-	ExpiresAt  *time.Time `json:"expires_at,omitempty" db:"expires_at"`
-	LastUsedAt *time.Time `json:"last_used_at,omitempty" db:"last_used_at"`
-	RevokedAt  *time.Time `json:"revoked_at,omitempty" db:"revoked_at"`
-	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
-}
-
 type DevMachineOperation struct {
 	ID                uuid.UUID                 `json:"id" db:"id"`
 	MachineID         uuid.UUID                 `json:"machine_id" db:"machine_id"`
 	AgentRunID        *uuid.UUID                `json:"agent_run_id,omitempty" db:"agent_run_id"`
 	CheckoutID        *uuid.UUID                `json:"checkout_id,omitempty" db:"checkout_id"`
-	EnvironmentID     *uuid.UUID                `json:"environment_id,omitempty" db:"environment_id"`
 	TerminalSessionID *uuid.UUID                `json:"terminal_session_id,omitempty" db:"terminal_session_id"`
 	AgentTaskID       *uuid.UUID                `json:"agent_task_id,omitempty" db:"agent_task_id"`
 	WorkspaceID       uuid.UUID                 `json:"workspace_id" db:"workspace_id"`
@@ -798,31 +779,16 @@ func ValidateTaskMachineResources(resources TaskMachineResources, maxDiskGB int)
 	return nil
 }
 
-type DevMachineEnvironment struct {
-	ID                uuid.UUID  `json:"id" db:"id"`
-	WorkspaceID       uuid.UUID  `json:"workspace_id" db:"workspace_id"`
-	Name              string     `json:"name" db:"name"`
-	ImageRef          string     `json:"image_ref" db:"image_ref"`
-	ImageDigest       *string    `json:"image_digest,omitempty" db:"image_digest"`
-	Status            string     `json:"status" db:"status"`
-	SourceMachineID   *uuid.UUID `json:"source_machine_id,omitempty" db:"source_machine_id"`
-	CreatedByUserID   *uuid.UUID `json:"created_by_user_id,omitempty" db:"created_by_user_id"`
-	DeleteRequestedAt *time.Time `json:"delete_requested_at,omitempty" db:"delete_requested_at"`
-	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
-}
-
 type DevMachineScopeSetting struct {
-	ID            uuid.UUID  `json:"id" db:"id"`
-	WorkspaceID   uuid.UUID  `json:"workspace_id" db:"workspace_id"`
-	TeamID        *uuid.UUID `json:"team_id,omitempty" db:"team_id"`
-	ProjectID     *uuid.UUID `json:"project_id,omitempty" db:"project_id"`
-	IssueID       *uuid.UUID `json:"issue_id,omitempty" db:"issue_id"`
-	GitHubRepoID  *uuid.UUID `json:"github_repo_id,omitempty" db:"github_repo_id"`
-	BaseBranch    *string    `json:"base_branch,omitempty" db:"base_branch"`
-	EnvironmentID *uuid.UUID `json:"environment_id,omitempty" db:"environment_id"`
-	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+	ID           uuid.UUID  `json:"id" db:"id"`
+	WorkspaceID  uuid.UUID  `json:"workspace_id" db:"workspace_id"`
+	TeamID       *uuid.UUID `json:"team_id,omitempty" db:"team_id"`
+	ProjectID    *uuid.UUID `json:"project_id,omitempty" db:"project_id"`
+	IssueID      *uuid.UUID `json:"issue_id,omitempty" db:"issue_id"`
+	GitHubRepoID *uuid.UUID `json:"github_repo_id,omitempty" db:"github_repo_id"`
+	BaseBranch   *string    `json:"base_branch,omitempty" db:"base_branch"`
+	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at" db:"updated_at"`
 
 	LegacyTestCommand ignoredColumn `json:"-" db:"test_command"`
 
@@ -893,8 +859,6 @@ func ValidOperationForStatus(action DevMachineOperationAction, status DevMachine
 		return status != DevMachineStatusDestroyed
 	case DevMachineOpRunAgent, DevMachineOpCancelAgent, DevMachineOpCheckoutIssue, DevMachineOpRefreshPackageIndex:
 		return status == DevMachineStatusRunning
-	case DevMachineOpSnapshotEnvironment:
-		return status == DevMachineStatusPaused || status == DevMachineStatusStopped
 	default:
 		return false
 	}

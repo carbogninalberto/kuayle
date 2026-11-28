@@ -15,7 +15,6 @@ import (
 
 var ErrWorkspaceSlugTaken = errors.New("workspace slug already taken")
 var ErrWorkspaceHasDevMachineRuntimes = errors.New("workspace has non-destroyed dev machine runtimes")
-var ErrWorkspaceEnvironmentCleanupPending = errors.New("workspace environment cleanup is pending")
 
 func workspaceCreateError(err error) error {
 	var pgErr *pgconn.PgError
@@ -117,32 +116,6 @@ func (r *WorkspaceRepository) Delete(ctx context.Context, id uuid.UUID) ([]domai
 	}
 	if activeRuntimes > 0 {
 		return nil, fmt.Errorf("%w: %d", ErrWorkspaceHasDevMachineRuntimes, activeRuntimes)
-	}
-	var environments int
-	if err := tx.GetContext(ctx, &environments, `SELECT COUNT(*) FROM dev_machine_environments WHERE workspace_id=$1`, id); err != nil {
-		return nil, err
-	}
-	if environments > 0 {
-		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_operations SET status='cancelled',
-			error_code='workspace_deletion_requested',error_message='snapshot cancelled because workspace deletion was requested',
-			lease_owner=NULL,lease_expires_at=NULL,completed_at=NOW()
-			WHERE workspace_id=$1 AND environment_id IS NOT NULL AND action='snapshot_environment'
-			AND (status='pending' OR (status='leased' AND lease_expires_at<NOW()))`, id); err != nil {
-			return nil, err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE dev_machine_environments environment
-			SET status='delete_requested',delete_requested_at=COALESCE(delete_requested_at,NOW())
-			WHERE workspace_id=$1 AND NOT EXISTS (
-				SELECT 1 FROM dev_machine_operations operation WHERE operation.environment_id=environment.id
-				AND operation.action='snapshot_environment' AND operation.status='leased'
-				AND (operation.lease_expires_at IS NULL OR operation.lease_expires_at>=NOW())
-			)`, id); err != nil {
-			return nil, err
-		}
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
-		return nil, ErrWorkspaceEnvironmentCleanupPending
 	}
 	// The DELETE below takes the privacy barrier exclusively. Take it before the
 	// team row locks: an icon upload holds the barrier shared while it waits for

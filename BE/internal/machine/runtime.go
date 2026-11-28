@@ -186,8 +186,6 @@ type Runtime interface {
 	HostDiskUsage(context.Context) (HostDiskUsage, error)
 	GitState(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout) (GitState, error)
 	PrepareCheckout(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineCheckout, string) error
-	SnapshotEnvironment(context.Context, *domain.DevMachine, []domain.DevMachineService, *domain.DevMachineEnvironment) (string, error)
-	DeleteEnvironmentImage(context.Context, *domain.DevMachineEnvironment) error
 	Ping(context.Context) error
 	// UpdateResources sets the CPU, memory and process limits of every
 	// container of the machine (running or not) from its size.

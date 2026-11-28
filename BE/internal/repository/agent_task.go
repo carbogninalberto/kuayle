@@ -746,21 +746,19 @@ func holdsTaskSlot(alias string) string {
 func machineSelectionSQL() string {
 	return `FROM dev_machines m
  JOIN dev_machine_workspace_policies policy ON policy.workspace_id=m.workspace_id AND policy.enabled
- CROSS JOIN LATERAL (SELECT count(*) AS tasks FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$6
+ CROSS JOIN LATERAL (SELECT count(*) AS tasks FROM agent_tasks t WHERE t.machine_id=m.id AND t.id<>$5
   AND ` + holdsTaskSlot("t") + `) load
  CROSS JOIN LATERAL (SELECT load.tasks=0
   AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.status IN ('queued','starting','running','waiting_input'))
   AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased') AND o.action IN ('validate_agent','publish_agent')) AS idle) state
  WHERE m.workspace_id=$1 AND m.created_by_user_id=$2
  AND m.status='running' AND m.desired_status='running'
- AND m.delete_requested_at IS NULL AND NOT m.environment_builder AND m.temporary_expires_at IS NULL
- AND m.profile IN ('standard','headless')
- AND m.environment_id IS NOT DISTINCT FROM $4::uuid
+ AND m.delete_requested_at IS NULL AND m.temporary_expires_at IS NULL
  AND (policy.allow_sudo OR NOT m.sudo_enabled)
  AND (policy.allow_docker OR NOT EXISTS(SELECT 1 FROM dev_machine_services s WHERE s.machine_id=m.id AND s.service_type='docker'))
  AND NOT EXISTS(SELECT 1 FROM dev_machine_agent_runs r WHERE r.machine_id=m.id AND r.task_id IS NULL AND r.status IN ('queued','starting','running','waiting_input'))
  AND NOT EXISTS(SELECT 1 FROM dev_machine_operations o WHERE o.machine_id=m.id AND o.status IN ('pending','leased')
-  AND o.action IN ('stop','pause','teardown','snapshot_environment','run_check','run_tool','run_command'))`
+  AND o.action IN ('stop','pause','teardown','run_check','run_tool','run_command'))`
 }
 
 // machineSelectionOrder ranks an idle machine first, then the least loaded one,
@@ -768,19 +766,19 @@ func machineSelectionSQL() string {
 // ties.
 const machineSelectionOrder = `
  ORDER BY state.idle DESC, load.tasks,
-  EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.issue_id=$7) DESC,
+  EXISTS(SELECT 1 FROM agent_tasks t WHERE t.machine_id=m.id AND t.issue_id=$6) DESC,
   m.last_activity_at DESC NULLS LAST,
   EXISTS(SELECT 1 FROM dev_machine_checkouts c WHERE c.machine_id=m.id AND c.github_repo_id=$3) DESC,
-  EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$5 AND p.enabled) DESC,
+  EXISTS(SELECT 1 FROM dev_machine_agent_providers p WHERE p.machine_id=m.id AND p.provider_id=$4 AND p.enabled) DESC,
   m.id`
 
 // reusableMachine returns the machine with a free task slot, if any.
-func reusableMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (uuid.UUID, error) {
+func reusableMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, repositoryID uuid.UUID) (uuid.UUID, error) {
 	var machineID uuid.UUID
 	err := tx.GetContext(ctx, &machineID, `SELECT m.id `+machineSelectionSQL()+`
  AND load.tasks < `+taskSlotLimit+machineSelectionOrder+`
  FOR UPDATE OF m SKIP LOCKED LIMIT 1`,
-		task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID, task.IssueID)
+		task.WorkspaceID, task.CreatorID, repositoryID, task.Provider, task.ID, task.IssueID)
 	return machineID, err
 }
 
@@ -798,11 +796,11 @@ type machineLoad struct {
 // transaction's row lock or freed its last slot between the two reads: the
 // reservation retries instead of creating a machine. A machine at its limit is
 // the one the task waits on.
-func fullMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (*machineLoad, error) {
+func fullMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, repositoryID uuid.UUID) (*machineLoad, error) {
 	var load machineLoad
 	err := tx.QueryRowxContext(ctx, `SELECT m.name, load.tasks, `+taskSlotLimit+` `+machineSelectionSQL()+machineSelectionOrder+`
  LIMIT 1`,
-		task.WorkspaceID, task.CreatorID, repositoryID, environmentID, task.Provider, task.ID, task.IssueID).Scan(&load.Name, &load.Tasks, &load.Limit)
+		task.WorkspaceID, task.CreatorID, repositoryID, task.Provider, task.ID, task.IssueID).Scan(&load.Name, &load.Tasks, &load.Limit)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -836,7 +834,7 @@ func saveTaskMachine(ctx context.Context, tx *sqlx.Tx, task *domain.AgentTask, m
 // creator instead of creating one the host cannot start. A task whose own task
 // machine never started moves to such a slot when one frees, reporting its
 // unstarted machine for deletion; otherwise it keeps waiting for host capacity.
-func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain.AgentTask, repositoryID uuid.UUID, environmentID *uuid.UUID) (MachineReservation, error) {
+func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain.AgentTask, repositoryID uuid.UUID) (MachineReservation, error) {
 	tx, task, err := r.transaction(ctx, claimed.ID, true)
 	if err != nil {
 		return MachineReservation{}, err
@@ -887,7 +885,7 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, task.WorkspaceID); err != nil {
 		return MachineReservation{}, err
 	}
-	machineID, err := reusableMachine(ctx, tx, task, repositoryID, environmentID)
+	machineID, err := reusableMachine(ctx, tx, task, repositoryID)
 	if err == nil {
 		reservation.MachineID = machineID
 		reservation.Abandoned = abandoned
@@ -904,7 +902,7 @@ func (r *AgentTaskRepository) ReserveMachine(ctx context.Context, claimed domain
 	// because another transaction locks its row (or a slot freed between the
 	// two reads): the next poll takes that slot rather than starting a machine
 	// the host cannot admit. A machine at its limit is one the task waits on.
-	load, err := fullMachine(ctx, tx, task, repositoryID, environmentID)
+	load, err := fullMachine(ctx, tx, task, repositoryID)
 	if err != nil {
 		return MachineReservation{}, err
 	}

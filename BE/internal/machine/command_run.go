@@ -219,11 +219,7 @@ func (r *DockerRuntime) RunCommand(ctx context.Context, machine *domain.DevMachi
 	if _, ok := commandWriteFolder(run.WorkingDirectory); run.Write && !ok {
 		return nil, fmt.Errorf("invalid command run")
 	}
-	if machine.EnvironmentID != nil {
-		if err := r.ensureEnvironmentImage(ctx, image, machine.WorkspaceID, *machine.EnvironmentID); err != nil {
-			return nil, err
-		}
-	} else if err := r.ensureImage(ctx, image); err != nil {
+	if err := r.ensureImage(ctx, image); err != nil {
 		return nil, err
 	}
 	cmd := commandArgv(run.TimeoutSeconds)
@@ -352,7 +348,7 @@ func (m *Manager) runCommand(ctx context.Context, machine *domain.DevMachine, op
 		return err
 	}
 	for _, service := range services {
-		if service.ServiceType == "ide" || service.ServiceType == "terminal" {
+		if service.ServiceType == "terminal" {
 			image = service.ImageRef
 			break
 		}

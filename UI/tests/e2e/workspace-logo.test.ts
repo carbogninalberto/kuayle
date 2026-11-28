@@ -72,8 +72,7 @@ async function mockWorkspaceLogo(page: Page, initialLogo: string | null = null) 
 			path === '/api/workspaces/test/labels' ||
 			path === '/api/workspaces/test/members' ||
 			path === '/api/workspaces/test/views' ||
-			path === '/api/workspaces/test/github/status' ||
-			path === '/api/workspaces/test/dev-machine-environments'
+			path === '/api/workspaces/test/github/status'
 		) {
 			return route.fulfill({ json: [] });
 		}

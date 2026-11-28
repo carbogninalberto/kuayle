@@ -283,7 +283,7 @@ func (t *AssistantTools) runScanTool(ctx context.Context, ws, user uuid.UUID, ro
 			return nil, nil, err
 		}
 		if pattern == "" {
-			return nil, nil, argumentFailure(name, assistantArgumentSchemas()[name],"give either path or pattern")
+			return nil, nil, argumentFailure(name, assistantArgumentSchemas()[name], "give either path or pattern")
 		}
 		source, err := scanSource(input.scanTargetInput)
 		if err != nil {

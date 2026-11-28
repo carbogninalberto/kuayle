@@ -1,5 +1,5 @@
 # Sourced by kuayle-shell for interactive shells of the machine owner's
-# terminal and IDE. The manager writes the owner's agent sign-ins from Kuayle
+# terminal. The manager writes the owner's agent sign-ins from Kuayle
 # into ~/.kuayle/agent-sign-ins (the in-memory home) whenever the machine
 # starts and whenever the sign-ins change in Kuayle; each new shell uses the
 # current set:
@@ -100,7 +100,7 @@ kuayle_load_agent_sign_ins() {
 }
 
 # The hint is shown once per terminal tab: in the first pane of a tmux
-# session, or in every IDE terminal.
+# session.
 kuayle_sign_in_hint() {
   [ -n "$kuayle_claude_missing$kuayle_codex_missing" ] || return 0
   if [ -n "${TMUX:-}" ] && [ "$(tmux display-message -p '#{session_windows}:#{window_panes}' 2>/dev/null)" != "1:1" ]; then

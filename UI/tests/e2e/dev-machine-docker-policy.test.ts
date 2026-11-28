@@ -62,7 +62,6 @@ async function mockPolicyApi(page: Page, allowDocker: boolean | undefined, overr
 			if (request.method() === 'DELETE') return route.fulfill({ status: 204, body: '' });
 			return route.fulfill({ json: { workspace_id: workspaceId } });
 		}
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
 	});
 	return state;

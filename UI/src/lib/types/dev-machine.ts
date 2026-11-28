@@ -11,12 +11,11 @@ export type DevMachineStatus =
 	| 'failed'
 	| 'expired';
 
-export type DevMachineProfile = 'standard' | 'headless';
+/** Every Dev Machine is headless: egress, the developer container (terminal) and optionally Docker. */
+export type DevMachineProfile = 'headless';
 
 // App port hosts answer `starting` (202) while their route is being published.
 type DevMachineLaunchStatus = 'ready' | 'resuming' | 'pending' | 'starting';
-
-type DevMachineEnvironmentStatus = 'pending' | 'building' | 'ready' | 'failed' | 'delete_requested';
 
 interface DevMachineOperation {
 	id: string;
@@ -66,9 +65,7 @@ export interface DevMachine {
 	pids_limit: number;
 	/** This machine's own agent task limit; null follows the workspace policy. */
 	max_tasks?: number | null;
-	environment_id?: string;
 	repository_affinity_id?: string;
-	environment_builder: boolean;
 	last_activity_at?: string;
 	delete_requested_at?: string;
 	docker_network_name?: string;
@@ -97,7 +94,7 @@ export interface DevMachineService {
 	id: string;
 	machine_id: string;
 	agent_run_id?: string;
-	service_type: 'ide' | 'terminal' | 'agent' | 'browser' | 'collector' | 'egress' | 'docker';
+	service_type: 'terminal' | 'agent' | 'egress' | 'docker';
 	service_key: string;
 	container_id?: string;
 	container_name: string;
@@ -266,18 +263,14 @@ interface CreateDevMachineBaseInput {
 	repo?: { provider: 'github'; owner: string; name: string; url: string };
 	base_branch?: string;
 	working_branch?: string;
-	profile?: DevMachineProfile;
-	services: { ide: boolean; browser: boolean };
 	agents: Array<{ provider: AgentProvider['id']; mode: 'interactive' | 'autonomous'; config?: unknown }>;
 	env_vars: Array<{
 		name: string;
 		value: string;
-		target_service: 'ide' | 'terminal' | 'agent' | 'collector';
+		target_service: 'terminal' | 'agent';
 		provider?: string;
 		secret?: boolean;
 	}>;
-	environment_id?: string;
-	environment_builder?: boolean;
 }
 
 export type CreateDevMachineInput =
@@ -410,20 +403,6 @@ export interface DevMachineCheckout {
 	last_activity_at?: string;
 }
 
-export interface DevMachineEnvironment {
-	id: string;
-	workspace_id: string;
-	name: string;
-	image_ref: string;
-	image_digest?: string;
-	status: DevMachineEnvironmentStatus;
-	source_machine_id?: string;
-	created_by_user_id?: string;
-	delete_requested_at?: string;
-	created_at: string;
-	updated_at: string;
-}
-
 export interface DevMachineScopeSetting {
 	agent_provider?: string | null;
 	agent_instructions?: string | null;
@@ -439,7 +418,6 @@ export interface DevMachineScopeSetting {
 	issue_id?: string;
 	github_repo_id?: string;
 	base_branch?: string;
-	environment_id?: string;
 	created_at?: string;
 	updated_at?: string;
 }
@@ -527,7 +505,7 @@ export interface MigrationActionInput {
 	secret?: string;
 }
 
-export interface LaunchMachineServiceResponse {
+export interface LaunchMachinePortResponse {
 	status: DevMachineLaunchStatus;
 	launch_url?: string;
 	expires_at?: string;

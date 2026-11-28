@@ -65,7 +65,6 @@ async function mockApi(page: Page, scope: Record<string, unknown>) {
 			}
 			return route.fulfill({ json: { workspace_id: workspaceId, ...scope } });
 		}
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		return route.fulfill({ status: 404, json: { error: { message: `Unhandled ${request.method()} ${path}` } } });
 	});
 	return state;

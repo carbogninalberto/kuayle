@@ -288,7 +288,7 @@ async function mockWorkspace(
 		if (path.endsWith('/github/status')) return route.fulfill({ json: { configured: false, repos: [] } });
 		if (path.endsWith('/dev-machine-scope-setting')) return route.fulfill({ json: {} });
 		if (
-			['labels', 'members', 'views', 'cycles', 'dev-machine-environments', 'issue-templates', 'templates'].some((p) =>
+			['labels', 'members', 'views', 'cycles', 'issue-templates', 'templates'].some((p) =>
 				path.endsWith('/' + p)
 			)
 		)

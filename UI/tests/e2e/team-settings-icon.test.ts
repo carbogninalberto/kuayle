@@ -25,7 +25,6 @@ async function mockTeamSettings(page: Page) {
 		if (path === '/api/workspaces/test/issues') return route.fulfill({ json: { data: [], total_count: 0, page: 1, has_more: false } });
 		if (path === `/api/workspaces/test/teams/${teamId}/cycles`) return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/github/status') return route.fulfill({ json: { configured: false, installed: false, global_app: false, repos: [] } });
-		if (path === '/api/workspaces/test/dev-machine-environments') return route.fulfill({ json: [] });
 		if (path === '/api/workspaces/test/dev-machine-scope-setting') return route.fulfill({ status: 404, json: { error: { message: 'Not found' } } });
 		if (path === `/api/workspaces/test/teams/${teamId}/icon` && request.method() === 'POST') {
 			state.uploads += 1;

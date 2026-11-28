@@ -38,7 +38,6 @@ func dockerSecretFixture(t *testing.T, key []byte, machineID uuid.UUID) []domain
 	values := []struct{ target, name, value string }{
 		{"docker", "KUAYLE_DOCKER_TLS_CA", "ca"}, {"docker", "KUAYLE_DOCKER_TLS_CERT", "server-cert"}, {"docker", "KUAYLE_DOCKER_TLS_KEY", "server-key"},
 		{"docker-client", "KUAYLE_DOCKER_CA", "ca"}, {"docker-client", "KUAYLE_DOCKER_CERT", "client-cert"}, {"docker-client", "KUAYLE_DOCKER_KEY", "client-key"},
-		{"collector", "KUAYLE_MACHINE_TOKEN", "collector-token"},
 	}
 	envVars := []domain.DevMachineEnvVar{}
 	for _, value := range values {
@@ -50,35 +49,34 @@ func dockerSecretFixture(t *testing.T, key []byte, machineID uuid.UUID) []domain
 }
 
 // The daemon receives only its server TLS material; developer containers the
-// client material; collector, browser and egress neither.
+// client material; egress neither.
 func TestManagerDeliversDockerTLSOnlyToTheDaemonAndDeveloperContainers(t *testing.T) {
 	key := cryptoutil.DeriveKey("docker-secrets-test")
 	machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123"}
 	store := &dockerStoreFake{managerStoreFake: &managerStoreFake{machine: machine, envVars: dockerSecretFixture(t, key, machine.ID)}}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, key, nil, "test")
 	services := []domain.DevMachineService{
-		{ServiceKey: "ide", ServiceType: "ide"}, {ServiceKey: "terminal", ServiceType: "terminal"},
-		{ServiceKey: "collector", ServiceType: "collector"}, {ServiceKey: "browser", ServiceType: "browser"},
+		{ServiceKey: "terminal", ServiceType: "terminal"},
 		{ServiceKey: "egress", ServiceType: "egress"}, {ServiceKey: "docker", ServiceType: "docker"},
 	}
 	secrets, err := manager.serviceSecrets(context.Background(), machine, services)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"KUAYLE_DOCKER_TLS_CA": "ca", "KUAYLE_DOCKER_TLS_CERT": "server-cert", "KUAYLE_DOCKER_TLS_KEY": "server-key"}, secrets["docker"])
-	for _, developer := range []string{"ide", "terminal"} {
+	for _, developer := range []string{"terminal"} {
 		require.Equal(t, "client-key", secrets[developer]["KUAYLE_DOCKER_KEY"], developer)
 		require.Equal(t, "client-cert", secrets[developer]["KUAYLE_DOCKER_CERT"], developer)
 		require.Equal(t, "ca", secrets[developer]["KUAYLE_DOCKER_CA"], developer)
 		require.NotContains(t, secrets[developer], "KUAYLE_DOCKER_TLS_KEY", developer)
 	}
-	for _, other := range []string{"collector", "browser", "egress"} {
+	for _, other := range []string{"egress"} {
 		for name := range secrets[other] {
 			require.NotContains(t, name, "DOCKER", other)
 		}
 	}
 
-	withoutDaemon, err := manager.serviceSecrets(context.Background(), machine, services[:5])
+	withoutDaemon, err := manager.serviceSecrets(context.Background(), machine, services[:2])
 	require.NoError(t, err)
-	require.NotContains(t, withoutDaemon["ide"], "KUAYLE_DOCKER_KEY", "no client material without a daemon")
+	require.NotContains(t, withoutDaemon["terminal"], "KUAYLE_DOCKER_KEY", "no client material without a daemon")
 }
 
 // An autonomous attempt on a machine with a daemon gets the client material
@@ -91,7 +89,7 @@ func TestAgentRunsOnAMachineWithADaemonGetItsClientCertificates(t *testing.T) {
 		Status: domain.DevMachineAgentRunStatusQueued, AllowedSecrets: json.RawMessage(`[]`), CommandArgv: json.RawMessage(`["opencode"]`), MaxRuntimeSeconds: 30}
 	machine := &domain.DevMachine{ID: machineID, WorkspaceID: workspaceID, RoutingKey: "0123456789abcdef0123"}
 	store := &dockerStoreFake{managerStoreFake: &managerStoreFake{machine: machine, agentRun: run, envVars: dockerSecretFixture(t, key, machineID),
-		services: []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide"}, {ServiceKey: "docker", ServiceType: "docker"}}}}
+		services: []domain.DevMachineService{{ServiceKey: "terminal", ServiceType: "terminal"}, {ServiceKey: "docker", ServiceType: "docker"}}}}
 	manager := NewManager(store, &runtimeFake{}, agent.NewRegistry(), nil, key, nil, "test")
 	snapshot, err := manager.agentRunSecrets(context.Background(), machine, run, nil)
 	require.NoError(t, err)
@@ -114,7 +112,7 @@ func TestAgentRunsOnAMachineWithADaemonGetItsClientCertificates(t *testing.T) {
 func TestStartingAMachineWithADaemonIsRefusedWhenDockerIsNoLongerAllowed(t *testing.T) {
 	for _, action := range []domain.DevMachineOperationAction{domain.DevMachineOpSpawn, domain.DevMachineOpStart} {
 		machine := &domain.DevMachine{ID: uuid.New(), WorkspaceID: uuid.New(), RoutingKey: "0123456789abcdef0123", Status: domain.DevMachineStatusStopped, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1}
-		store := &dockerStoreFake{managerStoreFake: &managerStoreFake{machine: machine, services: []domain.DevMachineService{{ServiceKey: "ide", ServiceType: "ide"}, {ServiceKey: "docker", ServiceType: "docker"}}}}
+		store := &dockerStoreFake{managerStoreFake: &managerStoreFake{machine: machine, services: []domain.DevMachineService{{ServiceKey: "terminal", ServiceType: "terminal"}, {ServiceKey: "docker", ServiceType: "docker"}}}}
 		runtime := &runtimeFake{}
 		manager := NewManager(store, runtime, agent.NewRegistry(), nil, cryptoutil.DeriveKey("docker-policy-test"), nil, "test")
 		err := manager.processOperation(context.Background(), &domain.DevMachineOperation{MachineID: machine.ID, WorkspaceID: machine.WorkspaceID, Action: action, Generation: 1})

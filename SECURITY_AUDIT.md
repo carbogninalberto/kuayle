@@ -62,9 +62,9 @@ In priority order:
 | KS-13 | Low | Deferred (product decision) | Existing users can be added to workspaces without consent; email enumeration | `BE/internal/service/workspace.go:198` |
 | KS-14 | Low | Fixed (see November 2026) | Outgoing webhook delivery would be SSRF-prone if enabled | `BE/internal/service/webhook.go` |
 | KS-15 | Low | Deferred | Role downgrades leave Dev Machine side effects available | `BE/internal/service/dev_machine.go:642` |
-| KS-16 | Low | Fixed (see November 2026) | Collector redaction omits the workspace model credential | `BE/internal/service/dev_machine.go:2324` |
-| KS-17 | Low | Deferred (documented limitation) | Browser container compromise reaches unauthenticated IDE/terminal ports | `devmachine/browser/start.sh:30` |
-| KS-18 | Low | Deferred (trust assumption) | Admin-built environment images run with members' secrets | Dev Machine environments |
+| KS-16 | Low | Fixed (see November 2026); collector later removed | Collector redaction omits the workspace model credential | `BE/internal/service/dev_machine.go:2324` |
+| KS-17 | Low | Narrowed (browser and IDE removed); documented limitation | Browser container compromise reaches unauthenticated IDE/terminal ports | `devmachine/browser/start.sh:30` (removed) |
+| KS-18 | Low | Resolved by removal (Development Environments removed) | Admin-built environment images run with members' secrets | Dev Machine environments (removed) |
 | KS-19 | Low | Deferred | CI: tag-pinned third-party actions and release tag in a `run:` line | `.github/workflows/build.yml:49` |
 | KS-20 | Low | Deferred | Images running as root, tag-pinned bases, SPA without CSP | `BE/Dockerfile.updater`, `UI/Dockerfile`, `Dockerfile`, `UI/Caddyfile:4` |
 | KS-21 | Low | Partly fixed (see November 2026) | No password change/reset or session revocation | `BE/internal/service/auth.go` |
@@ -242,10 +242,14 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
 - **KS-17 (Low, documented).** Chrome runs with `--no-sandbox` and shares the
   machine network with code-server (`--auth none`) and ttyd. A renderer escape
   would reach the developer container without the gateway. Consider a network
-  policy allowing the browser only its VNC/CDP path.
+  policy allowing the browser only its VNC/CDP path. *Update:* the single
+  machine image removed the browser and code-server containers. Agent, check
+  and preview containers still share the machine network with the terminal's
+  ttyd, which listens there without the gateway's authentication.
 - **KS-18 (Low, trust assumption).** Environment images built by admins run
   members' machines with members' secrets. Document admins as trusted with
-  member secrets or verify images.
+  member secrets or verify images. *Update:* Development Environments were
+  removed; every machine runs the release's single machine image.
 - **KS-19 (Low).** Third-party actions (`docker/*`, `aquasecurity/trivy-action`)
   are pinned by tag rather than commit SHA, and `build.yml` interpolates
   `github.event.release.tag_name` into a `run:` script with `contents: write`
@@ -303,8 +307,9 @@ return 413. Test: `TestGitHubWebhookBoundsUnauthenticatedBody`.
   membership and creator on every request, binds terminal tickets to
   `FRONTEND_URL` Origin, session and directory, and strips credentials and
   upstream cookies. The egress proxy dials only validated public resolved
-  addresses on 80/443. Collector ingest uses hashed, scoped, expiring
-  per-machine tokens bound to the token's own machine and runs. Shell scripts
+  addresses on 80/443. Collector ingest used hashed, scoped, expiring
+  per-machine tokens bound to the token's own machine and runs (the collector
+  and its tokens were later removed). Shell scripts
   quote variables, validate refs and paths, and write Codex/credential files
   under `umask 077`. The machine-manager runs as a non-root, cap-dropped,
   read-only container; the gateway uses a separate database role.
@@ -460,7 +465,9 @@ when the machine stops, is re-provisioned or deleted.
 **Residual.** Like every attempt and check, a preview shares the machine's
 workspace volume and private network: it can change files a person later runs
 in the terminal and reach the machine's other containers, including the
-IDE and terminal ports that listen there without authentication (KS-17). A
+terminal port that listens there without authentication (KS-17; the IDE port
+was removed with the single machine image). Since then a preview also runs
+with the agent-class sudo relaxation (see the design note below). A
 preview has the isolation of an agent attempt, not more. A preview started
 before the upgrade keeps running in the developer container until it is
 stopped or started again.
@@ -474,7 +481,8 @@ stopped or started again.
 `TestMachineStopAndProvisioningRemoveThePreviewContainers`,
 `TestDevMachinePortPreviewTargetKeepsExistingPortsAndRollsBack`, and the
 preview case of `TestDockerRuntimeLifecycle` (real containers: a
-developer-scoped secret, the sign-in directory and sudo are out of reach).
+developer-scoped secret and the sign-in directory are out of reach; since the
+single machine image, sudo works there by design).
 
 ### KS-25, KS-26 — Public shares (Medium)
 
@@ -657,7 +665,7 @@ Go constant and `start-common.sh`, kept equal by a test) answers only for
 ## October findings revisited
 
 - **KS-16** is fixed: collector redaction includes model server keys and run
-  secret snapshots.
+  secret snapshots. (The collector was later removed altogether.)
 - **KS-21** is partly fixed: password reset exists and revokes sessions and,
   since KS-31, personal access tokens. In-session password change and "sign
   out everywhere" remain open.
@@ -798,3 +806,43 @@ The prompt each attempt received is recorded by source for debugging. It is
 bounded, kept in its own table, served only to the task's creator by its own
 route (never with a run), and redacted when read with the machine's current
 and retained credentials.
+
+### Agent containers run with sudo (single machine image)
+
+Every Dev Machine now runs one image (`devmachine/headless`) for the terminal
+and every agent run, and agent-class containers (attempts, checks, previews,
+custom tools, approved assistant commands and assistant processes) always get
+the relaxation that a sudo-enabled terminal gets: a writable root filesystem,
+Docker's default capabilities minus `NET_RAW`, and no `no-new-privileges`
+(`secureHostConfig` in `BE/internal/machine/docker.go`). This replaces "agent
+attempts stay locked": the image ships no compilers (their kernel headers fail
+the image scan) and Development Environments were removed, so agents install
+the system packages a project needs with `sudo apt-get`.
+
+What this widens: a prompt-injected agent is root inside its own container. It
+can install tooling, read any file in that container regardless of ownership
+and edit `/etc/claude-code/managed-settings.json` (including the live inbox
+hook) for the rest of its run, and package maintainer scripts run as root. It
+also has more kernel surface to attack than a container with no capabilities.
+
+What still bounds it: the container is never privileged and has no
+`NET_ADMIN`, `SYS_ADMIN`, host mounts or Docker socket; seccomp and AppArmor
+profiles, resource limits and the machine network stay, so egress still goes
+through the egress proxy with its private-address blocking and allow/deny
+lists. Read-only mounts (the live inbox, a planning step's worktree, the
+command runs' `/workspace`) stay read-only, because remounting needs
+`SYS_ADMIN`. The container holds only that run's credentials, and root
+filesystem changes are discarded with the container: the next attempt starts
+from the image again. Changes to `/workspace` persist as before and are
+reviewed as agent output. The developer terminal still gets sudo only when the
+workspace policy allows it (`allow_sudo`).
+
+Disk: a writable root layer lives in the Docker data root, not the workspace
+volume. With hard quotas it is bounded by the machine's disk size (Docker's
+`size` storage option); in monitored mode it is not, and the host free-space
+floor is the protection. The manager never trusts a container a user can
+modify for that floor: when no data-root mount is configured it runs
+`/usr/bin/df` as root only in a terminal whose root filesystem is read-only
+(no sudo). Workspace usage runs `/usr/bin/du` as root and as the machine user,
+so a directory either one cannot read does not hide its size; a sudo terminal
+can still under-report its own machine's monitored usage.

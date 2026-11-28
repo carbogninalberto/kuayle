@@ -13,13 +13,11 @@
 
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import { goto, replaceState } from '$app/navigation';
+	import { replaceState } from '$app/navigation';
 	import * as Tabs from '$lib/components/ui/tabs';
 	import MachineList from '$lib/features/dev-machines/MachineList.svelte';
 	import { TriangleAlert } from '@lucide/svelte';
 	import * as Alert from '$lib/components/ui/alert';
-	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Select from '$lib/components/ui/select';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
@@ -32,17 +30,13 @@
 	import MachineResourceSliders from '$lib/features/dev-machines/MachineResourceSliders.svelte';
 	import { getGitHubStatus } from '$lib/api/github';
 	import {
-		createDevMachine,
-		deleteDevMachineEnvironment,
 		deleteDevMachineScopeSetting,
 		getDevMachinePolicy,
 		getDevMachineScopeSetting,
-		listDevMachineEnvironments,
 		updateDevMachinePolicy,
 		updateDevMachineScopeSetting,
 	} from '$lib/api/dev-machines';
 	import {
-		DEFAULT_MACHINE_RESOURCES,
 		DEFAULT_TASK_MACHINE_RESOURCES,
 		DEFAULT_TASK_MACHINE_MAX_TASKS,
 		MAX_TASK_MACHINE_MAX_TASKS,
@@ -54,10 +48,7 @@
 		resolveMachineSizeOptions
 	} from '$lib/features/dev-machines/machine-size';
 	import { getWorkspace } from '$lib/api/workspaces';
-	import type {
-		DevMachineEnvironment,
-		DevMachinePolicy
-	} from '$lib/types/dev-machine';
+	import type { DevMachinePolicy } from '$lib/types/dev-machine';
 	import type { GitHubRepo } from '$lib/types/github';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m, getLocale, setLocale } from '$lib/features/i18n/messages';
@@ -88,9 +79,7 @@
 	let loading = $state(true);
 	let failed = $state(false);
 	let linkedRepositories = $state<GitHubRepo[]>([]);
-	let environments = $state<DevMachineEnvironment[]>([]);
 	let defaultRepositoryId = $state('none');
-	let defaultEnvironmentId = $state('standard');
 
 	let defaultAgentProvider = $state('inherit');
 	let defaultAgentInstructions = $state('');
@@ -98,28 +87,6 @@
 	let defaultComposeFile = $state('');
 	let defaultPreviewCommand = $state('');
 	let defaultPreviewPort = $state('');
-	let builderBusy = $state(false);
-	let environmentToDelete = $state<DevMachineEnvironment | null>(null);
-	let environmentDeleteOpen = $state(false);
-	let environmentDeleteBusy = $state(false);
-	let environmentBuilderOpen = $state(false);
-	let builderCpuMillis = $state(DEFAULT_MACHINE_RESOURCES.cpu_millis);
-	let builderMemoryMb = $state(DEFAULT_MACHINE_RESOURCES.memory_mb);
-	let builderDiskGb = $state(DEFAULT_MACHINE_RESOURCES.disk_gb);
-
-	const readyEnvironments = $derived(environments.filter((item) => item.status === 'ready'));
-	const builderSizeOptions = $derived(
-		resolveMachineSizeOptions(
-			policy?.size_options,
-			policy?.max_disk_gb ?? MACHINE_DISK_GB[MACHINE_DISK_GB.length - 1]
-		)
-	);
-	const builderResources = $derived(
-		normalizeMachineResources(
-			{ cpu_millis: builderCpuMillis, memory_mb: builderMemoryMb, disk_gb: builderDiskGb },
-			builderSizeOptions
-		)
-	);
 	// Task machine sizes follow the disk limit being edited, not the saved one.
 	const taskMachineSizeOptions = $derived(
 		resolveMachineSizeOptions(
@@ -131,10 +98,6 @@
 	const taskMachineMaxTasks = $derived(
 		Math.min(MAX_TASK_MACHINE_MAX_TASKS, Math.max(1, Math.round(Number(policy?.task_machine_max_tasks) || DEFAULT_TASK_MACHINE_MAX_TASKS)))
 	);
-	const canCreateEnvironmentBuilder = $derived(
-		canAdmin && !builderBusy && builderSizeOptions.disk_gb.length > 0
-	);
-
 	onMount(() => {
 		// The role decides which tabs show; the policy loads when its tab opens.
 		void getWorkspace(slug)
@@ -159,16 +122,14 @@
 			const workspace = await getWorkspace(slug);
 			canAdmin = workspace.current_user_role === 'owner' || workspace.current_user_role === 'admin';
 			isGuest = workspace.current_user_role === 'guest';
-			const [loaded, github, scope, availableEnvironments] = await Promise.all([
+			const [loaded, github, scope] = await Promise.all([
 				getDevMachinePolicy(slug), getGitHubStatus(slug),
-				getDevMachineScopeSetting(slug, 'workspace'), listDevMachineEnvironments(slug)
+				getDevMachineScopeSetting(slug, 'workspace')
 			]);
 			policy = { ...loaded, allowed_providers: loaded.allowed_providers ?? [], allowed_repositories: loaded.allowed_repositories ?? [], allow_unattended_automations: loaded.allow_unattended_automations ?? false, allow_docker: loaded.allow_docker ?? false, allow_sudo: loaded.allow_sudo ?? false, max_temporary_machines: loaded.max_temporary_machines ?? 2, task_machine_cpu_millis: loaded.task_machine_cpu_millis || DEFAULT_TASK_MACHINE_RESOURCES.cpu_millis, task_machine_memory_mb: loaded.task_machine_memory_mb || DEFAULT_TASK_MACHINE_RESOURCES.memory_mb, task_machine_disk_gb: loaded.task_machine_disk_gb || DEFAULT_TASK_MACHINE_RESOURCES.disk_gb, task_machine_max_tasks: loaded.task_machine_max_tasks || DEFAULT_TASK_MACHINE_MAX_TASKS, task_files_max: loaded.task_files_max || MAX_TASK_FILES_MAX };
 			repositories = policy.allowed_repositories.join('\n');
 			linkedRepositories = github.repos ?? [];
-			environments = availableEnvironments ?? [];
 			defaultRepositoryId = scope.github_repo_id ?? 'none';
-			defaultEnvironmentId = scope.environment_id ?? 'standard';
 			defaultAgentProvider = scope.agent_provider ?? 'inherit'; defaultAgentInstructions = scope.agent_instructions ?? ''; defaultPullRequestTemplate = pullRequestTemplateValue(scope.pull_request_template, false); defaultComposeFile = scope.compose_file ?? ''; defaultPreviewCommand = scope.preview_command ? JSON.stringify(scope.preview_command) : ''; defaultPreviewPort = scope.preview_port ? String(scope.preview_port) : '';
 		} catch (error) {
 			failed = true;
@@ -213,14 +174,13 @@
 				task_files_max: taskFilesMax(policy.task_files_max)
 			});
 			const repository = linkedRepositories.find((item) => item.id === defaultRepositoryId);
-			if (defaultRepositoryId === 'none' && defaultEnvironmentId === 'standard' && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !template.pull_request_template && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
+			if (defaultRepositoryId === 'none' && defaultAgentProvider === 'inherit' && !defaultAgentInstructions.trim() && !template.pull_request_template && !defaultComposeFile.trim() && !defaultPreviewCommand.trim()) {
 				await deleteDevMachineScopeSetting(slug, 'workspace');
 			} else {
 				await updateDevMachineScopeSetting(slug, {
 					scope_type: 'workspace',
 					github_repo_id: repository?.id,
 					base_branch: repository?.default_branch,
-					environment_id: defaultEnvironmentId === 'standard' ? undefined : defaultEnvironmentId,
 					agent_provider: defaultAgentProvider === 'inherit' ? undefined : defaultAgentProvider, agent_instructions: defaultAgentInstructions.trim() || undefined, compose_file: defaultComposeFile.trim() || undefined, ...previewSettingPayload(defaultPreviewCommand, defaultPreviewPort), ...template
 				});
 			}
@@ -232,54 +192,6 @@
 		}
 	}
 
-
-	function openEnvironmentBuilder() {
-		if (!canAdmin) return;
-		// A builder installs and compiles like a task machine, so it starts with that size.
-		builderCpuMillis = policy?.task_machine_cpu_millis || DEFAULT_MACHINE_RESOURCES.cpu_millis;
-		builderMemoryMb = policy?.task_machine_memory_mb || DEFAULT_MACHINE_RESOURCES.memory_mb;
-		builderDiskGb = DEFAULT_MACHINE_RESOURCES.disk_gb;
-		environmentBuilderOpen = true;
-	}
-
-	async function createEnvironmentBuilder(event: SubmitEvent) {
-		event.preventDefault();
-		if (!canCreateEnvironmentBuilder) return;
-		builderBusy = true;
-		try {
-			const machine = await createDevMachine(slug, {
-				size: 'custom',
-				cpu_millis: builderResources.cpu_millis,
-				memory_mb: builderResources.memory_mb,
-				disk_gb: builderResources.disk_gb,
-				services: { ide: true, browser: false },
-				agents: [], env_vars: [], environment_builder: true
-			});
-			appToast.success(m['settings.dev_machines.env_queued']());
-			environmentBuilderOpen = false;
-			await goto(`/${slug}/machines/${machine.id}`);
-		} catch (error) {
-			appToast.apiError(error, m['settings.dev_machines.failed_create_env']());
-		} finally {
-			builderBusy = false;
-		}
-	}
-
-	async function deleteEnvironment() {
-		if (!environmentToDelete) return;
-		environmentDeleteBusy = true;
-		try {
-			await deleteDevMachineEnvironment(slug, environmentToDelete.id);
-			appToast.success(m['settings.dev_machines.env_deletion_requested']());
-			environmentToDelete = null;
-			environmentDeleteOpen = false;
-			await load();
-		} catch (error) {
-			appToast.apiError(error, m['settings.dev_machines.failed_delete_env']());
-		} finally {
-			environmentDeleteBusy = false;
-		}
-	}
 
 </script>
 
@@ -345,14 +257,9 @@
 			</div>
 		</section>
 		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
-			<div class="flex flex-wrap items-start justify-between gap-4"><div><h2 class="text-sm font-semibold">{m['settings.dev_machines.environments']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.environments_desc']()}</p></div><Button type="button" variant="outline" onclick={openEnvironmentBuilder} disabled={builderBusy}>{m['settings.dev_machines.new_env']()}</Button></div>
-			{#if environments.length === 0}<p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.no_envs']()}</p>{:else}<div class="space-y-2">{#each environments as environment}<div class="flex items-center justify-between gap-3 rounded-lg border border-[var(--app-border)] p-3"><div class="min-w-0"><p class="wrap-anywhere text-sm font-medium">{environment.name}</p><p class="wrap-anywhere text-xs text-[var(--color-text-tertiary)]">{environment.image_ref}</p><p class="mt-1 text-[10px] capitalize text-[var(--color-text-tertiary)]">{environment.status.replaceAll('_', ' ')}</p></div><Button type="button" size="sm" variant="outline" disabled={environment.status === 'delete_requested'} onclick={() => { environmentToDelete = environment; environmentDeleteOpen = true; }}>{m['settings.dev_machines.delete']()}</Button></div>{/each}</div>{/if}
-		</section>
-		<section class="space-y-4 rounded-xl border border-[var(--app-border)] bg-[var(--color-bg-secondary)] p-5">
 			<div><h2 class="text-sm font-semibold">{m['settings.dev_machines.workspace_defaults']()}</h2><p class="text-xs text-[var(--color-text-tertiary)]">{m['settings.dev_machines.defaults_desc']()}</p></div>
 			<div class="grid gap-4 sm:grid-cols-2">
-				<div class="space-y-1"><Label>{m['settings.dev_machines.repo']()}</Label><Select.Root type="single" value={defaultRepositoryId} onValueChange={(value) => value && (defaultRepositoryId = value)}><Select.Trigger class="w-full">{linkedRepositories.find((item) => item.id === defaultRepositoryId)?.full_name ?? m['settings.dev_machines.no_default_repo']()}</Select.Trigger><Select.Content><Select.Item value="none" label={m['settings.dev_machines.no_default_repo']()}>{m['settings.dev_machines.no_default_repo']()}</Select.Item>{#each linkedRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
-				<div class="space-y-1"><Label>{m['settings.dev_machines.env']()}</Label><Select.Root type="single" value={defaultEnvironmentId} onValueChange={(value) => value && (defaultEnvironmentId = value)}><Select.Trigger class="w-full">{readyEnvironments.find((item) => item.id === defaultEnvironmentId)?.name ?? m['settings.dev_machines.default_env']()}</Select.Trigger><Select.Content><Select.Item value="standard" label={m['settings.dev_machines.default_env']()}>{m['settings.dev_machines.default_env']()}</Select.Item>{#each readyEnvironments as environment}<Select.Item value={environment.id} label={environment.name}>{environment.name}</Select.Item>{/each}</Select.Content></Select.Root></div>
+				<div class="space-y-1 sm:col-span-2"><Label>{m['settings.dev_machines.repo']()}</Label><Select.Root type="single" value={defaultRepositoryId} onValueChange={(value) => value && (defaultRepositoryId = value)}><Select.Trigger class="w-full">{linkedRepositories.find((item) => item.id === defaultRepositoryId)?.full_name ?? m['settings.dev_machines.no_default_repo']()}</Select.Trigger><Select.Content><Select.Item value="none" label={m['settings.dev_machines.no_default_repo']()}>{m['settings.dev_machines.no_default_repo']()}</Select.Item>{#each linkedRepositories as repository}<Select.Item value={repository.id} label={repository.full_name}>{repository.full_name}</Select.Item>{/each}</Select.Content></Select.Root></div>
 				<div class="sm:col-span-2"><ComposeFileField bind:value={defaultComposeFile} disabled={saving || !canAdmin} /></div><PreviewSettingField bind:command={defaultPreviewCommand} bind:port={defaultPreviewPort} disabled={saving || !canAdmin} /><AgentDefaultsField bind:provider={defaultAgentProvider} bind:instructions={defaultAgentInstructions} disabled={saving || !canAdmin} /><PullRequestTemplateField bind:value={defaultPullRequestTemplate} disabled={saving || !canAdmin} />
 			</div>
 		</section>
@@ -398,33 +305,4 @@
 		{/if}
 	</Tabs.Root>
 </div>
-{#if !loading && policy}
-	<Dialog.Root bind:open={environmentBuilderOpen}>
-		<Dialog.Content class="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-			<form onsubmit={createEnvironmentBuilder} class="space-y-5">
-				<Dialog.Header>
-					<Dialog.Title>{m['settings.dev_machines.new_env']()}</Dialog.Title>
-					<Dialog.Description>{m['settings.dev_machines.new_env_desc']()}</Dialog.Description>
-				</Dialog.Header>
-				<MachineResourceSliders
-					bind:cpu_millis={builderCpuMillis}
-					bind:memory_mb={builderMemoryMb}
-					bind:disk_gb={builderDiskGb}
-					sizeOptions={builderSizeOptions}
-				/>
-				{#if builderSizeOptions.disk_gb.length === 0}
-					<Alert.Root variant="destructive">
-						<Alert.Description>{m['settings.dev_machines.increase_disk']()}</Alert.Description>
-					</Alert.Root>
-				{/if}
-				<Dialog.Footer>
-					<Button type="button" variant="outline" onclick={() => (environmentBuilderOpen = false)}>{m['common.cancel']()}</Button>
-					<Button type="submit" disabled={!canCreateEnvironmentBuilder}>{builderBusy ? m['common.creating']() : m['common.create']()}</Button>
-				</Dialog.Footer>
-			</form>
-		</Dialog.Content>
-	</Dialog.Root>
-	<AlertDialog.Root bind:open={environmentDeleteOpen}><AlertDialog.Content><AlertDialog.Header><AlertDialog.Title>{m['settings.dev_machines.delete_env_title']()}</AlertDialog.Title><AlertDialog.Description>{m['settings.dev_machines.delete_env_desc']({ name: environmentToDelete?.name ?? '' })}</AlertDialog.Description></AlertDialog.Header><AlertDialog.Footer><AlertDialog.Cancel onclick={() => (environmentToDelete = null)}>{m['settings.cancel']()}</AlertDialog.Cancel><AlertDialog.Action variant="destructive" onclick={deleteEnvironment} disabled={environmentDeleteBusy}>{environmentDeleteBusy ? m['settings.deleting']() : m['settings.dev_machines.delete_env_button']()}</AlertDialog.Action></AlertDialog.Footer></AlertDialog.Content></AlertDialog.Root>
-{/if}
-
 <PageTitle parts={[m['settings.dev_machines.title'](), m['settings.title']()]} />

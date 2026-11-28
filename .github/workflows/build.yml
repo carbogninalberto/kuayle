@@ -139,7 +139,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add README.md UI/package.json UI/package-lock.json UI/static/releases.json
-          git add devmachine/common/install-agent-clis.sh devmachine/{agent,ide,headless}/Dockerfile
+          git add devmachine/common/install-agent-clis.sh devmachine/headless/Dockerfile
 
           if git diff --cached --quiet; then
             echo "Version is already ${{ steps.version.outputs.version }}"

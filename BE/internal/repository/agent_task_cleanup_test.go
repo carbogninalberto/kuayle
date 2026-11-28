@@ -15,7 +15,7 @@ func TestTaskResourceCleanupEligibility(t *testing.T) {
 	db, tasks, actorCtx, task, fixture := taskRecoveryFixture(t)
 	ctx := context.Background()
 	store := NewDevMachineRepository(db)
-	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	machine := fixture.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	linkGitHubPullRequest(t, db, task.WorkspaceID, task.CreatorID, task.IssueID, 226, "open")
 	_, err := db.Exec(`UPDATE dev_machines SET workspace_volume_name='fixture' WHERE id=$1`, machine)
 	require.NoError(t, err)

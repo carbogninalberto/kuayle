@@ -22,7 +22,6 @@ const machine = {
 	memory_mb: 16384,
 	disk_gb: 80,
 	pids_limit: 1024,
-	environment_builder: false,
 	last_activity_at: '2026-11-06T19:55:00Z',
 	created_at: '2026-11-01T08:00:00Z',
 	updated_at: '2026-11-06T19:55:00Z'

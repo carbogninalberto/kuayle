@@ -60,7 +60,7 @@ export async function upgradeAgentClis(root, fetchMetadata = fetch, options = {}
   }
 
   const installerPath = resolve(root, 'devmachine/common/install-agent-clis.sh');
-  const dockerfiles = new Map(['agent', 'ide', 'headless'].map((image) => {
+  const dockerfiles = new Map(['headless'].map((image) => {
     const path = resolve(root, `devmachine/${image}/Dockerfile`);
     return [image, { path, text: readFileSync(path, 'utf8') }];
   }));
@@ -68,7 +68,7 @@ export async function upgradeAgentClis(root, fetchMetadata = fetch, options = {}
   const current = {};
   for (const name of [...Object.keys(npmPackages), ...Object.keys(repositories)]) {
     current[name] = name === 'CRUSH'
-      ? newest(['ide', 'headless'].map(image => pinned(dockerfiles.get(image).text, /^ARG CRUSH_VERSION=(.+)$/gm)))
+      ? pinned(dockerfiles.get('headless').text, /^ARG CRUSH_VERSION=(.+)$/gm)
       : pinned(installer, new RegExp(`^${name}_VERSION=(.+)$`, 'gm'));
   }
 
@@ -136,7 +136,7 @@ export async function upgradeAgentClis(root, fetchMetadata = fetch, options = {}
   edits.set(installerPath, installer);
   for (const [image, { path, text }] of dockerfiles) {
     let dockerfile = text;
-    for (const name of image === 'agent' ? ['CLAUDE_CODE', 'OPENCODE', 'CODEX'] : ['CRUSH']) {
+    for (const name of ['CRUSH']) {
       dockerfile = replace(dockerfile, new RegExp(`^ARG ${name}_VERSION=.+$`, 'gm'), `ARG ${name}_VERSION=${versions[name]}`);
     }
     edits.set(path, dockerfile);

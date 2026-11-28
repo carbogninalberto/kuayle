@@ -148,10 +148,6 @@ jobs:
           cache-from: type=gha,scope=dev-machine-scan-${{ matrix.id }}
           cache-to: type=gha,mode=min,scope=dev-machine-scan-${{ matrix.id }}
 
-      - name: Smoke test IDE runtime
-        if: matrix.id == 'ide'
-        run: ./devmachine/ide/smoke-test.sh kuayle-dev-machine-ide:scan
-
       - name: Smoke test headless runtime
         if: matrix.id == 'headless'
         run: ./devmachine/headless/smoke-test.sh kuayle-dev-machine-headless:scan

@@ -14,7 +14,7 @@ import (
 // its spawn was deferred for host capacity, which consumes no attempts.
 func queuedTaskMachine(t *testing.T, db *sqlx.DB, task domain.AgentTask, fixture environmentRaceFixture, status domain.DevMachineStatus) (uuid.UUID, uuid.UUID) {
 	t.Helper()
-	machine := fixture.insertMachine(t, status, domain.DevMachineStatusRunning, false)
+	machine := fixture.insertMachine(t, status, domain.DevMachineStatusRunning)
 	_, err := db.Exec(`UPDATE agent_tasks SET state='preparing',machine_id=$2,reserved_machine_id=$2 WHERE id=$1`, task.ID, machine)
 	require.NoError(t, err)
 	action, key := "spawn", "spawn:1"
@@ -112,7 +112,7 @@ func TestLegacyDiskRefusalRequeuesOnlyTheCurrentTaskMachineStart(t *testing.T) {
 	machine, start := queuedTaskMachine(t, db, task, fixture, domain.DevMachineStatusFailed)
 	_, err := db.Exec(`UPDATE dev_machine_operations SET status='failed',error_code='host_disk_low',attempts=1,completed_at=now() WHERE id=$1`, start)
 	require.NoError(t, err)
-	other := fixture.insertMachine(t, domain.DevMachineStatusFailed, domain.DevMachineStatusRunning, false)
+	other := fixture.insertMachine(t, domain.DevMachineStatusFailed, domain.DevMachineStatusRunning)
 	_, err = db.Exec(`INSERT INTO dev_machine_operations(machine_id,workspace_id,action,status,generation,idempotency_key,error_code)
 	VALUES ($1,$2,'spawn','failed',1,'unrelated','host_disk_low'),($3,$2,'spawn','failed',0,'stale','host_disk_low')`, other, task.WorkspaceID, machine)
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestLegacyDiskRefusalRequeuesOnlyTheCurrentTaskMachineStart(t *testing.T) {
 func TestHostDiskWaitNotifiesOnlyWorkspaceAdminsOncePerBreach(t *testing.T) {
 	db, repo, ctx, task, fixture := taskRecoveryFixture(t)
 	machine, _ := queuedTaskMachine(t, db, task, fixture, domain.DevMachineStatusQueued)
-	secondMachine := fixture.insertMachine(t, domain.DevMachineStatusQueued, domain.DevMachineStatusRunning, false)
+	secondMachine := fixture.insertMachine(t, domain.DevMachineStatusQueued, domain.DevMachineStatusRunning)
 	admin, member := uuid.New(), uuid.New()
 	for role, user := range map[string]uuid.UUID{"admin": admin, "member": member} {
 		_, err := db.Exec(`INSERT INTO users(id,email,name,password_hash) VALUES($1,$2,$3,'test')`, user, user.String()+"@example.test", role)

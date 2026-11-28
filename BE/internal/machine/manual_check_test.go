@@ -131,8 +131,8 @@ func TestManualCheckContainerIsNamedPerStepAndGetsNoCredentials(t *testing.T) {
 	require.Equal(t, step.ID.String(), input.Labels["com.kuayle.validation-id"])
 	require.Equal(t, []string{"/bin/sh"}, input.Entrypoint)
 	require.Equal(t, []string{"-c", checkRunner, "kuayle-check", "sh", "-c", "npm test -- auth"}, input.Cmd)
-	require.True(t, input.HostConfig.ReadonlyRootfs)
-	require.Contains(t, input.HostConfig.CapDrop, "ALL")
+	require.False(t, input.HostConfig.ReadonlyRootfs, "agent-class containers may use sudo")
+	require.Equal(t, []string{"CAP_NET_RAW"}, []string(input.HostConfig.CapDrop))
 	require.Len(t, input.HostConfig.Mounts, 1, "only the workspace volume, no credential files")
 	for _, env := range input.Env {
 		require.Regexp(t, `^(HOME|CI|HTTP_PROXY|HTTPS_PROXY|NO_PROXY|http_proxy|https_proxy|no_proxy|KUAYLE_RUN_TMP|TMPDIR|TMP|TEMP|GOTMPDIR|GOCACHE|GOMODCACHE|XDG_CACHE_HOME|XDG_DATA_HOME|XDG_STATE_HOME|npm_config_cache|PIP_CACHE_DIR|YARN_CACHE_FOLDER)=`, env)

@@ -79,8 +79,7 @@ func (f *imageRuntimeFake) RemoveFinishedRunContainers(context.Context, *domain.
 }
 
 var releaseImages = MachineImages{
-	IDE: "registry/ide@sha256:new", Headless: "registry/headless@sha256:new", Browser: "registry/browser@sha256:new",
-	Collector: "registry/collector@sha256:new", Egress: "registry/egress@sha256:new", Docker: "registry/docker@sha256:new",
+	Headless: "registry/headless@sha256:new", Egress: "registry/egress@sha256:new", Docker: "registry/docker@sha256:new",
 }
 
 func imageService(machineID uuid.UUID, serviceType, key, image, container string) domain.DevMachineService {
@@ -103,7 +102,6 @@ func imageFixture(status domain.DevMachineStatus, profile string, services func(
 func headlessServices(image string) func(uuid.UUID) []domain.DevMachineService {
 	return func(machineID uuid.UUID) []domain.DevMachineService {
 		return []domain.DevMachineService{
-			imageService(machineID, "collector", "collector", "local/collector:v0.2.4", "c-collector"),
 			imageService(machineID, "egress", "egress", releaseImages.Egress, "c-egress"),
 			imageService(machineID, "docker", "docker", "local/docker:v0.2.4", "c-docker"),
 			imageService(machineID, "terminal", "terminal", image, "c-terminal"),
@@ -129,7 +127,7 @@ func TestManagerStartMovesStoppedMachineToReleaseImages(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, [][]string{{"c-collector", "c-docker", "c-terminal"}}, runtime.removed, "the current egress container is kept")
+	require.Equal(t, [][]string{{"c-docker", "c-terminal"}}, runtime.removed, "the current egress container is kept")
 	require.Equal(t, 1, runtime.spawned, "the removed containers are created again")
 	require.Zero(t, runtime.started)
 	require.Equal(t, domain.DevMachineStatusRunning, store.machine.Status)
@@ -137,7 +135,7 @@ func TestManagerStartMovesStoppedMachineToReleaseImages(t *testing.T) {
 	for _, service := range store.services {
 		images[service.ServiceKey] = service.ImageRef
 	}
-	require.Equal(t, map[string]string{"collector": releaseImages.Collector, "egress": releaseImages.Egress, "docker": releaseImages.Docker, "terminal": releaseImages.Headless}, images)
+	require.Equal(t, map[string]string{"egress": releaseImages.Egress, "docker": releaseImages.Docker, "terminal": releaseImages.Headless}, images)
 	require.Contains(t, eventTypes(store.events), "machine.images_updated")
 	require.Zero(t, runtime.finishedRemovals, "a stopped machine's run containers are cleaned when it is idle and running")
 }
@@ -145,7 +143,7 @@ func TestManagerStartMovesStoppedMachineToReleaseImages(t *testing.T) {
 func TestManagerStartKeepsMachineOnReleaseImages(t *testing.T) {
 	current := func(machineID uuid.UUID) []domain.DevMachineService {
 		return []domain.DevMachineService{
-			imageService(machineID, "collector", "collector", releaseImages.Collector, "c-collector"),
+			imageService(machineID, "egress", "egress", releaseImages.Egress, "c-egress"),
 			imageService(machineID, "terminal", "terminal", releaseImages.Headless, "c-terminal"),
 		}
 	}
@@ -184,7 +182,7 @@ func TestManagerUpdateImagesRecreatesIdleRunningMachine(t *testing.T) {
 
 	require.Equal(t, 1, store.busyChecks)
 	require.Equal(t, 1, runtime.finishedRemovals, "finished runs' containers no longer pin old images")
-	require.Equal(t, [][]string{{"c-collector", "c-docker", "c-terminal"}}, runtime.removed)
+	require.Equal(t, [][]string{{"c-docker", "c-terminal"}}, runtime.removed)
 	require.Equal(t, 1, runtime.spawned)
 	require.Equal(t, domain.DevMachineStatusRunning, store.machine.Status)
 	require.Contains(t, eventTypes(store.events), "machine.images_updated")
@@ -202,23 +200,20 @@ func TestManagerUpdateImagesLeavesBusyMachine(t *testing.T) {
 	require.Zero(t, runtime.spawned)
 }
 
-// The IDE profile's terminal shares the IDE container and image; a machine
-// built from a development environment keeps that environment's image.
-func TestReleaseServiceImageFollowsProfileAndEnvironment(t *testing.T) {
+// The developer container runs the single machine image; agent runs choose
+// their image per run, and a retired service type has no release image.
+func TestReleaseServiceImageFollowsServiceType(t *testing.T) {
 	_, _, manager := imageFixture(domain.DevMachineStatusRunning, domain.DevMachineProfileHeadless, headlessServices(releaseImages.Headless))
-	ide := &domain.DevMachine{ID: uuid.New(), Profile: domain.DevMachineProfileStandard}
-	headless := &domain.DevMachine{ID: uuid.New(), Profile: domain.DevMachineProfileHeadless}
-	environmentID := uuid.New()
-	built := &domain.DevMachine{ID: uuid.New(), Profile: domain.DevMachineProfileStandard, EnvironmentID: &environmentID}
+	machine := &domain.DevMachine{ID: uuid.New(), Profile: domain.DevMachineProfileHeadless}
 
-	require.Equal(t, releaseImages.IDE, manager.releaseServiceImage(ide, domain.DevMachineService{ServiceType: "terminal"}))
-	require.Equal(t, releaseImages.Headless, manager.releaseServiceImage(headless, domain.DevMachineService{ServiceType: "terminal"}))
-	require.Empty(t, manager.releaseServiceImage(built, domain.DevMachineService{ServiceType: "ide"}))
-	require.Equal(t, releaseImages.Collector, manager.releaseServiceImage(built, domain.DevMachineService{ServiceType: "collector"}))
-	require.Empty(t, manager.releaseServiceImage(ide, domain.DevMachineService{ServiceType: "agent"}), "agent runs choose their image per run")
+	require.Equal(t, releaseImages.Headless, manager.releaseServiceImage(machine, domain.DevMachineService{ServiceType: "terminal"}))
+	require.Equal(t, releaseImages.Egress, manager.releaseServiceImage(machine, domain.DevMachineService{ServiceType: "egress"}))
+	require.Equal(t, releaseImages.Docker, manager.releaseServiceImage(machine, domain.DevMachineService{ServiceType: "docker"}))
+	require.Empty(t, manager.releaseServiceImage(machine, domain.DevMachineService{ServiceType: "agent"}), "agent runs choose their image per run")
+	require.Empty(t, manager.releaseServiceImage(machine, domain.DevMachineService{ServiceType: "ide"}), "a retired service has no release image")
 
 	manager.SetImages(MachineImages{})
-	require.Empty(t, manager.outdatedServices(ide, []domain.DevMachineService{{ServiceType: "ide", ImageRef: "anything"}}), "an unset image changes nothing")
+	require.Empty(t, manager.outdatedServices(machine, []domain.DevMachineService{{ServiceType: "terminal", ImageRef: "anything"}}), "an unset image changes nothing")
 }
 
 func TestManagerQueuesImageUpdateOnlyForOutdatedMachines(t *testing.T) {
@@ -291,4 +286,28 @@ func TestRunImageUsesReleaseImageForNewRuns(t *testing.T) {
 
 	custom := &domain.DevMachineAgentProvider{ID: uuid.New(), ProviderID: "claude-code", ImageRef: "custom/agent:1", IsCustom: true}
 	require.Equal(t, "custom/agent:1", manager.runImage(context.Background(), store.machine, run, custom, store.services))
+}
+
+// An upgrade leaves the terminal of a converted machine with no image, or
+// with the retired IDE image. A machine that is provisioned anew (a failed,
+// queued or spawning machine started again) gets the release's machine image
+// before its containers are created, never an empty one.
+func TestManagerSpawnProvisionsOutdatedServicesOnTheReleaseImages(t *testing.T) {
+	for _, status := range []domain.DevMachineStatus{domain.DevMachineStatusFailed, domain.DevMachineStatusQueued} {
+		for _, image := range []string{"", "local/ide:v0.4.4"} {
+			store, runtime, manager := imageFixture(status, domain.DevMachineProfileHeadless, headlessServices(image))
+
+			err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+				MachineID: store.machine.ID, WorkspaceID: store.machine.WorkspaceID, Action: domain.DevMachineOpStart, Generation: 4,
+			})
+
+			require.NoError(t, err, "%s %q", status, image)
+			require.Equal(t, 1, runtime.spawned)
+			for _, service := range runtime.spawnedServices {
+				if service.ServiceType == "terminal" {
+					require.Equal(t, releaseImages.Headless, service.ImageRef, "%s %q", status, image)
+				}
+			}
+		}
+	}
 }

@@ -147,30 +147,30 @@ test('Dockerfiles and shared dev-machine inputs fan out only to their consumers'
   assert.deepEqual(ids(planForPaths(['Dockerfile']).releaseImages), ['all-in-one']);
   assert.deepEqual(ids(planForPaths(['UI/Dockerfile']).releaseImages), ['web']);
   assert.deepEqual(ids(planForPaths(['BE/Dockerfile.machine-gateway']).devImages), ['gateway']);
-  assert.deepEqual(ids(planForPaths(['devmachine/collector/main.go']).devImages), ['collector']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/patch-npm-security.cjs']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-say.cjs']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-service-entrypoint']).devImages), ['ide', 'headless', 'browser', 'collector', 'egress']);
-  assert.equal(planForPaths(['devmachine/ide/shell.sh']).backend, true);
-  assert.equal(planForPaths(['devmachine/ide/shell.sh', 'BE/Dockerfile.updater']).runtime, true);
+  assert.deepEqual(ids(planForPaths(['devmachine/egress/main.go']).devImages), ['egress']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/patch-npm-security.cjs']).devImages), ['headless']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-say.cjs']).devImages), ['headless']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-service-entrypoint']).devImages), ['headless', 'egress']);
+  assert.equal(planForPaths(['devmachine/common/kuayle-shell']).backend, true);
+  assert.equal(planForPaths(['devmachine/common/kuayle-shell', 'BE/Dockerfile.updater']).runtime, true);
   assert.equal(planForPaths(['devmachine/security/apparmor.profile']).runtime, true);
 });
 
-test('headless and shared developer image inputs select only their consumers', () => {
+test('the single machine image and its shared inputs select only their consumers', () => {
   const headless = planForPaths(['devmachine/headless/Dockerfile']);
   assert.equal(headless.backend, true);
   assert.equal(headless.runtime, true);
   assert.deepEqual(ids(headless.devImages), ['headless']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/install-agent-clis.sh']).devImages), ['ide', 'headless']);
-  // The agent CLI flag check runs in the builds of the images that install CLIs.
-  assert.deepEqual(ids(planForPaths(['devmachine/common/check-agent-cli-flags.sh']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/start-common.sh']).devImages), ['ide', 'headless', 'browser', 'collector', 'egress', 'agent-claude', 'agent-opencode', 'agent-codex']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-agent-runner']).devImages), ['headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/kuayle-live-inbox-hook.cjs', 'devmachine/common/claude-managed-settings.json']).devImages), ['agent-claude', 'agent-opencode', 'agent-codex']);
-  assert.deepEqual(ids(planForPaths(['devmachine/ide/terminal-session.sh']).devImages), ['ide', 'headless']);
-  for (const path of ['devmachine/common/kuayle-agent-sign-in.sh', 'devmachine/common/kuayle-claude-config.cjs', 'devmachine/common/kuayle-task-claude']) {
-    assert.deepEqual(ids(planForPaths([path]).devImages), ['ide', 'headless'], path);
+  // The image serves the terminal and every agent run, so the CLI, runner,
+  // Claude hook, screenshot and terminal inputs build only it.
+  for (const path of ['devmachine/common/install-agent-clis.sh', 'devmachine/common/check-agent-cli-flags.sh', 'devmachine/common/kuayle-agent-runner',
+    'devmachine/common/kuayle-live-inbox-hook.cjs', 'devmachine/common/claude-managed-settings.json', 'devmachine/common/kuayle-screenshot.cjs',
+    'devmachine/common/kuayle-terminal-session', 'devmachine/common/tmux.conf', 'devmachine/common/kuayle-agent-sign-in.sh',
+    'devmachine/common/kuayle-claude-config.cjs', 'devmachine/common/kuayle-task-claude']) {
+    assert.deepEqual(ids(planForPaths([path]).devImages), ['headless'], path);
   }
+  // The egress proxy also runs the shared start helper and service entrypoint.
+  assert.deepEqual(ids(planForPaths(['devmachine/common/start-common.sh']).devImages), ['headless', 'egress']);
 });
 
 test('the egress proxy and its address guard use the devmachine image context', () => {
@@ -200,10 +200,10 @@ test('the machine Docker daemon image and the shared Docker CLI installer select
   assert.equal(daemon.backend, true);
   assert.equal(daemon.runtime, true);
   assert.deepEqual(ids(daemon.devImages), ['docker']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/install-docker-cli.sh']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
-  assert.deepEqual(ids(planForPaths(['devmachine/common/build-docker-plugins.sh']).devImages), ['ide', 'headless', 'agent-claude', 'agent-opencode', 'agent-codex']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/install-docker-cli.sh']).devImages), ['headless']);
+  assert.deepEqual(ids(planForPaths(['devmachine/common/build-docker-plugins.sh']).devImages), ['headless']);
   assert.equal(planForPaths(['.trivyignore.yaml']).reason, 'broad coverage for shared or unmapped inputs', 'changing the accepted advisories rescans every image');
-  assert.ok(ids(planForPaths(['devmachine/common/new-shared-file']).devImages).includes('docker'), 'unknown shared inputs select every runtime image');
+  assert.deepEqual(ids(planForPaths(['devmachine/new-area/file']).devImages), ['headless', 'egress', 'docker'], 'an unknown machine input selects every runtime image');
 });
 
 test('self-hosting files select their tests; only the image smoke test also builds images', () => {
@@ -226,7 +226,7 @@ test('repository metadata and root documentation run only the harness', () => {
   }
   // Markdown that ships with an app keeps its checks.
   assert.equal(planForPaths(['WEB/src/content/page.md']).web, true);
-  assert.ok(planForPaths(['devmachine/agent/skills/kuayle/SKILL.md']).devImages.length > 0);
+  assert.ok(planForPaths(['devmachine/common/kuayle-agents.md']).devImages.length > 0);
 });
 
 test('Codex login installer checks both architectures of its two consuming images', () => {
@@ -240,7 +240,7 @@ test('PR images build on amd64 only unless an input is architecture-sensitive', 
   for (const path of ['UI/src/routes/+page.svelte', 'BE/internal/service/issue.go', 'WEB/src/lib/data/features.ts']) {
     assert.deepEqual(planForPaths([path]).architectures, ['amd64'], path);
   }
-  for (const path of ['UI/package-lock.json', 'BE/go.sum', 'BE/Dockerfile', 'Dockerfile', 'UI/Dockerfile', 'devmachine/agent/Dockerfile', 'devmachine/common/install-agent-clis.sh', '.trivyignore.yaml']) {
+  for (const path of ['UI/package-lock.json', 'BE/go.sum', 'BE/Dockerfile', 'Dockerfile', 'UI/Dockerfile', 'devmachine/headless/Dockerfile', 'devmachine/common/install-agent-clis.sh', '.trivyignore.yaml']) {
     assert.deepEqual(planForPaths([path]).architectures, ['amd64', 'arm64'], path);
   }
   assert.deepEqual(planForPaths(['UI/src/app.css', 'BE/go.mod']).architectures, ['amd64', 'arm64'], 'mixed changes take the union');
@@ -257,19 +257,19 @@ test('workflow, routing, unknown and shared root changes conservatively exercise
     const plan = planForPaths([path]);
     assert.equal(plan.ci && plan.backend && plan.frontend && plan.web && plan.runtime && plan.selfhosting, true);
     assert.equal(plan.releaseImages.length, 3);
-    assert.equal(plan.devImages.length, 11);
+    assert.equal(plan.devImages.length, 5);
   }
 });
 
 test('mixed changes union their coverage; non-PR events retain the full original jobs', () => {
-  const mixed = planForPaths(['UI/src/app.css', 'WEB/static/logo.svg', 'devmachine/collector/main.go']);
+  const mixed = planForPaths(['UI/src/app.css', 'WEB/static/logo.svg', 'devmachine/egress/main.go']);
   assert.equal(mixed.frontend && mixed.web && mixed.backend && mixed.runtime, true);
   assert.deepEqual(ids(mixed.releaseImages), ['all-in-one', 'web']);
-  assert.deepEqual(ids(mixed.devImages), ['collector']);
+  assert.deepEqual(ids(mixed.devImages), ['egress']);
   for (const event of ['push', 'release', 'schedule', 'workflow_dispatch']) {
     const plan = planForPaths([], event);
-    assert.equal(plan.devImages.length, 11);
-    assert.equal(plan.securityImages.length, 12);
+    assert.equal(plan.devImages.length, 5);
+    assert.equal(plan.securityImages.length, 6);
     // Releases build, scan and publish every runtime image once, in the publish job.
     const releaseJobs = ['release-context', 'build', 'promote-latest', 'dev-machine-publish', 'dev-machine-manifests'];
     // A manual release republish builds an existing tag; it must not bump main.
@@ -290,7 +290,7 @@ test('application images name the GHCR packages they publish', () => {
 test('every dev machine image names the GHCR package the release updater pulls', () => {
   const packages = planForPaths([], 'release').devImages.map((image) => image.package);
   assert.deepEqual(packages, ['kuayle-machine-gateway', 'kuayle-machine-manager',
-    ...['ide', 'headless', 'browser', 'collector', 'egress', 'docker', 'agent-claude', 'agent-opencode', 'agent-codex'].map((id) => `kuayle-dev-machine-${id}`)]);
+    ...['headless', 'egress', 'docker'].map((id) => `kuayle-dev-machine-${id}`)]);
 });
 
 function repository(t) {
@@ -350,9 +350,9 @@ test('diff handles more than 300 files and whitespace without truncation', (t) =
 test('missing or invalid comparison data falls back to broad verification', () => {
   const plan = detectPlan({ cwd: tmpdir(), event: 'pull_request', base: '--bad', head: '' });
   assert.ok(plan.reason.includes('fallback'));
-  assert.equal(detectPlan({}).devImages.length, 11);
+  assert.equal(detectPlan({}).devImages.length, 5);
   assert.equal(plan.backend && plan.frontend && plan.web && plan.runtime, true);
-  assert.equal(plan.devImages.length, 11);
+  assert.equal(plan.devImages.length, 5);
 });
 
 test('gates allow intentional omissions but reject failed detection or selected skipped/cancelled jobs', () => {

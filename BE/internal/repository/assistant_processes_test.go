@@ -36,7 +36,7 @@ func TestAssistantProcessLifecycle(t *testing.T) {
 	machineID := machineFor(t, f, f.member)
 	machine, err := store.GetMachineInternal(ctx, machineID)
 	require.NoError(t, err)
-	ide := runningIDE(t, store, *machine)
+	terminal := runningTerminal(t, store, *machine)
 	chat, err := chats.Create(ctx, f.ws, "Dev server")
 	require.NoError(t, err)
 	id := processApproval(t, f, f.member, chat.ID)
@@ -45,7 +45,7 @@ func TestAssistantProcessLifecycle(t *testing.T) {
 		return chats.QueueAssistantProcess(ctx, f.ws, chat.ID, id, req)
 	}
 	req := payload
-	req.Port = ide.InternalPort
+	req.Port = terminal.InternalPort
 	require.ErrorIs(t, queue(id, req), ErrProcessPortReserved)
 	req.Port = 4322
 	require.NoError(t, store.CreatePort(ctx, appPort(*machine, req.Port, domain.DevMachinePortSourceUser, nil)))
@@ -74,16 +74,16 @@ func TestAssistantProcessLifecycle(t *testing.T) {
 	started, err := store.MarkAssistantProcessRunning(ctx, op)
 	require.NoError(t, err)
 	require.True(t, started)
-	require.Equal(t, ide.ID, route().ID, "launch uses the existing app port authentication")
+	require.Equal(t, terminal.ID, route().ID, "launch uses the existing app port authentication")
 	require.Equal(t, domain.AssistantProcessHost(id), route().InternalHost)
 	require.NoError(t, store.SetListeningPorts(ctx, machineID, []int{payload.Port}, []int{payload.Port}))
 	require.Equal(t, domain.AssistantProcessHost(id), route().InternalHost, "port scans cannot redirect a process URL")
 	require.NoError(t, store.CompleteOperation(ctx, op.ID, "test"))
 
 	host := fmt.Sprintf("%s-%d.machines.example.test", machine.RoutingKey, payload.Port)
-	ticket := &domain.DevMachineAccessTicket{ID: uuid.New(), WorkspaceID: f.ws, MachineID: machineID, ServiceID: ide.ID,
+	ticket := &domain.DevMachineAccessTicket{ID: uuid.New(), WorkspaceID: f.ws, MachineID: machineID, ServiceID: terminal.ID,
 		UserID: f.member, BoundHost: host, TokenHash: strings.Repeat("a", 64), Status: domain.DevMachineAccessTicketStatusActive, ExpiresAt: time.Now().Add(time.Minute)}
-	session := &domain.DevMachineAccessSession{ID: uuid.New(), WorkspaceID: f.ws, MachineID: machineID, ServiceID: ide.ID,
+	session := &domain.DevMachineAccessSession{ID: uuid.New(), WorkspaceID: f.ws, MachineID: machineID, ServiceID: terminal.ID,
 		UserID: f.member, BoundHost: host, TokenHash: strings.Repeat("b", 64), ExpiresAt: time.Now().Add(time.Minute)}
 	require.NoError(t, store.CreateAccessTicket(ctx, ticket))
 	require.NoError(t, store.CreateAccessSession(ctx, session))
@@ -112,7 +112,7 @@ func TestAssistantProcessEndConditions(t *testing.T) {
 			machineID := machineFor(t, f, f.member)
 			machine, err := store.GetMachineInternal(ctx, machineID)
 			require.NoError(t, err)
-			runningIDE(t, store, *machine)
+			runningTerminal(t, store, *machine)
 			chat, err := chats.Create(ctx, f.ws, "Dev server")
 			require.NoError(t, err)
 			id := processApproval(t, f, f.member, chat.ID)

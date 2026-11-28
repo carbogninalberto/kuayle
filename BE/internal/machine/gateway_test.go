@@ -119,19 +119,25 @@ func gatewaySession(workspaceID, machineID, serviceID, userID uuid.UUID, host st
 func TestGatewayParsesOnlyConfiguredHosts(t *testing.T) {
 	gateway, err := NewGateway(&gatewayStoreFake{}, "machines.example.com", time.Hour)
 	require.NoError(t, err)
-	routingKey, service, ok := gateway.parseHost("0123456789abcdef0123-browser.machines.example.com")
+	routingKey, service, ok := gateway.parseHost("0123456789abcdef0123-terminal.machines.example.com")
 	require.True(t, ok)
 	require.Equal(t, "0123456789abcdef0123", routingKey)
-	require.Equal(t, "browser", service)
-	_, _, ok = gateway.parseHost("0123456789abcdef0123.machines.example.com.attacker.test")
-	require.False(t, ok)
+	require.Equal(t, "terminal", service)
+	for _, host := range []string{
+		"0123456789abcdef0123-terminal.machines.example.com.attacker.test",
+		"0123456789abcdef0123.machines.example.com",
+		"0123456789abcdef0123-browser.machines.example.com",
+	} {
+		_, _, ok = gateway.parseHost(host)
+		require.False(t, ok, host)
+	}
 }
 
 func TestGatewayCachesAndSamplesUnknownRoutes(t *testing.T) {
 	store := &gatewayStoreFake{}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
 	require.NoError(t, err)
-	host := "0123456789abcdef0123.machines.example.com"
+	host := "0123456789abcdef0123-terminal.machines.example.com"
 
 	for range 50 {
 		request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
@@ -155,7 +161,7 @@ func TestGatewayRateLimitsWildcardRouteLookupsBeforeDatabase(t *testing.T) {
 	for range gatewayRoutesPerSource {
 		require.True(t, gateway.abuseGuard.allowRouteLookup(source, future))
 	}
-	host := "0123456789abcdef0123.machines.example.com"
+	host := "0123456789abcdef0123-terminal.machines.example.com"
 	request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
 	request.Host = host
 	request.RemoteAddr = source + ":1234"
@@ -175,7 +181,7 @@ func TestGatewayAbuseGuardBoundsAttackerControlledState(t *testing.T) {
 		source := fmt.Sprintf("198.51.%d.%d", (index/256)%256, index%256)
 		guard.allowRouteLookup(source, now.Add(time.Duration(index)*gatewayRouteWindow))
 		guard.allowUnknownAudit(source, now)
-		guard.rememberNegativeRoute(fmt.Sprintf("%020d:ide", index), now)
+		guard.rememberNegativeRoute(fmt.Sprintf("%020d:terminal", index), now)
 	}
 
 	require.LessOrEqual(t, len(guard.routeSources), gatewayMaxTrackedSources)
@@ -200,7 +206,7 @@ func TestGatewayCapsConcurrentRouteQueries(t *testing.T) {
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
 	require.NoError(t, err)
-	host := "0123456789abcdef0123.machines.example.com"
+	host := "0123456789abcdef0123-terminal.machines.example.com"
 	var requests sync.WaitGroup
 	for range cap(gateway.routeSlots) {
 		requests.Add(1)
@@ -239,8 +245,8 @@ func TestGatewayStripsKuayleCredentialsBeforeProxy(t *testing.T) {
 	host, rawPort, _ := net.SplitHostPort(upstreamURL)
 	port, _ := strconv.Atoi(rawPort)
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
-	service := gatewayService(serviceID, machineID, "ide")
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
+	service := gatewayService(serviceID, machineID, "terminal")
 	service.InternalHost = host
 	service.InternalPort = port
 	store := &gatewayStoreFake{
@@ -266,10 +272,10 @@ func TestGatewayStripsKuayleCredentialsBeforeProxy(t *testing.T) {
 
 func TestGatewayLaunchTicketIsSingleUse(t *testing.T) {
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
 	store := &gatewayStoreFake{
 		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
-		service: gatewayService(serviceID, machineID, "ide"),
+		service: gatewayService(serviceID, machineID, "terminal"),
 		ticket:  gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
@@ -296,7 +302,7 @@ func TestGatewayLaunchTicketIsSingleUse(t *testing.T) {
 
 func TestGatewayRejectsMalformedTicketTuples(t *testing.T) {
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
 	for _, test := range []struct {
 		name   string
 		mutate func(*domain.DevMachineAccessTicket)
@@ -310,7 +316,7 @@ func TestGatewayRejectsMalformedTicketTuples(t *testing.T) {
 			test.mutate(ticket)
 			store := &gatewayStoreFake{
 				machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
-				service: gatewayService(serviceID, machineID, "ide"),
+				service: gatewayService(serviceID, machineID, "terminal"),
 				ticket:  ticket,
 			}
 			gateway, err := NewGateway(store, "machines.example.com", time.Hour)
@@ -330,10 +336,10 @@ func TestGatewayRejectsMalformedTicketTuples(t *testing.T) {
 
 func TestGatewayTicketExchangeMapsSessionNoRowsToUnauthorized(t *testing.T) {
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
 	store := &gatewayStoreFake{
 		machine:          gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
-		service:          gatewayService(serviceID, machineID, "ide"),
+		service:          gatewayService(serviceID, machineID, "terminal"),
 		ticket:           gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 		createSessionErr: sql.ErrNoRows,
 	}
@@ -352,7 +358,7 @@ func TestGatewayTicketExchangeMapsSessionNoRowsToUnauthorized(t *testing.T) {
 
 func TestGatewayRejectsMalformedSessionTuples(t *testing.T) {
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
 	for _, test := range []struct {
 		name   string
 		mutate func(*domain.DevMachineAccessSession)
@@ -364,7 +370,7 @@ func TestGatewayRejectsMalformedSessionTuples(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			session := gatewaySession(workspaceID, machineID, serviceID, userID, machineHost)
 			test.mutate(session)
-			service := gatewayService(serviceID, machineID, "ide")
+			service := gatewayService(serviceID, machineID, "terminal")
 			service.InternalHost = "127.0.0.1"
 			service.InternalPort = 1
 			store := &gatewayStoreFake{
@@ -461,8 +467,8 @@ func TestGatewayTerminalWebSocketTicketRejectsWrongOriginWithoutConsuming(t *tes
 
 func TestGatewayRejectsCrossOriginMutation(t *testing.T) {
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.net"
-	service := gatewayService(serviceID, machineID, "ide")
+	machineHost := "0123456789abcdef0123-terminal.machines.example.net"
+	service := gatewayService(serviceID, machineID, "terminal")
 	service.InternalHost = "127.0.0.1"
 	service.InternalPort = 1
 	store := &gatewayStoreFake{
@@ -486,10 +492,10 @@ func TestGatewayRejectsCrossOriginMutation(t *testing.T) {
 
 func TestGatewayDemoModeBlocksNonSysAdminTicketExchange(t *testing.T) {
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
 	store := &gatewayStoreFake{
 		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
-		service: gatewayService(serviceID, machineID, "ide"),
+		service: gatewayService(serviceID, machineID, "terminal"),
 		ticket:  gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
@@ -509,10 +515,10 @@ func TestGatewayDemoModeBlocksNonSysAdminTicketExchange(t *testing.T) {
 
 func TestGatewayDemoModeAllowsSysAdminTicketExchange(t *testing.T) {
 	workspaceID, machineID, serviceID, sysAdminID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
 	store := &gatewayStoreFake{
 		machine: gatewayMachine(workspaceID, machineID, sysAdminID, "0123456789abcdef0123"),
-		service: gatewayService(serviceID, machineID, "ide"),
+		service: gatewayService(serviceID, machineID, "terminal"),
 		ticket:  gatewayTicket(workspaceID, machineID, serviceID, sysAdminID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
@@ -530,10 +536,10 @@ func TestGatewayDemoModeAllowsSysAdminTicketExchange(t *testing.T) {
 
 func TestGatewayDemoModeBlocksNonSysAdminExistingSession(t *testing.T) {
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
 	store := &gatewayStoreFake{
 		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
-		service: gatewayService(serviceID, machineID, "ide"),
+		service: gatewayService(serviceID, machineID, "terminal"),
 		session: gatewaySession(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
@@ -553,10 +559,10 @@ func TestGatewayDemoModeBlocksNonSysAdminExistingSession(t *testing.T) {
 
 func TestGatewayWithoutDemoRestrictionAllowsEveryone(t *testing.T) {
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.com"
+	machineHost := "0123456789abcdef0123-terminal.machines.example.com"
 	store := &gatewayStoreFake{
 		machine: gatewayMachine(workspaceID, machineID, userID, "0123456789abcdef0123"),
-		service: gatewayService(serviceID, machineID, "ide"),
+		service: gatewayService(serviceID, machineID, "terminal"),
 		ticket:  gatewayTicket(workspaceID, machineID, serviceID, userID, machineHost),
 	}
 	gateway, err := NewGateway(store, "machines.example.com", time.Hour)
@@ -581,8 +587,8 @@ func TestGatewayOnlyForwardsHostOnlyUpstreamCookies(t *testing.T) {
 	host, rawPort, _ := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
 	port, _ := strconv.Atoi(rawPort)
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	machineHost := "0123456789abcdef0123.machines.example.net"
-	service := gatewayService(serviceID, machineID, "ide")
+	machineHost := "0123456789abcdef0123-terminal.machines.example.net"
+	service := gatewayService(serviceID, machineID, "terminal")
 	service.InternalHost = host
 	service.InternalPort = port
 	store := &gatewayStoreFake{
@@ -604,7 +610,7 @@ func TestGatewayOnlyForwardsHostOnlyUpstreamCookies(t *testing.T) {
 
 func TestCertificateApprovalOnlyForLiveRoutes(t *testing.T) {
 	userID, workspaceID, machineID := uuid.New(), uuid.New(), uuid.New()
-	store := &gatewayStoreFake{machine: gatewayMachine(workspaceID, machineID, userID, "abcdefgh1234"), service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceType: "ide", Status: "running"}}
+	store := &gatewayStoreFake{machine: gatewayMachine(workspaceID, machineID, userID, "abcdefgh1234"), service: &domain.DevMachineService{ID: uuid.New(), MachineID: machineID, ServiceType: "terminal", Status: "running"}}
 	g, err := NewGateway(store, "app.example.com", time.Hour)
 	require.NoError(t, err)
 	check := func(host string, status int) {
@@ -613,17 +619,18 @@ func TestCertificateApprovalOnlyForLiveRoutes(t *testing.T) {
 		g.ApproveCertificate(rec, req)
 		require.Equal(t, status, rec.Code, host)
 	}
-	check("abcdefgh1234.app.example.com", 200)
+	check("abcdefgh1234-terminal.app.example.com", 200)
 	check("app.example.com", 403)
-	check("abcdefgh1234.attacker.com", 403)
-	check("abcdefgh1234.app.example.com:443", 403)
-	check("zzzzzzzz1234.app.example.com", 403)
+	check("abcdefgh1234-terminal.attacker.com", 403)
+	check("abcdefgh1234-terminal.app.example.com:443", 403)
+	check("zzzzzzzz1234-terminal.app.example.com", 403)
+	check("abcdefgh1234.app.example.com", 403) // the retired IDE host
 	store.machine.DesiredStatus = domain.DevMachineStatusStopped
-	check("abcdefgh1234.app.example.com", 403)
+	check("abcdefgh1234-terminal.app.example.com", 403)
 	store.machine.DesiredStatus = domain.DevMachineStatusRunning
 	// A machine has no lifetime: one started long ago is still served.
 	store.machine.StartedAt = new(time.Now().Add(-30 * 24 * time.Hour))
-	check("abcdefgh1234.app.example.com", 200)
+	check("abcdefgh1234-terminal.app.example.com", 200)
 }
 
 func TestGatewayParsesAppPortHosts(t *testing.T) {
@@ -649,9 +656,9 @@ func TestGatewayParsesAppPortHosts(t *testing.T) {
 }
 
 // An app port is served on its own host from the developer service row, proxied
-// to that port. Sessions are host-bound, so IDE, other ports' and this port's
+// to that port. Sessions are host-bound, so terminal, other ports' and this port's
 // sessions never grant each other access, and only the machine owner gets in.
-func TestGatewayAppPortHostIsIsolatedFromTheIDEAndOtherPorts(t *testing.T) {
+func TestGatewayAppPortHostIsIsolatedFromTheTerminalAndOtherPorts(t *testing.T) {
 	var reached atomic.Int64
 	var cookie, authorization, kuayleHeader string
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -664,7 +671,7 @@ func TestGatewayAppPortHostIsIsolatedFromTheIDEAndOtherPorts(t *testing.T) {
 	upstreamHost, rawPort, _ := net.SplitHostPort(strings.TrimPrefix(upstream.URL, "http://"))
 	port, _ := strconv.Atoi(rawPort)
 	workspaceID, machineID, serviceID, userID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
-	ideHost := "0123456789abcdef0123.machines.example.com"
+	terminalHost := "0123456789abcdef0123-terminal.machines.example.com"
 	portHost := "0123456789abcdef0123-" + rawPort + ".machines.example.com"
 	otherPortHost := "0123456789abcdef0123-4999.machines.example.com"
 
@@ -683,7 +690,7 @@ func TestGatewayAppPortHostIsIsolatedFromTheIDEAndOtherPorts(t *testing.T) {
 		gateway.ServeHTTP(recorder, request)
 		return recorder
 	}
-	require.Equal(t, http.StatusUnauthorized, serve(portHost, gatewaySession(workspaceID, machineID, serviceID, userID, ideHost)).Code, "an IDE session is not a port session")
+	require.Equal(t, http.StatusUnauthorized, serve(portHost, gatewaySession(workspaceID, machineID, serviceID, userID, terminalHost)).Code, "a terminal session is not a port session")
 	require.Equal(t, http.StatusUnauthorized, serve(portHost, gatewaySession(workspaceID, machineID, serviceID, userID, otherPortHost)).Code, "nor is another port's")
 	require.Zero(t, reached.Load())
 	recorder := serve(portHost, gatewaySession(workspaceID, machineID, serviceID, userID, portHost))
@@ -723,7 +730,7 @@ func TestGatewayRouteLimitIgnoresForwardedForFromUntrustedPeers(t *testing.T) {
 	for range gatewayRoutesPerSource {
 		require.True(t, gateway.abuseGuard.allowRouteLookup(source, future))
 	}
-	host := "0123456789abcdef0123.machines.example.com"
+	host := "0123456789abcdef0123-terminal.machines.example.com"
 	request := httptest.NewRequest(http.MethodGet, "https://"+host+"/", nil)
 	request.Host = host
 	request.RemoteAddr = source + ":1234"

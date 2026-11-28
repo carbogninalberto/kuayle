@@ -158,7 +158,7 @@ type taskRuntimeStoreFake struct {
 	member *domain.TaskMember
 }
 
-func (f *taskRuntimeStoreFake) ReserveMachine(context.Context, domain.AgentTask, uuid.UUID, *uuid.UUID) (repository.MachineReservation, error) {
+func (f *taskRuntimeStoreFake) ReserveMachine(context.Context, domain.AgentTask, uuid.UUID) (repository.MachineReservation, error) {
 	return f.reservation, f.err
 }
 func (f *taskRuntimeStoreFake) PreviousAttempt(context.Context, domain.AgentTask) (*domain.AgentHandoff, error) {
@@ -835,7 +835,7 @@ func TestTaskMachinesUseTheWorkspaceTaskMachineResources(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store, runtime, task := reusedMachineFixture(domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 			test.policy(store.policy)
-			request := taskMachineRequest(task, domain.DevMachineProfileHeadless, store.policy.TaskMachine())
+			request := taskMachineRequest(task, store.policy.TaskMachine())
 			machine, _, err := runtime.machines.create(context.Background(), task.WorkspaceID, task.CreatorID, request, task.ReservedMachineID, nil)
 			require.NoError(t, err)
 			require.Equal(t, task.ReservedMachineID, machine.ID)

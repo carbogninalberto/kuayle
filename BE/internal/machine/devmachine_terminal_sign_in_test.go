@@ -237,7 +237,7 @@ func TestTerminalSessionOpensATasksClaudeCode(t *testing.T) {
 	home := newTerminalHome(t)
 	log := filepath.Join(home.home, "tmux.log")
 	require.NoError(t, os.WriteFile(filepath.Join(home.bin, "tmux"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$KUAYLE_FAKE_TMUX_LOG\"\n"), 0o700))
-	script := filepath.Join(home.repoRoot, "devmachine", "ide", "terminal-session.sh")
+	script := filepath.Join(home.repoRoot, "devmachine", "common", "kuayle-terminal-session")
 	run := func(session string) error {
 		cmd := exec.Command("sh", script, session, "/workspace/tasks/rec-1")
 		cmd.Env = home.env("KUAYLE_FAKE_TMUX_LOG="+log, "KUAYLE_TASK_CLAUDE=kuayle-task-claude")

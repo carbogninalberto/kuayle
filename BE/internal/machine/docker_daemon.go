@@ -57,17 +57,17 @@ func egressProxyURL(machine *domain.DevMachine) string {
 // proxyEnvironment points a container at the machine's egress proxy. The
 // daemon, when the machine has one, is reached directly.
 func proxyEnvironment(machine *domain.DevMachine, docker bool) []string {
-	noProxy := "localhost,127.0.0.1," + machine.RoutingKey + "-collector," + machine.RoutingKey + "-ide," + machine.RoutingKey + "-terminal," + machine.RoutingKey + "-browser"
+	noProxy := "localhost,127.0.0.1," + machine.RoutingKey + "-terminal"
 	if docker {
 		noProxy += ",docker," + machine.RoutingKey + "-docker"
 	}
 	return proxyVariables(egressProxyURL(machine), noProxy)
 }
 
-// agentProxyEnvironment is the proxy of agent run containers: only the
-// collector is reached directly.
+// agentProxyEnvironment is the proxy of agent run containers: only loopback
+// is reached directly.
 func agentProxyEnvironment(machine *domain.DevMachine) []string {
-	return proxyVariables(egressProxyURL(machine), "localhost,127.0.0.1,"+machine.RoutingKey+"-collector")
+	return proxyVariables(egressProxyURL(machine), "localhost,127.0.0.1")
 }
 
 // proxyVariables sets both spellings: curl, wget and apt read only the

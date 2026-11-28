@@ -57,9 +57,6 @@ func (h *DevMachineHandler) Create(c *echo.Context) error {
 	if !bindAndValidate(c, &request) {
 		return nil
 	}
-	if request.EnvironmentBuilder && middleware.GetWorkspaceRole(c) != domain.RoleOwner && middleware.GetWorkspaceRole(c) != domain.RoleAdmin {
-		return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Environment Builders require workspace administration")
-	}
 	for _, provider := range request.Agents {
 		if provider.Provider == "custom" && middleware.GetWorkspaceRole(c) != domain.RoleOwner && middleware.GetWorkspaceRole(c) != domain.RoleAdmin {
 			return response.Error(c, http.StatusForbidden, "FORBIDDEN", "Custom agent providers require workspace administration")
@@ -290,49 +287,6 @@ func (h *DevMachineHandler) CheckoutIssue(c *echo.Context) error {
 	return response.Success(c, http.StatusAccepted, checkout)
 }
 
-func (h *DevMachineHandler) Environments(c *echo.Context) error {
-	environments, err := h.service.ListEnvironments(c.Request().Context(), middleware.GetWorkspace(c).ID)
-	if err != nil {
-		return machineError(c, err)
-	}
-	return response.Success(c, http.StatusOK, environments)
-}
-
-func (h *DevMachineHandler) GetEnvironment(c *echo.Context) error {
-	environmentID, err := uuid.Parse(c.Param("environmentId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid environment ID")
-	}
-	environment, err := h.service.GetEnvironment(c.Request().Context(), middleware.GetWorkspace(c).ID, environmentID)
-	if err != nil {
-		return machineError(c, err)
-	}
-	return response.Success(c, http.StatusOK, environment)
-}
-
-func (h *DevMachineHandler) SnapshotEnvironment(c *echo.Context) error {
-	var request dto.CreateDevMachineEnvironmentRequest
-	if !bindAndValidate(c, &request) {
-		return nil
-	}
-	environment, err := h.service.SnapshotEnvironment(c.Request().Context(), middleware.GetWorkspace(c).ID, middleware.GetUserID(c), request)
-	if err != nil {
-		return machineError(c, err)
-	}
-	return response.Success(c, http.StatusAccepted, environment)
-}
-
-func (h *DevMachineHandler) DeleteEnvironment(c *echo.Context) error {
-	environmentID, err := uuid.Parse(c.Param("environmentId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid environment ID")
-	}
-	if err := h.service.RequestEnvironmentDeletion(c.Request().Context(), middleware.GetWorkspace(c).ID, environmentID); err != nil {
-		return machineError(c, err)
-	}
-	return c.NoContent(http.StatusAccepted)
-}
-
 func (h *DevMachineHandler) Start(c *echo.Context) error {
 	return h.lifecycle(c, domain.DevMachineOpStart)
 }
@@ -477,31 +431,6 @@ func (h *DevMachineHandler) RefreshPackageIndex(c *echo.Context) error {
 		return machineError(c, err)
 	}
 	return response.Success(c, http.StatusAccepted, status)
-}
-
-func (h *DevMachineHandler) LaunchService(c *echo.Context) error {
-	workspace := middleware.GetWorkspace(c)
-	machineID, err := uuid.Parse(c.Param("machineId"))
-	if err != nil {
-		return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid machine ID")
-	}
-	var checkoutID *uuid.UUID
-	if raw := c.QueryParam("checkout_id"); raw != "" {
-		parsed, parseErr := uuid.Parse(raw)
-		if parseErr != nil {
-			return response.Error(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid checkout ID")
-		}
-		checkoutID = &parsed
-	}
-	launch, err := h.service.LaunchService(c.Request().Context(), workspace.ID, machineID, middleware.GetUserID(c), c.Param("service"), checkoutID)
-	if err != nil {
-		return machineError(c, err)
-	}
-	status := http.StatusCreated
-	if launch.Status != "" && launch.Status != "ready" {
-		status = http.StatusAccepted
-	}
-	return response.Success(c, status, launch)
 }
 
 func (h *DevMachineHandler) ListTerminalSessions(c *echo.Context) error {
@@ -732,36 +661,6 @@ func (h *DevMachineHandler) policyResponse(policy *domain.DevMachineWorkspacePol
 	return &current
 }
 
-func (h *DevMachineHandler) IngestEvent(c *echo.Context) error {
-	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 1024*1024)
-	var input dto.CollectorEventInput
-	if !bindAndValidate(c, &input) {
-		return nil
-	}
-	if err := h.service.IngestEvent(c.Request().Context(), bearerToken(c), input); err != nil {
-		if errors.Is(err, service.ErrMachineAuthentication) {
-			return response.Unauthorized(c)
-		}
-		return machineError(c, err)
-	}
-	return c.NoContent(http.StatusAccepted)
-}
-
-func (h *DevMachineHandler) IngestLog(c *echo.Context) error {
-	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, 128*1024)
-	var input dto.CollectorLogInput
-	if !bindAndValidate(c, &input) {
-		return nil
-	}
-	if err := h.service.IngestLog(c.Request().Context(), bearerToken(c), input); err != nil {
-		if errors.Is(err, service.ErrMachineAuthentication) {
-			return response.Unauthorized(c)
-		}
-		return machineError(c, err)
-	}
-	return c.NoContent(http.StatusAccepted)
-}
-
 func bearerToken(c *echo.Context) string {
 	parts := strings.Fields(c.Request().Header.Get("Authorization"))
 	if len(parts) == 2 && strings.EqualFold(parts[0], "Bearer") {
@@ -806,8 +705,6 @@ func machineError(c *echo.Context, err error) error {
 		return response.NotFound(c, "Dev Machine")
 	case errors.Is(err, service.ErrAgentRunNotFound):
 		return response.NotFound(c, "Agent Run")
-	case errors.Is(err, service.ErrEnvironmentNotFound):
-		return response.NotFound(c, "Development Environment")
 	case errors.Is(err, service.ErrCheckoutNotFound):
 		return response.NotFound(c, "Checkout")
 	case errors.Is(err, service.ErrTerminalSessionNotFound):
@@ -832,12 +729,6 @@ func machineError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "CHECKOUT_NOT_READY", err.Error())
 	case errors.Is(err, service.ErrTerminalSessionRequired):
 		return response.Error(c, http.StatusConflict, "TERMINAL_SESSION_REQUIRED", err.Error())
-	case errors.Is(err, service.ErrEnvironmentInUse):
-		return response.Error(c, http.StatusConflict, "ENVIRONMENT_IN_USE", err.Error())
-	case errors.Is(err, service.ErrEnvironmentInvalidState):
-		return response.Error(c, http.StatusConflict, "ENVIRONMENT_INVALID_STATE", err.Error())
-	case errors.Is(err, service.ErrEnvironmentCleanupActive):
-		return response.Error(c, http.StatusConflict, "ENVIRONMENT_CLEANUP_ACTIVE", err.Error())
 	case errors.Is(err, service.ErrPortNotFound):
 		return response.NotFound(c, "App port")
 	case errors.Is(err, service.ErrPortExists):

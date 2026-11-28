@@ -3,19 +3,19 @@
 `install-agent-clis.sh` is the single pin list for the seven interactive agent
 CLIs. It maps Docker's `amd64` and `arm64` values to the release archive names,
 checks each release SHA-256 before extraction, installs binaries into
-`/usr/local/bin`, and runs every CLI's version check. The IDE and headless images
-share this installer.
+`/usr/local/bin`, and runs every CLI's version check. The single machine image
+(`devmachine/headless`) runs it; Crush, the eighth CLI, is built and pinned in
+that image's Dockerfile.
 
 `check-agent-cli-flags.sh` holds the flags and fixed values Kuayle passes each
-built-in CLI and fails when a CLI's help no longer lists one. Every image that
-installs CLIs runs it while building, and the IDE and headless smoke tests run it
-again. `TestAgentCLIFlagContractMatchesTheAdapters` keeps its list equal to the
+built-in CLI and fails when a CLI's help no longer lists one. The machine image
+runs it while building, and its smoke test runs it again. `TestAgentCLIFlagContractMatchesTheAdapters` keeps its list equal to the
 adapters in `BE/internal/agent/providers.go`.
 
 `patch-npm-security.cjs` replaces pinned dependencies bundled by npm. Its versions
 stay within npm's existing dependency major versions. Run it after installing npm
 and the agent providers. Optional directory arguments locate and patch additional
-`http-cache-semantics` copies, for example the code-server installation tree.
+`http-cache-semantics` copies in other installation trees.
 
 Upstream `http-cache-semantics@4.3.0` still contains
 [CVE-2026-93748](https://github.com/advisories/GHSA-ch52-4w7c-c8xp).
@@ -32,8 +32,8 @@ the source patch is explicit, and no scanner suppressions are added.
 
 Every patched copy runs `test-http-cache-semantics.cjs` during the image build.
 The patch fails closed if its expected source anchor changes. When changing the
-pins, review the source and dependency compatibility, build the IDE and all three
-agent images, run their version checks, and scan at HIGH/CRITICAL severity. Remove
+pins, review the source and dependency compatibility, build the machine image,
+run its version checks, and scan at HIGH/CRITICAL severity. Remove
 the local guard only after an upstream fix passes the negative and positive cache
 regressions; updating the package version alone is insufficient.
 
@@ -45,9 +45,8 @@ package updates, so changing the day refreshes those cached package layers while
 retaining unrelated build caches. Local builds can request the same refresh with
 `--pull --build-arg SECURITY_REFRESH=$(date -u +%F)`. Version and checksum pins
 remain explicit: dependency updates must still pass runtime smoke checks and the
-HIGH/CRITICAL vulnerability and secret scan gates. The IDE startup, HTTP and FTP
-consumer smoke test also runs in security CI.
+HIGH/CRITICAL vulnerability and secret scan gates.
 
 Development images build on native amd64 and ARM64 GitHub runners. This avoids
-QEMU-only installer failures while running version checks, the IDE runtime smoke
-and HIGH/CRITICAL vulnerability and secret scans on both supported architectures.
+QEMU-only installer failures while running version checks, the machine image
+smoke test and HIGH/CRITICAL vulnerability and secret scans on both supported architectures.

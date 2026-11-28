@@ -103,8 +103,8 @@ func lockCommandRunner(ctx context.Context, tx *sqlx.Tx, ws, actor uuid.UUID) er
 }
 
 // usableMachine is a machine the user may run commands on: theirs, not being
-// deleted, not an environment builder and, when temporary, not expired.
-const usableMachine = `m.workspace_id=$1 AND m.created_by_user_id=$2 AND m.delete_requested_at IS NULL AND NOT m.environment_builder
+// deleted and, when temporary, not expired.
+const usableMachine = `m.workspace_id=$1 AND m.created_by_user_id=$2 AND m.delete_requested_at IS NULL
  AND (m.temporary_expires_at IS NULL OR m.temporary_expires_at > now())`
 
 // QueueRun queues an approved command for the actor on a running machine they

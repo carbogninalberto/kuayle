@@ -86,7 +86,7 @@ func (f machineShareFixture) workingTask(t *testing.T, machine uuid.UUID) uuid.U
 
 func (f machineShareFixture) runningMachine(t *testing.T, activity string) uuid.UUID {
 	t.Helper()
-	id := f.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning, false)
+	id := f.insertMachine(t, domain.DevMachineStatusRunning, domain.DevMachineStatusRunning)
 	f.exec(t, `UPDATE dev_machines SET last_activity_at=now()-$2::interval WHERE id=$1`, id, activity)
 	return id
 }
@@ -105,7 +105,7 @@ func TestReservationSharesABusyMachineBelowItsTaskLimit(t *testing.T) {
 		t.Helper()
 		f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
 		claimed.MachineID = nil
-		reservation, err := f.repo.ReserveMachine(f.ctx, claimed, repository, &f.environmentID)
+		reservation, err := f.repo.ReserveMachine(f.ctx, claimed, repository)
 		require.NoError(t, err)
 		return reservation.MachineID
 	}
@@ -126,7 +126,7 @@ func TestReservationSharesABusyMachineBelowItsTaskLimit(t *testing.T) {
 
 	f.workingTask(t, busy)
 	f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, claimed.ID)
-	_, err := f.repo.ReserveMachine(f.ctx, claimed, repository, &f.environmentID)
+	_, err := f.repo.ReserveMachine(f.ctx, claimed, repository)
 	require.ErrorIs(t, err, ErrMachineSlotWait, "a machine at the limit waits for a place instead of creating a machine")
 
 	f.exec(t, `UPDATE dev_machine_workspace_policies SET task_machine_max_tasks=3 WHERE workspace_id=$1`, f.workspaceID)
@@ -139,9 +139,6 @@ func TestReservationSharesABusyMachineBelowItsTaskLimit(t *testing.T) {
 	f.exec(t, `INSERT INTO dev_machine_operations(workspace_id,machine_id,action,status,generation,idempotency_key) VALUES($1,$2,'stop','pending',1,'share-stop')`, f.workspaceID, lighter)
 	require.Equal(t, busy, reserve(), "a machine about to stop is not shared")
 	f.exec(t, `UPDATE dev_machine_operations SET status='completed' WHERE machine_id=$1 AND idempotency_key='share-stop'`, lighter)
-	f.exec(t, `UPDATE dev_machines SET environment_id=NULL WHERE id=$1`, lighter)
-	require.Equal(t, busy, reserve(), "a machine of another environment is not shared")
-	f.exec(t, `UPDATE dev_machines SET environment_id=$2 WHERE id=$1`, lighter, f.environmentID)
 	manual := uuid.New()
 	f.exec(t, `INSERT INTO dev_machine_agent_runs(id,workspace_id,machine_id,requested_by_user_id,provider_id,mode,prompt,command_argv,max_runtime_seconds,status) VALUES($1,$2,$3,$4,'codex','interactive','Manual','["codex"]',60,'running')`, manual, f.workspaceID, lighter, f.userID)
 	require.Equal(t, busy, reserve(), "a machine running the user's own agent session is not shared")
@@ -165,12 +162,12 @@ func TestTenTasksShareOneMachineByDefault(t *testing.T) {
 		f.workingTask(t, machine)
 	}
 	tenth := f.preparingTask(t)
-	first, err := f.repo.ReserveMachine(f.ctx, tenth, uuid.New(), &f.environmentID)
+	first, err := f.repo.ReserveMachine(f.ctx, tenth, uuid.New())
 	require.NoError(t, err)
 	require.Equal(t, machine, first.MachineID, "the tenth task shares the machine")
 
 	eleventh := f.preparingTask(t)
-	reservation, err := f.repo.ReserveMachine(f.ctx, eleventh, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, eleventh, uuid.New())
 	require.ErrorIs(t, err, ErrMachineSlotWait, "the eleventh task waits for a place on the shared machine")
 	require.Equal(t, eleventh.ReservedMachineID, reservation.ReservedID)
 	reserved := reservation.ReservedID
@@ -181,8 +178,8 @@ func TestTenTasksShareOneMachineByDefault(t *testing.T) {
 		ID: reserved, WorkspaceID: f.workspaceID, CreatedByUserID: &f.userID, RoutingKey: routingKey, Name: "task-" + routingKey,
 		Status: domain.DevMachineStatusQueued, DesiredStatus: domain.DevMachineStatusRunning, Generation: 1, RepoProvider: "github",
 		MachineSize: "custom", Profile: domain.DevMachineProfileHeadless, CPUMillis: 4000, MemoryMB: 8192, DiskGB: 20, PidsLimit: 512,
-		ServicesConfig: []byte(`{}`), Labels: []byte(`{}`),
-	}, nil, nil, nil, nil, nil, &domain.DevMachineOperation{
+		Labels: []byte(`{}`),
+	}, nil, nil, nil, nil, &domain.DevMachineOperation{
 		ID: uuid.New(), MachineID: reserved, WorkspaceID: f.workspaceID, Action: domain.DevMachineOpSpawn,
 		Status: domain.DevMachineOpStatusPending, Generation: 1, IdempotencyKey: "spawn:1", RequestedByUserID: &f.userID, MaxAttempts: 5,
 	})
@@ -215,7 +212,7 @@ func TestConcurrentReservationsDoNotExceedTheMachineTaskLimit(t *testing.T) {
 	var wg sync.WaitGroup
 	for _, task := range tasks {
 		wg.Go(func() {
-			reservation, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
+			reservation, err := f.repo.ReserveMachine(f.ctx, task, uuid.New())
 			if errors.Is(err, ErrMachineSlotWait) {
 				waited <- struct{}{}
 				return
@@ -252,9 +249,9 @@ func (f machineShareFixture) reservedTaskMachine(t *testing.T, task domain.Agent
 	f.exec(t, `INSERT INTO dev_machines
 		(id,workspace_id,created_by_user_id,routing_key,name,status,desired_status,generation,
 		 repo_url,repo_provider,repo_owner,repo_name,base_branch,working_branch,
-		 machine_size,cpu_millis,memory_mb,disk_gb,environment_id,started_at)
-		VALUES($1,$2,$3,$4,$5,$6,'running',1,'','github','','','','','small',1000,2048,20,$7,$8)`,
-		task.ReservedMachineID, f.workspaceID, f.userID, suffix[:16], "task-"+suffix, status, f.environmentID, startedAt)
+		 machine_size,cpu_millis,memory_mb,disk_gb,started_at)
+		VALUES($1,$2,$3,$4,$5,$6,'running',1,'','github','','','','','small',1000,2048,20,$7)`,
+		task.ReservedMachineID, f.workspaceID, f.userID, suffix[:16], "task-"+suffix, status, startedAt)
 	f.exec(t, `UPDATE agent_tasks SET machine_id=$2 WHERE id=$1`, task.ID, task.ReservedMachineID)
 	return task.ReservedMachineID
 }
@@ -270,7 +267,7 @@ func TestReservationWaitsForATaskSlotOnAFullMachine(t *testing.T) {
 	f.workingTask(t, machine)
 	claimed := f.preparingTask(t)
 
-	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New())
 	var wait *MachineSlotWaitError
 	require.ErrorAs(t, err, &wait)
 	require.ErrorIs(t, err, ErrMachineSlotWait)
@@ -303,7 +300,7 @@ func TestReservationRetriesWhenAFreeMachineIsRowLocked(t *testing.T) {
 	var locked uuid.UUID
 	require.NoError(t, held.GetContext(context.Background(), &locked, `SELECT id FROM dev_machines WHERE id=$1 FOR UPDATE`, machine))
 
-	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New())
 	require.ErrorIs(t, err, ErrAgentTaskConflict, "a merely row-locked machine is not full; the task retries")
 	require.Equal(t, uuid.Nil, reservation.ReservedID)
 	require.Equal(t, uuid.Nil, reservation.MachineID)
@@ -316,7 +313,7 @@ func TestReservationRetriesWhenAFreeMachineIsRowLocked(t *testing.T) {
 	require.Equal(t, 1, waiting, "nothing is written")
 
 	require.NoError(t, held.Rollback())
-	reservation, err = f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	reservation, err = f.repo.ReserveMachine(f.ctx, claimed, uuid.New())
 	require.NoError(t, err)
 	require.Equal(t, machine, reservation.MachineID, "the next poll takes the free slot")
 }
@@ -326,7 +323,7 @@ func TestReservationRetriesWhenAFreeMachineIsRowLocked(t *testing.T) {
 func TestReservationCreatesATaskMachineWithoutASuitableMachine(t *testing.T) {
 	f := newMachineShareFixture(t)
 	claimed := f.preparingTask(t)
-	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New())
 	require.NoError(t, err)
 	require.Equal(t, claimed.ReservedMachineID, reservation.MachineID)
 	require.Equal(t, claimed.ReservedMachineID, reservation.ReservedID)
@@ -345,7 +342,7 @@ func TestReservationMovesATaskFromItsUnstartedMachineToAFreeSlot(t *testing.T) {
 	f.exec(t, `UPDATE dev_machine_agent_runs SET status='succeeded',completed_at=now() WHERE task_id=$1`, holder)
 	f.exec(t, `UPDATE agent_tasks SET state='awaiting_review' WHERE id=$1`, holder)
 
-	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New())
 	require.NoError(t, err)
 	require.Equal(t, machine, reservation.MachineID)
 	require.NotEqual(t, claimed.ReservedMachineID, reservation.ReservedID, "the next machine gets a fresh reservation")
@@ -369,7 +366,7 @@ func TestReservationWaitsForASlotAndAbandonsItsUnstartedMachine(t *testing.T) {
 	claimed := f.preparingTask(t)
 	own := f.reservedTaskMachine(t, claimed, domain.DevMachineStatusQueued, false)
 
-	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New())
 	var wait *MachineSlotWaitError
 	require.ErrorAs(t, err, &wait)
 	require.ErrorIs(t, err, ErrMachineSlotWait)
@@ -392,7 +389,7 @@ func TestReservationKeepsAStartedMachineOfTheTask(t *testing.T) {
 	claimed := f.preparingTask(t)
 	own := f.reservedTaskMachine(t, claimed, domain.DevMachineStatusRunning, true)
 
-	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, claimed, uuid.New())
 	require.NoError(t, err)
 	require.Equal(t, own, reservation.MachineID)
 	require.Equal(t, claimed.ReservedMachineID, reservation.ReservedID)
@@ -414,7 +411,7 @@ func (f machineShareFixture) reserve(t *testing.T, task domain.AgentTask) uuid.U
 	t.Helper()
 	f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, task.ID)
 	task.MachineID = nil
-	reservation, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
+	reservation, err := f.repo.ReserveMachine(f.ctx, task, uuid.New())
 	require.NoError(t, err)
 	return reservation.MachineID
 }
@@ -425,7 +422,7 @@ func (f machineShareFixture) waitsForSlot(t *testing.T, task domain.AgentTask, l
 	t.Helper()
 	f.exec(t, `UPDATE agent_tasks SET machine_id=NULL WHERE id=$1`, task.ID)
 	task.MachineID = nil
-	_, err := f.repo.ReserveMachine(f.ctx, task, uuid.New(), &f.environmentID)
+	_, err := f.repo.ReserveMachine(f.ctx, task, uuid.New())
 	var wait *MachineSlotWaitError
 	require.ErrorAs(t, err, &wait)
 	require.Equal(t, limit, wait.Limit)

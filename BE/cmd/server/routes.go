@@ -117,15 +117,13 @@ type appHandlers struct {
 // appMiddleware carries the pre-built route middleware whose construction
 // needs config or repositories.
 type appMiddleware struct {
-	auth                   echo.MiddlewareFunc
-	authRateLimit          echo.MiddlewareFunc
-	publicRateLimit        echo.MiddlewareFunc
-	publicAssetRateLimit   echo.MiddlewareFunc
-	workspaceMembership    echo.MiddlewareFunc
-	devMachineDemoGuard    echo.MiddlewareFunc
-	machineEventsRateLimit echo.MiddlewareFunc
-	machineLogsRateLimit   echo.MiddlewareFunc
-	mcpRateLimit           echo.MiddlewareFunc
+	auth                 echo.MiddlewareFunc
+	authRateLimit        echo.MiddlewareFunc
+	publicRateLimit      echo.MiddlewareFunc
+	publicAssetRateLimit echo.MiddlewareFunc
+	workspaceMembership  echo.MiddlewareFunc
+	devMachineDemoGuard  echo.MiddlewareFunc
+	mcpRateLimit         echo.MiddlewareFunc
 }
 
 func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
@@ -607,8 +605,6 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	public(e, http.MethodPost, "/api/forges/webhook/:connectionId", h.forge.HandleWebhook)
 	// The uploaded bot picture is public so GitHub can show it in bot comments.
 	public(e, http.MethodGet, "/api/github-bot/:workspaceId/avatar/:file", h.githubBot.Avatar, m.publicAssetRateLimit)
-	public(e, http.MethodPost, "/api/dev-machine-ingest/events", h.devMachine.IngestEvent, m.machineEventsRateLimit)
-	public(e, http.MethodPost, "/api/dev-machine-ingest/logs", h.devMachine.IngestLog, m.machineLogsRateLimit)
 
 	// GitHub integration (workspace-scoped)
 	sessionOnly(ws, http.MethodGet, "/github/status", h.github.Status)
@@ -735,10 +731,6 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machine-repository-defaults", h.devMachine.RepositoryDefaults, "dev_machine:read")
 	scoped(dm, http.MethodPut, "/dev-machine-scope-setting", h.devMachine.UpdateScopeSetting, "dev_machine:manage")
 	scoped(dm, http.MethodDelete, "/dev-machine-scope-setting", h.devMachine.DeleteScopeSetting, "dev_machine:manage")
-	scoped(dm, http.MethodGet, "/dev-machine-environments", h.devMachine.Environments, "dev_machine:read")
-	scoped(dm, http.MethodPost, "/dev-machine-environments", h.devMachine.SnapshotEnvironment, "dev_machine:admin")
-	scoped(dm, http.MethodGet, "/dev-machine-environments/:environmentId", h.devMachine.GetEnvironment, "dev_machine:read")
-	scoped(dm, http.MethodDelete, "/dev-machine-environments/:environmentId", h.devMachine.DeleteEnvironment, "dev_machine:admin")
 	scoped(dm, http.MethodGet, "/dev-machine-providers", h.devMachine.Providers, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/agent-model-servers", h.devMachine.ListModelServers, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/agent-model-servers", h.devMachine.CreateModelServer, "dev_machine:admin")
@@ -766,7 +758,6 @@ func registerRoutes(e *echo.Echo, h *appHandlers, m *appMiddleware) {
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/resource-usage", h.devMachine.ResourceUsage, "dev_machine:read")
 	scoped(dm, http.MethodGet, "/dev-machines/:machineId/environment-status", h.devMachine.EnvironmentStatus, "dev_machine:read")
 	scoped(dm, http.MethodPost, "/dev-machines/:machineId/environment-status/package-index/refresh", h.devMachine.RefreshPackageIndex, "dev_machine:manage")
-	scoped(dm, http.MethodPost, "/dev-machines/:machineId/services/:service/launch", h.devMachine.LaunchService, "dev_machine:read", mw.RequireTokenPermission("dev_machine:manage"))
 	sessionOnly(dm, http.MethodGet, "/dev-machines/:machineId/ports", h.devMachine.ListPorts, mw.RequireTokenPermission(domain.PermDevMachineRead))
 	sessionOnly(dm, http.MethodPost, "/dev-machines/:machineId/ports", h.devMachine.CreatePort, mw.RequireTokenPermission(domain.PermDevMachineManage))
 	sessionOnly(dm, http.MethodPatch, "/dev-machines/:machineId/ports/:portId", h.devMachine.UpdatePort, mw.RequireTokenPermission(domain.PermDevMachineManage))
