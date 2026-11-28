@@ -462,16 +462,16 @@ export const features: ContentRegistry = {
 		slug: 'dev-machines',
 		title: 'Dev Machines — Kuayle',
 		description:
-			'Opt-in multi-container development environments with code-server, a native terminal, agent providers, an in-browser Chrome, and issue worktrees.',
+			'Opt-in development machines on one Ubuntu image with a native terminal, eight agent CLIs, Playwright for browser checks, and issue worktrees.',
 		heading: 'Dev Machines',
-		intro: `Dev Machines are an opt-in self-hosted subsystem, included in releases since v0.1.13. Every machine has collector and egress services on an isolated network; it may include a shared developer/terminal container and browser, while agent containers are created on demand. Access is routed through an authenticated gateway. The subsystem is disabled by default.`,
+		intro: `Dev Machines are an opt-in self-hosted subsystem, included in releases since v0.1.13. Every machine runs a terminal on one Ubuntu image beside an egress proxy on an isolated network, while agent containers are created on demand from the same image. Access is routed through an authenticated gateway. The subsystem is disabled by default.`,
 		sections: [
 			{
-				heading: 'A full environment per machine',
-				body: 'When configured, the developer container runs code-server and a tmux-backed terminal that the Kuayle UI renders natively with xterm. An optional separate browser container provides Chrome over KasmVNC. No host ports are published; access goes through the Machine Gateway with one-time launch tickets.',
+				heading: 'One machine image',
+				body: 'Every machine runs a regular Ubuntu with common tools, a fixed font set and Playwright with Chromium. Its tmux-backed terminal is rendered natively in the Kuayle UI with xterm, and agents install what a project needs with sudo, run the app and take screenshots that look the same on every machine. No host ports are published; access goes through the Machine Gateway with one-time launch tickets.',
 				list: [
-					'code-server IDE and native xterm terminal',
-					'In-browser Chrome via KasmVNC',
+					'Native xterm terminal in the browser',
+					'Playwright and Chromium for agent screenshots',
 					'Authenticated wildcard routing — no public ports'
 				]
 			},
@@ -499,13 +499,12 @@ export const features: ContentRegistry = {
 				]
 			},
 			{
-				heading: 'Issue worktrees and environments',
-				body: 'Machines can start generic and attach issue worktrees when work begins. Repository and environment defaults resolve from the issue, then project, team and workspace. Owner/admins can snapshot a customized builder machine into an immutable local Development Environment image.',
+				heading: 'Issue worktrees',
+				body: 'Machines can start generic and attach issue worktrees when work begins. Repository defaults resolve from the issue, then project, team and workspace.',
 				list: [
 					'Idempotent issue worktrees under /workspace/tasks/{issue-key}',
 					'One repository affinity per machine',
-					'Scoped defaults: issue → project → team → workspace',
-					'Environment Builder snapshots as immutable local OCI images'
+					'Scoped defaults: issue → project → team → workspace'
 				]
 			},
 			{

@@ -4,7 +4,8 @@
 (unminimized) Ubuntu with manual pages, common tools, the `en_US.UTF-8` locale,
 `Etc/UTC`, a fixed font set (Ubuntu, Noto incl. CJK and Color Emoji, Liberation,
 DejaVu), Node.js, Go, Python, every built-in agent CLI, and Playwright with its
-Chromium in `/opt/ms-playwright` (`PLAYWRIGHT_BROWSERS_PATH`). It runs in two
+Chromium in `/opt/ms-playwright` (used by `kuayle-screenshot`; a project's own
+Playwright installs its browsers as usual). It runs in two
 roles: the developer terminal and every autonomous agent run, check and preview.
 Compilers are not preinstalled (their kernel headers fail the image scan);
 agents install them with `sudo apt-get` when a project needs them.

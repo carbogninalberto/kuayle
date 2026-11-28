@@ -593,6 +593,7 @@ func (f *runtimeFake) HostResources(context.Context) (HostResources, error) {
 }
 
 type runtimeFake struct {
+	spawnedServices []domain.DevMachineService
 	Runtime
 	environment        environmentRuntimeFake
 	syncErr            error
@@ -662,6 +663,7 @@ func (f *runtimeFake) TakeSignInReturn(context.Context, []domain.DevMachineServi
 func (f *runtimeFake) Spawn(_ context.Context, _ *domain.DevMachine, services []domain.DevMachineService, secrets map[string]map[string]string) (string, string, map[string]string, error) {
 	f.spawned++
 	f.spawnSecrets = secrets
+	f.spawnedServices = append([]domain.DevMachineService(nil), services...)
 	if f.onSpawn != nil {
 		f.onSpawn()
 	}

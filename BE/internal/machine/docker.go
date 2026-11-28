@@ -151,8 +151,11 @@ func (r *DockerRuntime) HostDiskUsage(ctx context.Context) (HostDiskUsage, error
 	if r.config.HostDiskPath != "" {
 		return r.hostDiskUsageFromPath()
 	}
-	// Without a mount of the Docker data root, any running developer
-	// container measures it: its workspace volume lives there.
+	// Without a mount of the Docker data root, a running developer container
+	// measures it: its workspace volume lives there. Only a container whose
+	// root filesystem is read-only (a terminal without sudo) is trusted, and
+	// df runs by absolute path as root, so a user's own df cannot fake a
+	// full host and stop every machine on it.
 	filters := client.Filters{}.
 		Add("label", "com.kuayle.managed=true").
 		Add("label", "com.kuayle.service=terminal")
@@ -167,13 +170,17 @@ func (r *DockerRuntime) HostDiskUsage(ctx context.Context) (HostDiskUsage, error
 			candidate.Labels["com.kuayle.service"] != "terminal" {
 			continue
 		}
+		inspection, err := r.client.ContainerInspect(ctx, candidate.ID, client.ContainerInspectOptions{})
+		if err != nil || inspection.Container.HostConfig == nil || !inspection.Container.HostConfig.ReadonlyRootfs {
+			continue
+		}
 		developerID = candidate.ID
 		break
 	}
 	if developerID == "" {
 		return HostDiskUsage{}, ErrHostDiskUnknown
 	}
-	output, err := r.execOutput(ctx, developerID, []string{"df", "-B1", "-P", "/workspace"})
+	output, err := r.execOutputAs(ctx, developerID, []string{"/usr/bin/df", "-B1", "-P", "/workspace"}, "0:0")
 	if err != nil {
 		return HostDiskUsage{}, fmt.Errorf("read host disk usage: %w", err)
 	}
@@ -1796,6 +1803,12 @@ func (r *DockerRuntime) secureHostConfig(machine *domain.DevMachine, serviceType
 		hostConfig.ReadonlyRootfs = false
 		hostConfig.CapDrop = []string{"NET_RAW"}
 		hostConfig.SecurityOpt = securityOptions[1:]
+		// What it installs goes to the Docker data root, not the workspace
+		// volume. With hard quotas the data root supports project quotas,
+		// so the writable layer is bounded by the machine's disk size too.
+		if !monitoredDiskQuotaMode(r.config.DiskQuotaMode) && machine.DiskGB > 0 {
+			hostConfig.StorageOpt = map[string]string{"size": strconv.Itoa(machine.DiskGB) + "G"}
+		}
 	}
 	return hostConfig
 }
@@ -2227,17 +2240,35 @@ func (b *cappedBuffer) Write(value []byte) (int, error) {
 }
 
 // workspaceSize measures the workspace volume from the developer container,
-// which mounts it.
+// which mounts it: du runs by absolute path, as root and as the machine user,
+// and the larger total counts. Agents may use sudo, so a directory only root
+// (or only the machine user) can read does not hide what it holds; du's exit
+// code for such a directory is ignored and its total still read. This is
+// monitoring: a hard workspace quota is enforced by the volume itself.
 func (r *DockerRuntime) workspaceSize(ctx context.Context, developerID string) (int64, error) {
-	output, err := r.execOutput(ctx, developerID, []string{"du", "-sb", "/workspace"})
-	if err != nil {
-		return 0, err
+	command := []string{"/bin/sh", "-c", "/usr/bin/du -sb /workspace 2>/dev/null; exit 0"}
+	var size int64
+	var measured bool
+	for _, user := range []string{"0:0", "1000:1000"} {
+		output, err := r.execOutputAs(ctx, developerID, command, user)
+		if err != nil {
+			continue
+		}
+		fields := strings.Fields(output)
+		if len(fields) == 0 {
+			continue
+		}
+		bytes, err := strconv.ParseInt(fields[0], 10, 64)
+		if err != nil {
+			continue
+		}
+		measured = true
+		size = max(size, bytes)
 	}
-	fields := strings.Fields(output)
-	if len(fields) == 0 {
+	if !measured {
 		return 0, fmt.Errorf("workspace size unavailable")
 	}
-	return strconv.ParseInt(fields[0], 10, 64)
+	return size, nil
 }
 
 func parseHostDiskUsage(output string) (HostDiskUsage, error) {

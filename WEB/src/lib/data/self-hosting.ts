@@ -322,11 +322,10 @@ export const selfHosting: ContentRegistry = {
 			},
 			{
 				heading: 'Required configuration',
-				body: 'When DEV_MACHINES_ENABLED=true, the backend validates the machine domain, frontend URL, encryption key, ingestion URL and related runtime settings. The Compose provisioning prerequisite separately requires the gateway database password. FRONTEND_URL must be the exact public Kuayle origin; the gateway requires the native terminal WebSocket Origin header to match it exactly.',
+				body: 'When DEV_MACHINES_ENABLED=true, the backend validates the machine domain, frontend URL, encryption key and related runtime settings. The Compose provisioning prerequisite separately requires the gateway database password. FRONTEND_URL must be the exact public Kuayle origin; the gateway requires the native terminal WebSocket Origin header to match it exactly.',
 				list: [
 					'DEV_MACHINES_ENABLED=true',
 					'DEV_MACHINE_ENCRYPTION_KEY — independent random value, at least 32 characters',
-					'DEV_MACHINE_INGEST_URL — public HTTPS collector ingestion URL',
 					'DEV_MACHINE_GATEWAY_DB_PASSWORD — independent credential for the restricted gateway role',
 					'FRONTEND_URL — exact public origin, scheme included'
 				]
@@ -403,7 +402,7 @@ export const selfHosting: ContentRegistry = {
 			},
 			{
 				heading: 'Transfer is not a backup',
-				body: 'The archive moves one logical workspace. Disaster recovery and whole-instance migration still require PostgreSQL backups, object-storage or upload-volume backups, deployment configuration and secrets, and any required Docker volumes or Development Environment images.',
+				body: 'The archive moves one logical workspace. Disaster recovery and whole-instance migration still require PostgreSQL backups, object-storage or upload-volume backups, deployment configuration and secrets, and any required Docker volumes.',
 				list: [
 					'Back up PostgreSQL and uploads on a schedule',
 					'Store deployment secrets separately',

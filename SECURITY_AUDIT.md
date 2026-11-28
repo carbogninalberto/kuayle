@@ -836,3 +836,13 @@ filesystem changes are discarded with the container: the next attempt starts
 from the image again. Changes to `/workspace` persist as before and are
 reviewed as agent output. The developer terminal still gets sudo only when the
 workspace policy allows it (`allow_sudo`).
+
+Disk: a writable root layer lives in the Docker data root, not the workspace
+volume. With hard quotas it is bounded by the machine's disk size (Docker's
+`size` storage option); in monitored mode it is not, and the host free-space
+floor is the protection. The manager never trusts a container a user can
+modify for that floor: when no data-root mount is configured it runs
+`/usr/bin/df` as root only in a terminal whose root filesystem is read-only
+(no sudo). Workspace usage runs `/usr/bin/du` as root and as the machine user,
+so a directory either one cannot read does not hide its size; a sudo terminal
+can still under-report its own machine's monitored usage.

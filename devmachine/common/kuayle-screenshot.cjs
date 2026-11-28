@@ -4,7 +4,7 @@
 // kuayle-screenshot URL FILE [options]
 //
 // Takes a screenshot of URL with the image's own Playwright and Chromium
-// (PLAYWRIGHT_BROWSERS_PATH), whatever Playwright version the project pins, and
+// (in /opt/ms-playwright), whatever Playwright version the project pins, and
 // writes it to FILE (PNG, or JPEG for .jpg/.jpeg). Rendering is fixed: viewport,
 // device scale factor, locale, time zone, colour scheme, reduced motion and font
 // hinting, so the same page gives the same picture on every machine.
@@ -72,7 +72,11 @@ function parse(argv) {
 
 // The image installs Playwright globally; a project's own copy (another version,
 // with browsers the image does not ship) is never used.
+// The image's browsers live in /opt/ms-playwright. It is not the global
+// PLAYWRIGHT_BROWSERS_PATH, so a project's own Playwright keeps installing
+// its browsers where it always does.
 function loadPlaywright() {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = process.env.KUAYLE_PLAYWRIGHT_BROWSERS || '/opt/ms-playwright';
   return require(process.env.KUAYLE_PLAYWRIGHT_MODULE || '/usr/local/lib/node_modules/playwright');
 }
 

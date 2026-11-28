@@ -287,3 +287,27 @@ func TestRunImageUsesReleaseImageForNewRuns(t *testing.T) {
 	custom := &domain.DevMachineAgentProvider{ID: uuid.New(), ProviderID: "claude-code", ImageRef: "custom/agent:1", IsCustom: true}
 	require.Equal(t, "custom/agent:1", manager.runImage(context.Background(), store.machine, run, custom, store.services))
 }
+
+// An upgrade leaves the terminal of a converted machine with no image, or
+// with the retired IDE image. A machine that is provisioned anew (a failed,
+// queued or spawning machine started again) gets the release's machine image
+// before its containers are created, never an empty one.
+func TestManagerSpawnProvisionsOutdatedServicesOnTheReleaseImages(t *testing.T) {
+	for _, status := range []domain.DevMachineStatus{domain.DevMachineStatusFailed, domain.DevMachineStatusQueued} {
+		for _, image := range []string{"", "local/ide:v0.4.4"} {
+			store, runtime, manager := imageFixture(status, domain.DevMachineProfileHeadless, headlessServices(image))
+
+			err := manager.processOperation(context.Background(), &domain.DevMachineOperation{
+				MachineID: store.machine.ID, WorkspaceID: store.machine.WorkspaceID, Action: domain.DevMachineOpStart, Generation: 4,
+			})
+
+			require.NoError(t, err, "%s %q", status, image)
+			require.Equal(t, 1, runtime.spawned)
+			for _, service := range runtime.spawnedServices {
+				if service.ServiceType == "terminal" {
+					require.Equal(t, releaseImages.Headless, service.ImageRef, "%s %q", status, image)
+				}
+			}
+		}
+	}
+}

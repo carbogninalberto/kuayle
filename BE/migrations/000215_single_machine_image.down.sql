@@ -32,6 +32,8 @@ CREATE TRIGGER private_external_guard BEFORE INSERT OR UPDATE ON dev_machine_env
     FOR EACH ROW EXECUTE FUNCTION kuayle_private_external_guard();
 CREATE TRIGGER privacy_statement_shared BEFORE INSERT OR UPDATE OR DELETE ON dev_machine_environments
     FOR EACH STATEMENT EXECUTE FUNCTION kuayle_privacy_statement_guard('shared');
+CREATE TRIGGER dev_machine_environments_touch BEFORE UPDATE ON dev_machine_environments
+    FOR EACH ROW EXECUTE FUNCTION touch_dev_machine_updated_at();
 CREATE OR REPLACE FUNCTION kuayle_private_external_guard() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE wid UUID; BEGIN
     wid:=NEW.workspace_id;

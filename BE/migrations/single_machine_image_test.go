@@ -67,6 +67,7 @@ func TestSingleMachineImageMigrationConvertsStandardMachinesAndRollsBack(t *test
 		VALUES ($1,$2,'snapshot','kuayle/dev-environment:snapshot','ready',$3,$4)`, environment, ws, shared, user)
 	exec(`UPDATE dev_machines SET environment_id=$1 WHERE id=$2`, environment, noIDE)
 	exec(`INSERT INTO dev_machine_scope_settings (workspace_id,environment_id) VALUES ($1,$2)`, ws, environment)
+	exec(`INSERT INTO dev_machine_scope_settings (workspace_id,team_id,environment_id,agent_instructions) VALUES ($1,$2,$3,'use pnpm')`, ws, fixture.teamA, environment)
 
 	// The standard machine's terminal ran in the IDE container.
 	ideContainer := "kuayle-" + sharedKey + "-ide"
@@ -129,8 +130,8 @@ func TestSingleMachineImageMigrationConvertsStandardMachinesAndRollsBack(t *test
 	require.Len(t, sharedServices, 2, "only the terminal and the egress proxy remain")
 	require.Equal(t, "egress", sharedServices[0].serviceType)
 	require.Equal(t, "kuayle/egress:old", sharedServices[0].image, "the egress proxy is untouched")
-	require.Equal(t, serviceRow{id: terminal.String(), serviceType: "terminal", containerName: ideContainer, image: "", host: ideContainer},
-		sharedServices[1], "the terminal keeps its record with no image, so it is recreated from the machine image")
+	require.Equal(t, serviceRow{id: terminal.String(), serviceType: "terminal", containerName: ideContainer, image: "kuayle/ide:old", host: ideContainer},
+		sharedServices[1], "the terminal keeps its record and its IDE image until it is recreated from the machine image")
 	require.Equal(t, []serviceRow{{
 		serviceType: "terminal", containerName: "kuayle-" + noIDEKey + "-terminal", image: "", host: noIDEKey + "-terminal",
 	}}, func() []serviceRow {
@@ -184,7 +185,10 @@ func TestSingleMachineImageMigrationConvertsStandardMachinesAndRollsBack(t *test
 	require.Equal(t, []string{reconcile.String()}, operations, "only the environment snapshot operation is removed")
 	var settings int
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM dev_machine_scope_settings WHERE workspace_id=$1`, ws).Scan(&settings))
-	require.Equal(t, 1, settings, "the scope setting is kept without its environment")
+	require.Equal(t, 1, settings, "a setting that only chose an environment is removed; the others keep their other values")
+	var instructions string
+	require.NoError(t, db.QueryRow(`SELECT agent_instructions FROM dev_machine_scope_settings WHERE workspace_id=$1 AND team_id=$2`, ws, fixture.teamA).Scan(&instructions))
+	require.Equal(t, "use pnpm", instructions)
 
 	_, err = db.Exec(`UPDATE teams SET is_private=TRUE WHERE id=$1`, fixture.teamA)
 	require.ErrorContains(t, err, "Remove development machines and scope settings before enabling private teams")

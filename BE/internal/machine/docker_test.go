@@ -203,22 +203,35 @@ func TestHostDiskUsageMeasuresInARunningDeveloperContainer(t *testing.T) {
 	labels := func(service string) map[string]string {
 		return map[string]string{"com.kuayle.managed": "true", "com.kuayle.service": service}
 	}
-	dockerClient := &logExecClient{
+	dockerClient := &readonlyInspectClient{logExecClient: &logExecClient{
 		dockerClientFake: &dockerClientFake{containers: []container.Summary{
 			{ID: "stopped-terminal", Labels: labels("terminal"), State: container.StateExited},
 			{ID: "egress", Labels: labels("egress"), State: container.StateRunning},
+			{ID: "sudo-terminal", Labels: labels("terminal"), State: container.StateRunning},
 			{ID: "running-terminal", Labels: labels("terminal"), State: container.StateRunning},
 		}},
 		stdout: "Filesystem 1-blocks Used Available Capacity Mounted on\n/dev/sdb 1000000 400000 600000 40% /workspace\n",
-	}
+	}, readonly: map[string]bool{"running-terminal": true}}
 	runtime := &DockerRuntime{config: DockerConfig{DiskQuotaMode: "monitored"}, client: dockerClient}
 
 	usage, err := runtime.HostDiskUsage(context.Background())
 
 	require.NoError(t, err)
 	require.Equal(t, HostDiskUsage{TotalBytes: 1000000, FreeBytes: 600000}, usage)
-	require.Equal(t, "running-terminal", dockerClient.target)
-	require.Equal(t, []string{"df", "-B1", "-P", "/workspace"}, dockerClient.exec.Cmd)
+	require.Equal(t, "running-terminal", dockerClient.target, "a terminal whose root filesystem its user can write (sudo) is never trusted")
+	require.Equal(t, []string{"/usr/bin/df", "-B1", "-P", "/workspace"}, dockerClient.exec.Cmd, "by absolute path, never the user's PATH")
+	require.Equal(t, "0:0", dockerClient.exec.User)
+}
+
+// readonlyInspectClient answers ContainerInspect with a read-only root
+// filesystem for the containers in readonly.
+type readonlyInspectClient struct {
+	*logExecClient
+	readonly map[string]bool
+}
+
+func (f *readonlyInspectClient) ContainerInspect(_ context.Context, id string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
+	return client.ContainerInspectResult{Container: container.InspectResponse{HostConfig: &container.HostConfig{ReadonlyRootfs: f.readonly[id]}}}, nil
 }
 
 func TestHostDiskUsageUsesConfiguredPathWithoutListingContainers(t *testing.T) {
@@ -601,4 +614,23 @@ func TestContainerSharesSplitTheMachine(t *testing.T) {
 	split = shares(headless, true, "agent", "terminal", "egress")
 	require.Equal(t, map[string]int64{"agent": 35, "terminal": 35, "egress": 5, "docker": 40}, split)
 	require.Equal(t, int64(115), total(split), "with a daemon the agent and terminal ceilings overlap")
+}
+
+// A container with a writable root filesystem (every agent-class container,
+// and a sudo terminal) writes to the Docker data root, not the quota-bounded
+// workspace volume. With hard quotas the data root supports project quotas,
+// so that layer is bounded by the machine's disk size too; containers with a
+// read-only root get no size, and monitored mode (no project quotas) cannot
+// bound it, where the host free-space floor is the protection.
+func TestWritableRootFilesystemsAreBoundedByTheMachineDiskWithHardQuotas(t *testing.T) {
+	hard := &DockerRuntime{config: DockerConfig{DiskQuotaMode: "hard"}}
+	monitored := &DockerRuntime{config: DockerConfig{DiskQuotaMode: "monitored"}}
+	sudo := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512, DiskGB: 20, SudoEnabled: true}
+	locked := &domain.DevMachine{MemoryMB: 4096, CPUMillis: 2000, PidsLimit: 512, DiskGB: 20}
+
+	require.Equal(t, map[string]string{"size": "20G"}, hard.secureHostConfig(locked, "agent", "network", "volume", false).StorageOpt)
+	require.Equal(t, map[string]string{"size": "20G"}, hard.secureHostConfig(sudo, "terminal", "network", "volume", false).StorageOpt)
+	require.Empty(t, hard.secureHostConfig(locked, "terminal", "network", "volume", false).StorageOpt, "a read-only root writes nothing there")
+	require.Empty(t, hard.secureHostConfig(locked, "egress", "network", "volume", false).StorageOpt)
+	require.Empty(t, monitored.secureHostConfig(locked, "agent", "network", "volume", false).StorageOpt)
 }

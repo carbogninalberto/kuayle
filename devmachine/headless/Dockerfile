@@ -119,7 +119,6 @@ ENV HOME=/home/kuayle \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     TZ=Etc/UTC \
-    PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright \
     SHELL=/usr/local/bin/kuayle-shell \
     COLORTERM=truecolor \
     GOPATH=/home/kuayle/go \

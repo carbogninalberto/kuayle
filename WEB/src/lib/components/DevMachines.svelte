@@ -2,24 +2,24 @@
 	import { reveal } from '$lib/actions/reveal';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import Check from '@lucide/svelte/icons/check';
-	import Globe from '@lucide/svelte/icons/globe';
-	import CodeXml from '@lucide/svelte/icons/code-xml';
+	import Camera from '@lucide/svelte/icons/camera';
+	import Shield from '@lucide/svelte/icons/shield';
 	import SquareTerminal from '@lucide/svelte/icons/square-terminal';
 	import Bot from '@lucide/svelte/icons/bot';
 	import { DEV_MACHINES_RELEASE_STATUS } from '$lib/config/releases';
 
 	const bullets = [
-		'code-server IDE and a native xterm terminal in your browser',
+		'One Ubuntu image with a native xterm terminal in your browser',
 		'Claude Code, Codex, OpenCode and four more agent CLIs, or your own, on issue worktrees',
 		'Authenticated gateway routing — no public ports, one-time launch tickets',
 		'Workspace policies for concurrency, providers, repositories and machine sizes'
 	];
 
 	const services = [
-		{ icon: CodeXml, name: 'IDE', detail: 'code-server :8080' },
 		{ icon: SquareTerminal, name: 'Terminal', detail: 'ttyd · tmux' },
-		{ icon: Globe, name: 'Browser', detail: 'Chrome · KasmVNC' },
-		{ icon: Bot, name: 'Agent', detail: 'opencode · autonomous' }
+		{ icon: Camera, name: 'Browser QA', detail: 'Playwright · Chromium' },
+		{ icon: Bot, name: 'Agent', detail: 'opencode · autonomous' },
+		{ icon: Shield, name: 'Egress', detail: 'proxy · allow/deny lists' }
 	];
 
 	const logLines = [

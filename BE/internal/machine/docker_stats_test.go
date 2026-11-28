@@ -60,7 +60,8 @@ func TestStatsCountsEveryRunningContainerOfTheMachine(t *testing.T) {
 	require.Zero(t, usage.CPUPercent, "the first sample has nothing to measure against")
 	require.Equal(t, int64(123456), usage.DiskBytes, "the workspace size")
 	require.Equal(t, "terminal", dockerClient.target, "du runs in the developer container, which mounts the workspace")
-	require.Equal(t, []string{"du", "-sb", "/workspace"}, dockerClient.exec.Cmd)
+	require.Equal(t, []string{"/bin/sh", "-c", "/usr/bin/du -sb /workspace 2>/dev/null; exit 0"}, dockerClient.exec.Cmd,
+		"by absolute path; a directory one user cannot read does not fail the measurement")
 	require.ElementsMatch(t, []string{"terminal", "agent-1", "db"}, dockerClient.queried, "each container once, never another machine's")
 	usage, err = runtime.Stats(context.Background(), machine, []domain.DevMachineService{
 		{ServiceType: "terminal", Status: "running", ContainerID: ptr("terminal")},

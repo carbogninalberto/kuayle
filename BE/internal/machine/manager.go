@@ -1016,6 +1016,16 @@ func (m *Manager) spawn(ctx context.Context, machine *domain.DevMachine, service
 		return err
 	}
 	m.previewsEnded(ctx, machine)
+	// Its containers are created from the installed release's images: an
+	// upgrade can leave a service on a retired image, or on none (a terminal
+	// that ran in the retired IDE container).
+	if changes, err := m.replaceOutdatedServices(ctx, machine, services); err != nil {
+		return err
+	} else if len(changes) > 0 {
+		if services, err = m.store.ListServices(ctx, machine.WorkspaceID, machine.ID); err != nil {
+			return err
+		}
+	}
 	runtimeServices := make([]domain.DevMachineService, 0, len(services))
 	for _, service := range services {
 		if service.ServiceType != "agent" {

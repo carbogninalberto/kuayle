@@ -3,14 +3,16 @@
 -- the code-server IDE, the browser service, the activity collector and
 -- Development Environments are removed.
 --
--- Standard machines become headless. Their terminal shared the IDE container:
--- it keeps its record with no image, which the machine manager reads as
--- outdated, so the next start (or the idle image update of a running machine)
--- removes the IDE container and creates the terminal from the release's
--- machine image. The workspace volume is kept. Containers of the removed
--- services are removed then too (removeRetiredServiceContainers).
+-- Standard machines become headless. Their terminal shared the IDE container
+-- and keeps its record and the IDE image, so checks, previews and tools of a
+-- running machine keep working; the machine manager reads that image as
+-- outdated, so the next provisioning (a start, or the idle image update of a
+-- running machine) removes the IDE container and creates the terminal from
+-- the release's machine image. The workspace volume is kept. Containers of
+-- the removed services are removed then too (removeRetiredServiceContainers).
 
--- A standard machine created without the IDE had no terminal: give it one.
+-- A standard machine created without the IDE had no terminal: give it one,
+-- with no image yet; its next provisioning sets the release's.
 INSERT INTO dev_machine_services
     (workspace_id, machine_id, service_type, service_key, container_name, image_ref, internal_host, internal_port)
 SELECT m.workspace_id, m.id, 'terminal', 'terminal', 'kuayle-' || m.routing_key || '-terminal', '',
@@ -18,10 +20,6 @@ SELECT m.workspace_id, m.id, 'terminal', 'terminal', 'kuayle-' || m.routing_key 
 FROM dev_machines m
 WHERE m.profile = 'standard'
   AND NOT EXISTS (SELECT 1 FROM dev_machine_services s WHERE s.machine_id = m.id AND s.service_type = 'terminal');
-
-UPDATE dev_machine_services s SET image_ref = ''
-FROM dev_machines m
-WHERE m.id = s.machine_id AND m.profile = 'standard' AND s.service_type = 'terminal';
 
 -- Access sessions and tickets of the removed services go with them (cascade).
 DELETE FROM dev_machine_services WHERE service_type IN ('ide', 'browser', 'collector');
@@ -53,6 +51,13 @@ ALTER TABLE dev_machines ALTER COLUMN profile SET DEFAULT 'headless',
 -- by the machine manager when it starts (RemoveEnvironmentImages).
 DELETE FROM dev_machine_operations WHERE action = 'snapshot_environment';
 ALTER TABLE dev_machine_operations DROP COLUMN environment_id;
+-- A development setting that only chose an environment chooses nothing now;
+-- remove it, so it neither shows as configured nor blocks private teams.
+DELETE FROM dev_machine_scope_settings
+WHERE environment_id IS NOT NULL AND github_repo_id IS NULL AND base_branch IS NULL
+  AND test_command IS NULL AND agent_provider IS NULL AND agent_instructions IS NULL
+  AND compose_file IS NULL AND preview_command IS NULL AND preview_port IS NULL
+  AND pull_request_template IS NULL;
 ALTER TABLE dev_machine_scope_settings DROP COLUMN environment_id;
 ALTER TABLE dev_machines DROP COLUMN environment_id,
     DROP COLUMN environment_builder,
