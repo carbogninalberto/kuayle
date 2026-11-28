@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { Copy, Info, ListChecks, Pencil, Plus, RotateCcw, Star, Trash2, Workflow } from '@lucide/svelte';
+	import { Copy, Info, Pencil, Plus, Star, Trash2, Workflow } from '@lucide/svelte';
 	import * as Popover from '$lib/components/ui/popover/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import * as Item from '$lib/components/ui/item/index.js';
@@ -21,9 +21,11 @@
 	import WorkflowDefaultsCard from '$lib/features/workflows/WorkflowDefaultsCard.svelte';
 	import { m } from '$lib/features/i18n/messages';
 
-	// Settings → Workflows: the built-in Standard workflow and the workspace's
-	// own, with the defaults new tasks use. Owners and admins manage them (the
-	// server enforces it); members read them and choose one per task.
+	// Settings → Workflows: the built-in Standard flow (read only: every task
+	// without a workflow runs it) and the workspace's pipelines, with the
+	// defaults new tasks use. Owners and admins manage the pipelines (the
+	// server enforces it); members read them and choose one per task. With the
+	// server's pipelines off, no pipeline is created.
 	const slug = $derived(page.params.workspaceSlug ?? '');
 
 	let list = $state<WorkflowList | null>(null),
@@ -98,7 +100,7 @@
 		busy = workflow.id;
 		try {
 			await workflows.remove(slug, workflow.id);
-			appToast.success(workflow.builtin ? m['workflows.reset_done']() : m['workflows.deleted_done']());
+			appToast.success(m['workflows.deleted_done']());
 			deleting = null;
 			await load();
 		} catch (error) {
@@ -130,7 +132,7 @@
 							>{m['workflows.desc']()}</Popover.Content
 						>
 					</Popover.Root>
-				{#if canManage}<Button size="sm" onclick={() => (creating = true)} data-testid="workflow-new"
+				{#if canManage && list?.pipelines_enabled}<Button size="sm" onclick={() => (creating = true)} data-testid="workflow-new"
 						><Plus />{m['workflows.new']()}</Button
 					>{/if}
 			{/snippet}
@@ -153,7 +155,6 @@
 								aria-label={m['workflows.open_named']({ name })}>{name}</a
 							>
 							{#if workflow.builtin}<Badge variant="secondary">{m['workflows.builtin']()}</Badge>
-								{#if workflow.customized}<Badge variant="outline">{m['workflows.customized']()}</Badge>{/if}
 							{:else}<Badge variant="outline">{m['workflows.version']({ version: workflow.latest_version })}</Badge
 								>{/if}
 							{#if isPipeline(workflow.graph)}<Badge variant="secondary">{m['workflows.pipeline']()}</Badge>{/if}
@@ -165,7 +166,7 @@
 					</Item.Content>
 					{#if canManage}
 						<Item.Actions>
-							{#if !workflow.archived}<Button
+							{#if !workflow.builtin && !workflow.archived}<Button
 									size="icon-sm"
 									variant="ghost"
 									href={editorHref(workflow.id)}
@@ -180,34 +181,25 @@
 									title={m['workflows.set_default']()}
 									onclick={() => setDefault(workflow)}><Star /></Button
 								>{/if}
-							{#if list.pipelines_enabled && !workflow.archived && !isPipeline(workflow.graph)}<Button
-									size="icon-sm"
-									variant="ghost"
-									href="{editorHref(workflow.id)}/pipeline-draft"
-									aria-label={m['workflows.pipeline_editor.draft_named']({ name })}
-									title={m['workflows.pipeline_editor.draft']()}
-									data-testid="workflow-draft-pipeline"><ListChecks /></Button
-								>{/if}
-							<Button
-								size="icon-sm"
-								variant="ghost"
-								disabled={busy !== null}
-								aria-label={m['workflows.duplicate_named']({ name })}
-								title={m['workflows.duplicate']()}
-								onclick={() => duplicate(workflow)}><Copy /></Button
-							>
-							{#if !workflow.builtin || workflow.customized}<Button
+							{#if !workflow.builtin}
+								{#if list.pipelines_enabled}<Button
+										size="icon-sm"
+										variant="ghost"
+										disabled={busy !== null}
+										aria-label={m['workflows.duplicate_named']({ name })}
+										title={m['workflows.duplicate']()}
+										onclick={() => duplicate(workflow)}><Copy /></Button
+									>{/if}
+								<Button
 									size="icon-sm"
 									variant="ghost"
 									class="text-destructive hover:text-destructive"
 									disabled={busy !== null}
-									aria-label={workflow.builtin
-										? m['workflows.reset_named']({ name })
-										: m['workflows.delete_named']({ name })}
-									title={workflow.builtin ? m['workflows.reset']() : m['workflows.delete']()}
-									onclick={() => (deleting = workflow)}
-									>{#if workflow.builtin}<RotateCcw />{:else}<Trash2 />{/if}</Button
-								>{/if}
+									aria-label={m['workflows.delete_named']({ name })}
+									title={m['workflows.delete']()}
+									onclick={() => (deleting = workflow)}><Trash2 /></Button
+								>
+							{/if}
 						</Item.Actions>
 					{/if}
 				</Item.Root>
@@ -221,7 +213,6 @@
 {#if creating}
 	<NewWorkflowDialog
 		{slug}
-		pipelines={!!list?.pipelines_enabled}
 		onclose={() => (creating = false)}
 		oncreated={(created) => {
 			creating = false;
@@ -233,19 +224,13 @@
 <AlertDialog.Root open={!!deleting} onOpenChange={(open) => !open && (deleting = null)}>
 	<AlertDialog.Content class="max-h-[calc(100dvh-2rem)] overflow-y-auto wrap-anywhere">
 		<AlertDialog.Header>
-			<AlertDialog.Title
-				>{deleting?.builtin ? m['workflows.reset_title']() : m['workflows.delete_title']()}</AlertDialog.Title
-			>
-			<AlertDialog.Description
-				>{deleting?.builtin
-					? m['workflows.reset_confirm']()
-					: m['workflows.delete_confirm']({ name: deleting?.name ?? '' })}</AlertDialog.Description
-			>
+			<AlertDialog.Title>{m['workflows.delete_title']()}</AlertDialog.Title>
+			<AlertDialog.Description>{m['workflows.delete_confirm']({ name: deleting?.name ?? '' })}</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>
 			<AlertDialog.Cancel>{m['common.cancel']()}</AlertDialog.Cancel>
 			<AlertDialog.Action variant="destructive" disabled={busy !== null} onclick={remove}
-				>{deleting?.builtin ? m['workflows.reset']() : m['workflows.delete']()}</AlertDialog.Action
+				>{m['workflows.delete']()}</AlertDialog.Action
 			>
 		</AlertDialog.Footer>
 	</AlertDialog.Content>

@@ -3,10 +3,10 @@ import type { PipelineDefinition, WorkflowIssue } from '../../src/lib/api/workfl
 
 // The pipeline editor (KUA-284), with the server's pipelines on: a pipeline
 // is built and saved through the workflow save route with the validator's
-// issues shown where they are fixed, a blank pipeline and the pipeline
-// templates (KUA-290) are created from the new-workflow dialog, and "Draft a
-// pipeline" opens the server's draft of a graph workflow unsaved, or lists
-// why there is none.
+// issues shown where they are fixed, and a blank pipeline and the pipeline
+// templates (KUA-290) are created from the new-workflow dialog. Graph
+// workflows were removed: only pipelines are offered, and the built-in
+// Standard flow is read only.
 const time = '2026-11-25T00:00:00Z';
 
 const profile = (id: string, name: string, behaviour: string) => ({
@@ -56,16 +56,18 @@ const team = (): PipelineDefinition => ({
 	budget: { max_turns: 40, max_minutes: 2880, on_exhausted: 'ask' }
 });
 
-const loopGraph = {
+// The built-in Standard flow's drawn graph, as the server still lists it.
+const standardGraph = {
 	nodes: [
 		{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
-		{ id: 'implement', type: 'agent', label: 'Implement', profile_id: 'p-impl', position: { x: 200, y: 0 } },
-		{ id: 'plan', type: 'agent', label: 'Plan it', profile_id: 'p-impl', position: { x: 400, y: 0 } },
-		{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: { x: 600, y: 0 } }
+		{ id: 'implement', type: 'agent', label: 'Implement', position: { x: 200, y: 0 } },
+		{ id: 'done', type: 'end', label: 'Done', outcome: 'done', position: { x: 400, y: 0 } }
 	],
 	edges: [],
 	budget: {}
 };
+const standardDescription =
+	'Implement, validate, publish a pull request and wait for human review, with follow-ups on CI failures, change requests and comments.';
 
 const summary = (id: string, name: string, graph: unknown, extra: Record<string, unknown> = {}) => ({
 	id,
@@ -101,11 +103,18 @@ function validate(graph: PipelineDefinition): WorkflowIssue[] {
 type Default = { scope: string; scope_id: string; workflow_id: string | null };
 type Options = {
 	pipelines?: boolean;
-	draft?: { pipeline: PipelineDefinition | null; reasons: WorkflowIssue[] };
 	defaults?: Default[];
 };
 
 async function fixture(page: Page, options: Options = {}) {
+	const standard = () =>
+		summary('standard', 'Standard', standardGraph, {
+			builtin: true,
+			latest_version: 0,
+			version_id: null,
+			description: standardDescription,
+			updated_at: undefined
+		});
 	const state = {
 		writes: [] as { method: string; path: string; body: Record<string, unknown> }[],
 		created: null as Record<string, unknown> | null,
@@ -113,8 +122,7 @@ async function fixture(page: Page, options: Options = {}) {
 	};
 	const list = () => ({
 		workflows: [
-			summary('standard', 'Standard', loopGraph, { builtin: true, latest_version: 0 }),
-			summary('loop', 'Review loop', loopGraph),
+			standard(),
 			summary('team', 'Team', team())
 		],
 		defaults: state.defaults,
@@ -168,10 +176,7 @@ async function fixture(page: Page, options: Options = {}) {
 				return route.fulfill({ json: summary('team', 'Team', request.postDataJSON().graph, { latest_version: 2 }) });
 			return route.fulfill({ json: { ...summary('team', 'Team', team()), versions: [] } });
 		}
-		if (path === `${w}/workflows/loop`)
-			return route.fulfill({ json: { ...summary('loop', 'Review loop', loopGraph), versions: [] } });
-		if (path === `${w}/workflows/loop/draft-pipeline`)
-			return route.fulfill({ json: options.draft ?? { pipeline: team(), reasons: [] } });
+		if (path === `${w}/workflows/standard`) return route.fulfill({ json: { ...standard(), versions: [] } });
 		if (path === `${w}/workflows/new-1` && state.created)
 			return route.fulfill({ json: { ...state.created, versions: [] } });
 		return route.fulfill({ json: [] });
@@ -344,68 +349,54 @@ for (const [option, template] of [
 	});
 }
 
-test('a graph workflow is drafted as a pipeline that opens unsaved and is saved as a new workflow', async ({
-	page
-}) => {
-	const state = await fixture(page);
+test('the new-workflow dialog offers only pipelines', async ({ page }) => {
+	await fixture(page);
 	await page.goto('/test/settings/workflows');
-	// Only graph workflows offer a draft; a pipeline does not.
-	await expect(page.getByRole('link', { name: 'Draft a pipeline from Team' })).toHaveCount(0);
-	await page.getByRole('link', { name: 'Draft a pipeline from Review loop' }).click();
-	await expect(page).toHaveURL(/\/test\/settings\/workflows\/loop\/pipeline-draft$/);
-	const editor = page.getByTestId('pipeline-editor');
-	await expect(editor).toBeVisible();
-	await expect(editor.getByRole('heading', { name: 'Review loop (pipeline)' })).toBeVisible();
-	await expect(editor.getByTestId('pipeline-unsaved')).toBeVisible();
-	await expect(editor.getByTestId('workflow-node-merge')).toBeVisible();
-	// Drafting saved nothing.
-	expect(state.writes.map((write) => `${write.method} ${write.path}`)).toEqual([
-		'POST /api/workspaces/test/workflows/loop/draft-pipeline'
-	]);
-
-	await editor.getByTestId('pipeline-save').click();
-	await expect(page).toHaveURL(/\/test\/settings\/workflows\/new-1$/);
-	await expect(page.getByTestId('pipeline-editor').getByTestId('pipeline-unsaved')).toHaveCount(0);
-	const create = state.writes[1];
-	expect(`${create.method} ${create.path}`).toBe('POST /api/workspaces/test/workflows');
-	expect(create.body).toEqual({ name: 'Review loop (pipeline)', description: '', graph: team() });
-});
-
-test('a graph workflow that cannot be drafted lists the reasons on its steps', async ({ page }) => {
-	await fixture(page, {
-		draft: {
-			pipeline: null,
-			reasons: [
-				{ code: 'planning_step', node_id: 'plan', message: 'Plan it: a planning step has no phase' },
-				{ code: 'something_new', message: 'A reason this editor has no words for' }
-			]
-		}
-	});
-	await page.goto('/test/settings/workflows/loop/pipeline-draft');
-	const reasons = page.getByTestId('pipeline-draft-reasons');
-	await expect(reasons.getByRole('heading', { name: 'Review loop cannot be drafted as a pipeline' })).toBeVisible();
-	const items = reasons.getByTestId('pipeline-draft-reason');
-	await expect(items).toHaveCount(2);
-	await expect(items.nth(0)).toContainText('Plan it');
-	await expect(items.nth(0)).toContainText('A planning step has no phase: no check says that a plan is done.');
-	await expect(items.nth(1)).toContainText('A reason this editor has no words for');
-	await expect(page.getByTestId('pipeline-editor')).toHaveCount(0);
-	await expect(reasons.getByRole('link', { name: 'Open Review loop' })).toHaveAttribute(
-		'href',
-		'/test/settings/workflows/loop'
-	);
-});
-
-test('with pipelines off nothing offers to draft or create one, and a pipeline stays read only', async ({ page }) => {
-	await fixture(page, { pipelines: false });
-	await page.goto('/test/settings/workflows');
-	await expect(page.getByTestId('workflow-row').first()).toBeVisible();
-	await expect(page.getByTestId('workflow-draft-pipeline')).toHaveCount(0);
 	await page.getByTestId('workflow-new').click();
 	await page.getByRole('combobox', { name: 'Start from' }).click();
-	await expect(page.getByRole('option', { name: 'Review loop', exact: true })).toBeVisible();
-	await expect(page.getByRole('option', { name: /pipeline/i })).toHaveCount(0);
-	await page.keyboard.press('Escape');
+	await expect(page.getByRole('option')).toHaveText([
+		'Review loop (pipeline)',
+		'Full cycle (pipeline)',
+		'Standard (pipeline)',
+		'Blank pipeline (experimental)'
+	]);
+});
+
+// Standard is the built-in flow every task without a workflow runs: it is
+// read only, never edited, copied or deleted, and its page describes it.
+test('the built-in Standard flow is read only', async ({ page }) => {
+	const state = await fixture(page);
+	await page.goto('/test/settings/workflows');
+	const rows = page.getByTestId('workflow-row');
+	await expect(rows).toHaveCount(2);
+	const standard = rows.filter({ hasText: 'Standard' });
+	await expect(standard.getByText('Built-in')).toBeVisible();
+	await expect(standard.getByRole('button')).toHaveCount(0);
+	await expect(standard.getByRole('link', { name: 'Edit Standard' })).toHaveCount(0);
+	const team = rows.filter({ hasText: 'Team' });
+	await expect(team.getByRole('link', { name: 'Edit Team' })).toBeVisible();
+	await expect(team.getByRole('button', { name: 'Duplicate Team' })).toBeVisible();
+	await expect(team.getByRole('button', { name: 'Delete Team' })).toBeVisible();
+	await expect(team.getByRole('button', { name: 'Make Team the default' })).toBeVisible();
+
+	await standard.getByRole('link', { name: 'Open Standard' }).click();
+	await expect(page).toHaveURL(/\/test\/settings\/workflows\/standard$/);
+	const view = page.getByTestId('standard-workflow-view');
+	await expect(view.getByRole('heading', { name: 'Standard' })).toBeVisible();
+	await expect(view.getByText('Read only')).toBeVisible();
+	await expect(view.getByTestId('standard-workflow-description')).toHaveText(standardDescription);
+	await expect(view.getByTestId('standard-workflow-notice')).toContainText('create a pipeline');
+	await expect(page.getByTestId('pipeline-editor')).toHaveCount(0);
+	await expect(page.getByRole('region', { name: /canvas/i })).toHaveCount(0);
+	expect(state.writes).toEqual([]);
+});
+
+test('with pipelines off nothing offers to create or copy one, and a pipeline stays read only', async ({ page }) => {
+	await fixture(page, { pipelines: false });
+	await page.goto('/test/settings/workflows');
+	await expect(page.getByTestId('workflow-row')).toHaveCount(2);
+	await expect(page.getByTestId('workflow-new')).toHaveCount(0);
+	await expect(page.getByRole('button', { name: 'Duplicate Team' })).toHaveCount(0);
 	await page.goto('/test/settings/workflows/team');
 	await expect(page.getByTestId('pipeline-view')).toBeVisible();
 	await expect(page.getByTestId('pipeline-editor')).toHaveCount(0);
@@ -421,7 +412,7 @@ test('a pipeline is chosen as the workspace default only while pipelines are on'
 	const workspace = defaults.getByRole('combobox', { name: 'Workspace' });
 	await expect(workspace).toHaveText('Standard');
 	await workspace.click();
-	await expect(page.getByRole('option')).toHaveText(['Standard', 'Review loop', 'Team']);
+	await expect(page.getByRole('option')).toHaveText(['Standard', 'Team']);
 	await page.getByRole('option', { name: 'Team' }).click();
 	await expect(workspace).toHaveText('Team');
 	expect(state.writes).toEqual([
@@ -438,7 +429,7 @@ test('with pipelines off a default offers no pipeline but still shows the one it
 	await page.goto('/test/settings/workflows');
 	const workspace = page.getByTestId('workflow-defaults').getByRole('combobox', { name: 'Workspace' });
 	await workspace.click();
-	await expect(page.getByRole('option')).toHaveText(['Standard', 'Review loop']);
+	await expect(page.getByRole('option')).toHaveText(['Standard']);
 	await page.keyboard.press('Escape');
 
 	await fixture(page, {

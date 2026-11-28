@@ -36,7 +36,6 @@ interface PreferencesData {
 	issuesGroupBy: GroupByField;
 	browserNotifications: boolean;
 	pushNotifications: boolean;
-	workflowEditorPanelOpen?: boolean;
 	notificationSound: NotificationSound;
 	notificationEvents: NotificationEvents;
 	timezone?: string;
@@ -70,7 +69,6 @@ class PreferencesState {
 	issuesGroupBy = $state<GroupByField>('status');
 	browserNotifications = $state(true);
 	pushNotifications = $state(true);
-	workflowEditorPanelOpen = $state(true);
 	notificationSound = $state<NotificationSound>(DEFAULT_NOTIFICATION_SOUND);
 	notificationEvents = $state<NotificationEvents>(defaultNotificationEvents());
 	/** The zone the assistant computes dates in; empty until detected or chosen. */
@@ -146,7 +144,6 @@ class PreferencesState {
 			if (data.issuesGroupBy !== undefined) this.issuesGroupBy = normalizeIssuesGroupBy(data.issuesGroupBy);
 			if (data.browserNotifications !== undefined) this.browserNotifications = data.browserNotifications !== false;
 			if (data.pushNotifications !== undefined) this.pushNotifications = data.pushNotifications !== false;
-			if (data.workflowEditorPanelOpen !== undefined) this.workflowEditorPanelOpen = data.workflowEditorPanelOpen !== false;
 			if (data.notificationSound !== undefined) this.notificationSound = normalizeNotificationSound(data.notificationSound);
 			if (data.notificationEvents !== undefined) this.notificationEvents = normalizeNotificationEvents(data.notificationEvents);
 			if (data.timezone !== undefined) this.timezone = data.timezone;
@@ -192,7 +189,6 @@ class PreferencesState {
 			// Absent on a server that predates these fields: keep the defaults.
 			this.browserNotifications = data.browser_notifications !== false;
 			this.pushNotifications = data.push_notifications !== false;
-			this.workflowEditorPanelOpen = data.workflow_editor_panel_open !== false;
 			this.notificationSound = normalizeNotificationSound(data.notification_sound);
 			this.notificationEvents = normalizeNotificationEvents(data.notification_events);
 			// Only a signed-in profile with an explicitly empty zone needs detection.
@@ -220,7 +216,6 @@ class PreferencesState {
 			issuesGroupBy: this.issuesGroupBy,
 			browserNotifications: this.browserNotifications,
 			pushNotifications: this.pushNotifications,
-			workflowEditorPanelOpen: this.workflowEditorPanelOpen,
 			notificationSound: this.notificationSound,
 			notificationEvents: this.notificationEvents,
 			timezone: this.timezone,
@@ -285,7 +280,6 @@ class PreferencesState {
 			issues_group_by: toIssuesGroupByPreference(this.issuesGroupBy),
 			browser_notifications: this.browserNotifications,
 			push_notifications: this.pushNotifications,
-			workflow_editor_panel_open: this.workflowEditorPanelOpen,
 			notification_sound: this.notificationSound,
 			notification_events: { ...this.notificationEvents },
 			...(this.timezoneDirty ? { timezone: this.timezone } : {})
@@ -382,11 +376,6 @@ class PreferencesState {
 
 	setBrowserNotifications(enabled: boolean) {
 		this.browserNotifications = enabled;
-		this.persist();
-	}
-
-	setWorkflowEditorPanelOpen(open: boolean) {
-		this.workflowEditorPanelOpen = open;
 		this.persist();
 	}
 

@@ -14,58 +14,40 @@
 	} from '$lib/api/workflows';
 	import { appToast } from '$lib/features/toast/toast';
 	import { m } from '$lib/features/i18n/messages';
-	import { nodeTypeLabel } from './labels';
-	import { starterGraph, starterProfile } from './workflow-graph';
+	import { starterProfile } from './workflow-graph';
 	import { pipelineForSave, starterPipeline } from './pipeline-editor';
 
-	// Creates a workflow from a template. Blank starts with one agent step run
-	// by the built-in Implementer; the other templates are built by the server.
-	// While the server has pipelines on, the pipeline versions of Review loop,
-	// Full cycle and Standard are offered too (the server drafts each from its
-	// graph template), and a blank pipeline: one phase worked by the role that
-	// writes the code (the built-in Implementer).
+	// Creates a pipeline workflow from a template: the pipeline versions of
+	// Review loop, Full cycle and Standard (built by the server), or a blank
+	// pipeline: one phase worked by the role that writes the code (the
+	// built-in Implementer). Offered only while the server has pipelines on.
 	let {
 		slug,
-		pipelines = false,
 		oncreated,
 		onclose
 	}: {
 		slug: string;
-		/** The server has pipelines on. */
-		pipelines?: boolean;
 		oncreated: (created: WorkflowSummary) => void;
 		onclose: () => void;
 	} = $props();
 
-	type Template = WorkflowTemplate | 'blank' | 'pipeline';
+	type Template = WorkflowTemplate | 'pipeline';
 	let name = $state(''),
 		description = $state(''),
-		template = $state<Template>('review_loop'),
+		template = $state<Template>('review_loop_pipeline'),
 		saving = $state(false);
 
 	const hints: Record<Template, () => string> = {
-		review_loop: m['workflows.template_hint_review_loop'],
-		full_cycle: m['workflows.template_hint_full_cycle'],
-		standard: m['workflows.template_hint_standard'],
-		blank: m['workflows.template_hint_blank'],
 		review_loop_pipeline: m['workflows.pipeline_editor.template_hint_review_loop'],
 		full_cycle_pipeline: m['workflows.pipeline_editor.template_hint_full_cycle'],
 		standard_pipeline: m['workflows.pipeline_editor.template_hint_standard'],
 		pipeline: m['workflows.pipeline_editor.template_hint']
 	};
 	const options = $derived<{ value: Template; label: string }[]>([
-		{ value: 'review_loop', label: m['workflows.template_review_loop']() },
-		{ value: 'full_cycle', label: m['workflows.template_full_cycle']() },
-		{ value: 'standard', label: m['workflows.template_standard']() },
-		{ value: 'blank', label: m['workflows.template_blank']() },
-		...(pipelines
-			? [
-					{ value: 'review_loop_pipeline' as const, label: m['workflows.pipeline_editor.template_review_loop']() },
-					{ value: 'full_cycle_pipeline' as const, label: m['workflows.pipeline_editor.template_full_cycle']() },
-					{ value: 'standard_pipeline' as const, label: m['workflows.pipeline_editor.template_standard']() },
-					{ value: 'pipeline' as const, label: m['workflows.pipeline_editor.template']() }
-				]
-			: [])
+		{ value: 'review_loop_pipeline', label: m['workflows.pipeline_editor.template_review_loop']() },
+		{ value: 'full_cycle_pipeline', label: m['workflows.pipeline_editor.template_full_cycle']() },
+		{ value: 'standard_pipeline', label: m['workflows.pipeline_editor.template_standard']() },
+		{ value: 'pipeline', label: m['workflows.pipeline_editor.template']() }
 	]);
 
 	async function create(event: SubmitEvent) {
@@ -74,13 +56,7 @@
 		saving = true;
 		try {
 			const input: WorkflowSaveInput = { name: name.trim(), description: description.trim() };
-			if (template === 'blank') {
-				const { profiles } = await agentProfiles.list(slug);
-				input.graph = starterGraph(
-					{ start: nodeTypeLabel('start'), agent: nodeTypeLabel('agent'), end: nodeTypeLabel('end') },
-					starterProfile(profiles)?.id
-				);
-			} else if (template === 'pipeline') {
+			if (template === 'pipeline') {
 				const { profiles } = await agentProfiles.list(slug);
 				input.graph = pipelineForSave(
 					starterPipeline(m['workflows.pipeline_editor.implement'](), starterProfile(profiles)?.id)

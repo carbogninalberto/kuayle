@@ -68,8 +68,7 @@ func TestTeamPipelineTemplateAndTheSwitch(t *testing.T) {
 	_, err = f.workflows.SetDefault(f.ctx, f.ws, WorkflowDefaultRequest{Scope: domain.WorkflowScopeWorkspace, WorkflowID: ptr(domain.StandardWorkflowID)})
 	require.NoError(t, err)
 	_, err = f.workflows.Save(f.ctx, f.ws, domain.StandardWorkflowID, WorkflowRequest{Graph: created.Graph})
-	var input *ErrInvalidWorkflowInput
-	require.ErrorAs(t, err, &input, "every task without another workflow runs Standard")
+	require.ErrorIs(t, err, ErrGraphWorkflowsRemoved, "every task without another workflow runs the built-in Standard flow")
 
 	// Switched off again: a saved pipeline is neither started, saved nor copied.
 	f.tasks.SetPipelines(false)

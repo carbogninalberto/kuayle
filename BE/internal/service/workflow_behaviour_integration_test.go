@@ -46,25 +46,18 @@ func TestProfilesTakeAnyRoleLabelAndOneOfThreeBehaviours(t *testing.T) {
 		requireProfileRefusal(t, err, "the role is at most 40 characters on one line")
 	}
 
-	// A workflow that plans first: the plan step is the delegated iteration,
-	// on the planner's harness, and the attempt learns that it plans.
-	graph, err := json.Marshal(domain.WorkflowGraph{
-		Nodes: []domain.WorkflowNode{
-			{ID: "start", Type: domain.WorkflowNodeStart, Label: "Start"},
-			{ID: "plan", Type: domain.WorkflowNodeAgent, Label: "Plan", ProfileID: &planner.ID},
-			{ID: "build", Type: domain.WorkflowNodeAgent, Label: "Build", ProfileID: &builder.ID, Prompt: "{{plan}}"},
-			{ID: "done", Type: domain.WorkflowNodeEnd, Label: "Done", Outcome: domain.WorkflowEndDone},
-			{ID: "failed", Type: domain.WorkflowNodeEnd, Label: "Failed", Outcome: domain.WorkflowEndFailed},
-		},
-		Edges: []domain.WorkflowEdge{
-			{ID: "start-plan", Source: "start", Target: "plan", Condition: domain.WorkflowElse},
-			{ID: "plan-build", Source: "plan", Target: "build", Condition: domain.WorkflowAgentFinished},
-			{ID: "plan-failed", Source: "plan", Target: "failed", Condition: domain.WorkflowAgentFailed},
-			{ID: "build-done", Source: "build", Target: "done", Condition: domain.WorkflowAgentFinished},
-			{ID: "build-failed", Source: "build", Target: "failed", Condition: domain.WorkflowAgentFailed},
-		},
-	})
-	require.NoError(t, err)
+	// A pipeline whose builder writes the code, with the planner on call: a
+	// task on it runs the writer's profile, and the attempt learns what it
+	// does and what it is called.
+	f.tasks.SetPipelines(true)
+	pipeline := func(writer uuid.UUID) json.RawMessage {
+		return mustJSON(t, domain.Pipeline{
+			Kind:   domain.WorkflowKindPipeline,
+			Phases: []domain.PipelinePhase{{ID: "build", Label: "Build", Owner: "builder"}},
+			Roster: []domain.PipelineMember{{Role: "builder", ProfileID: writer, Writer: true}, {Role: "architect", ProfileID: planner.ID, OnCall: true}},
+		})
+	}
+	graph := pipeline(builder.ID)
 	issues, err := f.workflows.Validate(f.ctx, f.ws, graph)
 	require.NoError(t, err)
 	require.Empty(t, issues)
@@ -76,12 +69,13 @@ func TestProfilesTakeAnyRoleLabelAndOneOfThreeBehaviours(t *testing.T) {
 	require.NoError(t, err)
 	task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Add dark mode", Provider: "claude-code"})
 	require.NoError(t, err)
-	require.Equal(t, "plan", *task.WorkflowNode)
-	require.Equal(t, "codex", task.Provider)
+	require.True(t, task.Pipeline)
+	require.Equal(t, "build", *task.WorkflowNode)
+	require.Equal(t, "codex", task.Provider, "the writer's profile decides the harness")
 	bundle, err := repository.NewAgentTaskRepository(f.db).ProfileBundle(f.ctx, *task)
 	require.NoError(t, err)
-	require.Equal(t, domain.AgentBehaviourPlans, bundle.Behaviour)
-	require.Equal(t, "Staff engineer · platform", bundle.Role)
+	require.Equal(t, domain.AgentBehaviourChangesCode, bundle.Behaviour)
+	require.Equal(t, "reviewer", bundle.Role, "the label is the builder's, whatever it once meant")
 
 	// In use: what the profile does is fixed, what it is called is not.
 	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, planner.ID, request("Architect", "Staff engineer", domain.AgentBehaviourChangesCode))
@@ -92,52 +86,13 @@ func TestProfilesTakeAnyRoleLabelAndOneOfThreeBehaviours(t *testing.T) {
 	_, err = f.workflows.UpdateProfile(f.ctx, f.ws, unlabelled.ID, request("Critic", "Sceptic", domain.AgentBehaviourPlans))
 	require.NoError(t, err, "an unused profile may change behaviour")
 
-	// A review step cannot follow a plan directly: nothing is published.
-	bad := strings.Replace(string(graph), builder.ID.String(), list.Profiles[1].ID.String(), 1)
-	issues, err = f.workflows.Validate(f.ctx, f.ws, json.RawMessage(bad))
-	require.NoError(t, err)
-	codes := []string{}
-	for _, issue := range issues {
-		codes = append(codes, issue.Code)
+	// The role that writes the code needs a profile that changes code.
+	for _, writer := range []uuid.UUID{planner.ID, unlabelled.ID} {
+		issues, err = f.workflows.Validate(f.ctx, f.ws, pipeline(writer))
+		require.NoError(t, err)
+		require.Equal(t, []string{"invalid_writer"}, codesOf(issues))
 	}
-	require.Contains(t, codes, "plan_target")
-}
-
-// Validation warns, without refusing, when a planning profile runs a step
-// named or told to implement (KUA-122).
-func TestValidationWarnsAboutAPlanningStepToldToImplement(t *testing.T) {
-	f := newProfileFixture(t)
-	planner, err := f.workflows.CreateProfile(f.ctx, f.ws, AgentProfileRequest{Name: "Orchestrator", Behaviour: domain.AgentBehaviourPlans, Harness: "codex"})
-	require.NoError(t, err)
-	builder, err := f.workflows.CreateProfile(f.ctx, f.ws, AgentProfileRequest{Name: "Builder", Behaviour: domain.AgentBehaviourChangesCode, Harness: "codex"})
-	require.NoError(t, err)
-	graph, err := json.Marshal(domain.WorkflowGraph{
-		Nodes: []domain.WorkflowNode{
-			{ID: "start", Type: domain.WorkflowNodeStart, Label: "Start"},
-			{ID: "plan", Type: domain.WorkflowNodeAgent, Label: "Implementer", ProfileID: &planner.ID, Prompt: "List the changes needed, then implement them. Run the relevant tests."},
-			{ID: "build", Type: domain.WorkflowNodeAgent, Label: "Build", ProfileID: &builder.ID, Prompt: "{{plan}}"},
-			{ID: "done", Type: domain.WorkflowNodeEnd, Label: "Done", Outcome: domain.WorkflowEndDone},
-			{ID: "failed", Type: domain.WorkflowNodeEnd, Label: "Failed", Outcome: domain.WorkflowEndFailed},
-		},
-		Edges: []domain.WorkflowEdge{
-			{ID: "start-plan", Source: "start", Target: "plan", Condition: domain.WorkflowElse},
-			{ID: "plan-build", Source: "plan", Target: "build", Condition: domain.WorkflowAgentFinished},
-			{ID: "plan-failed", Source: "plan", Target: "failed", Condition: domain.WorkflowAgentFailed},
-			{ID: "build-done", Source: "build", Target: "done", Condition: domain.WorkflowAgentFinished},
-			{ID: "build-failed", Source: "build", Target: "failed", Condition: domain.WorkflowAgentFailed},
-		},
-	})
-	require.NoError(t, err)
-	issues, err := f.workflows.Validate(f.ctx, f.ws, graph)
-	require.NoError(t, err)
-	require.Empty(t, issues, "a warning does not refuse the workflow")
-	warnings, err := f.workflows.Warnings(f.ctx, f.ws, graph)
-	require.NoError(t, err)
-	require.Len(t, warnings, 2)
-	for _, warning := range warnings {
-		require.Equal(t, "planning_step_implements", warning.Code)
-		require.Equal(t, "plan", warning.NodeID)
-	}
-	_, err = f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Warned", Graph: graph})
-	require.NoError(t, err, "it can still be saved")
+	_, err = f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Planner writes", Graph: pipeline(planner.ID)})
+	var invalid *domain.WorkflowInvalidError
+	require.ErrorAs(t, err, &invalid, "it is refused when saved")
 }

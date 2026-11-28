@@ -18,6 +18,11 @@ import (
 // the switch says; the graph engine never runs a pipeline.
 var ErrPipelinesDisabled = errors.New("pipeline workflows are turned off on this server")
 
+// ErrGraphWorkflowsRemoved refuses a graph workflow: workflows are pipelines
+// (migration 216 removed the graphs). A task without a workflow runs the
+// built-in Standard flow, which is not editable.
+var ErrGraphWorkflowsRemoved = errors.New("graph workflows were removed; workflows are pipelines")
+
 // SetPipelines turns the pipeline workflows on or off for good.
 func (s *AgentTaskService) SetPipelines(enabled bool) { s.pipelines = func() bool { return enabled } }
 
@@ -34,7 +39,10 @@ func (s *AgentTaskService) PipelinesEnabled() bool {
 // pipelineRefusal says why raw, when it is a pipeline, cannot be saved or
 // start a task; nil for a graph.
 func (s *AgentTaskService) pipelineRefusal(raw []byte) error {
-	if domain.WorkflowKind(raw) == domain.WorkflowKindPipeline && !s.PipelinesEnabled() {
+	if domain.WorkflowKind(raw) != domain.WorkflowKindPipeline {
+		return ErrGraphWorkflowsRemoved
+	}
+	if !s.PipelinesEnabled() {
 		return ErrPipelinesDisabled
 	}
 	return nil
@@ -57,15 +65,32 @@ func (s *AgentTaskService) startablePipeline(ctx context.Context, ws uuid.UUID, 
 		return nil, domain.AgentProfile{}, ErrWorkflowUnusable
 	}
 	for _, member := range pipeline.Members() {
-		if err = s.profilePolicy(ctx, ws, profiles[member.ProfileID]); err != nil {
-			return nil, domain.AgentProfile{}, err
+		profile := profiles[member.ProfileID]
+		if err = s.profilePolicy(ctx, ws, profile); err != nil {
+			// Name the workflow, role and profile, as a graph step did.
+			return nil, domain.AgentProfile{}, s.stepError(ctx, ws, version, domain.WorkflowNode{Label: member.Role}, profile, err)
+		}
+		// A pipeline saved before its profiles were checked (or a profile
+		// stored without the save-time checks) is refused here, by name,
+		// rather than when its writer's machine request fails.
+		if s.machines == nil {
+			continue
+		}
+		if provider, ok := s.machines.agents.Get(profile.Harness); ok && !provider.Metadata().Custom {
+			request := domain.AgentTaskRequest{Prompt: "Workflow step", Provider: profile.Harness, Model: profile.Model, Thinking: profile.Effort}
+			if err = s.validateInvocation(ctx, ws, provider, request); err != nil {
+				return nil, domain.AgentProfile{}, s.stepError(ctx, ws, version, domain.WorkflowNode{Label: member.Role}, profile, err)
+			}
 		}
 	}
 	writer, _ := pipeline.Writer()
 	return pipeline, profiles[writer.ProfileID], nil
 }
 
-// pipelineIssues is every problem of a pipeline (domain.ValidatePipeline).
+// pipelineIssues is every problem of a pipeline (domain.ValidatePipeline),
+// and every role (the lead too) whose profile cannot start a task with the
+// model and effort it sets, as a task start would refuse it. Like the other
+// roster problems these name the role and carry no phase.
 func (s *WorkflowService) pipelineIssues(ctx context.Context, ws uuid.UUID, raw json.RawMessage) ([]domain.WorkflowIssue, error) {
 	pipeline, err := domain.ParsePipeline(raw)
 	if err != nil {
@@ -79,7 +104,30 @@ func (s *WorkflowService) pipelineIssues(ctx context.Context, ws uuid.UUID, raw 
 	if err != nil {
 		return nil, err
 	}
-	return domain.ValidatePipeline(*pipeline, profiles), nil
+	issues := domain.ValidatePipeline(*pipeline, profiles)
+	if s.tasks == nil || s.tasks.machines == nil {
+		// Without the machine service there are no coding agents to check.
+		return issues, nil
+	}
+	reasons := map[uuid.UUID]string{}
+	for _, member := range pipeline.Members() {
+		profile, ok := profiles[member.ProfileID]
+		if !ok {
+			continue
+		}
+		reason, checked := reasons[profile.ID]
+		if !checked {
+			if reason, err = s.tasks.profileProblem(ctx, ws, profile); err != nil {
+				return nil, err
+			}
+			reasons[profile.ID] = reason
+		}
+		if reason != "" {
+			issues = append(issues, domain.WorkflowIssue{Code: "unusable_profile",
+				Message: fmt.Sprintf("%s: the profile %q cannot start a task: %s", member.Role, profile.Name, reason)})
+		}
+	}
+	return issues, nil
 }
 
 // pipeline is the pipeline a task runs and the profiles of the workspace
@@ -171,60 +219,4 @@ func (s *AgentTaskService) decidePipeline(ctx context.Context, ws, id uuid.UUID,
 		return nil, ErrWorkflowDecision
 	}
 	return decided, err
-}
-
-// PipelineDraft is a pipeline drafted from a graph workflow
-// (domain.DraftPipeline), or the reasons it has none.
-type PipelineDraft struct {
-	Pipeline *domain.Pipeline       `json:"pipeline"`
-	Reasons  []domain.WorkflowIssue `json:"reasons"`
-}
-
-// DraftPipeline drafts a pipeline from a workflow's latest version (for
-// "standard", the Standard workflow as the workspace runs it, or as the
-// editor's first copy of it), for whoever may read the workflow. It saves
-// nothing: the person saves the draft as a new workflow, and the graph keeps
-// running as it is. With pipelines off there is nothing to draft for.
-func (s *WorkflowService) DraftPipeline(ctx context.Context, ws uuid.UUID, id string) (*PipelineDraft, error) {
-	if _, _, err := s.access(ctx, ws); err != nil {
-		return nil, err
-	}
-	if !s.tasks.PipelinesEnabled() {
-		return nil, ErrPipelinesDisabled
-	}
-	var raw json.RawMessage
-	if id == domain.StandardWorkflowID {
-		standard, err := s.standardView(ctx, ws, true)
-		if err != nil {
-			return nil, err
-		}
-		raw = standard.Graph
-	} else {
-		workflowID, err := uuid.Parse(id)
-		if err != nil {
-			return nil, repository.ErrWorkflowNotFound
-		}
-		w, err := s.repo.Workflow(ctx, ws, workflowID)
-		if err != nil {
-			return nil, err
-		}
-		raw = w.Graph
-	}
-	graph, err := domain.ParseWorkflowGraph(raw)
-	if err != nil {
-		var invalid *domain.WorkflowInvalidError
-		if errors.As(err, &invalid) {
-			return &PipelineDraft{Reasons: invalid.Issues}, nil
-		}
-		return nil, err
-	}
-	profiles, err := s.repo.ActiveProfiles(ctx, ws)
-	if err != nil {
-		return nil, err
-	}
-	pipeline, reasons := domain.DraftPipeline(*graph, profiles)
-	if reasons == nil {
-		reasons = []domain.WorkflowIssue{}
-	}
-	return &PipelineDraft{Pipeline: pipeline, Reasons: reasons}, nil
 }

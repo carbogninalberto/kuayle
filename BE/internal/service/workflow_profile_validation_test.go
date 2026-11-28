@@ -107,19 +107,25 @@ func oneStepGraph(t *testing.T, profile uuid.UUID) json.RawMessage {
 	return raw
 }
 
+// oneRolePipeline is a pipeline of one phase, "Implementer", whose only
+// role, implementer, writes the code with profile.
+func oneRolePipeline(t *testing.T, profile uuid.UUID) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(domain.Pipeline{
+		Kind:   domain.WorkflowKindPipeline,
+		Phases: []domain.PipelinePhase{{ID: "implement", Label: "Implementer", Owner: "implementer"}},
+		Roster: []domain.PipelineMember{{Role: "implementer", ProfileID: profile, Writer: true}},
+		Budget: domain.PipelineBudget{MaxTurns: 8, MaxMinutes: 60, OnExhausted: domain.WorkflowOnLimitFail},
+	})
+	require.NoError(t, err)
+	return raw
+}
+
 func requireProfileRefusal(t *testing.T, err error, message string) {
 	t.Helper()
 	var invalid *ErrInvalidWorkflowInput
 	require.ErrorAs(t, err, &invalid)
 	require.Equal(t, message, invalid.Message)
-}
-
-func requireUnusableStep(t *testing.T, issues []domain.WorkflowIssue) {
-	t.Helper()
-	require.Len(t, issues, 1)
-	require.Equal(t, "unusable_profile", issues[0].Code)
-	require.Equal(t, "implement", issues[0].NodeID, "the editor shows it on the step")
-	require.Equal(t, `Implementer: the profile "Cheap" cannot start a task: `+noModelForQwen, issues[0].Message)
 }
 
 // Saving a profile applies the model and effort rules a task start applies,
@@ -191,11 +197,23 @@ func TestStoredProfileThatCannotRunStaysEditable(t *testing.T) {
 	require.Empty(t, fixed.Effort)
 }
 
-// A workflow whose agent step runs a profile that cannot start is reported
-// on that step, naming the step and the profile, when it is validated, saved
-// or chosen as a default.
+// requireUnusableRole asserts the one issue of a pipeline whose role runs
+// the stored profile "Cheap": it names the role and the profile, and, like
+// the other roster problems, carries no phase.
+func requireUnusableRole(t *testing.T, issues []domain.WorkflowIssue, role string) {
+	t.Helper()
+	require.Len(t, issues, 1)
+	require.Equal(t, "unusable_profile", issues[0].Code)
+	require.Empty(t, issues[0].NodeID)
+	require.Equal(t, role+`: the profile "Cheap" cannot start a task: `+noModelForQwen, issues[0].Message)
+}
+
+// A pipeline whose role (or lead) runs a profile that cannot start is
+// reported on that role, naming the role and the profile, when it is
+// validated, saved or chosen as a default.
 func TestWorkflowWithAProfileThatCannotStartIsReported(t *testing.T) {
 	f := newProfileFixture(t)
+	f.tasks.SetPipelines(true)
 	cheap := f.storedProfile(t, "Cheap", "qwen-code", "deepseek-v4.1-flash", "high")
 	sound := f.storedProfile(t, "Sound", "codex", "gpt-5.5", "high")
 	issuesOf := func(err error) []domain.WorkflowIssue {
@@ -204,29 +222,35 @@ func TestWorkflowWithAProfileThatCannotStartIsReported(t *testing.T) {
 		return invalid.Issues
 	}
 
-	issues, err := f.workflows.Validate(f.ctx, f.ws, oneStepGraph(t, cheap.ID))
+	issues, err := f.workflows.Validate(f.ctx, f.ws, oneRolePipeline(t, cheap.ID))
 	require.NoError(t, err)
-	requireUnusableStep(t, issues)
-	issues, err = f.workflows.Validate(f.ctx, f.ws, oneStepGraph(t, sound.ID))
+	requireUnusableRole(t, issues, "implementer")
+	issues, err = f.workflows.Validate(f.ctx, f.ws, oneRolePipeline(t, sound.ID))
 	require.NoError(t, err)
 	require.Empty(t, issues)
-
-	_, err = f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Cheap Workflow", Graph: oneStepGraph(t, cheap.ID)})
-	requireUnusableStep(t, issuesOf(err))
-	created, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Sound Workflow", Graph: oneStepGraph(t, sound.ID)})
+	var led domain.Pipeline
+	require.NoError(t, json.Unmarshal(oneRolePipeline(t, sound.ID), &led))
+	led.Lead = &domain.PipelineLead{ProfileID: cheap.ID}
+	issues, err = f.workflows.Validate(f.ctx, f.ws, mustJSON(t, led))
 	require.NoError(t, err)
-	_, err = f.workflows.Save(f.ctx, f.ws, created.ID, WorkflowRequest{Name: "Sound Workflow", ExpectedVersion: 1, Graph: oneStepGraph(t, cheap.ID)})
-	requireUnusableStep(t, issuesOf(err))
+	requireUnusableRole(t, issues, domain.PipelineLeadRole)
+
+	_, err = f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Cheap Workflow", Graph: oneRolePipeline(t, cheap.ID)})
+	requireUnusableRole(t, issuesOf(err), "implementer")
+	created, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Sound Workflow", Graph: oneRolePipeline(t, sound.ID)})
+	require.NoError(t, err)
+	_, err = f.workflows.Save(f.ctx, f.ws, created.ID, WorkflowRequest{Name: "Sound Workflow", ExpectedVersion: 1, Graph: oneRolePipeline(t, cheap.ID)})
+	requireUnusableRole(t, issuesOf(err), "implementer")
 	kept, err := f.workflows.Get(f.ctx, f.ws, created.ID)
 	require.NoError(t, err)
 	require.Equal(t, 1, kept.LatestVersion, "the refused version was not saved")
 
-	// A workflow saved before the check cannot become a default as it is.
-	legacy, err := f.repo.CreateWorkflow(f.ctx, f.ws, f.user, "Cheap Workflow", "", oneStepGraph(t, cheap.ID), "created")
+	// A pipeline stored without the check cannot become a default as it is.
+	legacy, err := f.repo.CreateWorkflow(f.ctx, f.ws, f.user, "Cheap Workflow", "", oneRolePipeline(t, cheap.ID), "created")
 	require.NoError(t, err)
 	legacyID := legacy.ID.String()
 	_, err = f.workflows.SetDefault(f.ctx, f.ws, WorkflowDefaultRequest{Scope: domain.WorkflowScopeWorkspace, WorkflowID: &legacyID})
-	requireUnusableStep(t, issuesOf(err))
+	requireUnusableRole(t, issuesOf(err), "implementer")
 	defaults, err := f.repo.Defaults(f.ctx, f.ws)
 	require.NoError(t, err)
 	require.Empty(t, defaults, "the refused default was not stored")
@@ -235,34 +259,46 @@ func TestWorkflowWithAProfileThatCannotStartIsReported(t *testing.T) {
 	require.Len(t, list.Defaults, 1)
 }
 
-// A task that cannot start because of a workflow step's profile says which
-// workflow, step and profile, and what is wrong with it, both to the task
-// composer (the error's text) and on the assistant's approval card.
+// A task that cannot start because of a pipeline role's profile says which
+// workflow, role and profile, and what is wrong with it, both to the task
+// composer (the error's text) and on the assistant's approval card. The
+// pipeline here was stored directly, skipping the save-time check, so the
+// start is the only guard.
 func TestTaskStartNamesTheWorkflowStepThatCannotRun(t *testing.T) {
 	f := newProfileFixture(t)
+	f.tasks.SetPipelines(true)
 	cheap := f.storedProfile(t, "Cheap", "qwen-code", "deepseek-v4.1-flash", "high")
-	legacy, err := f.repo.CreateWorkflow(f.ctx, f.ws, f.user, "Cheap Workflow", "", oneStepGraph(t, cheap.ID), "created")
+	stored, err := f.repo.CreateWorkflow(f.ctx, f.ws, f.user, "Cheap Workflow", "", oneRolePipeline(t, cheap.ID), "created")
 	require.NoError(t, err)
-	require.NoError(t, f.repo.SetDefault(f.ctx, f.ws, f.user, domain.WorkflowScopeWorkspace, f.ws, &legacy.ID, false))
+	require.NoError(t, f.repo.SetDefault(f.ctx, f.ws, f.user, domain.WorkflowScopeWorkspace, f.ws, &stored.ID, false))
 	chat, err := repository.NewConversationRepository(f.db).OpenIssue(f.ctx, f.ws, f.issue)
 	require.NoError(t, err)
 	start := func() error {
 		_, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Implement it", Provider: "codex"})
 		return err
 	}
+	tasks := func() int {
+		var count int
+		require.NoError(t, f.db.Get(&count, `SELECT count(*) FROM agent_tasks WHERE workspace_id=$1`, f.ws))
+		return count
+	}
 
-	const unusable = `Workflow "Cheap Workflow", step "Implementer" (profile "Cheap"): ` + noModelForQwen
+	const unusable = `Workflow "Cheap Workflow", step "implementer" (profile "Cheap"): ` + noModelForQwen
 	err = start()
 	require.ErrorIs(t, err, ErrInvalidMachineInput, "the task composer still gets a 400")
+	var step *WorkflowStepError
+	require.ErrorAs(t, err, &step)
+	require.Equal(t, WorkflowStepError{Workflow: "Cheap Workflow", Step: "implementer", Profile: "Cheap", Reason: noModelForQwen}, WorkflowStepError{Workflow: step.Workflow, Step: step.Step, Profile: step.Profile, Reason: step.Reason})
 	require.Equal(t, unusable, err.Error())
 	message, permanent := delegationFailure(err)
 	require.True(t, permanent)
 	require.Equal(t, unusable, message)
+	require.Zero(t, tasks())
 
 	// The approval card shows that reason instead of the generic sentence.
 	approvals := newToolFixture(t)
-	a, approval, tasks := requestDelegation(t, approvals)
-	tasks.createErr = err
+	a, approval, fake := requestDelegation(t, approvals)
+	fake.createErr = err
 	failed, resolveErr := approvals.service.ResolveApproval(approvals.ctx, approvals.ws, a.Conversation.ID, approval.ID, true)
 	require.NoError(t, resolveErr)
 	require.Equal(t, "failed", failed.Status)
@@ -276,10 +312,12 @@ func TestTaskStartNamesTheWorkflowStepThatCannotRun(t *testing.T) {
 	require.ErrorIs(t, err, ErrProviderNotAllowed)
 	message, permanent = delegationFailure(err)
 	require.True(t, permanent)
-	require.Equal(t, `Workflow "Cheap Workflow", step "Implementer" (profile "Cheap"): qwen-code is not allowed in this workspace`, message)
+	require.Equal(t, `Workflow "Cheap Workflow", step "implementer" (profile "Cheap"): qwen-code is not allowed in this workspace`, message)
+	require.Zero(t, tasks())
 
 	f.machines.policy.AllowedProviders = json.RawMessage(`["codex","qwen-code"]`)
 	require.NoError(t, start(), "the repaired profile starts a task")
+	require.Equal(t, 1, tasks())
 }
 
 // A refusal without a specific reason keeps the generic sentence; one that
@@ -295,12 +333,14 @@ func TestDelegationFailureKeepsTheGenericSentenceAsAFallback(t *testing.T) {
 	require.Equal(t, "The coding task request was rejected: qwen-code does not accept a model or effort", message)
 }
 
-// An OpenCode profile chooses a provider/model and an effort: it saves, its
-// workflow validates and becomes a default, and a task started through it is
+// An OpenCode profile chooses a provider/model and an effort: it saves, a
+// pipeline it writes for validates and becomes a default, and a task started
+// through it is
 // an OpenCode task with that model and effort and no model server, even when
 // the workspace has a default one.
 func TestOpenCodeProfileStartsATaskWithItsModelAndEffort(t *testing.T) {
 	f := newProfileFixture(t)
+	f.tasks.SetPipelines(true)
 	const model = "opencode-go/deepseek-v4.1-flash"
 	request := func(name, model, effort string) AgentProfileRequest {
 		return AgentProfileRequest{Name: name, Role: "Implementer", Behaviour: domain.AgentBehaviourChangesCode, Harness: "opencode", Model: model, Effort: effort}
@@ -325,14 +365,14 @@ func TestOpenCodeProfileStartsATaskWithItsModelAndEffort(t *testing.T) {
 	require.NoError(t, err)
 	startThrough := func(name string, profile uuid.UUID) *domain.AgentTask {
 		t.Helper()
-		issues, err := f.workflows.Validate(f.ctx, f.ws, oneStepGraph(t, profile))
+		issues, err := f.workflows.Validate(f.ctx, f.ws, oneRolePipeline(t, profile))
 		require.NoError(t, err)
 		require.Empty(t, issues)
-		workflow, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: name, Graph: oneStepGraph(t, profile)})
+		workflow, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: name, Graph: oneRolePipeline(t, profile)})
 		require.NoError(t, err)
 		_, err = f.workflows.SetDefault(f.ctx, f.ws, WorkflowDefaultRequest{Scope: domain.WorkflowScopeWorkspace, WorkflowID: &workflow.ID})
 		require.NoError(t, err)
-		// The composer asked for Codex; the workflow's first step decides.
+		// The composer asked for Codex; the pipeline's writer decides.
 		task, err := f.tasks.Create(f.ctx, f.ws, chat.ID, domain.AgentTaskRequest{RequestID: uuid.New(), Prompt: "Implement it", Provider: "codex", Model: "gpt-5.5", Thinking: "low"})
 		require.NoError(t, err)
 		var stored domain.AgentTask
@@ -381,7 +421,7 @@ func TestOpenCodeProfileSaveChecksTheGoPlanCatalog(t *testing.T) {
 		names = append(names, profile.Name)
 	}
 	require.Contains(t, names, "Dropped")
-	issues, err := f.workflows.Validate(f.ctx, f.ws, oneStepGraph(t, dropped.ID))
+	issues, err := f.workflows.Validate(f.ctx, f.ws, oneRolePipeline(t, dropped.ID))
 	require.NoError(t, err)
 	require.Empty(t, issues, "a workflow keeps using a profile the list dropped")
 	problem, err := f.tasks.profileProblem(f.ctx, f.ws, *dropped)

@@ -11,184 +11,10 @@ import type {
 	TaskWorkflow
 } from '$lib/api/workflows';
 
-// Pure graph helpers for the workflow editor and the task's workflow view.
-// The server validates every graph (BE/internal/domain/workflow.go); these
-// only offer the choices it accepts and place its answers on the canvas.
-
-/** Node types the palette adds; a workflow has exactly one start. */
-export const PALETTE: WorkflowNodeType[] = ['agent', 'check', 'approval', 'publish', 'merge', 'end'];
-
-/** What the add-step menus offer: the node types plus ready-made blocks. */
-export type Block = WorkflowNodeType | 'review';
-export const BLOCKS: Block[] = ['agent', 'review', 'check', 'approval', 'publish', 'merge', 'end'];
-
-/** Whether a step that runs the profile reviews the published pull request. */
-export function reviews(profile: Pick<AgentProfile, 'behaviour'> | undefined): boolean {
-	return profile?.behaviour === 'reviews';
-}
-
-/** The conditions a transition leaving the node may use, "else" last. */
-export function conditionsFor(node: WorkflowNode, profiles: AgentProfile[]): WorkflowCondition[] {
-	let outcomes: WorkflowCondition[] = [];
-	switch (node.type) {
-		case 'start':
-			return node.profile_id ? ['else', 'assistant'] : ['else'];
-		case 'end':
-			return [];
-		case 'agent': {
-			const profile = profiles.find((p) => p.id === node.profile_id);
-			outcomes = reviews(profile)
-				? ['review_approved', 'review_changes_requested', 'agent_failed']
-				: ['agent_finished', 'agent_failed'];
-			break;
-		}
-		case 'check':
-			outcomes = ['checks_passed', 'checks_failed'];
-			break;
-		case 'approval':
-			outcomes = ['approval_approved', 'approval_denied'];
-			break;
-		case 'publish':
-			outcomes = ['published', 'publish_failed', 'no_changes'];
-			break;
-		case 'merge':
-			outcomes = ['merged'];
-			break;
-	}
-	if ((node.timeout_minutes ?? 0) > 0 && waits(node, profiles)) outcomes.push('timeout');
-	if (node.type !== 'agent' && node.profile_id) return [...outcomes, 'else', 'assistant'];
-	return [...outcomes, 'else'];
-}
-
-/**
- * Whether the task waits at the node for something outside it (a reviewer's
- * verdict, CI, a person, a merge): only those steps can time out.
- */
-export function waits(node: WorkflowNode, profiles: AgentProfile[]): boolean {
-	switch (node.type) {
-		case 'approval':
-		case 'merge':
-			return true;
-		case 'check':
-			return node.check === 'ci';
-		case 'agent':
-			return reviews(profiles.find((p) => p.id === node.profile_id));
-	}
-	return false;
-}
-
-function uniqueId(prefix: string, taken: Set<string>): string {
-	for (let n = 1; ; n++) {
-		const id = `${prefix}-${n}`;
-		if (!taken.has(id)) return id;
-	}
-}
-
-/** A new node of the type, placed right of the last step unless a position is given. */
-export function newNode(
-	graph: WorkflowGraph,
-	type: WorkflowNodeType,
-	label: string,
-	position?: { x: number; y: number }
-): WorkflowNode {
-	const right = graph.nodes.reduce((x, node) => Math.max(x, node.position.x + nodeWidth(node.type) + GAP), 0);
-	const node: WorkflowNode = {
-		id: uniqueId(type, new Set(graph.nodes.map((n) => n.id))),
-		type,
-		label,
-		position: position ?? { x: right, y: 0 }
-	};
-	if (type === 'check') node.check = 'ci';
-	if (type === 'end') node.outcome = 'done';
-	return node;
-}
-
-/**
- * Adds a transition, on the given condition or the first one the source does
- * not use yet. Returns the graph unchanged when the source has none left or
- * the connection is not allowed (into the start, out of an end).
- */
-export function connect(
-	graph: WorkflowGraph,
-	source: string,
-	target: string,
-	profiles: AgentProfile[],
-	condition?: WorkflowCondition
-): WorkflowGraph {
-	const from = graph.nodes.find((n) => n.id === source);
-	const to = graph.nodes.find((n) => n.id === target);
-	if (!from || !to || to.type === 'start') return graph;
-	const used = new Set(graph.edges.filter((e) => e.source === source).map((e) => e.condition));
-	const choice = condition ?? conditionsFor(from, profiles).find((c) => c === 'assistant' || !used.has(c));
-	if (!choice || (choice !== 'assistant' && used.has(choice)) || !conditionsFor(from, profiles).includes(choice)) return graph;
-	const edge: WorkflowEdge = {
-		id: uniqueId(`${source}-${target}`, new Set(graph.edges.map((e) => e.id))),
-		source,
-		target,
-		condition: choice
-	};
-	return { ...graph, edges: [...graph.edges, edge] };
-}
-
-export function removeNode(graph: WorkflowGraph, id: string): WorkflowGraph {
-	return {
-		...graph,
-		nodes: graph.nodes.filter((n) => n.id !== id),
-		edges: graph.edges.filter((e) => e.source !== id && e.target !== id)
-	};
-}
-
-export function removeEdge(graph: WorkflowGraph, id: string): WorkflowGraph {
-	return { ...graph, edges: graph.edges.filter((e) => e.id !== id) };
-}
-
-export function updateNode(graph: WorkflowGraph, id: string, patch: Partial<WorkflowNode>): WorkflowGraph {
-	return { ...graph, nodes: graph.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) };
-}
-
-export function updateEdge(graph: WorkflowGraph, id: string, patch: Partial<WorkflowEdge>): WorkflowGraph {
-	return { ...graph, edges: graph.edges.map((e) => (e.id === id ? { ...e, ...patch } : e)) };
-}
-
-/** A minimal starting graph, left to right: start, one agent step and an end. */
-export function starterGraph(labels: { start: string; agent: string; end: string }, profileId?: string): WorkflowGraph {
-	return tidy({
-		nodes: [
-			{ id: 'start', type: 'start', label: labels.start, position: { x: 0, y: 0 } },
-			{ id: 'agent-1', type: 'agent', label: labels.agent, profile_id: profileId ?? null, position: { x: 0, y: 0 } },
-			{ id: 'end-1', type: 'end', label: labels.end, outcome: 'done', position: { x: 0, y: 0 } }
-		],
-		edges: [
-			{ id: 'start-agent-1', source: 'start', target: 'agent-1', condition: 'else' },
-			{ id: 'agent-1-end-1', source: 'agent-1', target: 'end-1', condition: 'agent_finished' }
-		],
-		budget: {}
-	});
-}
-
-/** The graph as the server expects it: no empty optional fields. */
-export function graphForSave(graph: WorkflowGraph): WorkflowGraph {
-	return {
-		nodes: graph.nodes.map((node) => {
-			const out: WorkflowNode = { id: node.id, type: node.type, label: node.label.trim(), position: node.position };
-			if (node.profile_id) out.profile_id = node.profile_id;
-			if ((node.type === 'agent' || node.type === 'approval') && node.prompt?.trim()) out.prompt = node.prompt;
-			if (node.type === 'check') out.check = node.check ?? 'ci';
-			if (node.type === 'end') out.outcome = node.outcome ?? 'done';
-			if ((node.max_visits ?? 0) > 0) out.max_visits = Math.floor(node.max_visits ?? 0);
-			if ((node.timeout_minutes ?? 0) > 0) out.timeout_minutes = Math.floor(node.timeout_minutes ?? 0);
-			return out;
-		}),
-		edges: graph.edges.map(({ id, source, target, condition }) => ({ id, source, target, condition })),
-		budget: {
-			...((graph.budget.max_iterations ?? 0) > 0
-				? { max_iterations: Math.floor(graph.budget.max_iterations ?? 0) }
-				: {}),
-			...((graph.budget.max_minutes ?? 0) > 0 ? { max_minutes: Math.floor(graph.budget.max_minutes ?? 0) } : {}),
-			...(graph.budget.on_exhausted ? { on_exhausted: graph.budget.on_exhausted } : {})
-		}
-	};
-}
+// Pure graph helpers for the workflow charts: the pipeline editor's canvas
+// (a pipeline drawn as a graph) and a task's run (a pipeline, or the built-in
+// Standard flow). Graph workflows themselves were removed; nothing here
+// edits a graph.
 
 /** Validation issues grouped by where the canvas shows them. */
 export function placeIssues(issues: WorkflowIssue[]) {
@@ -277,8 +103,8 @@ export type PendingDecision =
 
 /**
  * The decision a person can make on a run now, matching the server's Decide:
- * an approval node (on a pipeline, a phase that requires the owner's
- * approval) once the task awaits it, or a limit the run paused at. The
+ * a pipeline phase that requires the owner's approval once the task awaits
+ * it, or a limit the run paused at. The
  * sequence names the step the person saw, so a stale decision is refused.
  */
 export function pendingDecision(
@@ -286,17 +112,14 @@ export function pendingDecision(
 ): PendingDecision | null {
 	if (!run.can_decide) return null;
 	if (run.status === 'paused') return { kind: 'limit', sequence: run.sequence };
-	if (run.graph.kind === 'pipeline') {
-		const phase = run.graph.phases.find((p) => p.id === run.node);
-		const approves = !!phase?.checks?.some((c) => c.fact === 'approved');
-		return run.status === 'waiting' && approves && run.task_state === 'awaiting_review'
-			? { kind: 'approval', sequence: run.sequence, question: phase?.label ?? '' }
-			: null;
-	}
-	const node = run.graph.nodes.find((n) => n.id === run.node);
-	if (run.status === 'waiting' && node?.type === 'approval' && run.task_state === 'awaiting_review')
-		return { kind: 'approval', sequence: run.sequence, question: node.prompt ?? '' };
-	return null;
+	// Only a pipeline asks for an approval: the built-in Standard flow is
+	// reviewed on its pull request.
+	if (run.graph.kind !== 'pipeline') return null;
+	const phase = run.graph.phases.find((p) => p.id === run.node);
+	const approves = !!phase?.checks?.some((c) => c.fact === 'approved');
+	return run.status === 'waiting' && approves && run.task_state === 'awaiting_review'
+		? { kind: 'approval', sequence: run.sequence, question: phase?.label ?? '' }
+		: null;
 }
 
 // Canvas geometry, matching WorkflowNodeCard: start and end cards are
@@ -460,15 +283,6 @@ export function leftToRight(graph: WorkflowGraph): WorkflowGraph {
 		down += Math.abs(centre(to).y - centre(from).y);
 	}
 	return across > down ? graph : tidy(graph);
-}
-
-/** Whether both graphs place every step at the same spot. */
-export function samePositions(a: WorkflowGraph, b: WorkflowGraph): boolean {
-	const at = new Map(b.nodes.map((n) => [n.id, n.position]));
-	return (
-		a.nodes.length === b.nodes.length &&
-		a.nodes.every((n) => at.get(n.id)?.x === n.position.x && at.get(n.id)?.y === n.position.y)
-	);
 }
 
 export interface Point {
@@ -724,116 +538,10 @@ export function opening(
 }
 
 /**
- * Adds a step of the given type right of the source and connects them on the
- * source's first free condition. Returns the new graph and the step's ID; the
- * step stays unconnected when the source has no free condition (or is an end).
- */
-export function addNext(
-	graph: WorkflowGraph,
-	source: string,
-	type: WorkflowNodeType,
-	label: string,
-	profiles: AgentProfile[]
-): { graph: WorkflowGraph; id: string } {
-	const from = graph.nodes.find((n) => n.id === source);
-	if (!from) return { graph, id: '' };
-	// Right of the source, in the first lane that is free there.
-	const x = from.position.x + nodeWidth(from.type) + GAP;
-	let y = from.position.y;
-	const taken = (n: WorkflowNode) =>
-		Math.abs(n.position.y - y) < LANE / 2 &&
-		n.position.x < x + nodeWidth(type) + GAP / 2 &&
-		n.position.x + nodeWidth(n.type) > x - GAP / 2;
-	while (graph.nodes.some(taken)) y += LANE;
-	const node = newNode(graph, type, label, { x, y });
-	const added = { ...graph, nodes: [...graph.nodes, node] };
-	return { graph: connect(added, source, node.id, profiles), id: node.id };
-}
-
-/** Copies a step (not the start) beside itself, without its transitions. */
-export function duplicateNode(graph: WorkflowGraph, id: string): { graph: WorkflowGraph; id: string } {
-	const node = graph.nodes.find((n) => n.id === id);
-	if (!node || node.type === 'start') return { graph, id: '' };
-	const copy: WorkflowNode = {
-		// A JSON copy: structuredClone refuses Svelte's reactive proxies.
-		...(JSON.parse(JSON.stringify(node)) as WorkflowNode),
-		id: uniqueId(node.type, new Set(graph.nodes.map((n) => n.id))),
-		position: { x: node.position.x + 40, y: node.position.y + 40 }
-	};
-	return { graph: { ...graph, nodes: [...graph.nodes, copy] }, id: copy.id };
-}
-
-/**
- * The failure a step can retry on: an agent that failed, or a pull request
- * that could not be published. Other steps fail for reasons a rerun won't fix.
- */
-export function retryCondition(node: WorkflowNode, profiles: AgentProfile[]): WorkflowCondition | undefined {
-	if (node.type === 'publish') return 'publish_failed';
-	if (node.type === 'agent' && conditionsFor(node, profiles).includes('agent_failed')) return 'agent_failed';
-	return undefined;
-}
-
-/** Whether the step runs again when it fails (a transition back to itself on its failure). */
-export function retries(graph: WorkflowGraph, node: WorkflowNode, profiles: AgentProfile[]): boolean {
-	const condition = retryCondition(node, profiles);
-	return (
-		!!condition && graph.edges.some((e) => e.source === node.id && e.target === node.id && e.condition === condition)
-	);
-}
-
-/**
- * Turns "retry on failure" on or off. On: the step's failure leads back to
- * itself, guarded by its visit limit (3 when it had none). Off: the failure
- * leads to the workflow's failed ending again, when it has one.
- */
-export function setRetry(graph: WorkflowGraph, id: string, on: boolean, profiles: AgentProfile[]): WorkflowGraph {
-	const node = graph.nodes.find((n) => n.id === id);
-	const condition = node && retryCondition(node, profiles);
-	if (!node || !condition) return graph;
-	const edges = graph.edges.filter((e) => !(e.source === id && e.condition === condition));
-	if (on) {
-		const nodes = graph.nodes.map((n) => (n.id === id && !(n.max_visits ?? 0) ? { ...n, max_visits: 3 } : n));
-		const edge: WorkflowEdge = {
-			id: uniqueId(`${id}-retry`, new Set(edges.map((e) => e.id))),
-			source: id,
-			target: id,
-			condition
-		};
-		return { ...graph, nodes, edges: [...edges, edge] };
-	}
-	const failed = graph.nodes.find((n) => n.type === 'end' && n.outcome === 'failed');
-	const next = { ...graph, edges };
-	return failed ? connect(next, id, failed.id, profiles, condition) : next;
-}
-
-/**
- * The profile a blank workflow's first agent step runs: one that changes
- * code, the built-in implementer first while it still does.
+ * The profile a blank pipeline's writer role runs: one that changes code,
+ * the built-in implementer first while it still does.
  */
 export function starterProfile(profiles: AgentProfile[]): AgentProfile | undefined {
 	const builders = profiles.filter((p) => !p.archived_at && p.behaviour === 'changes_code');
 	return builders.find((p) => p.builtin_key === 'implementer') ?? builders[0];
-}
-
-/**
- * An automated review: an agent step run by the reviewer profile (the
- * built-in one first) that reviews the published pull request and retries if
- * the review agent itself fails. Its verdict transitions are left to connect.
- */
-export function reviewBlock(
-	graph: WorkflowGraph,
-	label: string,
-	profiles: AgentProfile[],
-	position?: { x: number; y: number }
-): { graph: WorkflowGraph; id: string } {
-	const reviewer =
-		profiles.find((p) => !p.archived_at && p.builtin_key === 'reviewer' && reviews(p)) ??
-		profiles.find((p) => !p.archived_at && reviews(p));
-	const node: WorkflowNode = {
-		...newNode(graph, 'agent', label, position),
-		profile_id: reviewer?.id ?? null,
-		max_visits: 3
-	};
-	const added = { ...graph, nodes: [...graph.nodes, node] };
-	return { graph: reviewer ? setRetry(added, node.id, true, profiles) : added, id: node.id };
 }

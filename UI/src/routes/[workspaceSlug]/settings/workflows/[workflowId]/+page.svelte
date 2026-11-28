@@ -7,12 +7,12 @@
 	import { appToast } from '$lib/features/toast/toast';
 	import PipelineEditor from '$lib/features/workflows/PipelineEditor.svelte';
 	import PipelineView from '$lib/features/workflows/PipelineView.svelte';
-	import WorkflowEditor from '$lib/features/workflows/WorkflowEditor.svelte';
+	import StandardWorkflowView from '$lib/features/workflows/StandardWorkflowView.svelte';
 	import { m } from '$lib/features/i18n/messages';
 
-	// One workflow in the editor. Owners and admins edit any workflow but an
-	// archived one, Standard included (their edits replace the built-in flow);
-	// members read them. The server enforces who may save.
+	// One workflow. Owners and admins edit a pipeline that is not archived;
+	// members read it. The built-in Standard flow is read only for everyone.
+	// The server enforces who may save.
 	const slug = $derived(page.params.workspaceSlug ?? '');
 	const workflowId = $derived(page.params.workflowId ?? '');
 
@@ -48,10 +48,10 @@
 	});
 
 	const editable = $derived(!!detail && canManage && !detail.archived);
-	// An experimental pipeline is edited only while the server has pipelines
-	// on; otherwise it is shown read only.
-	const pipeline = $derived(detail && isPipeline(detail.graph) ? detail.graph : null);
-	const graphDetail = $derived(detail && !isPipeline(detail.graph) ? { ...detail, graph: detail.graph } : null);
+	// A pipeline is edited only while the server has pipelines on; otherwise
+	// it is shown read only.
+	const pipeline = $derived(detail && !detail.builtin && isPipeline(detail.graph) ? detail.graph : null);
+	const title = $derived(detail?.builtin ? m['workflows.standard']() : detail?.name);
 </script>
 
 {#if loading && !detail}<div class="p-6"><LoadingState /></div>
@@ -77,21 +77,11 @@
 	<div class="h-full min-h-0">
 		<PipelineView name={detail.name} {pipeline} {profiles} backHref="/{slug}/settings/workflows" />
 	</div>
-{:else if graphDetail}
+{:else}
+	<!-- The built-in Standard flow; graph workflows were removed, so nothing else lands here. -->
 	<div class="h-full min-h-0">
-		{#key graphDetail.id}
-			<WorkflowEditor
-				{slug}
-				workflow={graphDetail.builtin ? { ...graphDetail, name: m['workflows.standard']() } : graphDetail}
-				{profiles}
-				{editable}
-				backHref="/{slug}/settings/workflows"
-				onsaved={(saved) => {
-					if (detail) detail = { ...detail, ...saved, versions: detail.versions };
-				}}
-			/>
-		{/key}
+		<StandardWorkflowView description={detail.description} backHref="/{slug}/settings/workflows" />
 	</div>
 {/if}
 
-<PageTitle parts={[detail?.name, m['workflows.title'](), m['settings.title']()]} />
+<PageTitle parts={[title, m['workflows.title'](), m['settings.title']()]} />

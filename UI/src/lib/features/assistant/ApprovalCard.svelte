@@ -607,7 +607,7 @@
 								>
 							</p>
 							{#if approval.payload.workflow_id !== 'standard'}<p class="text-xs text-muted-foreground">
-									{m['workflows.composer_note']()}
+									{m['workflows.composer_note_pipeline']()}
 								</p>{/if}{/if}
 					{/if}
 					{#if (approval.action === 'delegate_issue' || approval.action === 'follow_up_task') && approval.payload.effort}

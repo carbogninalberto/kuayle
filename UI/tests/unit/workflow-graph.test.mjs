@@ -1,11 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-	addNext,
-	retries,
-	reviewBlock,
-	setRetry,
-	duplicateNode,
 	anchors,
 	crosses,
 	extent,
@@ -17,110 +12,17 @@ import {
 	polyline,
 	roundedPath,
 	routes,
-	samePositions,
 	centreOn,
 	isCentred,
 	tidy,
-	conditionsFor,
-	connect,
-	graphForSave,
 	iterationStep,
-	newNode,
 	pathOf,
 	pendingDecision,
 	runChartGraph,
 	runOverlay,
 	placeIssues,
-	removeNode,
-	starterGraph,
 	starterProfile
 } from '../../src/lib/features/workflows/workflow-graph.ts';
-
-const profiles = [
-	{ id: 'impl', role: 'Implementer', behaviour: 'changes_code' },
-	{ id: 'rev', role: 'Reviewer', behaviour: 'reviews' },
-	// The role is only a label: this one plans, whatever it is called.
-	{ id: 'plan', role: 'reviewer', behaviour: 'plans' }
-];
-
-test('a planning step runs like an iteration: finished or failed, never a verdict or a timeout', () => {
-	assert.deepEqual(conditionsFor({ id: 'p', type: 'agent', profile_id: 'plan', timeout_minutes: 5 }, profiles), [
-		'agent_finished',
-		'agent_failed',
-		'else'
-	]);
-});
-
-test('a reviewer step offers verdicts, an implementer step finished/failed', () => {
-	assert.deepEqual(conditionsFor({ id: 'r', type: 'agent', profile_id: 'rev' }, profiles), [
-		'review_approved',
-		'review_changes_requested',
-		'agent_failed',
-		'else'
-	]);
-	assert.deepEqual(
-		conditionsFor({ id: 'i', type: 'agent', profile_id: 'impl', timeout_minutes: 5 }, profiles),
-		['agent_finished', 'agent_failed', 'else'],
-		'a coding iteration cannot time out'
-	);
-	assert.deepEqual(conditionsFor({ id: 'c', type: 'check', check: 'ci', timeout_minutes: 5 }, profiles), [
-		'checks_passed',
-		'checks_failed',
-		'timeout',
-		'else'
-	]);
-	assert.deepEqual(
-		conditionsFor({ id: 'p', type: 'publish' }, profiles),
-		['published', 'publish_failed', 'no_changes', 'else'],
-		'a publish step can end with no changes against the base'
-	);
-	assert.deepEqual(conditionsFor({ id: 's', type: 'start' }, profiles), ['else']);
-	assert.deepEqual(conditionsFor({ id: 'e', type: 'end' }, profiles), []);
-});
-
-test('connecting picks the first unused condition and refuses invalid links', () => {
-	let graph = starterGraph({ start: 'Start', agent: 'Implementer', end: 'Done' }, 'impl');
-	graph = connect(graph, 'agent-1', 'end-1', profiles);
-	assert.equal(graph.edges.at(-1).condition, 'agent_failed', 'agent_finished is already used');
-	const unchanged = connect(graph, 'agent-1', 'start', profiles);
-	assert.equal(unchanged, graph, 'nothing leads back to the start');
-	assert.equal(connect(graph, 'end-1', 'agent-1', profiles), graph, 'an end has no exits');
-	assert.equal(connect(graph, 'agent-1', 'end-1', profiles, 'agent_finished'), graph, 'a condition is used once');
-});
-
-test('removing a node removes its transitions; new nodes get unique ids', () => {
-	const graph = starterGraph({ start: 'Start', agent: 'Implementer', end: 'Done' });
-	const node = newNode(graph, 'agent', 'Another');
-	assert.equal(node.id, 'agent-2');
-	const last = graph.nodes.at(-1);
-	assert.equal(node.position.y, 0, 'on the main path');
-	assert.ok(node.position.x > last.position.x + nodeWidth(last.type), 'right of the last step');
-	const removed = removeNode(graph, 'agent-1');
-	assert.deepEqual(
-		removed.nodes.map((n) => n.id),
-		['start', 'end-1']
-	);
-	assert.equal(removed.edges.length, 0);
-});
-
-test('saving drops empty optional fields and keeps limits', () => {
-	const graph = starterGraph({ start: 'Start', agent: ' Implementer ', end: 'Done' }, 'impl');
-	graph.nodes[1].max_visits = 3;
-	graph.nodes[1].prompt = '  ';
-	graph.nodes[0].profile_id = 'impl';
-	graph.budget = { max_iterations: 0, max_minutes: 90, on_exhausted: 'ask' };
-	const saved = graphForSave(graph);
-	assert.deepEqual(saved.nodes[1], {
-		id: 'agent-1',
-		type: 'agent',
-		label: 'Implementer',
-		position: { x: 316, y: 0 },
-		profile_id: 'impl',
-		max_visits: 3
-	});
-	assert.equal(saved.nodes[0].profile_id, 'impl', 'start keeps its stage assistant');
-	assert.deepEqual(saved.budget, { max_minutes: 90, on_exhausted: 'ask' });
-});
 
 test('issues are placed on nodes, transitions or the workflow', () => {
 	const placed = placeIssues([
@@ -298,17 +200,16 @@ test('a failed workflow keeps the end and transition it reached', () => {
 	assert.deepEqual(chart.edges.filter((edge) => edge.target === 'failed').map((edge) => edge.id), [failure]);
 });
 
-test('a person decides an approval only while the task awaits it, and a limit while paused', () => {
+// Graph workflows were removed: only a pipeline phase asks a person for an
+// approval. A graph's approval step (the built-in Standard flow's) is not a
+// decision of the run.
+test('a graph run asks for no approval, and a limit is decided while paused', () => {
 	assert.equal(pendingDecision(run({ can_decide: false, status: 'paused' })), null, 'the server must allow deciding');
 	assert.deepEqual(pendingDecision(run({ can_decide: true, status: 'paused' })), { kind: 'limit', sequence: 4 });
-	assert.deepEqual(
-		pendingDecision(run({ can_decide: true, status: 'waiting', node: 'ship', task_state: 'awaiting_review' })),
-		{ kind: 'approval', sequence: 4, question: 'Ship it?' }
-	);
 	assert.equal(
-		pendingDecision(run({ can_decide: true, status: 'waiting', node: 'ship', task_state: 'running' })),
+		pendingDecision(run({ can_decide: true, status: 'waiting', node: 'ship', task_state: 'awaiting_review' })),
 		null,
-		'an approval is decided once the task reached it'
+		'an approval step of a graph is not offered'
 	);
 	assert.equal(
 		pendingDecision(run({ can_decide: true, status: 'waiting', node: 'implement' })),
@@ -335,80 +236,7 @@ test('on a pipeline, a person approves at a phase that requires it and decides w
 	assert.equal(pendingDecision(at({ node: 'approval', can_decide: false })), null);
 });
 
-test('adding the next step places it to the right and connects it on a free condition', () => {
-	const graph = {
-		nodes: [
-			{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
-			{ id: 'implement', type: 'agent', label: 'Implement', position: { x: 316, y: 0 } }
-		],
-		edges: [{ id: 'e1', source: 'start', target: 'implement', condition: 'else' }],
-		budget: {}
-	};
-	const { graph: next, id } = addNext(graph, 'implement', 'check', 'Check', []);
-	const added = next.nodes.find((n) => n.id === id);
-	assert.deepEqual(added.position, { x: 696, y: 0 }, 'right of the source, on its lane');
-	assert.deepEqual(next.edges.map((e) => [e.source, e.target, e.condition]).at(-1), [
-		'implement',
-		id,
-		'agent_finished'
-	]);
-	const second = addNext(next, 'implement', 'end', 'Failed', []);
-	const failed = second.graph.nodes.find((n) => n.id === second.id);
-	assert.equal(failed.position.x, 696);
-	assert.ok(failed.position.y > added.position.y, 'placed in the lane below the step already there');
-	assert.deepEqual(overlaps(second.graph), []);
-	assert.equal(second.graph.edges.at(-1).condition, 'agent_failed');
-	assert.equal(addNext(graph, 'missing', 'end', 'End', []).id, '');
-});
-
-test('duplicating copies a step without transitions and never the start', () => {
-	const graph = {
-		nodes: [
-			{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
-			{ id: 'check', type: 'check', label: 'CI', check: 'ci', position: { x: 0, y: 130 } }
-		],
-		edges: [{ id: 'e1', source: 'start', target: 'check', condition: 'else' }],
-		budget: {}
-	};
-	const { graph: next, id } = duplicateNode(graph, 'check');
-	const copy = next.nodes.find((n) => n.id === id);
-	assert.notEqual(id, 'check');
-	assert.equal(copy.check, 'ci');
-	assert.deepEqual(copy.position, { x: 40, y: 170 });
-	assert.equal(next.edges.length, 1);
-	assert.equal(duplicateNode(graph, 'start').id, '');
-});
-
-test('retry on failure loops the failure back to the step and back to Failed when turned off', () => {
-	const graph = {
-		nodes: [
-			{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
-			{ id: 'impl', type: 'agent', label: 'Implement', profile_id: 'impl', position: { x: 0, y: 130 } },
-			{ id: 'failed', type: 'end', label: 'Failed', outcome: 'failed', position: { x: 300, y: 130 } }
-		],
-		edges: [
-			{ id: 'e1', source: 'start', target: 'impl', condition: 'else' },
-			{ id: 'e2', source: 'impl', target: 'failed', condition: 'agent_failed' }
-		],
-		budget: {}
-	};
-	const on = setRetry(graph, 'impl', true, profiles);
-	assert.ok(retries(on, on.nodes[1], profiles));
-	assert.equal(on.nodes[1].max_visits, 3, 'a retry loop gets a visit limit');
-	assert.deepEqual(
-		on.edges.filter((e) => e.source === 'impl').map((e) => [e.target, e.condition]),
-		[['impl', 'agent_failed']]
-	);
-	const off = setRetry(on, 'impl', false, profiles);
-	assert.ok(!retries(off, off.nodes[1], profiles));
-	assert.deepEqual(
-		off.edges.filter((e) => e.source === 'impl').map((e) => [e.target, e.condition]),
-		[['failed', 'agent_failed']]
-	);
-	assert.equal(setRetry(graph, 'start', true, profiles), graph, 'only agent and publish steps retry');
-});
-
-test('a blank workflow starts with a profile that changes code', () => {
+test('a blank pipeline starts with a profile that changes code', () => {
 	const builtin = { id: 'b', behaviour: 'changes_code', builtin_key: 'implementer' };
 	const other = { id: 'o', behaviour: 'changes_code' };
 	assert.equal(starterProfile([other, builtin])?.id, 'b', 'the built-in implementer first');
@@ -416,25 +244,6 @@ test('a blank workflow starts with a profile that changes code', () => {
 	assert.equal(starterProfile([{ ...builtin, behaviour: 'reviews' }, other])?.id, 'o');
 	assert.equal(starterProfile([{ ...builtin, behaviour: 'plans' }, { ...other, archived_at: '2026-01-01' }]), undefined);
 	assert.equal(starterProfile([{ ...builtin, archived_at: '2026-01-01' }, other])?.id, 'o');
-});
-
-test('an automated review block runs the reviewer and retries if it fails', () => {
-	const graph = {
-		nodes: [{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } }],
-		edges: [],
-		budget: {}
-	};
-	const { graph: next, id } = reviewBlock(graph, 'Automated review', [
-		...profiles,
-		{ id: 'rev2', role: 'Reviewer', behaviour: 'reviews', builtin_key: 'reviewer' }
-	]);
-	const node = next.nodes.find((n) => n.id === id);
-	assert.equal(node.profile_id, 'rev2', 'the built-in reviewer first');
-	assert.equal(node.max_visits, 3);
-	assert.deepEqual(
-		next.edges.map((e) => [e.source, e.target, e.condition]),
-		[[id, id, 'agent_failed']]
-	);
 });
 
 // The built-in templates' steps and transitions (BE/internal/domain/workflow.go),
@@ -616,8 +425,6 @@ for (const [name, template] of Object.entries(templates)) {
 		);
 		assert.deepEqual(arranged.edges, template.edges);
 		assert.deepEqual(tidy(arranged), arranged, 'arranging again changes nothing');
-		assert.ok(samePositions(tidy(arranged), arranged));
-		assert.ok(!samePositions(arranged, template));
 		// The order the steps are stored in does not matter.
 		for (const seed of [2, 3, 5, 7])
 			assert.deepEqual(placed(tidy(shuffled(template, seed))), placed(arranged), `stored in another order (${seed})`);
@@ -802,7 +609,18 @@ test('a read-only view arranges a workflow stored top to bottom and keeps one al
 });
 
 test('the canvas opens on the whole graph when it fits and on its first steps when it would be too small', () => {
-	const small = starterGraph({ start: 'Start', agent: 'Implementer', end: 'Done' });
+	const small = tidy({
+		nodes: [
+			{ id: 'start', type: 'start', label: 'Start', position: { x: 0, y: 0 } },
+			{ id: 'agent-1', type: 'agent', label: 'Implementer', position: { x: 0, y: 0 } },
+			{ id: 'end-1', type: 'end', label: 'Done', outcome: 'done', position: { x: 0, y: 0 } }
+		],
+		edges: [
+			{ id: 'start-agent-1', source: 'start', target: 'agent-1', condition: 'else' },
+			{ id: 'agent-1-end-1', source: 'agent-1', target: 'end-1', condition: 'agent_finished' }
+		],
+		budget: {}
+	});
 	const fits = opening(small, { width: 1200, height: 600 });
 	assert.equal(fits.zoom, 1);
 	const box = extent(small);

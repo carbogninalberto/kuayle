@@ -14,7 +14,6 @@
 		Controls,
 		MiniMap,
 		MarkerType,
-		type Connection,
 		type Edge,
 		type EdgeTypes,
 		type Node,
@@ -36,13 +35,13 @@
 		opening,
 		placeIssues,
 		routes,
-		type Block,
 		type runOverlay
 	} from './workflow-graph';
 
-	// The workflow graph on a Svelte Flow canvas, editable or read-only. The
-	// graph prop stays the source of truth: the canvas reports moves,
-	// connections and deletions, and redraws from the graph it is given.
+	// A workflow chart on a Svelte Flow canvas, read only: a pipeline's phases
+	// in the pipeline editor, or a task's run (a pipeline, or the built-in
+	// Standard flow). It redraws from the graph it is given and reports which
+	// step or transition was selected.
 	export type Selection = { kind: 'node' | 'edge'; id: string } | null;
 
 	let {
@@ -50,7 +49,6 @@
 		profiles,
 		issues = [],
 		warnings = [],
-		editable = false,
 		selection = null,
 		run,
 		label,
@@ -63,24 +61,18 @@
 		api = $bindable(),
 		describe,
 		edgeLabels = true,
-		onselect,
-		onaddnext,
-		oncontext,
-		onmove,
-		onconnect,
-		ondelete
+		onselect
 	}: {
 		graph: WorkflowGraph;
 		profiles: AgentProfile[];
 		issues?: WorkflowIssue[];
 		/** Problems that do not stop a save, shown on their step. */
 		warnings?: WorkflowIssue[];
-		editable?: boolean;
 		selection?: Selection;
 		run?: ReturnType<typeof runOverlay>;
 		label: string;
 		class?: string;
-		/** Svelte Flow's own zoom controls; the editor has its own toolbar. */
+		/** Svelte Flow's own zoom controls. */
 		controls?: boolean;
 		/** A minimap of the graph on the free and navigable canvases; a fixed-zoom chart draws none. */
 		minimap?: boolean;
@@ -98,20 +90,13 @@
 		navigable?: number;
 		/** What a navigable canvas shows: its viewport and its size, once it has one. */
 		view?: Viewport & { width: number; height: number };
-		/** Svelte Flow's API, for the editor's menus and toolbar. */
+		/** Svelte Flow's API, for the caller's own tools. */
 		api?: FlowApi;
 		/** What a card shows under its name, instead of what its step uses (a pipeline's phases). */
 		describe?: (node: WorkflowGraph['nodes'][number]) => string;
 		/** Whether transitions carry their condition; a pipeline's arrows have none to show. */
 		edgeLabels?: boolean;
 		onselect?: (selection: Selection) => void;
-		/** Adds a step after the given one (its hover "+" button). */
-		onaddnext?: (source: string, type: Block) => void;
-		/** A right click on a step or a transition, before the menu opens. */
-		oncontext?: (target: Selection) => void;
-		onmove?: (id: string, position: { x: number; y: number }) => void;
-		onconnect?: (source: string, target: string) => void;
-		ondelete?: (nodes: string[], edges: string[]) => void;
 	} = $props();
 
 	const nodeTypes: NodeTypes = { workflow: WorkflowNodeCard };
@@ -137,12 +122,8 @@
 
 	let nodes = $state.raw<WorkflowFlowNode[]>([]);
 	let edges = $state.raw<Edge[]>([]);
-	// Bumped to redraw from the graph when the canvas changed itself (a
-	// connection the graph did not accept).
-	let redraw = $state(0);
 
 	$effect(() => {
-		void redraw;
 		const placed = placeIssues(issues);
 		// A step keeps the size Svelte Flow measured for it: without one it is
 		// new to Svelte Flow, which hides it, its transitions and its minimap
@@ -159,8 +140,8 @@
 			measured: measured(node),
 			position: node.position,
 			selected: selection?.kind === 'node' && selection.id === node.id,
-			deletable: editable && node.type !== 'start',
-			connectable: editable,
+			deletable: false,
+			connectable: false,
 			ariaLabel: `${node.label}`,
 			data: {
 				node,
@@ -173,8 +154,7 @@
 				// A step's transitions back to itself (retries) show on its card.
 				retries: graph.edges
 					.filter((e) => e.source === node.id && e.target === node.id)
-					.map((e) => conditionLabel(e.condition)),
-				onaddnext: editable && onaddnext && node.type !== 'end' ? (type: Block) => onaddnext(node.id, type) : undefined
+					.map((e) => conditionLabel(e.condition))
 			}
 		}));
 		// Loops back to an earlier step, transitions to a lane below (failures)
@@ -218,7 +198,7 @@
 						: pairLabel(edge),
 				selected: selection?.kind === 'edge' && selection.id === edge.id,
 				hidden: self,
-				deletable: editable,
+				deletable: false,
 				animated: !prefersReducedMotion.current && !!fired && run?.current === edge.target,
 				markerEnd: { type: MarkerType.ArrowClosed },
 				class: problem
@@ -264,11 +244,6 @@
 	const minimapColor = (n: Node) => nodeAccent(flowNode(n).node);
 	const minimapStroke = (n: Node) => (flowNode(n).current ? 'var(--primary)' : 'transparent');
 	const minimapClass = (n: Node) => (run && !flowNode(n).current && !flowNode(n).visited ? 'workflow-minimap-idle' : '');
-
-	function connected(connection: Connection) {
-		onconnect?.(connection.source, connection.target);
-		redraw++;
-	}
 </script>
 
 <div
@@ -295,26 +270,16 @@
 		preventScrolling={!zoom && !navigable}
 		minZoom={0.1}
 		maxZoom={1.5}
-		nodesDraggable={editable}
-		nodesConnectable={editable}
+		nodesDraggable={false}
+		nodesConnectable={false}
 		elementsSelectable
-		deleteKey={editable ? ['Backspace', 'Delete'] : null}
+		deleteKey={null}
 		proOptions={{ hideAttribution: true }}
 		oninit={navigable ? () => (moved = api?.viewport()) : undefined}
 		onmoveend={navigable ? (_, at) => (moved = at) : undefined}
 		onnodeclick={({ node }) => onselect?.({ kind: 'node', id: node.id })}
 		onedgeclick={({ edge }) => onselect?.({ kind: 'edge', id: edge.id })}
 		onpaneclick={() => onselect?.(null)}
-		onnodecontextmenu={({ node }) => oncontext?.({ kind: 'node', id: node.id })}
-		onedgecontextmenu={({ edge }) => oncontext?.({ kind: 'edge', id: edge.id })}
-		onnodedragstop={({ targetNode }) => targetNode && onmove?.(targetNode.id, targetNode.position)}
-		onconnect={connected}
-		onbeforedelete={async ({ nodes: deleting }) => editable && !deleting.some((n) => n.data.node.type === 'start')}
-		ondelete={({ nodes: removed, edges: removedEdges }) =>
-			ondelete?.(
-				removed.map((n) => n.id),
-				removedEdges.map((e) => e.id)
-			)}
 	>
 		{#if !zoom}<Background variant={BackgroundVariant.Dots} gap={18} size={1.2} />{/if}
 		{#if controls && !zoom && !navigable}<Controls showLock={false} />{/if}
@@ -392,20 +357,7 @@
 		height: 8px;
 		border: 2px solid var(--background);
 	}
-	.workflow-canvas :global(.svelte-flow__node:hover .workflow-add-next) {
-		opacity: 1;
-	}
 	@media (width < 48rem), (pointer: coarse) {
-		/* Keep measured anchors at the visible dots so the edge paths stay put. */
-		.workflow-canvas :global(.svelte-flow__handle.connectable:not(.workflow-loop-handle)) {
-			z-index: 1;
-		}
-		.workflow-canvas :global(.svelte-flow__handle.connectable:not(.workflow-loop-handle)::after) {
-			content: '';
-			position: absolute;
-			inset: -16px;
-			border-radius: 50%;
-		}
 		.workflow-canvas :global(.svelte-flow__edge-interaction) {
 			stroke-width: 24px;
 			vector-effect: non-scaling-stroke;

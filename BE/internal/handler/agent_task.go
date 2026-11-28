@@ -66,6 +66,8 @@ func agentTaskError(c *echo.Context, err error) error {
 		return response.Error(c, http.StatusConflict, "SIGN_IN_NOT_FOUND", "No sign-in was found in the machine's terminal yet")
 	case errors.Is(err, service.ErrPipelinesDisabled):
 		return response.Error(c, http.StatusForbidden, "PIPELINES_DISABLED", "Pipeline workflows are turned off on this server")
+	case errors.Is(err, service.ErrGraphWorkflowsRemoved):
+		return response.Error(c, http.StatusBadRequest, "GRAPH_WORKFLOWS_REMOVED", "Graph workflows were removed; create a pipeline instead")
 	case errors.Is(err, service.ErrTaskFileRef):
 		return response.Error(c, http.StatusBadRequest, "INVALID_REF", "ref must be the task's head or a full commit id one of its iterations recorded")
 	case errors.Is(err, service.ErrTaskFilePath):

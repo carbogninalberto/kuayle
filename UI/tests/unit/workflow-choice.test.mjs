@@ -5,19 +5,19 @@ import {
 	customWorkflows,
 	defaultMayBeCustom,
 	isCustomChoice,
-	isPipelineChoice,
 	startable,
 	workflowEdit,
 	workflowOptions
 } from '../../src/lib/features/assistant/workflow-choice.ts';
 
-const summary = (id, name, extra = {}) => ({ id, name, builtin: false, archived: false, ...extra });
+const pipeline = { kind: 'pipeline', phases: [], roster: [] };
+const summary = (id, name, extra = {}) => ({ id, name, builtin: false, archived: false, graph: pipeline, ...extra });
 const list = {
 	workflows: [
-		summary('standard', 'Standard', { builtin: true }),
+		summary('standard', 'Standard', { builtin: true, graph: { nodes: [], edges: [], budget: {} } }),
 		summary('loop', 'Review loop'),
 		summary('old', 'Old flow', { archived: true }),
-		summary('team', 'Team', { graph: { kind: 'pipeline', phases: [], roster: [] } })
+		summary('team', 'Team')
 	],
 	defaults: [],
 	can_manage: true,
@@ -25,7 +25,7 @@ const list = {
 };
 const labels = { default: 'Issue default', standard: 'Standard' };
 
-test('only workflows a task can start on are offered, pipelines among them', () => {
+test('only pipelines a task can start on are offered besides Standard', () => {
 	assert.deepEqual(
 		customWorkflows(list).map((w) => w.id),
 		['loop', 'team']
@@ -39,8 +39,12 @@ test('only workflows a task can start on are offered, pipelines among them', () 
 	assert.deepEqual(customWorkflows(null), []);
 	assert.deepEqual(
 		customWorkflows({ ...list, pipelines_enabled: false }).map((w) => w.id),
-		['loop'],
-		'a server with pipelines turned off starts no task on one'
+		[],
+		'a server with pipelines turned off offers only Standard'
+	);
+	assert.deepEqual(
+		workflowOptions({ ...list, pipelines_enabled: false }, labels).map((o) => o.value),
+		['default', 'standard']
 	);
 });
 
@@ -79,16 +83,17 @@ test('a pipeline is offered only while pipelines are on', () => {
 	const byId = (id) => list.workflows.find((w) => w.id === id);
 	assert.equal(startable(list, byId('team')), true);
 	assert.equal(startable(off, byId('team')), false);
-	assert.equal(startable(off, byId('loop')), true);
-	assert.equal(startable(list, byId('standard')), true);
 	assert.equal(startable(list, byId('old')), false);
 	assert.equal(startable(null, byId('team')), false);
 });
 
-test('a pipeline choice is told apart, for the note on who decides the agent', () => {
-	assert.equal(isPipelineChoice(list, 'team'), true);
-	assert.equal(isPipelineChoice(list, 'loop'), false);
-	assert.equal(isPipelineChoice(list, 'standard'), false);
-	assert.equal(isPipelineChoice(list, DEFAULT_WORKFLOW), false);
-	assert.equal(isPipelineChoice(null, 'team'), false);
+// Graph workflows were removed: the server refuses a task on one, so a graph
+// that is still listed (an older server) is never offered.
+test('a graph workflow is never offered', () => {
+	const graph = summary('legacy', 'Legacy', { graph: { nodes: [], edges: [], budget: {} } });
+	assert.equal(startable(list, graph), false);
+	assert.deepEqual(
+		customWorkflows({ ...list, workflows: [...list.workflows, graph] }).map((w) => w.id),
+		['loop', 'team']
+	);
 });

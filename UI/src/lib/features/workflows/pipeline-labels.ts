@@ -4,9 +4,8 @@ import { issueLabel } from './labels';
 import { HUMAN, KUAYLE, LEAD, type PipelineFact } from './pipeline-editor';
 
 // Translated names for the pipeline editor (KUA-284): the facts a check can
-// require, who owns a phase, and the server's pipeline issues and drafting
-// reasons. Unknown values fall back to the graph's labels, then to the
-// server's text.
+// require, who owns a phase, and the server's pipeline issues. Unknown
+// values fall back to the shared issue labels, then to the server's text.
 
 const facts: Record<PipelineFact, () => string> = {
 	pr_exists: m['workflows.pipeline_fact.pr_exists'],
@@ -36,17 +35,6 @@ const issues: Record<string, () => string> = {
 	invalid_autonomy: m['workflows.pipeline_issue.invalid_autonomy']
 };
 
-const reasons: Record<string, () => string> = {
-	loop: m['workflows.pipeline_reason.loop'],
-	stage_assistant: m['workflows.pipeline_reason.stage_assistant'],
-	planning_step: m['workflows.pipeline_reason.planning_step'],
-	second_writer: m['workflows.pipeline_reason.second_writer'],
-	code_after_approval: m['workflows.pipeline_reason.code_after_approval'],
-	early_approval: m['workflows.pipeline_reason.early_approval'],
-	dead_end: m['workflows.pipeline_reason.dead_end'],
-	branching: m['workflows.pipeline_reason.branching']
-};
-
 export const factLabel = (fact: string) => facts[fact as PipelineFact]?.() ?? fact;
 
 /** Who owns a phase: a role by its name, Kuayle, a person or the lead. */
@@ -70,7 +58,3 @@ export function phaseCaption(pipeline: PipelineDefinition | null, id: string): s
 /** What the validator says about a pipeline. */
 export const pipelineIssueLabel = (issue: Pick<WorkflowIssue, 'code' | 'message'>) =>
 	issues[issue.code]?.() ?? issueLabel(issue.code, issue.message);
-
-/** Why a graph workflow cannot be drafted as a pipeline. */
-export const draftReasonLabel = (issue: Pick<WorkflowIssue, 'code' | 'message'>) =>
-	reasons[issue.code]?.() ?? pipelineIssueLabel(issue);

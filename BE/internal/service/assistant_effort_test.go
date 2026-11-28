@@ -141,10 +141,13 @@ func TestAssistantApprovalsUseRequestedEffort(t *testing.T) {
 	assertStarted("follow_up_task", `{"identifier":"ENG-1","instructions":"Fix it with more effort","effort":"high"}`, "claude-opus-5-5", "high")
 }
 
+// The assistant's effort is checked against the model of the profile that
+// writes the code in the chosen pipeline, not the harness it proposed.
 func TestAssistantEffortValidatesTheWorkflowsFirstAgent(t *testing.T) {
 	f := newProfileFixture(t)
+	f.tasks.SetPipelines(true)
 	profile := f.storedProfile(t, "Flash", "opencode", openCodeModel, "high")
-	workflow, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Flash Workflow", Graph: oneStepGraph(t, profile.ID)})
+	workflow, err := f.workflows.Create(f.ctx, f.ws, WorkflowRequest{Name: "Flash Workflow", Graph: oneRolePipeline(t, profile.ID)})
 	require.NoError(t, err)
 	proposal := domain.DelegationPayload{Instructions: "Implement it", Harness: "claude-code", WorkflowID: workflow.ID}
 	proposal.Effort = "medium"

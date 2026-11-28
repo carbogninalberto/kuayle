@@ -2538,10 +2538,25 @@ Rolling migration 149 back drops the lessons and their audit trail.
 
 ## Configurable workflows
 
-Migration 118 lets a workspace replace the fixed flow above with its own
-state machines (KUA-95). Nothing changes until someone picks one: a task with
-no pinned version runs the built-in **Standard** workflow, which is the fixed
-flow in code, and `StandardWorkflowGraph` only draws it.
+A task with no pinned version runs the built-in **Standard** workflow, the
+fixed flow in code described above; `StandardWorkflowGraph` only draws it.
+A workspace's own workflows are [team workflows](#team-workflows)
+(pipelines), built from the agent profiles below.
+
+**Pipelines only (migration 216).** Graph workflows (the state-machine editor
+of KUA-95, including a workspace's edited copy of Standard) were removed.
+Creating, saving, duplicating, choosing as a default or starting a task or
+automation on a graph is refused with `400 GRAPH_WORKFLOWS_REMOVED`
+(`service.ErrGraphWorkflowsRemoved`), and Standard is read-only: it is no
+longer saved, duplicated or reset. The migration deleted the graph workflows,
+their versions and the scope defaults that chose them (those scopes run
+Standard), cleared the graph from automations (they follow the scope default),
+and detached the tasks that ran a graph: they keep their state and step
+history, and one still in progress continues on the Standard flow (a running
+attempt finishes and is published; `awaiting_review` waits for a person). The
+rollback keeps the data as it is. The graph runner below stays in the code
+until its removal and applies to no task; the bullets on stage assistants,
+the graph, its budget and the runner describe that engine.
 
 - **Agent profiles** (`agent_profiles`): name, role, behaviour, harness, model,
   effort and instructions. The **behaviour** is what the engine acts on:
@@ -2871,8 +2886,7 @@ Routes (workspace, session only): `GET/POST /agent-profiles`,
 `PUT/DELETE /agent-profiles/:profileId`, `GET/POST /workflows`,
 `POST /workflows/validate`, `GET/PUT /workflows/:workflowId`,
 `POST /workflows/:workflowId/duplicate|archive`, `GET /workflows/:workflowId/audit`,
-`PUT /workflow-defaults`, `POST /workflows/:workflowId/draft-pipeline`
-([drafting a pipeline](#pipeline-editor-and-templates)); under dev machines `GET /agent-tasks/:taskId/workflow`
+`PUT /workflow-defaults`; under dev machines `GET /agent-tasks/:taskId/workflow`
 (graph, path, visit counts and `runs`) and `POST /agent-tasks/:taskId/workflow/decision`
 (`approve`/`deny` an approval node, `continue`/`stop` at a limit; only the
 task's creator or an owner or admin who can see the issue, for the step
@@ -2981,10 +2995,8 @@ A team workflow (a pipeline) runs one issue with a roster of agent roles. The
 roles talk in a shared room. An optional lead chooses the phase and reports
 to the task creator. Kuayle reads the facts, publishes the writer's work and
 guards the merge. A task pins its pipeline version at creation. Its roster,
-room and phases stay together for the life of the task. Switching between
-graph and pipeline engines is refused (`workflow_kind`), as is switching a
-running pipeline to another pipeline or version (`pipeline_pinned`). The
-built-in Standard workflow uses the graph engine.
+room and phases stay together for the life of the task. Switching a running
+pipeline to another pipeline or version is refused (`pipeline_pinned`).
 
 #### Pipeline editor and templates
 
@@ -2996,21 +3008,16 @@ budget. Validation places problems on the affected phase, roster or settings.
 Other members with workflow read access can inspect the definition.
 
 Start with a blank pipeline or the pipeline version of Standard, Review loop
-or Full cycle. The three templates are drafted from the corresponding graph
-templates using the built-in profiles. The API accepts
+or Full cycle. The three templates are drafted (internally, `domain.DraftPipeline`)
+from the corresponding built-in graph templates using the built-in profiles;
+the graph templates themselves can no longer be created. The API accepts
 `standard_pipeline`, `review_loop_pipeline`, `full_cycle_pipeline` and
 `team` on `POST /workflows`. The `team` template starts with an implementer
 and reviewer, checks publication, review, integration and approval before
 merge, and asks a person after 40 turns or 2,880 working minutes.
 
-**Draft a pipeline** on a graph previews an editable copy.
-`POST /workflows/:workflowId/draft-pipeline` returns the draft and an empty
-`reasons` array, or a null pipeline and reasons located on the graph steps.
-The preview is session-only and scoped to workflows the member can read.
-Saving the draft creates a separate workflow. Existing graph tasks finish
-on the versions they pinned.
-
-The converter follows a single forward path after removing back edges,
+The converter that drafts the pipeline templates from the graph templates
+follows a single forward path after removing back edges,
 failed ends and no-change exits. It maps a coding step to a writer phase,
 a review to that role's verdict, publication to a pull request check,
 CI to required up-to-date and CI checks plus an advisory migration check,
@@ -3366,6 +3373,10 @@ The [Files panel](#files-at-a-commit) shows the tree and preview for one
 commit, with the stored diff available for changed files.
 
 ### Moving a task to a newer workflow version
+
+Since migration 216 no task runs a graph, so this and the next section
+describe the removed graph engine's controls, kept until the engine's code is
+removed.
 
 Saving a graph workflow affects later tasks. The creator of a running graph
 task can move it to the newest compatible graph version. The task stays on

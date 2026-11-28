@@ -32,7 +32,7 @@
 
 	const choices = (selected: string) =>
 		list.workflows
-			.filter((w) => startable(list, w) || (w.id === selected && !w.archived))
+			.filter((w) => w.builtin || startable(list, w) || (w.id === selected && !w.archived))
 			.map((w) => ({ value: w.id, label: w.builtin ? m['workflows.standard']() : w.name }));
 
 	function current(scope: WorkflowScope, scopeId: string): string {

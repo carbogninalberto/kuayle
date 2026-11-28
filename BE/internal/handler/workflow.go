@@ -37,6 +37,8 @@ func workflowError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"code": "INVALID_WORKFLOW", "message": invalidGraph.Error(), "issues": invalidGraph.Issues}})
 	case errors.As(err, &invalidInput):
 		return response.Error(c, http.StatusBadRequest, "INVALID_WORKFLOW", invalidInput.Message)
+	case errors.Is(err, service.ErrGraphWorkflowsRemoved):
+		return response.Error(c, http.StatusBadRequest, "GRAPH_WORKFLOWS_REMOVED", "Graph workflows were removed; create a pipeline instead")
 	case errors.Is(err, service.ErrWorkflowsDenied), errors.Is(err, repository.ErrWorkflowDenied):
 		return response.Forbidden(c)
 	case errors.Is(err, repository.ErrWorkflowNotFound):
@@ -184,16 +186,6 @@ func (h *WorkflowHandler) Duplicate(c *echo.Context) error {
 		return workflowError(c, err)
 	}
 	return response.Success(c, http.StatusCreated, result)
-}
-
-// DraftPipeline answers a pipeline drafted from the workflow, or the reasons
-// it has none; both are answers, so both are 200. Nothing is saved.
-func (h *WorkflowHandler) DraftPipeline(c *echo.Context) error {
-	result, err := h.svc.DraftPipeline(c.Request().Context(), workspaceID(c), c.Param("workflowId"))
-	if err != nil {
-		return workflowError(c, err)
-	}
-	return response.Success(c, http.StatusOK, result)
 }
 
 func (h *WorkflowHandler) Archive(c *echo.Context) error {

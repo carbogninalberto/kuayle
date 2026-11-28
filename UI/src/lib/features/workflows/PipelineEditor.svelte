@@ -42,22 +42,19 @@
 	// workflow canvas, left to right with no loop edges (an unmet check is
 	// what sends work back), and a side panel with a form per phase, the
 	// roster and the settings. The server validates as you edit and on save,
-	// and its issues are shown where they are fixed. A stored pipeline saves
-	// a new version; a draft (no id yet) is created as a new workflow on its
-	// first save and never before.
+	// and its issues are shown where they are fixed. A save stores a new
+	// version.
 	let {
 		slug,
 		workflow,
 		profiles,
 		editable,
 		backHref,
-		onsaved,
-		oncreated
+		onsaved
 	}: {
 		slug: string;
 		workflow: {
-			/** Absent for a draft nobody saved yet. */
-			id?: string;
+			id: string;
 			name: string;
 			description: string;
 			latest_version: number;
@@ -68,11 +65,8 @@
 		editable: boolean;
 		backHref: string;
 		onsaved?: (saved: WorkflowSummary) => void;
-		/** A draft was saved as a new workflow. */
-		oncreated?: (created: WorkflowSummary) => void;
 	} = $props();
 
-	const isDraft = untrack(() => !workflow.id);
 	let pipeline = $state<PipelineDefinition>(untrack(() => editablePipeline(workflow.graph)));
 	let name = $state(untrack(() => workflow.name));
 	let description = $state(untrack(() => workflow.description));
@@ -83,8 +77,7 @@
 	let issues = $state<WorkflowIssue[]>([]);
 	let checking = $state(false);
 	let saving = $state(false);
-	// A draft is unsaved from the start.
-	let dirty = $state(isDraft);
+	let dirty = $state(false);
 	let flow = $state<FlowApi>();
 	let editingName = $state(false),
 		draftName = $state(''),
@@ -150,13 +143,6 @@
 		const input = { name: name.trim(), description: description.trim(), graph: pipelineForSave(pipeline) };
 		saving = true;
 		try {
-			if (!workflow.id) {
-				const created = await workflows.create(slug, input);
-				dirty = false;
-				appToast.success(m['workflows.created']());
-				oncreated?.(created);
-				return;
-			}
 			const result = await workflows.save(slug, workflow.id, { ...input, expected_version: version });
 			version = result.latest_version;
 			versions = [{ version, created_at: result.updated_at }, ...versions];
@@ -271,10 +257,7 @@
 			{#if issues.length > 0}<PipelineProblems {issues} {pipeline} onpick={pick} />
 			{:else if checking}<span class="sr-only sm:not-sr-only" role="status">{m['workflows.editor.checking']()}</span
 				>{/if}
-			{#if isDraft}<Badge variant="outline" data-testid="pipeline-unsaved"
-					>{m['workflows.pipeline_editor.unsaved']()}</Badge
-				>
-			{:else}<WorkflowVersionBadge {version} {versions} {dirty} />{/if}
+			<WorkflowVersionBadge {version} {versions} {dirty} />
 			{#if editable}<Button
 					size="icon"
 					aria-label={m['workflows.editor.save']()}
